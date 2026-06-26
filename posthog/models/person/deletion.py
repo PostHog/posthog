@@ -99,22 +99,20 @@ def _update_distinct_id_in_postgres(distinct_id: str, version: int, team_id: int
     version). Returns None when the distinct_id doesn't exist (it hasn't been
     re-used yet).
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
-    return _personhog_routed(
+    return personhog_call(
         "set_person_distinct_id_version_floor",
         lambda: _set_distinct_id_version_floor_via_personhog(team_id, distinct_id, version),
     )
 
 
 def _set_distinct_id_version_floor_via_personhog(team_id: int, distinct_id: str, version: int) -> Optional[Person]:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.converters import proto_person_to_model
     from posthog.personhog_client.proto import SetPersonDistinctIdVersionFloorRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     resp = client.set_person_distinct_id_version_floor(
         SetPersonDistinctIdVersionFloorRequest(team_id=team_id, distinct_id=distinct_id, min_version=version)
@@ -172,21 +170,19 @@ def _set_person_version_floor(team_id: int, person_id: int, new_version: int) ->
 
     Routes through SetPersonVersionFloor.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
-    _personhog_routed(
+    personhog_call(
         "set_person_version_floor",
         lambda: _set_person_version_floor_via_personhog(team_id, person_id, new_version),
     )
 
 
 def _set_person_version_floor_via_personhog(team_id: int, person_id: int, new_version: int) -> None:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import SetPersonVersionFloorRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     client.set_person_version_floor(
         SetPersonVersionFloorRequest(team_id=team_id, person_id=person_id, min_version=new_version)

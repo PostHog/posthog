@@ -81,8 +81,5 @@ _PERSONS_DB_DIRECT_TEST_PATHS = (
     "test_seed_customer_analytics_accounts",
     "management/commands/test/test_sync_persons_to_clickhouse",
     "ee/hogai/test/test_snapshot_loader",
-    "hogql/database/schema/test/test_system_tables",
-    "dags/tests/test_detach_distinct_id",
-    "dags/tests/test_person_property_reconciliation",
     "management/commands/test/test_background_delete_model",
 )

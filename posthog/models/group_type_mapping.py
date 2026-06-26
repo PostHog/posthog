@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from posthog.models.project import Project
     from posthog.models.team.team import Team
     from posthog.personhog_client.client import PersonHogClient
@@ -20,15 +18,12 @@ from prometheus_client import Counter
 
 from posthog.models.utils import RootTeamMixin
 from posthog.personhog_client import ReadConsistency, consistency_to_read_options
-from posthog.personhog_client.caller_tag import personhog_caller_tag
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.personhog_client.client import personhog_call, require_personhog_client
 from posthog.rbac.decorators import field_access_control
 from posthog.storage.hypercache import HyperCacheDependencyUnavailable
 from posthog.utils import capture_exception_throttled, get_safe_cache, safe_cache_delete, safe_cache_set
 
 logger = structlog.get_logger(__name__)
-
-_T = TypeVar("_T")
 
 GROUP_TYPES_CACHE_TTL = 60 * 5  # 5 minutes
 GROUP_TYPES_STALE_CACHE_TTL = 60 * 60 * 24  # 24 hours — last-known-good fallback during outages
@@ -42,9 +37,7 @@ GROUP_TYPES_CONFIRMED_EMPTY_CACHE_KEY_PREFIX = "group_types_for_project_confirme
 # via the cache so many workers failing at once report at most once per window.
 GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL = 60  # seconds
 
-# Terminal failure of a group-type fetch, after all fallbacks. Separate from the
-# personhog routing counters: these sites query the persons DB directly via the ORM
-# and never call personhog, so the failure must not land on the personhog metrics.
+# Terminal failure of a group-type fetch, after all fallbacks (stale cache, etc.).
 GROUP_TYPES_FETCH_FAILURES = Counter(
     "posthog_group_types_fetch_failures",
     "Terminal failures fetching group-type mappings, by operation/source/error_type",
@@ -73,7 +66,7 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
     The counter is always incremented; only the capture is throttled. Each log line
     records whether the capture ran or was throttled.
     """
-    GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="django_orm", error_type="db_error").inc()
+    GROUP_TYPES_FETCH_FAILURES.labels(operation=operation, source="personhog", error_type="db_error").inc()
 
     throttle_key = f"group_types_failure_capture_throttle:{operation}"
     captured = capture_exception_throttled(throttle_key, exc, GROUP_TYPES_FAILURE_CAPTURE_THROTTLE_TTL)
@@ -86,45 +79,6 @@ def _record_group_types_fetch_failure(*, operation: str, log_event: str, exc: Ba
         capture_throttled=not captured,
         **log_fields,
     )
-
-
-def _personhog_routed(
-    operation: str,
-    personhog_fn: Callable[[PersonHogClient], _T],
-    *,
-    caller_tag: str | None = None,
-    **log_fields: Any,
-) -> _T:
-    """Call personhog and record the routing metric. personhog is the sole read path.
-
-    ``operation`` is the RPC being performed (used in metrics).
-    ``caller_tag`` is the granular calling context (used in personhog caller
-    tagging for observability).  Defaults to ``operation`` when not given.
-
-    On personhog failure the error is re-raised as a ``DatabaseError`` so the
-    callers' existing recovery (stale cache, fail-closed) still kicks in — the
-    group-type data source is personhog now, not the persons DB.
-    """
-    from posthog.personhog_client.client import get_personhog_client
-
-    tag = caller_tag or operation
-
-    client = get_personhog_client()
-    if client is None:
-        raise DatabaseError("personhog client not configured")
-
-    try:
-        with personhog_caller_tag(f"group_type_mapping/{tag}"):
-            result = personhog_fn(client)
-    except Exception as exc:
-        PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-            operation=operation, source="personhog", error_type="grpc_error", client_name=get_client_name()
-        ).inc()
-        logger.warning("personhog_%s_failure", operation, **log_fields, exc_info=True)
-        raise DatabaseError(f"personhog {operation} failed") from exc
-
-    PERSONHOG_ROUTING_TOTAL.labels(operation=operation, source="personhog", client_name=get_client_name()).inc()
-    return result
 
 
 # Defined here for reuse between OS and EE
@@ -222,7 +176,7 @@ def _fetch_group_types_via_personhog(client: PersonHogClient, project_id: int) -
 
 
 def get_group_types_for_project(project_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
-    """Fetch group types from cache, falling back to personhog then ORM, then stale cache, then empty list."""
+    """Fetch group types from cache, falling back to personhog, then stale cache, then empty list."""
     cache_key = f"{GROUP_TYPES_CACHE_KEY_PREFIX}{project_id}"
     stale_cache_key = f"{GROUP_TYPES_STALE_CACHE_KEY_PREFIX}{project_id}"
 
@@ -231,11 +185,12 @@ def get_group_types_for_project(project_id: int, *, caller_tag: str | None = Non
         return cached
 
     try:
-        result = _personhog_routed(
+        client = require_personhog_client()
+        result = personhog_call(
             "get_group_types_for_project",
-            lambda client: _fetch_group_types_via_personhog(client, project_id),
-            caller_tag=caller_tag,
-            project_id=project_id,
+            lambda: _fetch_group_types_via_personhog(client, project_id),
+            caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project'}",
+            reraise_as=DatabaseError,
         )
     except DatabaseError as exc:
         _record_group_types_fetch_failure(
@@ -267,13 +222,14 @@ def _fetch_group_types_for_team_via_personhog(client: PersonHogClient, team_id: 
 
 
 def get_group_types_for_team(team_id: int, *, caller_tag: str | None = None) -> list[dict[str, Any]]:
-    """Fetch group types for a team via personhog, falling back to ORM on error."""
+    """Fetch group types for a team via personhog."""
     try:
-        return _personhog_routed(
+        client = require_personhog_client()
+        return personhog_call(
             "get_group_types_for_team",
-            lambda client: _fetch_group_types_for_team_via_personhog(client, team_id),
-            caller_tag=caller_tag,
-            team_id=team_id,
+            lambda: _fetch_group_types_for_team_via_personhog(client, team_id),
+            caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_team'}",
+            reraise_as=DatabaseError,
         )
     except DatabaseError as exc:
         _record_group_types_fetch_failure(
@@ -386,22 +342,26 @@ def get_group_types_for_projects(
     project_ids: list[int], *, caller_tag: str | None = None
 ) -> dict[int, list[dict[str, Any]]]:
     """Batch fetch group types for multiple projects via personhog, falling back to
-    ORM, then to the per-project stale cache on a DB failure.
+    the per-project stale cache on failure.
 
-    Raises GroupTypesUnavailable if the persons DB is unavailable and any requested
+    Raises GroupTypesUnavailable if personhog is unavailable and any requested
     project has no cached last-known-good, rather than returning an all-empty
     mapping. Callers must handle that case.
     """
 
-    def _personhog_fn(client: PersonHogClient) -> dict[int, list[dict[str, Any]]]:
+    def _fn() -> dict[int, list[dict[str, Any]]]:
+        client = require_personhog_client()
         result = _fetch_group_types_for_projects_via_personhog(client, project_ids)
         for pid in project_ids:
             result.setdefault(pid, [])
         return result
 
     try:
-        result = _personhog_routed(
-            "get_group_types_for_projects", _personhog_fn, caller_tag=caller_tag, project_ids=project_ids
+        result = personhog_call(
+            "get_group_types_for_projects",
+            _fn,
+            caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_projects'}",
+            reraise_as=DatabaseError,
         )
     except DatabaseError as exc:
         return _recover_projects_from_stale_or_fail(project_ids, exc)
@@ -411,17 +371,19 @@ def get_group_types_for_projects(
 
 
 def count_group_type_mappings_per_team(*, caller_tag: str | None = None) -> list[dict[str, int]]:
-    """Count group type mappings per team via personhog, falling back to ORM."""
+    """Count group type mappings per team via personhog."""
     from posthog.personhog_client.proto import CountGroupTypeMappingsRequest
 
     try:
-        return _personhog_routed(
+        client = require_personhog_client()
+        return personhog_call(
             "count_group_type_mappings_per_team",
-            lambda client: [
+            lambda: [
                 {"team_id": c.team_id, "total": c.count}
                 for c in client.count_group_type_mappings(CountGroupTypeMappingsRequest()).counts
             ],
-            caller_tag=caller_tag,
+            caller_tag=f"group_type_mapping/{caller_tag or 'count_group_type_mappings_per_team'}",
+            reraise_as=DatabaseError,
         )
     except DatabaseError:
         logger.warning("count_group_type_mappings_orm_failure", exc_info=True)
@@ -502,9 +464,10 @@ def _fetch_group_types_for_project_direct(
     from posthog.personhog_client.converters import proto_group_type_mapping_to_dict
     from posthog.personhog_client.proto import GetGroupTypeMappingsByProjectIdRequest
 
-    return _personhog_routed(
+    client = require_personhog_client()
+    return personhog_call(
         "get_group_types_for_project_direct",
-        lambda client: sorted(
+        lambda: sorted(
             [
                 proto_group_type_mapping_to_dict(m)
                 for m in client.get_group_type_mappings_by_project_id(
@@ -516,8 +479,8 @@ def _fetch_group_types_for_project_direct(
             ],
             key=lambda d: d["group_type_index"],
         ),
-        caller_tag=caller_tag,
-        project_id=project_id,
+        caller_tag=f"group_type_mapping/{caller_tag or 'get_group_types_for_project_direct'}",
+        reraise_as=DatabaseError,
     )
 
 
@@ -553,7 +516,7 @@ def get_group_type_mapping_instance(
         if row["group_type_index"] == group_type_index:
             return _dict_to_group_type_mapping_model(row, project_id=project_id, team=team)
 
-    # Cache may be stale — bust it and retry once via the full personhog/ORM chain.
+    # Cache may be stale — bust it and retry once via personhog.
     invalidate_group_types_cache(project_id)
     rows = get_group_types_for_project(project_id, caller_tag=caller_tag)
     for row in rows:
@@ -571,7 +534,7 @@ def update_group_type_mapping_fields(
     fields: dict[str, Any],
     caller_tag: str | None = None,
 ) -> None:
-    """Update specific fields on a GroupTypeMapping via personhog, falling back to ORM.
+    """Update specific fields on a GroupTypeMapping via personhog.
 
     `fields` maps model field names to values — e.g. {"name_singular": "Org", "name_plural": "Orgs"}.
     For `detail_dashboard_id`, pass None to clear or an int to set.
@@ -579,7 +542,9 @@ def update_group_type_mapping_fields(
     """
     from posthog.personhog_client.proto import UpdateGroupTypeMappingRequest
 
-    def _personhog_fn(client: PersonHogClient) -> None:
+    client = require_personhog_client()
+
+    def _fn() -> None:
         update_mask: list[str] = list(fields.keys())
         kwargs: dict[str, Any] = {
             "project_id": instance.project_id,
@@ -598,12 +563,11 @@ def update_group_type_mapping_fields(
                 kwargs["default_columns"] = json.dumps(fields["default_columns"]).encode()
         client.update_group_type_mapping(UpdateGroupTypeMappingRequest(**kwargs))
 
-    _personhog_routed(
+    personhog_call(
         "update_group_type_mapping_fields",
-        _personhog_fn,
-        caller_tag=caller_tag,
-        project_id=instance.project_id,
-        group_type_index=instance.group_type_index,
+        _fn,
+        caller_tag=f"group_type_mapping/{caller_tag or 'update_group_type_mapping_fields'}",
+        reraise_as=DatabaseError,
     )
     for field_name, value in fields.items():
         setattr(instance, field_name, value)
@@ -613,17 +577,17 @@ def delete_group_type_mapping(instance: GroupTypeMapping, *, caller_tag: str | N
     """Delete a GroupTypeMapping via personhog."""
     from posthog.personhog_client.proto import DeleteGroupTypeMappingRequest
 
-    _personhog_routed(
+    client = require_personhog_client()
+    personhog_call(
         "delete_group_type_mapping",
-        lambda client: client.delete_group_type_mapping(
+        lambda: client.delete_group_type_mapping(
             DeleteGroupTypeMappingRequest(
                 project_id=instance.project_id,
                 group_type_index=instance.group_type_index,
             )
         ),
-        caller_tag=caller_tag,
-        project_id=instance.project_id,
-        group_type_index=instance.group_type_index,
+        caller_tag=f"group_type_mapping/{caller_tag or 'delete_group_type_mapping'}",
+        reraise_as=DatabaseError,
     )
 
 
@@ -636,7 +600,9 @@ def clear_dashboard_from_group_type_mapping(
     """
     from posthog.personhog_client.proto import GetGroupTypeMappingByDashboardIdRequest, UpdateGroupTypeMappingRequest
 
-    def _personhog_fn(client: PersonHogClient) -> None:
+    client = require_personhog_client()
+
+    def _fn() -> None:
         resp = client.get_group_type_mapping_by_dashboard_id(
             GetGroupTypeMappingByDashboardIdRequest(team_id=team_id, dashboard_id=dashboard_id)
         )
@@ -650,10 +616,9 @@ def clear_dashboard_from_group_type_mapping(
             )
             invalidate_group_types_cache(resp.mapping.project_id)
 
-    _personhog_routed(
+    personhog_call(
         "clear_dashboard_from_group_type_mapping",
-        _personhog_fn,
-        caller_tag=caller_tag,
-        team_id=team_id,
-        dashboard_id=dashboard_id,
+        _fn,
+        caller_tag=f"group_type_mapping/{caller_tag or 'clear_dashboard_from_group_type_mapping'}",
+        reraise_as=DatabaseError,
     )

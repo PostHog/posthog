@@ -19,8 +19,8 @@ from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.queries.insight import insight_sync_execute
 
 logger = structlog.get_logger(__name__)
@@ -283,10 +283,12 @@ def get_people(
     people_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
     distinct_id_limit: int | None = 1000,
-) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
+) -> tuple[list[Person], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
-    persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)
-    PERSONHOG_ROUTING_TOTAL.labels(operation="get_people", source="personhog", client_name=get_client_name()).inc()
+    persons = personhog_call(
+        "get_people",
+        lambda: _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit),
+    )
     return persons, serialize_people(team, persons, value_per_actor_id)
 
 

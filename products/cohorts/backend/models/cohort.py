@@ -715,8 +715,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             if person is None:
                 raise Person.DoesNotExist
 
-            # Check if person is in the cohort — routed through personhog when enabled,
-            # falling back to the persons-DB ORM query otherwise.
+            # Check if person is in the cohort via personhog.
             is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.

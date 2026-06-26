@@ -9,12 +9,12 @@ from posthog.models.person.util import (
     _fetch_person_by_uuid_via_personhog,
     _fetch_persons_by_distinct_ids_via_personhog,
     _fetch_persons_by_uuids_via_personhog,
-    _personhog_routed,
     _validate_uuids_via_personhog,
     get_person_by_pk_or_uuid,
     get_person_uuids_by_distinct_ids,
     get_persons_mapped_by_distinct_id,
 )
+from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 from posthog.test.persons import create_person
@@ -382,32 +382,44 @@ class TestGetPersonByPkOrUuid(SimpleTestCase):
         assert result is None
 
 
-# ── _personhog_routed unit tests ────────────────────────────────────
+# ── personhog_call unit tests ────────────────────────────────────
 
 
-class TestPersonhogRouted(SimpleTestCase):
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    def test_calls_personhog_fn_and_increments_counter(self, mock_routing):
-        result = _personhog_routed("test_op", lambda: "personhog_result")
+class TestPersonhogCall(SimpleTestCase):
+    @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_TOTAL")
+    def test_calls_fn_and_increments_counter(self, mock_routing):
+        result = personhog_call("test_op", lambda: "personhog_result")
 
         assert result == "personhog_result"
         mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
         mock_routing.labels.return_value.inc.assert_called_once()
 
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    def test_personhog_exception_propagates(self, mock_routing):
+    @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_TOTAL")
+    def test_exception_propagates(self, mock_routing):
         def failing_fn():
             raise RuntimeError("grpc timeout")
 
         with self.assertRaises(RuntimeError):
-            _personhog_routed("test_op", failing_fn)
+            personhog_call("test_op", failing_fn)
 
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    def test_personhog_returning_none_is_not_treated_as_failure(self, mock_routing):
-        result = _personhog_routed("test_op", lambda: None)
+    @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_TOTAL")
+    def test_returning_none_is_not_treated_as_failure(self, mock_routing):
+        result = personhog_call("test_op", lambda: None)
 
         assert result is None
         mock_routing.labels.assert_called_with(operation="test_op", source="personhog", client_name="posthog-django")
+
+    @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_TOTAL")
+    @patch("posthog.personhog_client.metrics.PERSONHOG_ROUTING_ERRORS_TOTAL")
+    def test_reraise_as_wraps_exception(self, mock_errors, mock_routing):
+        def failing_fn():
+            raise RuntimeError("boom")
+
+        with self.assertRaises(ValueError):
+            personhog_call("test_op", failing_fn, reraise_as=ValueError)
+
+        mock_errors.labels.return_value.inc.assert_called_once()
+        mock_routing.labels.return_value.inc.assert_not_called()
 
 
 # ── get_persons_mapped_by_distinct_id tests ────────────

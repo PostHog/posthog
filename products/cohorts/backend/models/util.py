@@ -1180,7 +1180,7 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
     Membership for cohorts the person is not in is returned as ``False`` rather
     than being omitted, so callers can index directly by cohort_id.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     if not cohort_ids:
         return {}
@@ -1196,7 +1196,7 @@ def check_cohort_membership(team_id: int, person_id: int, cohort_ids: list[int])
     if not scoped_cohort_ids:
         return dict.fromkeys(cohort_ids, False)
 
-    scoped_result = _personhog_routed(
+    scoped_result = personhog_call(
         "check_cohort_membership",
         lambda: _check_cohort_membership_via_personhog(person_id, scoped_cohort_ids),
     )
@@ -1236,7 +1236,7 @@ def _list_cohort_member_ids_via_personhog(cohort_id: int) -> list[int]:
 
 def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     """Return all person IDs belonging to a static cohort via personhog."""
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     from products.cohorts.backend.models.cohort import Cohort
 
@@ -1246,7 +1246,7 @@ def list_cohort_member_ids(team_id: int, cohort_id: int) -> list[int]:
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return []
 
-    return _personhog_routed(
+    return personhog_call(
         "list_cohort_member_ids",
         lambda: _list_cohort_member_ids_via_personhog(cohort_id),
     )
@@ -1286,7 +1286,7 @@ def insert_cohort_members(
     Routes through personhog. Returns the number of newly inserted rows
     (duplicates are skipped).
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     if not person_ids:
         return 0
@@ -1296,7 +1296,7 @@ def insert_cohort_members(
     if not _skip_ownership_check and not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
 
-    return _personhog_routed(
+    return personhog_call(
         "insert_cohort_members",
         lambda: _insert_cohort_members_via_personhog(cohort_id, person_ids, version),
     )
@@ -1319,14 +1319,14 @@ def delete_cohort_member(team_id: int, cohort_id: int, person_id: int) -> bool:
 
     Returns ``True`` if a row was deleted, ``False`` otherwise.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     from products.cohorts.backend.models.cohort import Cohort
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return False
 
-    return _personhog_routed(
+    return personhog_call(
         "delete_cohort_member",
         lambda: _delete_cohort_member_via_personhog(cohort_id, person_id),
     )
@@ -1366,12 +1366,12 @@ def delete_cohort_members_bulk(team_id: int, cohort_ids: list[int], batch_size: 
 
     Returns the total number of deleted rows.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     if not cohort_ids:
         return 0
 
-    return _personhog_routed(
+    return personhog_call(
         "delete_cohort_members_bulk",
         lambda: _delete_cohort_members_bulk_via_personhog(cohort_ids, batch_size),
     )
@@ -1404,14 +1404,14 @@ def count_cohort_members(team_id: int, cohort_id: int, *, consistency: ReadConsi
     (e.g. after inserting or deleting cohort members) to avoid stale counts
     from personhog's eventual consistency.
     """
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     from products.cohorts.backend.models.cohort import Cohort
 
     if not Cohort.objects.filter(id=cohort_id, team_id=team_id).exists():
         return 0
 
-    return _personhog_routed(
+    return personhog_call(
         "count_cohort_members",
         lambda: _count_cohort_members_via_personhog([cohort_id], consistency),
     )

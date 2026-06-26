@@ -9,7 +9,8 @@ from posthog.models.person.missing_person import MissingPerson
 from posthog.models.person.person import Person
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_TOTAL, PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
+from posthog.personhog_client.client import personhog_call
+from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
@@ -167,10 +168,12 @@ class SessionRecording(UUIDTModel):
         if not self.distinct_id:
             return
 
-        person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, self.distinct_id)
-        if person is not None:
-            self.person = person
-        PERSONHOG_ROUTING_TOTAL.labels(operation="load_person", source="personhog", client_name=get_client_name()).inc()
+        def _fn() -> None:
+            person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, self.distinct_id)
+            if person is not None:
+                self.person = person
+
+        personhog_call("load_person", _fn)
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:

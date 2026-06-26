@@ -36,7 +36,6 @@ def delete_bulky_postgres_data(team_ids: list[int]):
     _delete_group_type_mappings_for_teams(team_ids)
 
     # Delete Person + PersonDistinctId via personhog RPC (handles both tables).
-    # Falls back to ORM batch deletion when personhog is not available.
     _delete_persons_for_teams(team_ids)
 
 
@@ -75,50 +74,44 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     if not team_ids:
         return
 
-    from posthog.models.person.util import PERSONHOG_ROUTING_TOTAL, get_client_name
-    from posthog.personhog_client.caller_tag import personhog_caller_tag
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import personhog_call, require_personhog_client
     from posthog.personhog_client.proto import DeleteHashKeyOverridesByTeamsRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
-    with personhog_caller_tag("team-delete/hash-key-overrides"):
+    def _fn() -> None:
         while True:
             resp = client.delete_hash_key_overrides_by_teams(
                 DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=10000)
             )
             if resp.deleted_count == 0:
                 break
-    PERSONHOG_ROUTING_TOTAL.labels(
-        operation="delete_hash_key_overrides_for_teams", source="personhog", client_name=get_client_name()
-    ).inc()
+
+    personhog_call(
+        "delete_hash_key_overrides_for_teams",
+        _fn,
+        caller_tag="team-delete/hash-key-overrides",
+    )
 
 
 def _delete_personless_distinct_ids_for_teams(team_ids: list[int]) -> None:
-    """Delete posthog_personlessdistinctid rows for teams via personhog RPC.
-
-    Uses _personhog_routed per team for consistent metrics.
-    """
+    """Delete posthog_personlessdistinctid rows for teams via personhog RPC."""
     from functools import partial
 
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     for team_id in team_ids:
-        _personhog_routed(
+        personhog_call(
             "delete_personless_distinct_ids_for_team",
             partial(_delete_personless_distinct_ids_for_team_via_personhog, team_id),
         )
 
 
 def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import DeletePersonlessDistinctIdsBatchForTeamRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     while True:
         resp = client.delete_personless_distinct_ids_batch_for_team(
@@ -142,26 +135,23 @@ def _delete_persons_for_teams(team_ids: list[int]) -> None:
     """Delete Person + PersonDistinctId rows for teams via personhog RPC.
 
     The RPC handles PersonDistinctId deletion automatically.
-    Uses _personhog_routed per team for consistent metrics.
     """
     from functools import partial
 
-    from posthog.models.person.util import _personhog_routed
+    from posthog.personhog_client.client import personhog_call
 
     for team_id in team_ids:
-        _personhog_routed(
+        personhog_call(
             "delete_persons_for_team",
             partial(_delete_persons_for_team_via_personhog, team_id),
         )
 
 
 def _delete_persons_for_team_via_personhog(team_id: int) -> None:
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import require_personhog_client
     from posthog.personhog_client.proto import DeletePersonsBatchForTeamRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     while True:
         resp = client.delete_persons_batch_for_team(DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=10000))
@@ -170,45 +160,41 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
 
 
 def _delete_groups_for_teams(team_ids: list[int]) -> None:
-    from posthog.models.person.util import PERSONHOG_ROUTING_TOTAL, get_client_name
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import personhog_call, require_personhog_client
     from posthog.personhog_client.proto import DeleteGroupsBatchForTeamRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     for team_id in team_ids:
-        while True:
-            resp = client.delete_groups_batch_for_team(
-                DeleteGroupsBatchForTeamRequest(team_id=team_id, batch_size=10000)
-            )
-            if resp.deleted_count == 0:
-                break
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="delete_groups_for_team", source="personhog", client_name=get_client_name()
-        ).inc()
+
+        def _fn(tid: int = team_id) -> None:
+            while True:
+                resp = client.delete_groups_batch_for_team(
+                    DeleteGroupsBatchForTeamRequest(team_id=tid, batch_size=10000)
+                )
+                if resp.deleted_count == 0:
+                    break
+
+        personhog_call("delete_groups_for_team", _fn)
 
 
 def _delete_group_type_mappings_for_teams(team_ids: list[int]) -> None:
-    from posthog.models.person.util import PERSONHOG_ROUTING_TOTAL, get_client_name
-    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.client import personhog_call, require_personhog_client
     from posthog.personhog_client.proto import DeleteGroupTypeMappingsBatchForTeamRequest
 
-    client = get_personhog_client()
-    if client is None:
-        raise RuntimeError("personhog client not configured")
+    client = require_personhog_client()
 
     for team_id in team_ids:
-        while True:
-            resp = client.delete_group_type_mappings_batch_for_team(
-                DeleteGroupTypeMappingsBatchForTeamRequest(team_id=team_id, batch_size=10000)
-            )
-            if resp.deleted_count == 0:
-                break
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="delete_group_type_mappings_for_team", source="personhog", client_name=get_client_name()
-        ).inc()
+
+        def _fn(tid: int = team_id) -> None:
+            while True:
+                resp = client.delete_group_type_mappings_batch_for_team(
+                    DeleteGroupTypeMappingsBatchForTeamRequest(team_id=tid, batch_size=10000)
+                )
+                if resp.deleted_count == 0:
+                    break
+
+        personhog_call("delete_group_type_mappings_for_team", _fn)
 
 
 def _delete_cohort_members_for_teams(team_ids: list[int], cohort_ids: list[int]) -> None:
