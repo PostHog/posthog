@@ -1016,11 +1016,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
@@ -1222,11 +1223,12 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         allow_null=True,
                         required=False,
                         help_text=(
-                            "Trigger-specific metadata stamped at session creation. Shape varies "
-                            "by trigger kind; cron firings carry "
-                            "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                            "Render this on session-detail so the operator can tell at a glance "
-                            "that a session was fired by which cron / when."
+                            "Trigger-specific metadata stamped at session creation. Discriminated on "
+                            "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                            "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and "
+                            "strips unknown keys at the persistence boundary, so consumers can trust "
+                            "`kind` and per-kind fields. TODO: narrow this DictField to a polymorphic "
+                            "serializer mirroring the union (needs `hogli build:openapi`)."
                         ),
                     ),
                     "state": drf_serializers.ChoiceField(choices=_AGENT_SESSION_STATE_VALUES),
@@ -3091,11 +3093,12 @@ class AgentFleetViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                                     allow_null=True,
                                     required=False,
                                     help_text=(
-                                        "Trigger-specific metadata stamped at session creation. Shape varies "
-                                        "by trigger kind; cron firings carry "
-                                        "`{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. "
-                                        "Render this on session-detail so the operator can tell at a glance "
-                                        "that a session was fired by which cron / when."
+                                        "Trigger-specific metadata stamped at session creation. Discriminated on "
+                                        "`kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is "
+                                        "`agent-shared/src/runtime/trigger-metadata.ts`; the node side validates "
+                                        "and strips unknown keys at the persistence boundary, so consumers can "
+                                        "trust `kind` and per-kind fields. TODO: narrow this DictField to a "
+                                        "polymorphic serializer mirroring the union (needs `hogli build:openapi`)."
                                     ),
                                 ),
                                 "principal": _AGENT_SESSION_PRINCIPAL,
