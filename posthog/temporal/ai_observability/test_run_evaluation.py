@@ -1399,7 +1399,7 @@ class TestExecuteHogEvalActivity:
         assert "Global variable not found" in result["reasoning"]
 
     @pytest.mark.asyncio
-    async def test_hog_eval_raw_vm_exception_returns_skipped(self):
+    async def test_hog_eval_length_null_returns_skipped(self):
         from posthog.cdp.validation import compile_hog
 
         bytecode = compile_hog("return length(null) > 0", "destination")
@@ -1420,30 +1420,27 @@ class TestExecuteHogEvalActivity:
         assert result["terminal_user_error"] is True
         assert result["status_reason"] == "hog_error"
         assert result["verdict"] is False
-        assert "Runtime error: Hog evaluation failed while running" in result["reasoning"]
+        assert "Runtime error: Can not call length on null" in result["reasoning"]
         assert "TypeError" not in result["reasoning"]
         assert "NoneType" not in result["reasoning"]
 
     @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_hog_eval_unexpected_error_raises(self, setup_data):
-        team = setup_data["team"]
-
+    async def test_hog_eval_unexpected_error_raises(self):
         from posthog.cdp.validation import compile_hog
 
         bytecode = compile_hog("return true", "destination")
 
         evaluation = {
-            "id": str(setup_data["evaluation"].id),
+            "id": "eval-id",
             "name": "Hog Eval",
             "evaluation_type": "hog",
             "evaluation_config": {"source": "return true", "bytecode": bytecode},
             "output_type": "boolean",
             "output_config": {},
-            "team_id": team.id,
+            "team_id": 1,
         }
 
-        event_data = create_mock_event_data(team.id)
+        event_data = create_mock_event_data(1)
 
         # An unexpected error is a bug in our code, so it must still surface to error tracking.
         unexpected_error = {
