@@ -1,20 +1,28 @@
+import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import type { TooltipContext } from '@posthog/quill-charts'
+import { DefaultTooltip, type TooltipContext } from '@posthog/quill-charts'
 
-import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { toOpaqueHex } from 'lib/utils/colors'
+import { dayjs } from 'lib/dayjs'
 import { percentage } from 'lib/utils/numbers'
+import { shortTimeZone } from 'lib/utils/timezones'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
-import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
-import { getDatumTitle, SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import {
+    getDatumTitle,
+    getFormattedDate,
+    getTooltipTitle,
+    SeriesDatum,
+} from 'scenes/insights/InsightTooltip/insightTooltipUtils'
+import { formatAggregationValue } from 'scenes/insights/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { IntervalType } from '~/types'
 
 import type { TrendsSeriesMeta } from './trendsSeriesMeta'
 
-const NOOP = (): void => {}
+type TrendsTooltipEntry = TooltipContext<TrendsSeriesMeta>['seriesData'][number]
 
 interface TrendsTooltipProps {
     context: TooltipContext<TrendsSeriesMeta>
@@ -32,34 +40,31 @@ interface TrendsTooltipProps {
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
     /** Override the auto-derived date header. Stickiness needs this since its `date`
-     *  is an interval-count integer, not a date — letting InsightTooltip format it as
-     *  a calendar date produces a wrong "Thursday, 1 Jan 1970" header. */
+     *  is an interval-count integer, not a date — letting it format as a calendar date
+     *  produces a wrong "Thursday, 1 Jan 1970" header. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
     /** Overrides the default value formatter — needed for the pie chart, which renders the
      *  raw aggregation plus the slice's share of the total. */
     renderCount?: (value: number) => string
-    // Overrides the default SeriesLetter + InsightLabel row renderer. Mirrors the
-    // legacy ActionsLineGraph escape hatch used for lifecycle, where the label
-    // is the lifecycle status itself (e.g. "New") and InsightLabel's action.name
-    // would otherwise mask it.
+    /** Overrides the default row label — used by lifecycle, where the label is the lifecycle
+     *  status (e.g. "New") rather than the entity name. */
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
 
-/** Bridges hog-charts TooltipContext to the legacy InsightTooltip.
- *  Once hog-charts fully replaces Chart.js, we can refactor InsightTooltip
- *  to consume TooltipContext directly and remove this adapter. */
+/** Renders hog-charts' DefaultTooltip for trends-family charts (trends, stickiness, lifecycle, pie)
+ *  so they share the same tooltip surface as SQL insights. Maps the quill TooltipContext to the
+ *  insight-flavored value/label/date formatting and wires the per-series persons-modal drill-down. */
 export function TrendsTooltip({
     context,
-    timezone,
+    timezone = 'UTC',
     interval,
     breakdownFilter,
     dateRange,
     trendsFilter,
-    formula,
     showPercentView,
     isPercentStackView,
     baseCurrency,
-    groupTypeLabel,
+    groupTypeLabel = 'people',
     formatCompareLabel,
     onRowClick,
     showHeader,
@@ -67,10 +72,17 @@ export function TrendsTooltip({
     renderCount: renderCountOverride,
     renderSeriesOverride,
 }: TrendsTooltipProps): React.ReactElement {
-    const seriesData = useMemo<SeriesDatum[]>(() => {
-        const data = context.seriesData.map((entry, idx) => {
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const { weekStartDay } = useValues(teamLogic)
+
+    // Map each quill series entry (keyed by series.key) to the InsightTooltip SeriesDatum shape so the
+    // existing breakdown/compare/value formatting helpers stay reusable. `datasetIndex` mirrors the
+    // entry's position in context.seriesData, which the chart's onRowClick maps back to a series key.
+    const datumByKey = useMemo(() => {
+        const m = new Map<string, SeriesDatum>()
+        context.seriesData.forEach((entry, idx) => {
             const meta = entry.series.meta ?? {}
-            return {
+            m.set(entry.series.key, {
                 id: idx,
                 dataIndex: context.dataIndex,
                 datasetIndex: idx,
@@ -83,17 +95,10 @@ export function TrendsTooltip({
                 compare_label: meta.compare_label,
                 date_label: meta.days?.[context.dataIndex],
                 filter: meta.filter,
-            }
+            })
         })
-        data.sort(
-            (a, b) =>
-                b.count - a.count ||
-                (a.label === undefined || b.label === undefined ? 0 : a.label.localeCompare(b.label))
-        )
-        return data.map((s, id) => ({ ...s, id }))
+        return m
     }, [context.seriesData, context.dataIndex])
-
-    const date = context.seriesData[0]?.series.meta?.days?.[context.dataIndex]
 
     const renderCount = useCallback(
         (value: number): string => {
@@ -107,64 +112,83 @@ export function TrendsTooltip({
             if (!isPercentStackView) {
                 return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
             }
-            // hog-charts passes each segment as a 0..1 fraction (segment_height = top − bottom
-            // in expanded-stack space), so format it directly as a percentage.
+            // hog-charts passes each segment as a 0..1 fraction, so format it directly as a percentage.
             return percentage(value)
         },
         [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
     )
 
-    const hasMultipleSeries = seriesData.length > 1
-
-    const renderSeries = useCallback(
-        (value: React.ReactNode, datum: SeriesDatum): React.ReactElement => {
-            if (renderSeriesOverride) {
-                return <div className="datum-label-column">{renderSeriesOverride(datum)}</div>
-            }
-            const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
-
-            if (hasBreakdown && !hasMultipleSeries) {
-                const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
-                return <div className="datum-label-column">{title}</div>
-            }
-
-            return (
-                <div className="datum-label-column">
-                    {!formula && (
-                        <SeriesLetter
-                            className="mr-2"
-                            hasBreakdown={hasBreakdown}
-                            seriesIndex={datum.action?.order ?? datum.id}
-                            // Previous-period series arrive pre-dimmed (rgba); the ribbon keeps the dim to
-                            // mark the period, but the identifier glyph must stay legible — give it the
-                            // opaque color.
-                            seriesColor={datum.color ? toOpaqueHex(datum.color) : undefined}
-                        />
-                    )}
-                    {value}
-                </div>
+    const valueFormatter = useCallback(
+        (value: number, entry: TrendsTooltipEntry): React.ReactNode => {
+            const datum = datumByKey.get(entry.series.key)
+            return formatAggregationValue(
+                datum?.action?.math_property,
+                value,
+                renderCount,
+                formatPropertyValueForDisplay
             )
         },
-        [hasMultipleSeries, breakdownFilter, formatCompareLabel, formula, renderSeriesOverride]
+        [datumByKey, renderCount, formatPropertyValueForDisplay]
+    )
+
+    const labelRenderer = useCallback(
+        (entry: TrendsTooltipEntry): React.ReactNode => {
+            const datum = datumByKey.get(entry.series.key)
+            if (!datum) {
+                return entry.series.label
+            }
+            if (renderSeriesOverride) {
+                return renderSeriesOverride(datum)
+            }
+            const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
+            if (hasBreakdown || datum.compare_label) {
+                return getDatumTitle(datum, breakdownFilter, formatCompareLabel)
+            }
+            return datum.label
+        },
+        [datumByKey, renderSeriesOverride, breakdownFilter, formatCompareLabel]
+    )
+
+    const labelFormatter = useCallback((): React.ReactNode => {
+        const firstKey = context.seriesData[0]?.series.key
+        const date = firstKey ? datumByKey.get(firstKey)?.date_label : undefined
+        const formattedDate = getFormattedDate(date, { interval, dateRange, timezone, weekStartDay })
+        if (altTitle) {
+            return getTooltipTitle([...datumByKey.values()], altTitle, formattedDate) ?? formattedDate
+        }
+        if (date === undefined) {
+            return formattedDate
+        }
+        const weekdayPrefix = interval === 'day' ? `${dayjs.tz(date, timezone).format('dddd')}, ` : ''
+        return `${weekdayPrefix}${formattedDate} (${shortTimeZone(timezone)})`
+    }, [context.seriesData, datumByKey, interval, dateRange, timezone, weekStartDay, altTitle])
+
+    const onRowClickEntry = useCallback(
+        (entry: TrendsTooltipEntry): void => {
+            const datum = datumByKey.get(entry.series.key)
+            if (datum) {
+                onRowClick?.(datum)
+            }
+        },
+        [datumByKey, onRowClick]
     )
 
     return (
-        <InsightTooltip
-            date={date}
-            timezone={timezone}
-            seriesData={seriesData}
-            breakdownFilter={breakdownFilter}
-            interval={interval}
-            dateRange={dateRange}
-            formatCompareLabel={formatCompareLabel}
-            groupTypeLabel={groupTypeLabel}
-            onClose={context.onUnpin ?? NOOP}
-            renderSeries={renderSeries}
-            renderCount={renderCount}
-            onRowClick={onRowClick}
-            hideInspectActorsSection={!onRowClick}
-            showHeader={showHeader}
-            altTitle={altTitle}
+        <DefaultTooltip<TrendsSeriesMeta>
+            {...context}
+            sortedByValue
+            showHeader={showHeader !== false}
+            labelFormatter={labelFormatter}
+            labelRenderer={labelRenderer}
+            valueFormatter={valueFormatter}
+            onRowClick={onRowClick ? onRowClickEntry : undefined}
+            footer={
+                onRowClick
+                    ? context.seriesData.length > 1
+                        ? `Click a series to view ${groupTypeLabel}`
+                        : `Click to view ${groupTypeLabel}`
+                    : undefined
+            }
         />
     )
 }
