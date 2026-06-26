@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
+from django.core.exceptions import PermissionDenied
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -231,4 +232,20 @@ class TestExternalDataSchemaAdmin(BaseTest):
         # Invalid input must not stage an override or kick off a resync.
         assert "partition_mode_override" not in schema.sync_type_config
         assert "reset_pipeline" not in schema.sync_type_config
+        mock_start.assert_not_called()
+
+    def test_change_partition_mode_denies_without_change_permission(self) -> None:
+        schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
+        post_data = {"partition_mode": "md5", "partition_count": "10"}
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+            patch.object(self.admin, "has_change_permission", return_value=False),
+        ):
+            with self.assertRaises(PermissionDenied):
+                self.admin.change_partition_mode_view(self._request("post", post_data), schema.id)
+
+        schema.refresh_from_db()
+        assert "partition_mode_override" not in schema.sync_type_config
         mock_start.assert_not_called()

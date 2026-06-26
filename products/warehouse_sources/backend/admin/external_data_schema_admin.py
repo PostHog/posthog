@@ -3,6 +3,7 @@ from typing import Any, assert_never, get_args
 
 from django.conf import settings
 from django.contrib import admin, messages
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.shortcuts import redirect
 from django.urls import path, reverse
@@ -314,6 +315,9 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         except ExternalDataSchema.DoesNotExist:
             messages.error(request, f"Schema {schema_id} not found.")
             return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
+
+        if not self.has_change_permission(request, schema):
+            raise PermissionDenied
 
         new_mode = request.POST.get("partition_mode")
         if new_mode not in get_args(PartitionMode):
