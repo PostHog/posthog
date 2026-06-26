@@ -338,6 +338,11 @@ class TaskWriteSerializer(serializers.Serializer):
             "is otherwise carried on the run). Omit to match a warm Run on the default branch."
         ),
     )
+    # These three warm-reuse hints are all optional: clients send an explicit
+    # null when nothing is selected, so they take allow_null=True (null == "no
+    # selection", same as omitting the key — it's read back as None downstream).
+    # null and "" are not interchangeable: model keeps allow_blank=False so an
+    # empty string, which is never a valid model id, is still rejected.
     runtime_adapter = serializers.ChoiceField(
         choices=[adapter.value for adapter in RuntimeAdapter],
         required=False,
