@@ -1,4 +1,4 @@
-import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend'
+import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
 
 import { VisualizationWidget } from '../VisualizationWidget'
 import { extractQueryResult } from './extractors'

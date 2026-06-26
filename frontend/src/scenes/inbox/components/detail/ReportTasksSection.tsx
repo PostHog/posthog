@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
-import { isTerminalRunStatus, RunViewer } from 'products/posthog_ai/frontend'
-import { TaskRunStatus } from 'products/tasks/frontend/types'
+import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'

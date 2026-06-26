@@ -345,6 +345,9 @@ tools:
     external-data-sources-disable-cdc-create:
         operation: external_data_sources_disable_cdc_create
         enabled: false
+    external-data-sources-draft-custom-manifest-create:
+        operation: external_data_sources_draft_custom_manifest_create
+        enabled: false
     external-data-sources-enable-cdc-create:
         operation: external_data_sources_enable_cdc_create
         enabled: false

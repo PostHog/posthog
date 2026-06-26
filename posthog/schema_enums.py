@@ -1818,6 +1818,9 @@ class ExternalDataSourceType(StrEnum):
     LEMON_SQUEEZY = "LemonSqueezy"
     IKAS = "Ikas"
     TALKWALKER = "Talkwalker"
+    NEXTDOOR_ADS = "NextdoorAds"
+    APP_LOVIN = "AppLovin"
+    BASEROW = "Baserow"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2565,6 +2568,9 @@ class NodeKind(StrEnum):
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
     MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
     MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
+    MCP_TOOL_STATS_QUERY = "MCPToolStatsQuery"
+    MCP_TOOL_DAILY_STATS_QUERY = "MCPToolDailyStatsQuery"
+    MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 

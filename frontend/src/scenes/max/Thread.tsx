@@ -68,18 +68,17 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
+import { getThinkingMessageFromResponse, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
-    getThinkingMessageFromResponse,
+    ContextUsageBar,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
-    ContextUsageBar,
     ResourcesBar,
-    runStreamLogic,
     ThreadView,
-} from 'products/posthog_ai/frontend'
-import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
+} from 'products/posthog_ai/frontend/api/primitives'
+import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'

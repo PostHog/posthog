@@ -20,8 +20,9 @@ import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { SANDBOX_BIND_TASK_PARAM } from 'scenes/max/maxLogic'
 import { urls } from 'scenes/urls'
 
-import { isTerminalRunStatus, RunViewer } from 'products/posthog_ai/frontend'
-import { Task, TaskRunStatus } from 'products/tasks/frontend/types'
+import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
