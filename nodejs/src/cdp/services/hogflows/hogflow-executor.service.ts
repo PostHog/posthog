@@ -177,7 +177,7 @@ export class HogFlowExecutorService {
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
         const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
-        const earlyExitResult = await this.shouldExitEarly(invocation, metrics)
+        const earlyExitResult = await this.shouldExitEarly(invocation, metrics, capturedPostHogEvents)
         if (earlyExitResult) {
             return earlyExitResult
         }
@@ -266,7 +266,8 @@ export class HogFlowExecutorService {
      */
     private async shouldExitEarly(
         invocation: CyclotronJobInvocationHogFlow,
-        metrics: MinimalAppMetric[]
+        metrics: MinimalAppMetric[],
+        capturedPostHogEvents: HogFunctionCapturedEvent[]
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null> {
         let earlyExitResult: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow> | null = null
 
@@ -310,6 +311,7 @@ export class HogFlowExecutorService {
         // Guarded once-per-run by `conversionCounted` since shouldExitEarly runs on every resume.
         const propertyConversionMatched = conversionMatch === true
         let conversionMetric: MinimalAppMetric | null = null
+        let conversionEvent: HogFunctionCapturedEvent | null = null
         if (propertyConversionMatched && !invocation.state.conversionCounted) {
             invocation.state.conversionCounted = true
             conversionMetric = {
@@ -319,6 +321,22 @@ export class HogFlowExecutorService {
                 metric_kind: 'other',
                 metric_name: 'conversion',
                 count: 1,
+            }
+            // Also surface the conversion as a billable PostHog event so it can power insights and
+            // cohorts (mirrors the $workflows_email_* engagement events). Event-based conversions are
+            // emitted by the subscription matcher, so this only fires for the property path.
+            const distinctId = invocation.state.event?.distinct_id
+            if (distinctId) {
+                conversionEvent = {
+                    team_id: hogFlow.team_id,
+                    event: '$workflows_conversion',
+                    distinct_id: distinctId,
+                    timestamp: new Date().toISOString(),
+                    properties: {
+                        $workflow_id: hogFlow.id,
+                        $workflow_conversion_type: 'property',
+                    },
+                }
             }
         }
         // Event-based conversion goals are evaluated by the subscription matcher (against the live
@@ -373,12 +391,14 @@ export class HogFlowExecutorService {
             })
         }
 
-        // Route the conversion metric onto whichever result is actually flushed: the early-exit
-        // result when we exit, otherwise the caller's metrics array (which becomes result.metrics
-        // once the run continues and finishes).
+        // Route the conversion metric/event onto whichever result is actually flushed: the early-exit
+        // result when we exit, otherwise the caller's arrays (which become result.metrics /
+        // result.capturedPostHogEvents once the run continues and finishes).
         if (conversionMetric) {
-            const conversionMetricTarget = earlyExitResult?.metrics ?? metrics
-            conversionMetricTarget.push(conversionMetric)
+            ;(earlyExitResult?.metrics ?? metrics).push(conversionMetric)
+        }
+        if (conversionEvent) {
+            ;(earlyExitResult?.capturedPostHogEvents ?? capturedPostHogEvents).push(conversionEvent)
         }
 
         return earlyExitResult

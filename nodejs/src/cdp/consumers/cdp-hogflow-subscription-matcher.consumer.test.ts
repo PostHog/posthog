@@ -146,10 +146,21 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             queueAppMetric: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
         }
+        // Likewise stub the captured-events service used to emit $workflows_conversion events.
+        ;(this as any).invocationResultsService = {
+            capturedEventsService: {
+                queueEvent: jest.fn().mockResolvedValue(undefined),
+                flush: jest.fn().mockResolvedValue(undefined),
+            },
+        }
     }
 
     public get queueAppMetricMock(): jest.Mock {
         return (this as any).hogFunctionMonitoringService.queueAppMetric
+    }
+
+    public get queueConversionEventMock(): jest.Mock {
+        return (this as any).invocationResultsService.capturedEventsService.queueEvent
     }
 
     public setHogFlows(map: Record<string, HogFlow>): void {
@@ -551,6 +562,20 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(matcher.queueAppMetricMock).toHaveBeenCalledWith(
                 expect.objectContaining({ app_source_id: 'flow-1', metric_name: 'conversion', count: 1 }),
                 'hog_flow'
+            )
+            // ...and emitted once as a billable $workflows_conversion event for the converting person.
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledTimes(1)
+            expect(matcher.queueConversionEventMock).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    team_id: 1,
+                    event: '$workflows_conversion',
+                    distinct_id: 'user-1',
+                    properties: expect.objectContaining({
+                        $workflow_id: 'flow-1',
+                        $workflow_conversion_type: 'event',
+                        $workflow_conversion_event: 'wuc_cancelled',
+                    }),
+                })
             )
         })
 

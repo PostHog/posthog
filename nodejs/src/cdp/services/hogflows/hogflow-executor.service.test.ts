@@ -835,6 +835,13 @@ describe('Hogflow Executor', () => {
                 ])
                 expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(1)
                 expect(invocation.state.conversionCounted).toBe(true)
+                // The conversion is also surfaced as a billable $workflows_conversion event exactly once.
+                const conversionEvents = result.capturedPostHogEvents.filter((e) => e.event === '$workflows_conversion')
+                expect(conversionEvents).toHaveLength(1)
+                expect(conversionEvents[0]).toMatchObject({
+                    distinct_id: 'distinct_id',
+                    properties: { $workflow_id: hogFlow.id, $workflow_conversion_type: 'property' },
+                })
             })
 
             it('does not re-count a property-based conversion on a resume that already counted', async () => {

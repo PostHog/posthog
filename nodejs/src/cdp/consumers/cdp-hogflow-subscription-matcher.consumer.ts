@@ -5,6 +5,7 @@ import { Counter, Histogram } from 'prom-client'
 import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
 import { KafkaConsumerInterface, RdKafkaConsumerConfig, createKafkaConsumer } from '~/common/kafka/consumer'
+import { InternalCaptureEvent } from '~/common/services/internal-capture'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
@@ -78,7 +79,15 @@ type MatchedJob = {
     eventName?: string
     eventUuid?: string
     eventTimestamp?: string
+    // Distinct id + name/uuid of the event that satisfied the conversion goal, so the matcher can
+    // emit the `$workflows_conversion` PostHog event for the converting person.
+    conversionDistinctId?: string
+    conversionEventName?: string
+    conversionEventUuid?: string
 }
+
+// Payload for capturedEventsService.queueEvent — a resolved PostHog capture event minus the token.
+type CapturedConversionEvent = { team_id: number } & Omit<InternalCaptureEvent, 'team_token'>
 
 type FilterGlobals = ReturnType<typeof convertToHogFunctionFilterGlobal>
 
@@ -123,14 +132,17 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         try {
             await this.wakeMatchingWorkflows(invocationGlobals)
         } finally {
-            // Flush any `conversion` metrics queued during matching. Best-effort: a metrics failure
-            // must not crash the batch (which would replay the event offsets). flush() is a no-op
-            // when nothing was queued, so it's safe to call unconditionally.
+            // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
+            // Best-effort: a flush failure must not crash the batch (which would replay the event
+            // offsets). flush() is a no-op when nothing was queued, so it's safe to call unconditionally.
             await instrumentFn({ key: 'cdp.background_task.monitoring_flush', sendException: false }, async () => {
                 try {
-                    await this.hogFunctionMonitoringService.flush()
+                    await Promise.all([
+                        this.hogFunctionMonitoringService.flush(),
+                        this.invocationResultsService.capturedEventsService.flush(),
+                    ])
                 } catch (err) {
-                    logger.error('⚠️', 'Failed to flush hogflow matcher app metrics', { err })
+                    logger.error('⚠️', 'Failed to flush hogflow matcher app metrics/events', { err })
                     captureException(err)
                 }
             })
@@ -208,6 +220,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             let stepMatchedEventUuid: string | undefined
             let stepMatchedEventTimestamp: string | undefined
             let conversionMatched = false
+            let conversionDistinctId: string | undefined
+            let conversionEventName: string | undefined
+            let conversionEventUuid: string | undefined
             for (const globals of candidateGlobals) {
                 const filterGlobals = filterGlobalsFor(globals)
                 if (!stepMatched && action?.type === 'wait_until_condition') {
@@ -218,8 +233,12 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         stepMatchedEventTimestamp = globals.event.timestamp
                     }
                 }
-                if (!conversionMatched) {
-                    conversionMatched = await this.evaluateConversionEvents(hogflow, filterGlobals)
+                if (!conversionMatched && (await this.evaluateConversionEvents(hogflow, filterGlobals))) {
+                    conversionMatched = true
+                    // Remember who converted (and via which event) so we can emit $workflows_conversion.
+                    conversionDistinctId = globals.event.distinct_id
+                    conversionEventName = globals.event.event
+                    conversionEventUuid = globals.event.uuid
                 }
                 if (stepMatched && conversionMatched) {
                     break
@@ -242,6 +261,9 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                     eventName: stepMatchedEventName,
                     eventUuid: stepMatchedEventUuid,
                     eventTimestamp: stepMatchedEventTimestamp,
+                    conversionDistinctId,
+                    conversionEventName,
+                    conversionEventUuid,
                 })
             }
         }
@@ -388,6 +410,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             const wakeUpdates: { id: string; state: Buffer }[] = []
             const stateOnlyUpdates: { id: string; state: Buffer }[] = []
             const conversionMetrics: MinimalAppMetric[] = []
+            const conversionEvents: CapturedConversionEvent[] = []
             for (const row of stateRows.rows) {
                 if (!row.state) {
                     continue
@@ -411,6 +434,23 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                         metric_name: 'conversion',
                         count: 1,
                     })
+                    // Emit the same billable $workflows_conversion event as the executor's property
+                    // path, so event-based conversions also power insights/cohorts. Needs a
+                    // distinct_id to attribute to a person.
+                    if (m.conversionDistinctId) {
+                        conversionEvents.push({
+                            team_id: m.teamId,
+                            event: '$workflows_conversion',
+                            distinct_id: m.conversionDistinctId,
+                            timestamp: new Date().toISOString(),
+                            properties: {
+                                $workflow_id: m.functionId,
+                                $workflow_conversion_type: 'event',
+                                $workflow_conversion_event: m.conversionEventName,
+                                $workflow_conversion_event_uuid: m.conversionEventUuid,
+                            },
+                        })
+                    }
                 }
                 if (outcome.wake) {
                     wakeUpdates.push({ id: row.id, state: outcome.state })
@@ -445,11 +485,14 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             }
             await client.query('COMMIT')
 
-            // Queue metrics only after the dedup write commits: if the transaction rolled back, the
-            // run is still uncounted in state, so a retry must be free to count it (no double-count).
+            // Queue metrics/events only after the dedup write commits: if the transaction rolled back,
+            // the run is still uncounted in state, so a retry must be free to count it (no double-count).
             for (const metric of conversionMetrics) {
                 this.hogFunctionMonitoringService.queueAppMetric(metric, 'hog_flow')
             }
+            await Promise.all(
+                conversionEvents.map((event) => this.invocationResultsService.capturedEventsService.queueEvent(event))
+            )
             return { woken, conversionsCounted: conversionMetrics.length }
         } catch (err) {
             await client.query('ROLLBACK').catch(() => {})
