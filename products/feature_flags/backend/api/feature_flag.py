@@ -1351,7 +1351,9 @@ class FeatureFlagSerializer(
                         # export step, even when their inert criteria reference
                         # another cohort.  See #65270.
                         dependency_cohorts = (
-                            [] if initial_cohort.is_static else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                            []
+                            if initial_cohort.is_static
+                            else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
                         )
                         for cohort in [initial_cohort, *dependency_cohorts]:
                             # Static cohorts have materialized membership, any preserved behavioral
