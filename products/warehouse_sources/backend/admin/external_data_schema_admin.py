@@ -15,10 +15,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.logic.data_load.service import (
-    pause_external_data_schedule,
-    unpause_external_data_schedule,
-)
+from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat

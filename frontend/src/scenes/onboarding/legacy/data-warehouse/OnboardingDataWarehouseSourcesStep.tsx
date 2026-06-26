@@ -42,6 +42,7 @@ export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = (
                     goToNextStep()
                 }}
                 featured
+                showWizard
                 title="Choose from 20+ sources"
                 subtitle="You can always connect more sources later."
             />

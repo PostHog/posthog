@@ -15,6 +15,7 @@ import {
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
@@ -25,6 +26,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { RunJobsTable, RunsTable, formatCost } from '../components/runTables'
+import { StatTile } from '../components/StatTile'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { PRCostSummaryApi, PullRequestApi } from '../generated/api.schemas'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
@@ -198,7 +200,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
     const minGrow = totalSeconds * 0.04
 
     return (
-        <div className="rounded-lg border bg-surface-primary px-5 py-4">
+        <LemonCard hoverEffect={false} className="px-5 py-4">
             <div className="mb-3 flex items-baseline gap-2">
                 <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Lifecycle</span>
                 <span className="text-xs text-tertiary">{subtitle}</span>
@@ -266,7 +268,7 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
                     </span>
                 </div>
             </div>
-        </div>
+        </LemonCard>
     )
 }
 
@@ -307,17 +309,6 @@ function runRowKey(run: WorkflowRun): string {
 
 function formatMinutes(minutes: number): string {
     return `${Math.round(minutes).toLocaleString()} min`
-}
-
-/** One headline stat: small label, big number, a muted subline for the caveat/breakdown. */
-function StatCard({ label, value, sub }: { label: string; value: string; sub: ReactNode }): JSX.Element {
-    return (
-        <div className="flex min-w-44 flex-1 flex-col gap-1 rounded-lg border bg-surface-primary px-5 py-4">
-            <span className="text-xs text-secondary">{label}</span>
-            <span className="text-2xl font-semibold leading-7 tabular-nums">{value}</span>
-            <span className="text-xs text-tertiary">{sub}</span>
-        </div>
-    )
 }
 
 const VERDICT_LEGEND: { key: 'passed' | 'failed' | 'running'; dot: string; label: string }[] = [
@@ -447,7 +438,7 @@ function PrSummaryCards({
             )}
             <div className="flex flex-wrap items-stretch gap-3">
                 {runsTotal > 0 && (
-                    <div className="flex min-w-72 flex-1 flex-col gap-2 rounded-lg border bg-surface-primary px-5 py-4">
+                    <LemonCard hoverEffect={false} className="flex min-w-72 flex-1 flex-col gap-2 px-5 py-4">
                         <span className="text-xs text-secondary">Run verdicts · all commits &amp; re-runs</span>
                         <div className="flex items-center gap-4">
                             <VerdictDonut counts={counts} />
@@ -464,24 +455,24 @@ function PrSummaryCards({
                         <span className="text-xs text-tertiary">
                             {pluralize(runsTotal, 'run')} · {pluralize(commits, 'commit')}
                         </span>
-                    </div>
+                    </LemonCard>
                 )}
                 {costLoading && !cost ? (
                     <LemonSkeleton className="h-24 w-44" />
                 ) : showCost ? (
-                    <StatCard
+                    <StatTile
                         label="Billable CI minutes"
                         value={formatMinutes(cost.billable_minutes)}
                         sub={<>≈ {formatCost(cost.estimated_cost_usd)} estimated</>}
                     />
                 ) : null}
-                <StatCard
+                <StatTile
                     label="Pushes (CI triggers)"
                     value={pushes.toLocaleString()}
                     sub={rerunCycles > 0 ? pluralize(rerunCycles, 're-run cycle') : 'no re-runs'}
                 />
                 {openedAt && (
-                    <StatCard
+                    <StatTile
                         label={openLabel}
                         value={gapBetween(openedAt, openTo)}
                         sub={
@@ -724,6 +715,7 @@ export function PullRequestDetailScene(): JSX.Element {
                                             }
                                             loading={runJobsLoading}
                                             embedded
+                                            aligned
                                         />
                                     )
                                 }
@@ -740,6 +732,7 @@ export function PullRequestDetailScene(): JSX.Element {
                                         setExpanded={setRunExpanded}
                                         runCostByKey={runCostByKey}
                                         showCost={prCost?.jobs_available ?? false}
+                                        aligned
                                         // Oldest push first so rows read in the same order as the sparkline.
                                         defaultSorting={{ columnKey: 'started', order: 1 }}
                                         dataAttr="engineering-analytics-pr-runs-table"
