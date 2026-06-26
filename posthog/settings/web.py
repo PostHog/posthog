@@ -95,6 +95,7 @@ PRODUCTS_APPS = [
     "products.cohorts.backend.apps.CohortsConfig",
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
+    "products.approvals.backend.apps.ApprovalsConfig",
 ]
 
 INSTALLED_APPS = [

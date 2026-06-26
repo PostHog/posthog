@@ -27,9 +27,11 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
 from posthog.temporal.utils import CDPProducerWorkflowInputs, ExternalDataWorkflowInputs
 from posthog.utils import get_machine_id
 
-from products.data_warehouse.backend.logic.data_load.service import a_unpause_external_data_schedule
-from products.data_warehouse.backend.logic.data_load.source_templates import create_warehouse_templates_for_source
-from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
+from products.data_warehouse.backend.facade.api import (
+    a_unpause_external_data_schedule,
+    create_warehouse_templates_for_source,
+    update_external_job_status,
+)
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, update_should_sync
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource

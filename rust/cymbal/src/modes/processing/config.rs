@@ -107,6 +107,35 @@ pub struct ProcessingConfig {
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
 
+    #[envconfig(from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED", default = "false")]
+    pub error_tracking_rate_limiter_enabled: bool,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL",
+        default = "redis://localhost:6379/"
+    )]
+    pub error_tracking_rate_limiter_redis_url: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_KEY_PREFIX",
+        default = "@posthog/error-tracking-cymbal-rate-limiter"
+    )]
+    pub error_tracking_rate_limiter_key_prefix: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_BUCKET_TTL_SECONDS",
+        default = "86400"
+    )]
+    pub error_tracking_rate_limiter_bucket_ttl_seconds: u64,
+
+    // Comma separated list of team IDs the error-tracking rate limiter applies to.
+    // If empty, it applies to all teams (that have limits configured).
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED_TEAM_IDS",
+        default = ""
+    )]
+    pub error_tracking_rate_limiter_enabled_team_ids: String,
+
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts
     #[envconfig(default = "")]
