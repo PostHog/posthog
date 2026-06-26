@@ -470,6 +470,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     enabled: true,
                     status: 'active' as const,
                     status_reason: null,
+                    status_reason_detail: null,
                     output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
@@ -564,6 +565,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     enabled: true,
                     status: 'active',
                     status_reason: null,
+                    status_reason_detail: null,
                     evaluation_type: 'llm_judge',
                     evaluation_config: {
                         prompt: '',

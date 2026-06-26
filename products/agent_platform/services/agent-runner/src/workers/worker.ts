@@ -35,11 +35,14 @@ import {
     IdentityLinkStateStore,
     IdentityStore,
     FailureNotifier,
+    filterServableEntries,
+    GatewayCatalog,
     GatewayClient,
     getSecretAllowedHosts,
     HttpFetcher,
     LogSink,
     MemoryStore,
+    modelPolicyToList,
     TabularStore,
     WebSearchProvider,
     RevisionStore,
@@ -67,11 +70,15 @@ export interface WorkerDeps {
     /** Resolved per-application secrets — wire from the team's encrypted env. */
     resolveSecrets: (session: AgentSession) => Promise<Record<string, string>>
     /**
-     * Resolve a session's spec.model string to a concrete pi-ai Model. Defaults
-     * to `resolveModelCached(spec.model)` which works for built-in providers.
-     * Override for custom-endpoint models (ai-gateway) or test faux models.
+     * Resolve a single model-id string (one entry of the resolved policy list)
+     * to a concrete pi-ai Model. Defaults to `resolveModelCached` which works
+     * for built-in providers. Override for custom-endpoint models (ai-gateway)
+     * or test faux models. Applied per-entry across `modelPolicyToList(spec)`.
      */
     resolveModel?: (specModel: string) => Model<string>
+    /** Served-model catalog. Filters the resolved model list to servable models
+     *  before dispatch and feeds `ToolContext` for the models tool. */
+    gatewayCatalog?: GatewayCatalog
     /**
      * Per-session API key resolver. The resolved key is passed to the driver's
      * loop config; defaults to no key. On the ai-gateway path this returns
@@ -527,8 +534,32 @@ export class Worker {
                         )
                 }
             }
+            // Expand the policy to a priority list, then drop entries the gateway
+            // no longer serves (no-op without a catalog; never empties a non-empty
+            // list — see `filterServableEntries`).
             const resolveModel = this.deps.resolveModel ?? resolveModelCached
-            const model = resolveModel(rev.spec.model)
+            const catalogModels = this.deps.gatewayCatalog ? await this.deps.gatewayCatalog.list() : []
+            const policyList = modelPolicyToList(rev.spec)
+            if (this.deps.gatewayCatalog && catalogModels.length === 0) {
+                // Fail-open: with no catalog we can't filter, so the policy list
+                // ships as-authored. An empty catalog behind a *configured*
+                // gateway is either a fetch that failed with no cached fallback
+                // or a gateway serving nothing — both can dispatch a delisted
+                // model that 400s on the first call. Surface it loudly so it's
+                // not indistinguishable from a healthy run. Cleanly refusing to
+                // start on a genuinely-empty (vs transiently-unreachable) catalog
+                // needs a freshness signal on the catalog read — tracked as a
+                // follow-up (see PR review).
+                sLog.warn(
+                    { policy_entries: policyList.length },
+                    'model.catalog_empty_fail_open — dispatching unfiltered model policy'
+                )
+            }
+            const policyEntries = filterServableEntries(policyList, catalogModels)
+            const models = policyEntries.map((entry) => ({
+                model: resolveModel(entry.model),
+                reasoning: entry.reasoning,
+            }))
             const apiKey = await this.deps.resolveApiKey?.(session)
             const gatewayHeaders = this.deps.resolveGatewayHeaders?.(session)
             const gatewayUsage = await this.deps.resolveGatewayUsage?.(session)
@@ -537,7 +568,7 @@ export class Worker {
             // to address the agent's ingress directly.
             const buildApprovalUrl = this.deps.buildApprovalUrl
             const outcome = await runSession(rev, session, {
-                model,
+                models,
                 apiKey,
                 bundle: this.deps.bundle,
                 sandbox,
@@ -568,6 +599,7 @@ export class Worker {
                 mcpFailures,
                 http: this.deps.http,
                 posthogApiBaseUrl: this.deps.posthogApiBaseUrl,
+                gatewayCatalog: this.deps.gatewayCatalog,
                 maxOutputTokensOverride: this.deps.maxOutputTokens,
                 inputs: this.deps.queue,
                 onTurnPersist: async (s) => {
