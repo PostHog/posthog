@@ -31,6 +31,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "receipt_number": "Square-generated receipt number for the payment.",
             "receipt_url": "URL of the printable receipt for the payment.",
             "refunded_money": "Total amount refunded against this payment.",
+            "version_token": "Opaque token identifying a specific version of the payment, used for optimistic concurrency.",
         },
     },
     "refunds": {
@@ -81,6 +82,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "country": "Country the location is in, as a two-letter ISO code.",
             "business_name": "The seller's business name shown on receipts for this location.",
             "type": "The location's type (PHYSICAL or MOBILE).",
+            "logo_url": "URL of the logo image shown on Square-generated receipts and invoices for the location.",
             "merchant_id": "ID of the merchant that owns the location.",
         },
     },

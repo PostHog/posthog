@@ -134,14 +134,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         type: 'internal_destination',
         context_id: 'health-alerts',
         filters: { events: [{ id: '$health_check_issue_firing', type: 'events' }] },
-        flag: FEATURE_FLAGS.HEALTH_ALERTS,
     },
     'health-check-resolved': {
         sub_template_id: 'health-check-resolved',
         type: 'internal_destination',
         context_id: 'health-alerts',
         filters: { events: [{ id: '$health_check_issue_resolved', type: 'events' }] },
-        flag: FEATURE_FLAGS.HEALTH_ALERTS,
     },
 }
 
