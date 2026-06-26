@@ -70,24 +70,28 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
                     "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
                 ),
                 parse_expr(
-                    f"{_EFFECTIVE_TOOL} = {{tool}}", placeholders={"tool": ast.Constant(value=self.query.toolName)}
+                    "{effective_tool} = {tool}",
+                    placeholders={
+                        "effective_tool": parse_expr(_EFFECTIVE_TOOL),
+                        "tool": ast.Constant(value=self.query.toolName),
+                    },
                 ),
                 parse_expr(
-                    f"properties.$mcp_source = {{source}}", placeholders={"source": ast.Constant(value=_NEW_SDK_SOURCE)}
+                    "properties.$mcp_source = {source}", placeholders={"source": ast.Constant(value=_NEW_SDK_SOURCE)}
                 ),
             ]
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
-            f"""
+            """
             SELECT
                 distinct_id,
                 argMax(person_properties, timestamp) AS person_properties,
                 count() AS calls,
                 countIf(is_error) AS errors,
                 round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
-                {_HARNESS_LABELS_AGG} AS harnesses,
+                {labels_agg} AS harnesses,
                 max(timestamp) AS last_seen
             FROM (
                 SELECT
@@ -95,15 +99,16 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
                     timestamp,
                     toBool(properties.$mcp_is_error) AS is_error,
                     toString(person.properties) AS person_properties,
-                    {{token}} AS h
+                    {token} AS h
                 FROM events
-                WHERE {{where}}
+                WHERE {where}
             )
             GROUP BY distinct_id
             ORDER BY calls DESC
             LIMIT 5
             """,
             placeholders={
+                "labels_agg": parse_expr(_HARNESS_LABELS_AGG),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
@@ -178,25 +183,26 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         return parse_select(
-            f"""
+            """
             SELECT
                 message,
                 count() AS occurrences,
                 max(timestamp) AS last_seen,
-                {_HARNESS_LABELS_AGG} AS harnesses
+                {labels_agg} AS harnesses
             FROM (
                 SELECT
                     substring(toString(properties.$exception_message), 1, 200) AS message,
                     timestamp,
-                    {{token}} AS h
+                    {token} AS h
                 FROM events
-                WHERE {{where}}
+                WHERE {where}
             )
             GROUP BY message
             ORDER BY occurrences DESC
             LIMIT 20
             """,
             placeholders={
+                "labels_agg": parse_expr(_HARNESS_LABELS_AGG),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "where": self._where(),
             },
