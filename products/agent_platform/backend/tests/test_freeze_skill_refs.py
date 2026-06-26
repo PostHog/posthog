@@ -189,7 +189,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
             self._detail_url,
             {
                 "spec": {
-                    "model": "faux/new",
+                    "models": {"mode": "manual", "models": [{"model": "faux/new"}]},
                     "triggers": [],
                     # Author attempt to inject/spoof a skill — must be ignored.
                     "skills": [{"id": "evil", "path": "skills/evil/SKILL.md", "source_version_id": "019e-fake"}],
@@ -199,7 +199,7 @@ class TestFreezeResolvesSkillRefs(APIBaseTest):
         )
         self.assertEqual(res.status_code, 200, res.content)
         self.revision.refresh_from_db()
-        self.assertEqual(self.revision.spec["model"], "faux/new")
+        self.assertEqual(self.revision.spec["models"]["models"][0]["model"], "faux/new")
         # skills[] is the preserved server value, not the author's spoof.
         self.assertEqual([s["id"] for s in self.revision.spec["skills"]], ["triage"])
         self.assertEqual(self.revision.spec["skills"][0]["source_version_id"], "019e-real")

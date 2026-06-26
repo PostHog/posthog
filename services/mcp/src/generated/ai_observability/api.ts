@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 55 enabled ops
+ * PostHog API - MCP 57 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -235,7 +235,12 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe(
+                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                        ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
@@ -377,7 +382,12 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
-                    provider_key_id: zod.uuid().nullish(),
+                    provider_key_id: zod
+                        .uuid()
+                        .nullish()
+                        .describe(
+                            'Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.'
+                        ),
                     provider_key_name: zod.string().nullish(),
                 })
                 .describe('Nested serializer for model configuration.'),
@@ -920,6 +930,28 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
     provider: zod
         .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter', 'together_ai'])
         .describe('LLM provider to list models for. Must be one of the supported providers.'),
+})
+
+export const LlmAnalyticsProviderKeysListParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+export const LlmAnalyticsProviderKeysListQueryParams = /* @__PURE__ */ zod.object({
+    limit: zod.number().optional().describe('Number of results to return per page.'),
+    offset: zod.number().optional().describe('The initial index from which to return the results.'),
+})
+
+export const LlmAnalyticsProviderKeysRetrieveParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this llm provider key.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
 })
 
 export const LlmAnalyticsReviewQueueItemsListParams = /* @__PURE__ */ zod.object({

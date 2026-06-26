@@ -54,6 +54,27 @@ class SupportReplyWorkflow:
     Loop: refine -> retrieve -> draft -> validate
     Iterate while validate score < threshold, hard cap MAX_ATTEMPTS.
     Feed validate.missing back into refine on each iteration.
+
+    Triage lifecycle (`ai_triage.status`), recorded via `_record_triage`:
+      - in_progress: run started, context built, draft loop not yet terminal.
+      - done: a terminal branch set `outcome`; recorded in `finally`. An empty
+        `outcome` (unexpected crash) is never marked done.
+
+    Terminal outcomes (`ai_triage.result`), exactly one per finished run:
+      - blocked_unsafe: input safety gate rejected the incoming ticket
+        (prompt-injection / exfiltration) before any LLM draft work.
+      - skipped_unactionable: classifier judged the ticket has no answerable
+        question (spam / bare feedback); draft loop skipped. Distinct from
+        escalated_no_reply, which means we tried and failed.
+      - persisted: a draft cleared SCORE_THRESHOLD and passed the output review
+        gate; auto-sent to the customer (allow_bot_reply=True).
+      - blocked_unsafe_reply: a draft was good enough to send but the output
+        review gate caught a PII leak / exfil, so it was withheld.
+      - escalated_with_best: exhausted MAX_ATTEMPTS without clearing the
+        threshold, but the best draft (>0 confidence) passed output review and
+        was saved as an internal/human-gated note (allow_bot_reply=False).
+      - escalated_no_reply: exhausted MAX_ATTEMPTS with no usable draft at all;
+        nothing persisted, ticket handed to a human cold.
     """
 
     @workflow.run

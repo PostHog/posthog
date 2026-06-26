@@ -243,9 +243,9 @@ export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }
 
-// `SandboxToolCallMessage` now lives with the relocated sandbox renderer. Re-exported here so
+// `ToolCallMessage` now lives with the relocated sandbox renderer. Re-exported here so
 // the frozen LangGraph path and any in-flight branches keep resolving it from `maxTypes`.
-export type { SandboxToolCallMessage } from 'products/posthog_ai/frontend/sandbox/types/sandboxToolTypes'
+export type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
 /**
  * Flat context attachment sent to the sandbox agent runtime (`agent_runtime === 'sandbox'`).

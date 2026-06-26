@@ -350,7 +350,16 @@ def _github_retry_wait(state: RetryCallState) -> float:
 
 @retry(
     retry=retry_if_exception_type(
-        (GithubRetryableError, GitHubRateLimitError, requests.ReadTimeout, requests.ConnectionError)
+        (
+            GithubRetryableError,
+            GitHubRateLimitError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            # GitHub can break the connection mid-body on a chunked response, which surfaces as a
+            # ChunkedEncodingError (a direct RequestException subclass, not a ConnectionError). It's
+            # transient — a fresh GET re-fetches the page — so retry it instead of failing the sync.
+            requests.exceptions.ChunkedEncodingError,
+        )
     ),
     stop=stop_after_attempt(5),
     wait=_github_retry_wait,

@@ -40,6 +40,14 @@ logger = logging.getLogger(__name__)
 # network, MCP read scopes injected. Split out later if the agent needs different policy.
 SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 
+# The report channel (emit_report/edit_report) is opt-in per skill. A scout's sandbox token
+# carries the report-write scope ONLY when its skill listed one of these in `allowed_tools` (see
+# the posture selection where the sandbox context is built). A baseline scout never carries that
+# scope, so the MCP server strips the report tools from its toolset — they can't bleed into a run
+# that didn't opt in. `views._assert_report_tool_opted_in` is the matching fail-closed gate on the
+# write itself.
+REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
+
 
 @dataclass(frozen=True)
 class RunResult:
@@ -367,7 +375,14 @@ async def _spawn_and_run(
         # tool annotated `readOnlyHint: false` — including the agent's own `remember`,
         # `forget`, and `emit_finding` tools — even though the OAuth token does carry the
         # right scope to call them.
-        posthog_mcp_scopes="signals_scout",
+        #
+        # A scout that opted into the report channel gets `signals_scout_reports` instead —
+        # the same posture plus `signal_scout_report:write` — so the MCP server exposes the
+        # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
+        # sees them.
+        posthog_mcp_scopes=(
+            "signals_scout_reports" if REPORT_CHANNEL_TOOLS & set(skill.allowed_tools or []) else "signals_scout"
+        ),
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves
         # is tagged on each $ai_generation, so per-run model is queryable in LLM analytics.

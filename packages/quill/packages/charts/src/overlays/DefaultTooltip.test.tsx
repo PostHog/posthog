@@ -73,13 +73,13 @@ describe('DefaultTooltip', () => {
 
         it('sums the visible series and labels the row', () => {
             renderTooltip({ showTotal: true }, TWO_SERIES)
-            screen.getByText('Total:')
+            screen.getByText('Total')
             screen.getByText((35).toLocaleString())
         })
 
         it('uses a custom label and total formatter', () => {
             renderTooltip({ showTotal: true, totalLabel: 'Sum', totalFormatter: (v) => `$${v}` }, TWO_SERIES)
-            screen.getByText('Sum:')
+            screen.getByText('Sum')
             screen.getByText('$35')
         })
 
@@ -106,12 +106,12 @@ describe('DefaultTooltip', () => {
 
         it('is suppressed for a single series', () => {
             renderTooltip({ showTotal: true }, SERIES_DATA)
-            expect(screen.queryByText('Total:')).toBeNull()
+            expect(screen.queryByText('Total')).toBeNull()
         })
 
         it('is suppressed when showTotal is not set', () => {
             renderTooltip({}, TWO_SERIES)
-            expect(screen.queryByText('Total:')).toBeNull()
+            expect(screen.queryByText('Total')).toBeNull()
         })
 
         it('excludes overlay series from the sum and the summable count', () => {
@@ -130,7 +130,7 @@ describe('DefaultTooltip', () => {
                 { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 30, color: '#222' },
             ]
             renderTooltip({ showTotal: true }, oneRealOneOverlay)
-            expect(screen.queryByText('Total:')).toBeNull()
+            expect(screen.queryByText('Total')).toBeNull()
         })
     })
 
