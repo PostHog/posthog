@@ -223,7 +223,7 @@ class OrganizationAdmin(admin.ModelAdmin):
             f"{metabase_host}/dashboard/139-customer-usage-breakdown"
             f"?tab=35-events&organization_id={organization.id}&lookback_days=30&search_event=%20"
         )
-        return format_html('<a target="_blank" href="{}">See usage on PostHog →</a>', url)
+        return format_html('<a target="_blank" href="{}">See usage on Metabase →</a>', url)
 
     @admin.display(description="Limited Products")
     def limited_products_display(self, organization: Organization):
