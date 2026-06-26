@@ -32,6 +32,7 @@ class TestCDCErrorInfo:
             (CDCErrorCategory.AUTH_FAILED, False),
             (CDCErrorCategory.SSL_REQUIRED, False),
             (CDCErrorCategory.CONNECTION_FAILED, True),
+            (CDCErrorCategory.HOST_UNREACHABLE, False),
             (CDCErrorCategory.SLOT_MISSING, False),
             (CDCErrorCategory.PUBLICATION_MISSING, False),
             (CDCErrorCategory.SLOT_IN_USE, True),

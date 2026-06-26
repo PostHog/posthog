@@ -43,6 +43,18 @@ class TestClassifyPostgresCDCError:
                 CDCErrorCategory.CONNECTION_FAILED,
             ),
             (
+                "network_unreachable_is_non_retryable_host",
+                psycopg.OperationalError(
+                    'connection to server at "2001:db8::1", port 5432 failed: Network is unreachable'
+                ),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
+                "no_route_to_host_is_non_retryable_host",
+                psycopg.OperationalError("connection to server at example.invalid, port 5432 failed: No route to host"),
+                CDCErrorCategory.HOST_UNREACHABLE,
+            ),
+            (
                 "slot_missing",
                 psycopg.errors.UndefinedObject('replication slot "posthog_slot" does not exist'),
                 CDCErrorCategory.SLOT_MISSING,
