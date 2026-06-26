@@ -18,8 +18,7 @@ export class SessionTracker {
     constructor(
         private readonly redisPool: RedisPool,
         localCacheTtlMs: number,
-        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE,
-        private readonly redisTimeoutMs: number = 200
+        localCacheMaxSize: number = DEFAULT_LOCAL_CACHE_MAX_SIZE
     ) {
         this.localCache = new LRUCache({
             max: localCacheMaxSize,
@@ -55,14 +54,7 @@ export class SessionTracker {
 
             // Use SET with NX (only set if not exists) and EX (expiry) for atomic check-and-set
             // Returns 'OK' if key was set (new session), null if already exists
-            const redisPromise = client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
-            redisPromise.catch(() => {})
-            const wasSet = await Promise.race([
-                redisPromise,
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Redis SET NX timed out')), this.redisTimeoutMs)
-                ),
-            ])
+            const wasSet = await client.set(key, '1', 'EX', SESSION_TRACKER_REDIS_TTL_SECONDS, 'NX')
             const isNewSession = wasSet === 'OK'
 
             // Cache the result locally regardless of whether it's new

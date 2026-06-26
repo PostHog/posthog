@@ -19,7 +19,6 @@ export interface SessionFilterConfig {
     filterEnabled: boolean
     localCacheTtlMs: number
     localCacheMaxSize?: number
-    redisTimeoutMs?: number
 }
 
 /**
@@ -46,14 +45,12 @@ export class SessionFilter {
     private readonly sessionLimiter: Limiter
     private readonly blockingEnabled: boolean
     private readonly filterEnabled: boolean
-    private readonly redisTimeoutMs: number
 
     constructor(config: SessionFilterConfig) {
         this.redisPool = config.redisPool
         this.sessionLimiter = new Limiter(config.bucketCapacity, config.bucketReplenishRate)
         this.blockingEnabled = config.blockingEnabled
         this.filterEnabled = config.filterEnabled
-        this.redisTimeoutMs = config.redisTimeoutMs ?? 200
 
         this.localCache = new LRUCache({
             max: config.localCacheMaxSize ?? DEFAULT_LOCAL_CACHE_MAX_SIZE,
@@ -82,14 +79,7 @@ export class SessionFilter {
         let client
         try {
             client = await this.redisPool.acquire()
-            const redisPromise = client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
-            redisPromise.catch(() => {})
-            await Promise.race([
-                redisPromise,
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Redis SET timed out')), this.redisTimeoutMs)
-                ),
-            ])
+            await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
 
             logger.info('session_filter_blocked_session', {
                 teamId,
@@ -142,14 +132,7 @@ export class SessionFilter {
         let client
         try {
             client = await this.redisPool.acquire()
-            const redisPromise = client.exists(key)
-            redisPromise.catch(() => {})
-            const exists = await Promise.race([
-                redisPromise,
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Redis EXISTS timed out')), this.redisTimeoutMs)
-                ),
-            ])
+            const exists = await client.exists(key)
             const isBlocked = exists === 1
 
             // Cache the result locally to prevent repeated Redis calls

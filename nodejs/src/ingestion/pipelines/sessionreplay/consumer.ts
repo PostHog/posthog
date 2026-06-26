@@ -164,12 +164,7 @@ export class SessionRecordingIngester {
             { pipeline: 'session_recordings' }
         )
 
-        const retentionService = new RetentionService(
-            this.redisPool,
-            this.teamService,
-            '@posthog/replay/',
-            this.config.SESSION_RECORDING_REDIS_TIMEOUT_MS
-        )
+        const retentionService = new RetentionService(this.redisPool, this.teamService, '@posthog/replay/')
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
         const metadataStore = new SessionMetadataStore(outputs)
@@ -189,9 +184,7 @@ export class SessionRecordingIngester {
 
         const sessionTracker = new SessionTracker(
             this.redisPool,
-            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS,
-            undefined,
-            this.config.SESSION_RECORDING_REDIS_TIMEOUT_MS
+            this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
         )
         const sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
@@ -200,7 +193,6 @@ export class SessionRecordingIngester {
             blockingEnabled: this.config.SESSION_RECORDING_NEW_SESSION_BLOCKING_ENABLED,
             filterEnabled: this.config.SESSION_RECORDING_SESSION_FILTER_ENABLED,
             localCacheTtlMs: this.config.SESSION_RECORDING_SESSION_FILTER_CACHE_TTL_MS,
-            redisTimeoutMs: this.config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
         })
 
         const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'

@@ -99,10 +99,17 @@ export class IngestionSessionReplayServer implements NodeServer {
             connection: this.config.POSTHOG_SESSION_RECORDING_REDIS_HOST
                 ? {
                       url: this.config.POSTHOG_SESSION_RECORDING_REDIS_HOST,
-                      options: { port: this.config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379 },
+                      options: {
+                          port: this.config.POSTHOG_SESSION_RECORDING_REDIS_PORT ?? 6379,
+                          commandTimeout: this.config.SESSION_RECORDING_REDIS_TIMEOUT_MS,
+                      },
                       name: 'session-recording-redis',
                   }
-                : { url: this.config.REDIS_URL, name: 'session-recording-redis-fallback' },
+                : {
+                      url: this.config.REDIS_URL,
+                      options: { commandTimeout: this.config.SESSION_RECORDING_REDIS_TIMEOUT_MS },
+                      name: 'session-recording-redis-fallback',
+                  },
             poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })

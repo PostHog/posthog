@@ -25,8 +25,7 @@ export class RetentionService {
     constructor(
         private redisPool: RedisPool,
         private teamService: TeamService,
-        private keyPrefix = '@posthog/replay/',
-        private redisTimeoutMs = 200
+        private keyPrefix = '@posthog/replay/'
     ) {}
 
     private generateRedisKey(sessionId: string): string {
@@ -96,14 +95,7 @@ export class RetentionService {
         const client = await this.redisPool.acquire()
 
         try {
-            const redisPromise = client.get(redisKey)
-            redisPromise.catch(() => {})
-            return await Promise.race([
-                redisPromise,
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Redis GET timed out')), this.redisTimeoutMs)
-                ),
-            ])
+            return await client.get(redisKey)
         } finally {
             await this.redisPool.release(client)
         }
@@ -114,14 +106,7 @@ export class RetentionService {
         const client = await this.redisPool.acquire()
 
         try {
-            const redisPromise = client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
-            redisPromise.catch(() => {})
-            await Promise.race([
-                redisPromise,
-                new Promise<never>((_, reject) =>
-                    setTimeout(() => reject(new Error('Redis SET timed out')), this.redisTimeoutMs)
-                ),
-            ])
+            await client.set(redisKey, retentionPeriod, 'EX', 24 * 60 * 60)
         } finally {
             await this.redisPool.release(client)
         }
