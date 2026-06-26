@@ -20,7 +20,10 @@ export function GeneratedQuillVisualization(): JSX.Element {
     const hogqlResponse = response as HogQLQueryResponse | null
     const columns: string[] = hogqlResponse?.columns ?? []
     const rows = (hogqlResponse?.results as unknown[][] | undefined) ?? []
-    const columnTypes = hogqlResponse?.types as (string | null)[] | undefined
+    // HogQL `types` entries are `[columnName, clickhouseType]` tuples — pull out the type string.
+    const columnTypes: (string | null)[] = ((hogqlResponse?.types as unknown[][] | undefined) ?? []).map((t) =>
+        Array.isArray(t) ? ((t[1] as string | undefined) ?? null) : null
+    )
     const canGenerate = columns.length > 0 && rows.length > 0 && !!currentTeamId
 
     const onGenerate = (): void => {
@@ -64,7 +67,7 @@ export function GeneratedQuillVisualization(): JSX.Element {
                 </LemonBanner>
             ))}
 
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0 rounded bg-surface-primary overflow-hidden p-2">
                 {generationLoading ? (
                     <div className="flex items-center justify-center h-full">
                         <LoadingBar />

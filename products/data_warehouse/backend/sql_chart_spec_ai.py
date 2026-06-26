@@ -18,12 +18,12 @@ from posthog.models.team import Team
 from posthog.models.user import User
 
 from ee.hogai.chat_agent.schema_generator.parsers import parse_pydantic_structured_output
-from ee.hogai.llm import MaxChatOpenAI
+from ee.hogai.llm import MaxChatAnthropic
 from ee.hogai.utils.helpers import dereference_schema
 
 logger = structlog.get_logger(__name__)
 
-ChartType = Literal["line", "bar", "combo", "timeSeriesLine", "pie", "metricCard"]
+ChartType = Literal["line", "bar", "combo", "timeSeriesLine", "timeSeriesBar", "pie", "metricCard"]
 ValueFormat = Literal["numeric", "short", "percentage", "percentage_scaled", "currency", "duration", "duration_ms"]
 AxisId = Literal["left", "right"]
 SemanticType = Literal["temporal", "quantitative", "nominal", "ordinal"]
@@ -43,14 +43,55 @@ class ChartMappingAxis(BaseModel):
 class ChartMappingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
+    # Layout
     stacked: bool | None = None
     grouped: bool | None = None
     percent: bool | None = None
     horizontal: bool | None = Field(default=None, description="Bar charts only: ranked horizontal layout.")
-    donut: bool | None = Field(default=None, description="Pie charts only.")
+    donut: bool | None = Field(default=None, description="Pie charts only: standard donut (innerRadiusRatio 0.6).")
+    innerRadiusRatio: float | None = Field(
+        default=None,
+        ge=0,
+        le=0.95,
+        description="Pie: inner radius fraction (0=pie, 0.4–0.7=donut, 0.85=thin ring). Overrides donut.",
+    )
+
+    # Legend
     showLegend: bool | None = None
+    legendPosition: Literal["top", "bottom", "left", "right"] | None = Field(
+        default=None, description="Where the legend sits. Default 'bottom'."
+    )
+    legendAlign: Literal["start", "center", "end"] | None = Field(
+        default=None, description="Legend alignment along its axis. Default 'center'."
+    )
+
+    # Overlays
     showGrid: bool | None = None
+    showAxisLines: bool | None = Field(default=None, description="Show L-shaped axis baselines without grid lines.")
+    showCrosshair: bool | None = Field(default=None, description="Show a vertical crosshair following the cursor.")
     showValueLabels: bool | None = None
+
+    # Axes
+    hideXAxis: bool | None = None
+    hideYAxis: bool | None = None
+
+    # Tooltip
+    tooltipShowTotal: bool | None = Field(default=None, description="Show a total row in the tooltip.")
+    tooltipPlacement: Literal["follow-data", "top", "cursor"] | None = None
+
+    # Bar-specific
+    barFillStyle: Literal["flat", "gradient", "gloss"] | None = Field(default=None, description="Bar charts only.")
+    divergingStack: bool | None = Field(default=None, description="Stacked bar: stack negatives below zero baseline.")
+    roundStackEnds: bool | None = Field(default=None, description="Stacked bar: round outer ends as a pill.")
+
+    # MetricCard-specific
+    showChange: bool | None = Field(default=None, description="Metric card: show change/trend pill.")
+    goodDirection: Literal["up", "down"] | None = Field(
+        default=None, description="Metric card: which direction is good."
+    )
+    changeInline: bool | None = Field(default=None, description="Metric card: pill beside headline instead of header.")
+    sparklineFill: bool | None = Field(default=None, description="Metric card: fill card height with sparkline.")
+    subtitle: str | None = Field(default=None, description="Metric card: caption under the headline.")
 
 
 class ChartMappingReferenceLine(BaseModel):
@@ -113,15 +154,22 @@ You do NOT receive or output the data — you only map result COLUMNS to chart r
 fills in the real rows.
 
 Guidelines:
-- Pick `chartType` to fit the columns: a temporal column + a numeric column → `timeSeriesLine`
-  (set `xColumn` to the date column); a category column + a numeric column → `bar` (use
-  `config.horizontal` for many categories ranked); part-of-whole → `pie` (`config.donut` for a donut);
-  two numeric columns on different scales → `combo` with a dual axis; a single aggregate → `metricCard`.
+- Pick `chartType` to fit the columns: a temporal column + numeric columns → `timeSeriesLine` for
+  lines or `timeSeriesBar` for bars (both format dates correctly on the x-axis); a category column +
+  a numeric column → `bar` (use `config.horizontal` for many categories ranked); part-of-whole → `pie`
+  (`config.donut` for a donut); two numeric columns on different scales → `combo` with a dual axis;
+  a single aggregate → `metricCard`. Never use `bar` when the x column contains ISO date strings —
+  use `timeSeriesBar` instead.
 - `xColumn` is the category/date column. `series` are the numeric columns to plot.
 - Set value formatting per axis from the column's semanticType and name: money → `currency` (+ code),
   rates → `percentage`, durations → `duration`, large counts → `short`.
 - For two series on different scales, give each `axis: 'left'`/`'right'` and define both in `axes`.
 - Add a `referenceLines` goal line when the instruction mentions a target.
+- Honor explicit layout requests: legend position/alignment → `config.legendPosition`/`config.legendAlign`; "hide axes" → `config.hideXAxis`/`config.hideYAxis`; "crosshair" → `config.showCrosshair`; "axis lines" → `config.showAxisLines`.
+- Tooltip: "show total" → `config.tooltipShowTotal`; "pin tooltip" / "tooltip at top" → `config.tooltipPlacement: "top"`.
+- Bar style: "gradient" / "gloss" → `config.barFillStyle`; negative data → `config.divergingStack`; "pill stack" → `config.roundStackEnds`.
+- Pie: use `config.innerRadiusRatio` for precise ring width (e.g. 0.5 for standard, 0.8 for thin ring); `config.donut` is a shorthand for 0.6.
+- Metric card: `config.showChange`, `config.goodDirection` ("lower is better" → "down"), `config.subtitle` for a caption, `config.sparklineFill` to fill the card height.
 - Always set `narrative` to one plain sentence.
 
 Reference only column names that appear in the provided columns. Return only the mapping.
@@ -211,19 +259,15 @@ class SQLChartSpecGenerator:
 
     @property
     def _model(self) -> Runnable:
-        return MaxChatOpenAI(
-            model="gpt-5.2",
+        return MaxChatAnthropic(
+            model="claude-sonnet-4-6",
             temperature=0.3,
-            disable_streaming=True,
+            streaming=False,
             user=self._user,
             team=self._team,
             max_tokens=4096,
             billable=True,
-            output_version="responses/v1",
-            use_responses_api=True,
-            reasoning={"effort": "none"},
-            model_kwargs={"prompt_cache_key": f"team_{self._team.id}"},
-        ).with_structured_output(CHART_MAPPING_SCHEMA, method="json_schema", include_raw=False)
+        ).with_structured_output(CHART_MAPPING_SCHEMA, include_raw=False)
 
     def _parse_output(self, output: dict) -> ChartSpecMapping:
         return parse_pydantic_structured_output(ChartSpecMappingOutput)(output).mapping

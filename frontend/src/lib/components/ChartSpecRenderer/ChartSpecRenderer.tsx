@@ -10,8 +10,11 @@ import {
     PieChart,
     ReferenceLine,
     type Series,
+    TimeSeriesBarChart,
+    type TimeSeriesBarChartConfig,
     TimeSeriesLineChart,
     type TimeSeriesLineChartConfig,
+    type TooltipConfig,
     useChartTheme,
     ValueLabels,
     type YAxis,
@@ -71,6 +74,18 @@ function referenceLineChildren(lines?: ChartSpecReferenceLine[]): JSX.Element[] 
     ))
 }
 
+function toTooltipConfig(config: ChartSpec['config']): TooltipConfig | undefined {
+    if (!config?.tooltipShowTotal && !config?.tooltipPlacement) {
+        return undefined
+    }
+    return { showTotal: config.tooltipShowTotal, placement: config.tooltipPlacement }
+}
+
+// Detects when bar chart labels are ISO date strings so we can swap to TimeSeriesBarChart.
+function looksLikeISODate(label: string): boolean {
+    return /^\d{4}-\d{2}-\d{2}T/.test(label)
+}
+
 function barLayout(config: ChartSpec['config']): 'stacked' | 'grouped' | 'percent' {
     if (config?.percent) {
         return 'percent'
@@ -101,10 +116,19 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
             case 'line': {
                 const config: LineChartConfig = {
                     showGrid: spec.config?.showGrid,
+                    showAxisLines: spec.config?.showAxisLines,
+                    showCrosshair: spec.config?.showCrosshair,
+                    hideXAxis: spec.config?.hideXAxis,
+                    hideYAxis: spec.config?.hideYAxis,
+                    tooltip: toTooltipConfig(spec.config),
                     yAxes: toQuillYAxes(spec.axes),
                     yTickFormatter: primaryAxis ? formatterFor(primaryAxis.format, primaryAxis.currency) : undefined,
                     floatBaseline: primaryAxis?.startAtZero === false,
-                    legend: { show: spec.config?.showLegend },
+                    legend: {
+                        show: spec.config?.showLegend ?? spec.config?.legendPosition != null,
+                        position: spec.config?.legendPosition,
+                        align: spec.config?.legendAlign,
+                    },
                 }
                 return (
                     <LineChart series={series} labels={spec.labels} config={config} theme={theme}>
@@ -113,18 +137,73 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
                     </LineChart>
                 )
             }
+            case 'timeSeriesBar':
+            // eslint-disable-next-line no-fallthrough
             case 'bar': {
-                const config: BarChartConfig = {
+                const isTimeSeries =
+                    spec.chartType === 'timeSeriesBar' || (spec.labels.length > 0 && looksLikeISODate(spec.labels[0]))
+
+                if (isTimeSeries) {
+                    const yAxisConfig: YAxisConfig | undefined = primaryAxis
+                        ? {
+                              id: primaryAxis.id,
+                              position: primaryAxis.id,
+                              format: primaryAxis.format,
+                              currency: primaryAxis.currency,
+                              scale: primaryAxis.scale,
+                              label: primaryAxis.label,
+                              startAtZero: primaryAxis.startAtZero,
+                          }
+                        : undefined
+                    const tsBarConfig: TimeSeriesBarChartConfig = {
+                        xAxis: { timezone: 'UTC', interval: 'day' },
+                        yAxis: yAxisConfig,
+                        barLayout: barLayout(spec.config),
+                        barCornerRadius: 4,
+                        divergingStack: spec.config?.divergingStack,
+                        fillStyle: spec.config?.barFillStyle,
+                        showCrosshair: spec.config?.showCrosshair,
+                        showAxisLines: spec.config?.showAxisLines,
+                        tooltip: toTooltipConfig(spec.config),
+                        legend: {
+                            show: spec.config?.showLegend ?? spec.config?.legendPosition != null,
+                            position: spec.config?.legendPosition,
+                            align: spec.config?.legendAlign,
+                        },
+                    }
+                    return (
+                        <TimeSeriesBarChart series={series} labels={spec.labels} config={tsBarConfig} theme={theme}>
+                            {spec.config?.showValueLabels && <ValueLabels />}
+                            {refLines}
+                        </TimeSeriesBarChart>
+                    )
+                }
+
+                const barConfig: BarChartConfig = {
                     barLayout: barLayout(spec.config),
                     axisOrientation: spec.config?.horizontal ? 'horizontal' : 'vertical',
                     showGrid: spec.config?.showGrid,
+                    showAxisLines: spec.config?.showAxisLines,
+                    showCrosshair: spec.config?.showCrosshair,
+                    hideXAxis: spec.config?.hideXAxis,
+                    hideYAxis: spec.config?.hideYAxis,
+                    tooltip: toTooltipConfig(spec.config),
                     yAxes: toQuillYAxes(spec.axes),
                     yTickFormatter: primaryAxis ? formatterFor(primaryAxis.format, primaryAxis.currency) : undefined,
-                    bars: { cornerRadius: 4 },
-                    legend: { show: spec.config?.showLegend },
+                    bars: {
+                        cornerRadius: 4,
+                        fillStyle: spec.config?.barFillStyle,
+                        divergingStack: spec.config?.divergingStack,
+                        roundStackEnds: spec.config?.roundStackEnds,
+                    },
+                    legend: {
+                        show: spec.config?.showLegend ?? spec.config?.legendPosition != null,
+                        position: spec.config?.legendPosition,
+                        align: spec.config?.legendAlign,
+                    },
                 }
                 return (
-                    <BarChart series={series} labels={spec.labels} config={config} theme={theme}>
+                    <BarChart series={series} labels={spec.labels} config={barConfig} theme={theme}>
                         {spec.config?.showValueLabels && <ValueLabels />}
                         {refLines}
                     </BarChart>
@@ -134,6 +213,11 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
                 const config: ComboChartConfig = {
                     barLayout: spec.config?.grouped ? 'grouped' : 'stacked',
                     showGrid: spec.config?.showGrid,
+                    showAxisLines: spec.config?.showAxisLines,
+                    showCrosshair: spec.config?.showCrosshair,
+                    hideXAxis: spec.config?.hideXAxis,
+                    hideYAxis: spec.config?.hideYAxis,
+                    tooltip: toTooltipConfig(spec.config),
                     yAxes: toQuillYAxes(spec.axes),
                     yTickFormatter: primaryAxis ? formatterFor(primaryAxis.format, primaryAxis.currency) : undefined,
                     barCornerRadius: 4,
@@ -158,7 +242,14 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
                     xAxis: { timezone: 'UTC', interval: 'day' },
                     yAxis,
                     valueLabels: spec.config?.showValueLabels,
-                    legend: { show: spec.config?.showLegend },
+                    showCrosshair: spec.config?.showCrosshair,
+                    showAxisLines: spec.config?.showAxisLines,
+                    tooltip: toTooltipConfig(spec.config),
+                    legend: {
+                        show: spec.config?.showLegend ?? spec.config?.legendPosition != null,
+                        position: spec.config?.legendPosition,
+                        align: spec.config?.legendAlign,
+                    },
                 }
                 return (
                     <TimeSeriesLineChart series={series} labels={spec.labels} config={config} theme={theme}>
@@ -174,10 +265,11 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
                     label,
                     data: [first.data[i] ?? 0],
                 }))
+                const innerRadiusRatio = spec.config?.innerRadiusRatio ?? (spec.config?.donut ? 0.6 : 0)
                 return (
                     <PieChart
                         series={sliceSeries}
-                        config={{ innerRadiusRatio: spec.config?.donut ? 0.6 : 0, showLabelOnSlice: true }}
+                        config={{ innerRadiusRatio, showLabelOnSlice: true }}
                         valueFormatter={formatterFor(primaryAxis?.format, primaryAxis?.currency)}
                         theme={theme}
                     />
@@ -193,7 +285,11 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
                         theme={theme}
                         color={first.color}
                         formatValue={formatterFor(primaryAxis?.format, primaryAxis?.currency)}
-                        showChange
+                        showChange={spec.config?.showChange ?? true}
+                        goodDirection={spec.config?.goodDirection}
+                        changeInline={spec.config?.changeInline}
+                        sparklineFill={spec.config?.sparklineFill}
+                        subtitle={spec.config?.subtitle}
                     />
                 )
             }
@@ -206,7 +302,9 @@ export function ChartSpecRenderer({ spec, height = 320, className }: ChartSpecRe
         <div className={className}>
             {spec.title && !isCard && <div className="text-sm font-semibold mb-1">{spec.title}</div>}
             {/* eslint-disable-next-line react/forbid-dom-props -- chart body needs an explicit pixel height */}
-            <div style={isCard ? undefined : { height }}>{body}</div>
+            <div style={isCard ? undefined : { height }} className={isCard ? undefined : 'flex flex-col'}>
+                {body}
+            </div>
             {spec.narrative && <div className="text-xs text-secondary mt-2">{spec.narrative}</div>}
         </div>
     )

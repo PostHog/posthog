@@ -64,23 +64,96 @@ export const chartSpecReferenceLineSchema = z
 
 export const chartSpecConfigSchema = z
     .object({
+        // Layout
         stacked: z.boolean().optional().describe('Stack series (bar/area).'),
         grouped: z.boolean().optional().describe('Group bars side by side instead of stacking.'),
         percent: z.boolean().optional().describe('Normalize the stack to 100%.'),
         horizontal: z.boolean().optional().describe('Bar charts only: lay bars out horizontally (ranked list).'),
-        donut: z.boolean().optional().describe('Pie charts only: render as a donut.'),
+        donut: z.boolean().optional().describe('Pie charts only: render as a donut (innerRadiusRatio 0.6).'),
+        innerRadiusRatio: z
+            .number()
+            .min(0)
+            .max(0.95)
+            .optional()
+            .describe(
+                'Pie charts: inner radius as a fraction (0 = pie, 0.4–0.7 = donut ring, 0.85 = thin ring). Overrides donut.'
+            ),
+
+        // Legend
         showLegend: z.boolean().optional().describe('Show an interactive legend.'),
+        legendPosition: z
+            .enum(['top', 'bottom', 'left', 'right'])
+            .optional()
+            .describe("Where the legend sits relative to the plot. Default 'bottom'."),
+        legendAlign: z
+            .enum(['start', 'center', 'end'])
+            .optional()
+            .describe("Legend alignment along its axis. Default 'center'."),
+
+        // Overlays
         showGrid: z.boolean().optional().describe('Show horizontal grid lines.'),
+        showAxisLines: z
+            .boolean()
+            .optional()
+            .describe('Show L-shaped axis baselines only (no interior grid). Ignored when showGrid is true.'),
+        showCrosshair: z.boolean().optional().describe('Show a vertical crosshair line following the cursor.'),
         showValueLabels: z.boolean().optional().describe('Draw the value of each point/bar on the chart.'),
+
+        // Axes
+        hideXAxis: z.boolean().optional().describe('Hide x-axis labels and reduce bottom margin.'),
+        hideYAxis: z.boolean().optional().describe('Hide y-axis labels and reduce left margin.'),
+
+        // Tooltip
+        tooltipShowTotal: z
+            .boolean()
+            .optional()
+            .describe('Show a total row at the bottom of the tooltip. Useful for stacked charts.'),
+        tooltipPlacement: z
+            .enum(['follow-data', 'top', 'cursor'])
+            .optional()
+            .describe(
+                "Tooltip anchor: 'follow-data' (default, tracks highest point), 'top' (fixed), 'cursor' (beside mouse)."
+            ),
+
+        // Bar-specific
+        barFillStyle: z
+            .enum(['flat', 'gradient', 'gloss'])
+            .optional()
+            .describe("Bar fill treatment. 'flat' (default), 'gradient' (diagonal sheen), 'gloss' (radial highlight)."),
+        divergingStack: z
+            .boolean()
+            .optional()
+            .describe('Stacked bar charts: stack negative values below the zero baseline.'),
+        roundStackEnds: z
+            .boolean()
+            .optional()
+            .describe('Stacked bar charts: round both outer ends of the whole stack as a pill.'),
+
+        // MetricCard-specific
+        showChange: z.boolean().optional().describe('Metric card: show a change/trend pill.'),
+        goodDirection: z
+            .enum(['up', 'down'])
+            .optional()
+            .describe("Metric card: which direction is good ('up' = higher is better, 'down' = lower is better)."),
+        changeInline: z
+            .boolean()
+            .optional()
+            .describe('Metric card: render the change pill beside the headline instead of in the header row.'),
+        sparklineFill: z
+            .boolean()
+            .optional()
+            .describe("Metric card: fill the card's remaining height with the sparkline."),
+        subtitle: z.string().optional().describe('Metric card: caption shown under the headline.'),
     })
     .describe('Layout and decoration toggles.')
 
 export const chartSpecSchema = z
     .object({
         chartType: z
-            .enum(['line', 'bar', 'combo', 'timeSeriesLine', 'pie', 'metricCard'])
+            .enum(['line', 'bar', 'combo', 'timeSeriesLine', 'timeSeriesBar', 'pie', 'metricCard'])
             .describe(
-                'The chart family. Use `combo` to mix bars and lines, `timeSeriesLine` when x labels are ISO dates, ' +
+                'The chart family. Use `timeSeriesLine` or `timeSeriesBar` when x labels are ISO date strings ' +
+                    '(they format dates properly); `bar`/`line` for categorical x-axes; `combo` to mix bars and lines; ' +
                     '`metricCard` for a single headline number with a sparkline.'
             ),
         title: z.string().optional().describe('Short chart title.'),
