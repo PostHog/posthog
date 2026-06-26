@@ -7,7 +7,7 @@ import posthog.models.utils
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1243_alter_team_options"),
+        ("posthog", "1244_team_event_retention_months"),
     ]
 
     operations = [
