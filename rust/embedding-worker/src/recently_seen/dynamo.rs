@@ -16,7 +16,7 @@ use anyhow::Result;
 const PK: &str = "pk";
 const SK: &str = "sk";
 const EMITTED_AT: &str = "emitted_at";
-const TTL_ATTR: &str = "ttl";
+const TTL_ATTR: &str = "expires_at";
 // DynamoDB caps BatchWriteItem at 25 items and BatchGetItem at 100 keys per request.
 const BATCH_WRITE_CHUNK: usize = 25;
 const BATCH_GET_CHUNK: usize = 100;
