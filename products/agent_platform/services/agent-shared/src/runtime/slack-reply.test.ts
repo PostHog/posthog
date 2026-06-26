@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { HttpFetcher } from './http-client'
-import { isSlackTriggerMetadata, postSlackReply, SlackStatusReporter, slackTextFromContent } from './slack-reply'
+import {
+    decodeApprovalActionValue,
+    postSlackApprovalButtons,
+    postSlackReply,
+    SlackStatusReporter,
+    slackTextFromContent,
+} from './slack-reply'
 
 function jsonResponse(body: unknown, status = 200): Response {
     return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } })
@@ -85,6 +91,70 @@ describe('postSlackReply', () => {
         })
         expect(ok).toBe(false)
         expect(warn).toHaveBeenCalledWith(expect.objectContaining({ err: 'network down' }), 'slack_reply_post_threw')
+    })
+})
+
+describe('postSlackApprovalButtons', () => {
+    const opts = {
+        token: 'xoxb-123',
+        channel: 'C1',
+        thread_ts: '111.222',
+        sessionId: 'sess-1',
+        requestId: 'req-1',
+        toolName: '@posthog/team-delete',
+    }
+
+    it('posts Approve/Reject buttons whose values round-trip to the right callback routing', async () => {
+        const { http, fetch } = httpReturning(jsonResponse({ ok: true }))
+        const ok = await postSlackApprovalButtons(http, opts)
+        expect(ok).toBe(true)
+
+        const [url, init] = fetch.mock.calls[0]
+        expect(url).toBe('https://slack.com/api/chat.postMessage')
+        const body = JSON.parse((init as RequestInit).body as string)
+        expect(body).toMatchObject({ channel: 'C1', thread_ts: '111.222' })
+
+        // The buttons carry the opaque action values Slack echoes back on click;
+        // the ingress decodes them to route the decision to the right approval.
+        // This is the "right callback" assertion — a mis-encoded session/request
+        // id here is exactly what breaks the decision round-trip.
+        const actions = (body.blocks as Array<{ type: string; elements?: Array<{ value: string }> }>).find(
+            (b) => b.type === 'actions'
+        )
+        const values = (actions?.elements ?? []).map((e) => decodeApprovalActionValue(e.value))
+        expect(values).toEqual([
+            { decision: 'approve', sessionId: 'sess-1', requestId: 'req-1' },
+            { decision: 'reject', sessionId: 'sess-1', requestId: 'req-1' },
+        ])
+    })
+
+    it('logs an info line with the routing data it sent (debug visibility)', async () => {
+        const { http } = httpReturning(jsonResponse({ ok: true }))
+        const info = vi.fn()
+        await postSlackApprovalButtons(http, { ...opts, logger: { warn: vi.fn(), info } })
+        expect(info).toHaveBeenCalledWith(
+            expect.objectContaining({
+                session_id: 'sess-1',
+                request_id: 'req-1',
+                channel: 'C1',
+                thread_ts: '111.222',
+                approve_value: expect.any(String),
+                reject_value: expect.any(String),
+            }),
+            'slack_approval_buttons_post'
+        )
+    })
+
+    it('warns and skips when the bot token is missing', async () => {
+        const { http, fetch } = httpReturning(jsonResponse({ ok: true }))
+        const warn = vi.fn()
+        const ok = await postSlackApprovalButtons(http, { ...opts, token: undefined, logger: { warn } })
+        expect(ok).toBe(false)
+        expect(fetch).not.toHaveBeenCalled()
+        expect(warn).toHaveBeenCalledWith(
+            expect.objectContaining({ channel: 'C1' }),
+            'slack_approval_buttons_no_bot_token'
+        )
     })
 })
 
@@ -181,19 +251,4 @@ describe('SlackStatusReporter', () => {
         await r.start('working again')
         expect(calls.filter((c) => c.url.endsWith('chat.postMessage'))).toHaveLength(2)
     })
-})
-
-describe('isSlackTriggerMetadata', () => {
-    it('accepts a well-formed slack metadata object', () => {
-        expect(
-            isSlackTriggerMetadata({ type: 'slack', workspace_id: 'W', channel: 'C1', ts: 't', thread_ts: 't' })
-        ).toBe(true)
-    })
-
-    it.each([null, undefined, {}, { type: 'chat' }, { type: 'slack', channel: 'C1' }])(
-        'rejects non-slack / incomplete metadata: %j',
-        (meta) => {
-            expect(isSlackTriggerMetadata(meta)).toBe(false)
-        }
-    )
 })

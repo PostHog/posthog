@@ -1,7 +1,8 @@
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { PostgresUse } from '~/common/utils/db/postgres'
+
 import { commonUserId, insertRow, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, PropertyOperator, RawAction } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
-import { PostgresUse } from '../../utils/db/postgres'
 import { ActionManager } from './action-manager'
 
 describe('ActionManager', () => {

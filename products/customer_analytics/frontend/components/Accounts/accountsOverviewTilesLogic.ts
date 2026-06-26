@@ -7,7 +7,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { AccountsQueryResponse, DataNode } from '~/queries/schema/schema-general'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY } from '../../constants'
+import { ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
 import { AccountColumnGroup, AccountColumnOption, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import type { accountsOverviewTilesLogicType } from './accountsOverviewTilesLogicType'
 import {
@@ -182,7 +182,7 @@ export const accountsOverviewTilesLogic = kea<accountsOverviewTilesLogicType>([
         values: [
             accountsColumnConfigLogic,
             ['accountsColumnGroups'],
-            dataNodeLogic({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY, query: {} as DataNode }),
+            dataNodeLogic({ key: ACCOUNTS_METRICS_DATA_NODE_KEY, query: {} as DataNode }),
             ['response as accountsResponse', 'responseLoading as accountsResponseLoading'],
         ],
     })),

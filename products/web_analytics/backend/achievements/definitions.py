@@ -16,7 +16,7 @@ class TrackKey(StrEnum):
     TRAFFIC = "traffic"
 
 
-STREAK_ARM_HOLDOUT = "holdout"
+STREAK_ARM_CONTROL = "control"
 STREAK_ARM_HYBRID = "hybrid"
 STREAK_ARM_DAILY = "daily-only"
 STREAK_ARM_WEEKLY = "weekly-only"

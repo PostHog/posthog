@@ -1,24 +1,12 @@
-import { useValues } from 'kea'
+import { LegacyOnboarding } from './legacy/LegacyOnboarding'
+import type { OnboardingFlowVariant } from './onboardingVariants'
+import { RedesignOnboarding } from './redesign/RedesignOnboarding'
 
-import { ProductSelectionShell } from 'scenes/onboarding/productSelection/ProductSelectionShell'
-
-import { OnboardingFlowHost } from './OnboardingFlowHost'
-import { onboardingLogic } from './onboardingLogic'
-
-function LegacyOnboarding(): JSX.Element | null {
-    const { productKey } = useValues(onboardingLogic)
-
-    if (!productKey) {
-        return <ProductSelectionShell />
-    }
-
-    return (
-        <div className="pt-4 pb-10">
-            <OnboardingFlowHost />
-        </div>
-    )
-}
-
-export const onboardingVariantRegistry: Record<string, () => JSX.Element | null> = {
-    control: LegacyOnboarding,
+/**
+ * Maps each shipped variant to its host component. Add a variant here and in
+ * `ONBOARDING_FLOW_VARIANTS` (onboardingVariants.ts) to ship a new onboarding.
+ */
+export const onboardingVariantRegistry: Record<OnboardingFlowVariant, () => JSX.Element | null> = {
+    legacy: LegacyOnboarding,
+    redesign: RedesignOnboarding,
 }

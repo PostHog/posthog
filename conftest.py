@@ -47,3 +47,25 @@ def pytest_unconfigure() -> None:
     # gone — observed as exit code 139 (SIGSEGV) on the Temporal CI shards. Restore the
     # default heap state so shutdown behaves exactly as without the boot window.
     gc.unfreeze()
+
+
+@pytest.fixture(autouse=True)
+def _activate_personhog_fake(request):
+    """Force all person/group reads through the personhog fake for every test.
+
+    The fake is seeded explicitly by the test helpers in posthog.test.persons
+    (create_person, create_group, etc.).  While the fake is active, ORM access to
+    persons-DB models raises (PersonsDBORMBlockedError) so nothing can silently
+    fall back to the persons DB.
+
+    Tests that exercise the persons DB layer itself (sync, backfill, maintenance
+    commands) opt out with ``@pytest.mark.persons_db_direct`` — either on the
+    class/function or as a module-level ``pytestmark``.
+    """
+    if request.node.get_closest_marker("persons_db_direct"):
+        yield
+        return
+    from posthog.personhog_client.fake_client import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
+
+    with activate_personhog_fake():
+        yield

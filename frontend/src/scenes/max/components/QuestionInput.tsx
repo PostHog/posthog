@@ -144,7 +144,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     },
     ref
 ) {
-    const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const { question, panelId: maxPanelId } = useValues(maxLogic)
     const { setQuestion } = useActions(maxLogic)
     const { user } = useValues(userLogic)
@@ -166,8 +166,14 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
         queuedMessages,
         queueSubmitting,
     } = useValues(maxThreadLogic)
-    const { askMax, stopGeneration, completeThreadGeneration, setSupportOverrideEnabled, updateQueuedMessage } =
-        useActions(maxThreadLogic)
+    const {
+        askMax,
+        stopGeneration,
+        completeThreadGeneration,
+        setSupportOverrideEnabled,
+        updateQueuedMessage,
+        releaseSandboxPrewarm,
+    } = useActions(maxThreadLogic)
     const { isActive: handsFreeActive } = useValues(handsFreeLogic({ panelId: maxPanelId }))
     // Only the hands-free row needs bottom-aligned pills — it has the mic + submit pair
     // pinned to the bottom and pills sitting in normal flow look misaligned next to them.
@@ -226,7 +232,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
 
     const hasQuestion = inputValue.trim().length > 0
     const isQueueingSubmission = queueingEnabled && threadLoading && hasQuestion
-    const showStopButton = threadLoading && !isQueueingSubmission
+    const showStopButton = threadLoading && !isQueueingSubmission && !cancelLoading
 
     // Mirrors maxThreadLogic's `submissionDisabledReason` selector, but using the local input
     // value so the submit guard stays correct while the debounced sync to kea is still pending.
@@ -257,11 +263,6 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
     }
     if (cancelLoading) {
         disabledReason = 'Cancelling...'
-    }
-    // For non-admins, disable button when consent not given (admins see popup instead)
-    const isAdmin = !dataProcessingApprovalDisabledReason
-    if (!dataProcessingAccepted && !isAdmin && !disabledReason) {
-        disabledReason = dataProcessingApprovalDisabledReason
     }
 
     useEffect(() => {
@@ -378,7 +379,23 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         ref={textAreaRef}
                                         value={isSharedThread ? '' : inputValue}
                                         onChange={handleQuestionChange}
-                                        onBlur={() => debouncedSetQuestion.flush()}
+                                        onBlur={(e) => {
+                                            debouncedSetQuestion.flush()
+                                            // Release any sandbox pre-warm when the user leaves the
+                                            // input without sending. No-op on LangGraph / unwarmed
+                                            // conversations.
+                                            //
+                                            // But clicking the send button blurs the textarea *before*
+                                            // its onClick fires the send — releasing here would cancel
+                                            // the very warm Run the send is about to consume. When focus
+                                            // moves to the send button, skip the release and let the send
+                                            // path consume the warm (it does so without a DELETE).
+                                            const next = e.relatedTarget as HTMLElement | null
+                                            if (next?.closest('[data-attr="max-send-message"]')) {
+                                                return
+                                            }
+                                            releaseSandboxPrewarm()
+                                        }}
                                         onPressEnter={() => {
                                             if (
                                                 hasQuestion &&
@@ -476,7 +493,7 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         mainAxis: state.placement.includes('top') ? 30 : 1,
                                     })),
                                 ]}
-                                hidden={!isAdmin || (!threadLoading && !pendingPrompt)}
+                                hidden={!threadLoading && !pendingPrompt}
                             >
                                 <LemonButton
                                     data-attr={showStopButton ? 'max-stop-generation' : 'max-send-message'}
@@ -501,9 +518,9 @@ export const QuestionInput = React.forwardRef<HTMLDivElement, QuestionInputProps
                                         submit(inputValue)
                                     }}
                                     tooltip={
-                                        disabledReason ? (
-                                            disabledReason
-                                        ) : showStopButton ? (
+                                        // If there's a disabled reason tooltip shown below, don't show a tooltip here
+                                        // Else, show the tooltip based on the button state
+                                        disabledReason ? undefined : showStopButton ? (
                                             <>
                                                 Let's bail <KeyboardShortcut enter />
                                             </>

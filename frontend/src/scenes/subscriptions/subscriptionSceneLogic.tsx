@@ -1,7 +1,6 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import {
@@ -17,9 +16,7 @@ import type {
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
 import { runSubscriptionTestDelivery } from 'lib/components/Subscriptions/runSubscriptionTestDelivery'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -56,9 +53,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
     props({} as SubscriptionSceneLogicProps),
     key(({ id }) => id),
     path((key) => ['scenes', 'subscriptions', 'subscriptionSceneLogic', key]),
-    connect(() => ({
-        values: [featureFlagLogic, ['featureFlags']],
-    })),
     actions({
         deliverSubscription: (id: number) => ({ id }),
         deliverSubscriptionSuccess: true,
@@ -135,9 +129,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as PaginatedSubscriptionDeliveryListApi | null,
             {
                 loadDeliveriesPage: async (targetUrl: string | null) => {
-                    if (!values.deliveriesEnabled) {
-                        return null
-                    }
                     const numericId = parseInt(props.id, 10)
                     if (!Number.isFinite(numericId)) {
                         return null
@@ -157,10 +148,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         ],
     })),
     selectors({
-        deliveriesEnabled: [
-            (s) => [s.featureFlags],
-            (featureFlags): boolean => Boolean(featureFlags[FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]),
-        ],
         breadcrumbs: [
             (s) => [s.subscription],
             (subscription): Breadcrumb[] => {
@@ -184,20 +171,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             },
         ],
     }),
-    subscriptions(({ actions, values }) => ({
-        featureFlags: (featureFlags, oldFeatureFlags) => {
-            const enabled = Boolean(featureFlags[FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS])
-            const wasEnabled = Boolean(oldFeatureFlags?.[FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS])
-            if (enabled === wasEnabled) {
-                return
-            }
-            if (!enabled) {
-                actions.loadDeliveriesPageSuccess(null, null)
-            } else if (values.subscription) {
-                void actions.loadDeliveriesPage(null)
-            }
-        },
-    })),
     listeners(({ actions, values, props, cache, selectors }) => ({
         submitDeliveryFeedback: ({ deliveryId, feedback, source }, _breakpoint, _action, previousState) => {
             posthog.capture('ai_report_feedback', {
@@ -220,12 +193,12 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             }, `deliveryThanks-${deliveryId}`)
         },
         setDeliveryStatusFilter: () => {
-            if (values.deliveriesEnabled && values.subscription) {
+            if (values.subscription) {
                 void actions.loadDeliveriesPage(null)
             }
         },
         loadSubscriptionSuccess: () => {
-            if (values.deliveriesEnabled && values.subscription) {
+            if (values.subscription) {
                 void actions.loadDeliveriesPage(null)
             }
         },
@@ -242,9 +215,6 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
         // Test delivery returns 202 before Temporal persists the delivery row. Refetch now (fast path) and
         // again after a short delay so the list usually shows the new row without manual refresh.
         deliverSubscriptionSuccess: async (_, breakpoint) => {
-            if (!values.deliveriesEnabled) {
-                return
-            }
             void actions.loadDeliveriesPage(null)
             await breakpoint(2000)
             void actions.loadDeliveriesPage(null)

@@ -11,6 +11,8 @@ from posthog.schema import (
     InsightThresholdType,
 )
 
+from posthog.api.services.query import ExecutionMode
+
 from products.alerts.backend.evaluation.comparator import MAX_BREACH_MESSAGES, evaluate_threshold
 from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.hogql import (
@@ -21,6 +23,7 @@ from products.alerts.backend.evaluation.hogql import (
 )
 
 CALC_PATH = "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight"
+_IF_STALE = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
 
 ABSOLUTE = AlertCondition(type=AlertConditionType.ABSOLUTE_VALUE)
 
@@ -41,7 +44,7 @@ def _threshold(type_=InsightThresholdType.ABSOLUTE, lower=None, upper=None):
 def _extract(rows, *, columns=None, condition_type=AlertConditionType.ABSOLUTE_VALUE, config: dict | None = None):
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=rows, columns=columns)
-        return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock())
+        return HogQLExtractor().extract(_alert(condition_type, config), MagicMock(), MagicMock(), _IF_STALE)
 
 
 @pytest.mark.parametrize(
@@ -107,7 +110,7 @@ def test_evaluation_uses_saved_variable_values_not_session_overrides():
     # possibly-overridden cached result) can disagree with what the alert actually evaluates.
     with patch(CALC_PATH) as calc:
         calc.return_value = MagicMock(result=[[5]], columns=["count"])
-        HogQLExtractor().extract(_alert(), MagicMock(), MagicMock())
+        HogQLExtractor().extract(_alert(), MagicMock(), MagicMock(), _IF_STALE)
     assert "variables_override" not in calc.call_args.kwargs
 
 
@@ -122,7 +125,8 @@ def test_single_numeric_column_heuristic_skips_date_column():
     rows = [["2024-01-01", 10], ["2024-01-02", 42]]
     result = _extract(rows, columns=["day", "value"])
     assert [p.value for p in result.series[0].points] == [10.0, 42.0]
-    assert result.series[0].label == "value"
+    # The first non-evaluated column labels the evaluated (last) row — here the day.
+    assert result.series[0].label == "2024-01-02"
 
 
 @pytest.mark.parametrize(
@@ -141,7 +145,8 @@ def test_explicit_column_pick():
     rows = [["2024-01-01", 1, 10], ["2024-01-02", 2, 42]]
     result = _extract(rows, columns=["day", "errors", "total"], config={"type": "HogQLAlertConfig", "column": "total"})
     assert [p.value for p in result.series[0].points] == [10.0, 42.0]
-    assert result.series[0].label == "total"
+    # Evaluates "total"; the label auto-derives to the first non-evaluated column ("day").
+    assert result.series[0].label == "2024-01-02"
 
 
 def test_explicit_column_not_in_result_raises():
@@ -177,6 +182,20 @@ def test_absolute_alert_breaches_on_last_row():
     assert evaluation.value == 200.0
     assert evaluation.breaches is not None
     assert evaluation.breaches[0] == "The SQL insight value (200.0) is more than upper threshold (100.0)"
+
+
+def test_single_row_breach_message_names_the_label():
+    # A resolved label column surfaces in the threshold breach message, like any-row does.
+    result = _extract([["Burn rate 1h", 10], ["Burn rate 24h", 200]], columns=["metric", "value"])
+    evaluation = evaluate_threshold(result, ABSOLUTE, _threshold(upper=100))
+    assert evaluation.breaches == ["The SQL insight value (Burn rate 24h) (200.0) is more than upper threshold (100.0)"]
+
+
+def test_single_row_breach_message_omits_label_without_a_label_column():
+    # No distinct label column → value-column fallback isn't surfaced (no redundant "(value)").
+    result = _extract([[10], [200]], columns=["value"])
+    evaluation = evaluate_threshold(result, ABSOLUTE, _threshold(upper=100))
+    assert evaluation.breaches == ["The SQL insight value (200.0) is more than upper threshold (100.0)"]
 
 
 def test_relative_alert_needs_two_rows():
@@ -215,6 +234,35 @@ def test_first_row_has_no_cap():
     rows = [[float(i)] for i in range(LAST_ROW_MAX_ROWS)]
     result = _extract(rows, config={"evaluation": "first_row"})
     assert result.series[0].points[result.series[0].current_index].value == 0.0  # row 0
+
+
+@pytest.mark.parametrize(
+    "evaluation,expected_label",
+    [
+        ("last_row", "Burn rate 24h"),  # tail row is the evaluated one
+        ("first_row", "Burn rate 1h"),  # head row is the evaluated one
+    ],
+)
+def test_single_row_labels_evaluated_row_by_label_column(evaluation, expected_label):
+    # The label column names the evaluated row (tail for last_row, head for first_row) in breach messages.
+    rows = [["Burn rate 1h", 0.93], ["Burn rate 24h", 1.03]]
+    result = _extract(
+        rows,
+        columns=["metric", "value"],
+        config={"type": "HogQLAlertConfig", "evaluation": evaluation, "label_column": "metric"},
+    )
+    assert result.series[0].label == expected_label
+
+
+def test_single_row_label_falls_back_to_value_column_when_single_column():
+    # No distinct label column to derive from → fall back to the value column name, not "row N".
+    result = _extract([[10], [42]], columns=["value"])
+    assert result.series[0].label == "value"
+
+
+def test_single_row_missing_label_column_raises():
+    with pytest.raises(AlertExtractionError, match="label column"):
+        _extract([["a", 1]], columns=["metric", "value"], config={"type": "HogQLAlertConfig", "label_column": "gone"})
 
 
 def test_any_row_breaches_on_any_value_with_row_label():
