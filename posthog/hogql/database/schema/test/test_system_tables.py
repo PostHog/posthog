@@ -1,6 +1,7 @@
 import uuid
 from typing import TYPE_CHECKING
 
+import pytest
 from posthog.test.base import BaseTest, NonAtomicBaseTest
 
 from django.apps import apps
@@ -667,6 +668,7 @@ SYSTEM_TABLE_FACTORIES = [
 ]
 
 
+@pytest.mark.persons_db_direct
 class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
     """Create entities in two teams and query via ClickHouse's postgresql() function
     to verify each team only sees its own data."""

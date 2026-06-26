@@ -6,7 +6,7 @@ Covers routing and RPC behavior for:
 """
 
 from posthog.test.base import BaseTest
-from unittest.mock import ANY, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -19,8 +19,7 @@ from posthog.test.persons import create_person
 
 
 class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
-    @patch("posthog.models.person.util.PERSONHOG_ROUTING_TOTAL")
-    def test_routes_to_personhog(self, mock_routing_counter):
+    def test_routes_to_personhog(self):
         mock_person = MagicMock()
         mock_person.uuid = "550e8400-e29b-41d4-a716-446655440000"
         mock_person.delete = MagicMock()
@@ -29,7 +28,6 @@ class TestDeletePersonsFromPostgresRouting(SimpleTestCase):
             delete_persons_from_postgres(team_id=1, persons=[mock_person])
 
         mock_person.delete.assert_not_called()
-        mock_routing_counter.labels.assert_called_with(operation="delete_persons", source="personhog", client_name=ANY)
 
     def test_personhog_sends_correct_uuids(self):
         mock_persons = []

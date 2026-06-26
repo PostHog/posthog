@@ -300,8 +300,20 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
         person_not_changed_1 = Person.objects.create(
             team_id=self.team.pk, properties={"abcdef": 1111}, version=0, uuid=uuid4()
         )
+        create_person(
+            team_id=self.team.pk,
+            properties=person_not_changed_1.properties,
+            uuid=str(person_not_changed_1.uuid),
+            version=person_not_changed_1.version or 0,
+        )
         person_not_changed_2 = Person.objects.create(
             team_id=self.team.pk, properties={"abcdefg": 11112}, version=1, uuid=uuid4()
+        )
+        create_person(
+            team_id=self.team.pk,
+            properties=person_not_changed_2.properties,
+            uuid=str(person_not_changed_2.uuid),
+            version=person_not_changed_2.version or 0,
         )
 
         # 2 persons who should be created
@@ -363,10 +375,24 @@ class TestSyncPersonsToClickHouse(NonAtomicBaseTest, ClickhouseTestMixin):
             distinct_id="distinct_id",
             version=0,
         )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="distinct_id",
+            person_id=str(person_not_changed_1.uuid),
+            is_deleted=False,
+            version=0,
+        )
         PersonDistinctId.objects.create(
             team=self.team,
             person=person_not_changed_1,
             distinct_id="distinct_id-9",
+            version=9,
+        )
+        create_person_distinct_id(
+            team_id=self.team.pk,
+            distinct_id="distinct_id-9",
+            person_id=str(person_not_changed_1.uuid),
+            is_deleted=False,
             version=9,
         )
 
