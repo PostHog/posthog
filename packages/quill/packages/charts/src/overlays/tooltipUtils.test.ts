@@ -1,6 +1,9 @@
 import { findClosestSeriesKey } from './tooltipUtils'
 
-const row = (key, yPixel) => ({ series: { key }, yPixel })
+const row = (key: string, yPixel?: number): { series: { key: string }; yPixel?: number } => ({
+    series: { key },
+    yPixel,
+})
 
 describe('findClosestSeriesKey', () => {
     it('returns null when no entry has yPixel', () => {
