@@ -8,11 +8,15 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import TeamScopedManager
+from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
 
 if TYPE_CHECKING:
+    from posthog.models.user import User
+
     from products.logs.backend.alert_state_machine import AlertSnapshot
 
 logger = logging.getLogger(__name__)
@@ -44,6 +48,57 @@ class TeamLogsConfig(models.Model):
 
 
 register_team_extension_signal(TeamLogsConfig, logger=logger)
+
+
+class LogsUserConfigManager(TeamScopedManager["LogsUserConfig"]):
+    """Binds the *user* dimension on top of team scoping.
+
+    `TeamScopedRootMixin`'s manager fail-closes the *team* dimension but does NOT enforce the user —
+    a bare `.get(pk=...)` / `.filter(...)` in request context (the normal DRF path) could resolve
+    another member's row in the same project (IDOR). Read through `for_user`; writes must pass
+    `user=` explicitly. Never use bare `.objects.get` / `.filter` without binding the user.
+    """
+
+    def for_user(self, user: User) -> models.QuerySet[LogsUserConfig]:
+        # Team scope is applied automatically by the parent manager; we add the user filter it omits.
+        # Outside request context, compose with for_team: `objects.for_team(team_id).filter(user=user)`.
+        return self.filter(user=user)
+
+
+class LogsUserConfig(TeamScopedRootMixin, UpdatedMetaFields, UUIDModel):
+    """A single user's logs-rail configuration for a project — one row per (team, user). Currently
+    holds the custom facets they pinned into the rail's "Custom" group.
+
+    All access MUST bind the user, not just the team: read via `LogsUserConfig.objects.for_user(user)`
+    and pass `user=` explicitly on writes. Team scoping alone does not isolate per-user rows — see
+    `LogsUserConfigManager`."""
+
+    # Unlike TeamLogsConfig, this is a per-*user* preference, so the cross-environment mutation
+    # concern that keeps that model off the root mixin doesn't apply: a user can only edit their
+    # own config. TeamScopedRootMixin therefore scopes it to the project (facets follow the user
+    # across environments) and starts it fail-closed, as required for new team-scoped models.
+    #
+    # db_constraint=False on both FKs: posthog_team and posthog_user are hot tables, so a real FK
+    # constraint here would lock them on CreateModel (blocked by HotTableAlterPolicy). The team_id
+    # column (for scoping) and app-level cascade are retained.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    user = models.ForeignKey(
+        "posthog.User", on_delete=models.CASCADE, related_name="logs_user_configs", db_constraint=False
+    )
+    # list of { "key": str, "attribute_type": "resource" | "log" }
+    custom_facets = models.JSONField(default=list)
+
+    objects = LogsUserConfigManager()  # type: ignore[assignment, misc]
+
+    class Meta:
+        db_table = "logs_logsuserconfig"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="logs_user_config_team_user_uniq"),
+        ]
+
+    def __str__(self) -> str:
+        return f"LogsUserConfig(team={self.team_id}, user={self.user_id})"
+
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
 # cap on retained OK event rows — the N-of-M evaluator never reads more than this many

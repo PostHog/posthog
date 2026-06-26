@@ -609,6 +609,10 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "totp_devices",
         "static_devices",
         "recovery_devices",
+        # Team-scoped reverse relation; resolving it for a diff would hit the fail-closed
+        # manager (no team context during the user-update signal). Per-user logs config is
+        # not part of the user-account audit trail anyway.
+        "logs_user_configs",
     ],
     "AlertConfiguration": [
         "last_checked_at",

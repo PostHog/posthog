@@ -7,13 +7,16 @@ from django.core.exceptions import ValidationError
 
 from parameterized import parameterized
 
+from posthog.models.scoping import team_scope
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.user import User
 
 from products.logs.backend.models import (
     DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY,
     MAX_EVALUATION_PERIODS,
     LogsAlertConfiguration,
     LogsAlertEvent,
+    LogsUserConfig,
     TeamLogsConfig,
 )
 
@@ -250,3 +253,22 @@ class TestTeamLogsConfig(BaseTest):
         self.team.delete()
 
         assert not TeamLogsConfig.objects.filter(team_id=team_id).exists()
+
+
+class TestLogsUserConfig(BaseTest):
+    def test_for_user_returns_only_that_users_config(self):
+        other_user = User.objects.create_and_join(self.organization, "other@posthog.com", "secret")
+        LogsUserConfig.objects.unscoped().create(
+            team=self.team, user=self.user, custom_facets=[{"key": "mine", "attribute_type": "resource"}]
+        )
+        LogsUserConfig.objects.unscoped().create(
+            team=self.team, user=other_user, custom_facets=[{"key": "theirs", "attribute_type": "resource"}]
+        )
+
+        # for_user binds the user dimension that the team-scoped manager does not: each user's query
+        # returns only their own row, never the other member's (the IDOR the manager guards against).
+        with team_scope(self.team.id, canonical=True):
+            assert list(LogsUserConfig.objects.for_user(self.user).values_list("user_id", flat=True)) == [self.user.id]
+            assert list(LogsUserConfig.objects.for_user(other_user).values_list("user_id", flat=True)) == [
+                other_user.id
+            ]
