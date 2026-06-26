@@ -87,7 +87,7 @@ from posthog.utils import multisort
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):

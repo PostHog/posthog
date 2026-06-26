@@ -260,7 +260,7 @@ async function slackEventsHandler(ctx: RouteCtx): Promise<void> {
             // Stash the originating thread coordinates so the runner can post a
             // sanitized failure reply if the session dies before answering.
             triggerMetadata: {
-                type: 'slack',
+                kind: 'slack',
                 workspace_id: workspaceId,
                 channel: event.channel,
                 ts: event.ts,

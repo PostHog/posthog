@@ -50,7 +50,7 @@ export function useInsightsLegendConfig({
         const showContextMenu = legendInteractive && legendSeriesIsolationMenuEligible
         return {
             show: !!showLegend,
-            position: (legendPosition as ChartLegendConfig['position']) ?? 'bottom',
+            position: (legendPosition as ChartLegendConfig['position']) ?? 'right',
             interactive: legendInteractive,
             hiddenKeys,
             onToggleSeries: (key: string) => {

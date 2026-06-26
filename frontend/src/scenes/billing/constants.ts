@@ -5,6 +5,7 @@ export const USAGE_TYPES = [
     { label: 'Group analytics', value: 'group_analytics' },
     { label: 'Recordings', value: 'recording_count_in_period' },
     { label: 'Mobile recordings', value: 'mobile_recording_count_in_period' },
+    { label: 'Recording observations', value: 'recording_observations_count_in_period' },
     { label: 'Feature flag requests', value: 'billable_feature_flag_requests_count_in_period' },
     { label: 'Exceptions', value: 'exceptions_captured_in_period' },
     { label: 'Survey responses', value: 'survey_responses_count_in_period' },

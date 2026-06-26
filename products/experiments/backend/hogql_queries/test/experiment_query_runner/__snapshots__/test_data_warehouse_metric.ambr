@@ -973,6 +973,16 @@
 # ---
 # name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static
   '''
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000005']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
+  '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
@@ -1031,7 +1041,7 @@
                        use_hive_partitioning=0
   '''
 # ---
-# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.1
+# name: TestExperimentQueryRunner.test_query_runner_with_data_warehouse_internal_filters_3_cohort_static.2
   '''
   WITH exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,

@@ -83,10 +83,10 @@ describe('SandboxRunViewer', () => {
     })
 
     it.each<SandboxRunStatus>(['completed', 'failed', 'cancelled'])(
-        'never shows the composer for a terminal run (%s)',
+        'shows the composer for a terminal run so a new run can be started (%s)',
         (status) => {
             renderLive(status)
-            expect(screen.queryByTestId('composer')).not.toBeInTheDocument()
+            expect(screen.getByTestId('composer')).toBeInTheDocument()
         }
     )
 
