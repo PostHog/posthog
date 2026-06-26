@@ -88,17 +88,19 @@ function parseArgs(args) {
 }
 
 function resolveFile(filePath) {
-    const candidates = path.isAbsolute(filePath)
-        ? [filePath]
-        : [
-              path.resolve(process.cwd(), filePath),
-              process.env.INIT_CWD ? path.resolve(process.env.INIT_CWD, filePath) : undefined,
-              path.resolve(frontendDir, filePath),
-              path.resolve(repoRoot, filePath),
-          ]
+    const candidates = (
+        path.isAbsolute(filePath)
+            ? [filePath]
+            : [
+                  path.resolve(process.cwd(), filePath),
+                  process.env.INIT_CWD && path.resolve(process.env.INIT_CWD, filePath),
+                  path.resolve(frontendDir, filePath),
+                  path.resolve(repoRoot, filePath),
+              ]
+    ).filter(Boolean)
 
     for (const candidate of candidates) {
-        if (candidate && fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+        if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
             return candidate
         }
     }
