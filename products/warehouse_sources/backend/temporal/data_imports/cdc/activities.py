@@ -714,7 +714,7 @@ class CDCExtractActivity:
 
     def _delete_own_schedule(self) -> None:
         try:
-            from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+            from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
@@ -938,7 +938,7 @@ class CDCExtractActivity:
     def _unpause_schema_schedule(self, schema: ExternalDataSchema) -> None:
         schema_log = self._schema_log(schema)
         try:
-            from products.data_warehouse.backend.data_load.service import unpause_external_data_schedule
+            from products.data_warehouse.backend.facade.api import unpause_external_data_schedule
 
             unpause_external_data_schedule(str(schema.id))
             schema_log.info("unpaused_schema_schedule_for_resnapshot", schema_id=str(schema.id))
@@ -1244,7 +1244,7 @@ def cleanup_orphan_slots_activity() -> None:
             #    and PostHog-managed slot/publication (only when we own them).
             if source.deleted:
                 try:
-                    from products.data_warehouse.backend.data_load.service import delete_cdc_extraction_schedule
+                    from products.data_warehouse.backend.facade.api import delete_cdc_extraction_schedule
 
                     delete_cdc_extraction_schedule(str(source.id))
                 except Exception:

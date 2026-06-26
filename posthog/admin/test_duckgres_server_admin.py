@@ -14,7 +14,7 @@ from rest_framework.response import Response
 from posthog.admin.admins.duckgres_server_admin import DuckgresServerAdmin
 from posthog.models import DuckgresServer, Organization, Team
 
-MW = "products.data_warehouse.backend.api.managed_warehouse"
+MW = "products.data_warehouse.backend.presentation.views.managed_warehouse"
 
 
 def _attach_messages(request) -> None:

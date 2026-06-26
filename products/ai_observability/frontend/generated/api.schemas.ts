@@ -643,6 +643,22 @@ export interface TestHogResponseApi {
     message?: string
 }
 
+export type ClusteringConfigApiEventFiltersItem = { [key: string]: unknown }
+
+export interface ClusteringConfigApi {
+    /** PostHog property filters that scope automated clustering jobs. Empty array means no saved filters. */
+    event_filters: ClusteringConfigApiEventFiltersItem[]
+    readonly created_at: string
+    readonly updated_at: string
+}
+
+export type ClusteringConfigSetEventFiltersApiEventFiltersItem = { [key: string]: unknown }
+
+export interface ClusteringConfigSetEventFiltersApi {
+    /** PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters. */
+    event_filters: ClusteringConfigSetEventFiltersApiEventFiltersItem[]
+}
+
 /**
  * * `trace` - trace
  * * `generation` - generation
@@ -2346,10 +2362,6 @@ export const EvaluationsListEvaluationType = {
     LlmJudge: 'llm_judge',
     Sentiment: 'sentiment',
 } as const
-
-export type LlmAnalyticsClusteringConfigRetrieve200 = { [key: string]: unknown }
-
-export type LlmAnalyticsClusteringConfigSetEventFiltersCreate200 = { [key: string]: unknown }
 
 export type LlmAnalyticsClusteringJobsListParams = {
     /**

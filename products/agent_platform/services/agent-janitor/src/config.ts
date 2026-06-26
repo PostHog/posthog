@@ -149,6 +149,17 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'forcePathStyle for the S3 client. Default true (SeaweedFS + MinIO both need it; real S3 accepts it).'
         ),
+    aiGatewayUrl: z
+        .string()
+        .url()
+        .default(() => (isDev() ? 'http://localhost:8080/v1' : 'http://ai-gateway/v1'))
+        .describe(
+            'AI gateway base URL (incl. /v1) — the SAME gateway the runner dispatches against. The model-catalog read for models validation hits {url}/models.'
+        ),
+    posthogAiGatewayKey: z
+        .string()
+        .optional()
+        .describe('Optional phs_ bearer for the model-catalog read; /models is otherwise unauthenticated.'),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
@@ -177,6 +188,8 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     AGENT_BUNDLE_S3_ACCESS_KEY_ID: 'bundleS3AccessKeyId',
     AGENT_BUNDLE_S3_SECRET_ACCESS_KEY: 'bundleS3SecretAccessKey',
     AGENT_BUNDLE_S3_FORCE_PATH_STYLE: 'bundleS3ForcePathStyle',
+    POSTHOG_AI_GATEWAY_URL: 'aiGatewayUrl',
+    POSTHOG_AI_GATEWAY_KEY: 'posthogAiGatewayKey',
 })
 
 export function loadAgentJanitorConfig(env: NodeJS.ProcessEnv = process.env): AgentJanitorConfig {
