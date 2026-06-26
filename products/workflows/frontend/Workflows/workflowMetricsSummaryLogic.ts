@@ -41,6 +41,8 @@ export type EmailMetricRow = {
     sent: number
     opened: number
     linkClicked: number
+    bounced: number
+    blocked: number
 }
 
 export const WORKFLOW_SUMMARY_METRICS: Record<
@@ -416,6 +418,8 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         sent: totals.email_sent ?? 0,
                         opened: totals.email_opened ?? 0,
                         linkClicked: totals.email_link_clicked ?? 0,
+                        bounced,
+                        blocked,
                     }
                 }),
         ],
