@@ -827,6 +827,40 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
         assert gallery.file_uploads == []
         assert "Could not generate" in gallery.initial_comment
 
+    def test_prepare_slack_gallery_content_location_returns_bytes(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/from-storage.png",
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            return_value=b"STORAGEBYTES",
+        ):
+            gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        assert len(gallery.file_uploads) == 1
+        assert gallery.file_uploads[0]["content"] == b"STORAGEBYTES"
+
+    def test_prepare_slack_gallery_content_location_read_bytes_none_excludes_asset(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/missing.png",
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            return_value=None,
+        ):
+            gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        assert gallery.file_uploads == []
+        assert "Could not generate" in gallery.initial_comment
+
     def test_default_threaded_keeps_only_first_image_in_main(self) -> None:
         assets = [
             ExportedAsset.objects.create(

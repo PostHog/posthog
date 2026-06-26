@@ -99,7 +99,6 @@ def _prepare_slack_gallery(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
 ) -> SlackGalleryData:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
@@ -507,7 +506,6 @@ async def send_slack_message_with_integration_async(
             is_new_subscription,
             change_summary=change_summary,
             summary_skipped_over_budget=summary_skipped_over_budget,
-            integration=integration,
         )
         return await deliver_slack_gallery(integration, subscription, gallery)
     # `_prepare_slack_message` reads lazily-loaded ORM relations (e.g. `integration.team.organization`),
