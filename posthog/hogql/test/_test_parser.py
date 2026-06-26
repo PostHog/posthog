@@ -6454,15 +6454,21 @@ def parser_test_factory(backend: HogQLParserBackend):
         def test_interval_combined_string_validates_count_and_unit(self):
             # `INTERVAL '<count> <unit>'` requires an ASCII-digit count and a literal-lowercase unit; each invalid input must surface the same error string in both parsers.
             cases = (
-                ("INTERVAL 'twenty days'", "Unsupported interval count: twenty"),
-                ("INTERVAL '-1 day'", "Unsupported interval count: -1"),
-                ("INTERVAL '1.5 days'", "Unsupported interval count: 1.5"),
-                # ClickHouse stores intervals as Int64, so both parsers convert the count with `std::stoll` (i64). A value past Int64 max is out_of_range. `stoll`'s `what()` text differs by stdlib (libc++ adds the `: out of range` / `: no conversion` suffix, libstdc++ doesn't); match the platform-independent prefix only.
-                ("INTERVAL '9223372036854775808 day'", "Unknown error: stoll"),
-                ("INTERVAL '99999999999999999999 day'", "Unknown error: stoll"),
-                # A space-but-empty count (`' '`, `' day'`) isn't a digit-check failure — cpp's per-char isdigit loop is vacuous, then `std::stoll("")` throws. rust used to reject the empty count with "Unsupported interval count:" before reaching the stoll step.
-                ("INTERVAL ' '", "Unknown error: stoll"),
-                ("INTERVAL ' day'", "Unknown error: stoll"),
+                ("INTERVAL 'twenty days'", "Unsupported interval count: 'twenty' is not a valid integer"),
+                ("INTERVAL '-1 day'", "Unsupported interval count: '-1' is not a valid integer"),
+                ("INTERVAL '1.5 days'", "Unsupported interval count: '1.5' is not a valid integer"),
+                # A space-but-empty count (`' '`, `' day'`) is reported the same way — the count before the space isn't a valid integer.
+                ("INTERVAL ' '", "Unsupported interval count: '' is not a valid integer"),
+                ("INTERVAL ' day'", "Unsupported interval count: '' is not a valid integer"),
+                # ClickHouse stores intervals as Int64, so both parsers convert the count with `std::stoll` (i64); a value past Int64 max is rejected as too large. Both parsers emit this exact message (no leaked stdlib `stoll` text), so assert it in full.
+                (
+                    "INTERVAL '9223372036854775808 day'",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                (
+                    "INTERVAL '99999999999999999999 day'",
+                    "Unsupported interval count: '99999999999999999999' is too large",
+                ),
                 ("INTERVAL '1 SECOND'", "Unsupported interval unit: SECOND"),
                 # cpp accepts only the singular or single-`s` plural unit; a doubled plural is rejected. rust used to strip every trailing `s` and silently accept `dayss` as `day`.
                 ("INTERVAL '1 dayss'", "Unsupported interval unit: dayss"),

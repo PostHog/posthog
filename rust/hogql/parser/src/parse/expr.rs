@@ -1410,12 +1410,11 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
     /// top-level combined-string branch of `parse_interval_expr` and the nested
     /// `parse_interval_string_only`.
     ///
-    /// Emulates cpp's `std::stoll` over the count: cpp digit-checks each char (an
-    /// empty count vacuously passes that loop), then converts. ClickHouse stores
-    /// intervals as Int64, so the count is accepted across the full Int64 range;
-    /// an empty string is an `invalid_argument` ("no conversion") and a value past
-    /// Int64 max is `out_of_range`. The unit is matched case-sensitively against
-    /// cpp's literal-lowercase singular / plural set (so `SECOND` rejects).
+    /// The count must be a non-empty run of ASCII digits (cpp digit-checks each
+    /// char). ClickHouse stores intervals as Int64, so the count is accepted
+    /// across the full Int64 range; a digit string past Int64 max is rejected as
+    /// too large. The unit is matched case-sensitively against cpp's
+    /// literal-lowercase singular / plural set (so `SECOND` rejects).
     fn emit_interval_combined_string(
         &mut self,
         count_str: &str,
@@ -1423,29 +1422,21 @@ impl<'a, E: Emitter + Clone> Parser<'a, E> {
         str_tok: Token,
     ) -> Result<E::Value, ParseError> {
         self.bump()?;
-        if !count_str.bytes().all(|b| b.is_ascii_digit()) {
+        if count_str.is_empty() || !count_str.bytes().all(|b| b.is_ascii_digit()) {
             return Err(ParseError::not_implemented_fatal(
-                format!("Unsupported interval count: {count_str}"),
+                format!("Unsupported interval count: '{count_str}' is not a valid integer"),
                 str_tok.start,
                 str_tok.end,
             ));
         }
-        let count: i64 = if count_str.is_empty() {
-            return Err(ParseError::not_implemented_fatal(
-                "Unknown error: stoll: no conversion",
-                str_tok.start,
-                str_tok.end,
-            ));
-        } else {
-            match count_str.parse::<i64>() {
-                Ok(n) => n,
-                Err(_) => {
-                    return Err(ParseError::not_implemented_fatal(
-                        "Unknown error: stoll: out of range",
-                        str_tok.start,
-                        str_tok.end,
-                    ));
-                }
+        let count: i64 = match count_str.parse::<i64>() {
+            Ok(n) => n,
+            Err(_) => {
+                return Err(ParseError::not_implemented_fatal(
+                    format!("Unsupported interval count: '{count_str}' is too large"),
+                    str_tok.start,
+                    str_tok.end,
+                ));
             }
         };
         let Some(unit_name) = interval_call_name_case_sensitive(unit) else {
