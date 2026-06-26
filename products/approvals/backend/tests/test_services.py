@@ -7,9 +7,9 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.approvals.exceptions import InvalidStateError
-from posthog.approvals.models import ChangeRequest, ChangeRequestState
-from posthog.approvals.services import ChangeRequestService
+from products.approvals.backend.exceptions import InvalidStateError
+from products.approvals.backend.models import ChangeRequest, ChangeRequestState
+from products.approvals.backend.services import ChangeRequestService
 
 
 class TestApproveRejectRaceCondition(BaseTest):

@@ -2696,6 +2696,8 @@ importers:
 
   products/annotations: {}
 
+  products/approvals: {}
+
   products/batch_exports: {}
 
   products/business_knowledge:

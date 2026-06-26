@@ -33,7 +33,7 @@ class PolicyEngine:
         1. Team-level policy (if team provided)
         2. Org-level policy
         """
-        from posthog.approvals.models import ApprovalPolicy
+        from products.approvals.backend.models import ApprovalPolicy
 
         policy = None
 
@@ -66,7 +66,7 @@ class PolicyEngine:
         Get all active policies for an action that match the given intent.
         Used for conflict detection.
         """
-        from posthog.approvals.models import ApprovalPolicy
+        from products.approvals.backend.models import ApprovalPolicy
 
         policies = []
 

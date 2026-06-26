@@ -11,7 +11,7 @@ class CanApprove(permissions.BasePermission):
     message = "You do not have permission to approve this change request"
 
     def has_object_permission(self, request, view, obj):
-        from posthog.approvals.models import ChangeRequestState
+        from products.approvals.backend.models import ChangeRequestState
 
         if obj.state != ChangeRequestState.PENDING:
             self.message = "Only pending change requests can be approved"

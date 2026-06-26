@@ -16,7 +16,7 @@ from products.notifications.backend.facade.api import (
 from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 
 if TYPE_CHECKING:
-    from posthog.approvals.models import Approval, ChangeRequest
+    from products.approvals.backend.models import Approval, ChangeRequest
 
 logger = get_logger(__name__)
 

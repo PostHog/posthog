@@ -7,8 +7,8 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
-from posthog.approvals.models import ChangeRequest
-from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
+from products.approvals.backend.models import ChangeRequest
+from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 
 
 class TestValidatePendingChangeRequests(BaseTest):
@@ -49,7 +49,7 @@ class TestValidatePendingChangeRequests(BaseTest):
         self.assertEqual(result["checked_count"], 0)
         self.assertEqual(result["stale_count"], 0)
 
-    @patch("posthog.approvals.tasks.ChangeRequest.get_action_class")
+    @patch("products.approvals.backend.tasks.ChangeRequest.get_action_class")
     def test_marks_stale_when_resource_changed(self, mock_get_action):
         mock_action = mock_get_action.return_value
         mock_action.prepare_context.return_value = {}
@@ -63,7 +63,7 @@ class TestValidatePendingChangeRequests(BaseTest):
         self.assertIsNotNone(self.change_request.validation_errors)
         self.assertIsNotNone(self.change_request.validated_at)
 
-    @patch("posthog.approvals.tasks.ChangeRequest.get_action_class")
+    @patch("products.approvals.backend.tasks.ChangeRequest.get_action_class")
     def test_leaves_unchanged_when_not_stale(self, mock_get_action):
         mock_action = mock_get_action.return_value
         mock_action.prepare_context.return_value = {}
@@ -124,7 +124,7 @@ class TestExpireOldChangeRequests(BaseTest):
         self.expired_request.refresh_from_db()
         self.assertEqual(self.expired_request.state, expected_state)
 
-    @patch("posthog.approvals.tasks.send_approval_expired_notification")
+    @patch("products.approvals.backend.tasks.send_approval_expired_notification")
     def test_expire_task_sends_notifications(self, mock_notification):
         expire_old_change_requests()
 

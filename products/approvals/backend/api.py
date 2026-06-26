@@ -13,11 +13,6 @@ from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.approvals.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
-from posthog.approvals.models import ApprovalPolicy, ChangeRequest
-from posthog.approvals.permissions import CanApprove, CanCancel
-from posthog.approvals.serializers import ApprovalPolicySerializer, ChangeRequestSerializer
-from posthog.approvals.services import ChangeRequestService
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.permissions import (
@@ -25,6 +20,12 @@ from posthog.permissions import (
     OrganizationMemberPermissions,
     PremiumFeaturePermission,
 )
+
+from products.approvals.backend.exceptions import AlreadyVotedError, InvalidStateError, ReasonRequiredError
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
+from products.approvals.backend.permissions import CanApprove, CanCancel
+from products.approvals.backend.serializers import ApprovalPolicySerializer, ChangeRequestSerializer
+from products.approvals.backend.services import ChangeRequestService
 
 logger = logging.getLogger(__name__)
 

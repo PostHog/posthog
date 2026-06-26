@@ -1,8 +1,8 @@
 from rest_framework import status
 from rest_framework.response import Response
 
-from posthog.approvals.exceptions import ApprovalRequired
-from posthog.approvals.serializers import ChangeRequestSerializer
+from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.serializers import ChangeRequestSerializer
 
 
 class ApprovalHandlingMixin:

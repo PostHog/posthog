@@ -8,7 +8,10 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.approvals.models import (
+from posthog.constants import AvailableFeature
+from posthog.models import User
+
+from products.approvals.backend.models import (
     Approval,
     ApprovalDecision,
     ApprovalPolicy,
@@ -16,9 +19,6 @@ from posthog.approvals.models import (
     ChangeRequestState,
     ValidationStatus,
 )
-from posthog.constants import AvailableFeature
-from posthog.models import User
-
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -204,7 +204,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.json()["id"] == str(cr.id)
         assert response.json()["action_key"] == "feature_flag.enable"
 
-    @patch("posthog.approvals.services.apply_change_request")
+    @patch("products.approvals.backend.services.apply_change_request")
     def test_approve_success(self, mock_apply):
         mock_apply.return_value = type("obj", (object,), {"id": 123, "version": 1})()
         cr = self._create_change_request()
@@ -382,7 +382,7 @@ class TestChangeRequestViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["can_approve"] is False
 
-    @patch("posthog.approvals.services.apply_change_request")
+    @patch("products.approvals.backend.services.apply_change_request")
     def test_approve_succeeds_when_user_in_approver_role(self, mock_apply):
         from ee.models.rbac.role import Role, RoleMembership
 

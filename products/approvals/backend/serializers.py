@@ -2,7 +2,8 @@ from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.approvals.models import Approval, ApprovalPolicy, ChangeRequest
+
+from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest
 
 
 class ChangeRequestSerializer(serializers.ModelSerializer):
