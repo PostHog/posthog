@@ -17,6 +17,7 @@ from products.tasks.backend.logic.services.agentsh import ENV_FILE, ENV_WRAPPER_
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxBase
 from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.temporal.metrics import record_agent_server_boot_ms
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -308,6 +309,10 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         # Connectivity diagnostics — run inside the agentsh exec context when
         # domains are restricted so we can verify the env wrapper + DNS proxy work.
         _run_connectivity_diagnostics(ctx, sandbox)
+
+        boot_ms = sandbox.read_agent_server_boot_ms()
+        if boot_ms is not None:
+            record_agent_server_boot_ms(boot_ms)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {sandbox_url}")
         activity.logger.info(f"Agent server started at {sandbox_url} for task {ctx.task_id}")

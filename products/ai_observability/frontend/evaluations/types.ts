@@ -10,6 +10,12 @@ export type EvaluationStatusReason =
     | 'model_not_allowed'
     | 'provider_key_deleted'
     | 'no_default_model'
+    | 'provider_key_invalid'
+    | 'provider_key_permission_denied'
+    | 'provider_key_quota_exceeded'
+    | 'provider_key_rate_limited'
+    | 'model_not_found'
+    | 'hog_error'
 
 export interface ModelConfiguration {
     provider: LLMProvider
@@ -42,6 +48,7 @@ export interface BaseEvaluationConfig {
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
+    status_reason_detail: string | null
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]

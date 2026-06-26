@@ -9,6 +9,7 @@ use crate::{
     modes::processing::config::ProcessingConfig,
     modes::processing::rules::assignment::AssignmentRule,
     modes::processing::rules::grouping::GroupingRule,
+    modes::processing::rules::rate_limit::RateLimitSettings,
     modes::processing::rules::spike::SpikeDetectionConfig,
     modes::processing::rules::suppression::SuppressionRule,
 };
@@ -21,6 +22,7 @@ pub struct TeamManager {
     pub suppression_rules: Cache<TeamId, Vec<SuppressionRule>>,
     pub group_type_indices: Cache<TeamId, Vec<GroupType>>,
     pub spike_detection_configs: Cache<TeamId, Option<SpikeDetectionConfig>>,
+    pub rate_limit_settings: Cache<TeamId, Option<RateLimitSettings>>,
 }
 
 impl TeamManager {
@@ -64,6 +66,10 @@ impl TeamManager {
             .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
             .build();
 
+        let rate_limit_settings = CacheBuilder::new(config.max_team_cache_size)
+            .time_to_live(Duration::from_secs(config.team_cache_ttl_secs))
+            .build();
+
         Self {
             token_cache: cache,
             assignment_rules,
@@ -71,6 +77,7 @@ impl TeamManager {
             suppression_rules,
             group_type_indices,
             spike_detection_configs,
+            rate_limit_settings,
         }
     }
 
@@ -210,6 +217,65 @@ impl TeamManager {
                 }
             };
             result.insert(team_id, config);
+        }
+        result
+    }
+
+    pub async fn get_rate_limit_setting<'c, E>(
+        &self,
+        e: E,
+        team_id: TeamId,
+    ) -> Result<Option<RateLimitSettings>, UnhandledError>
+    where
+        E: sqlx::Executor<'c, Database = sqlx::Postgres>,
+    {
+        if let Some(cached) = self.rate_limit_settings.get(&team_id) {
+            metrics::counter!(ANCILLARY_CACHE, "type" => "rate_limit_settings", "outcome" => "hit")
+                .increment(1);
+            return Ok(cached);
+        }
+        metrics::counter!(ANCILLARY_CACHE, "type" => "rate_limit_settings", "outcome" => "miss")
+            .increment(1);
+        // We cache the "no settings row" result too (None), so opt-out teams don't re-query.
+        let settings = RateLimitSettings::load_for_team(e, team_id).await?;
+        self.rate_limit_settings.insert(team_id, settings.clone());
+        Ok(settings)
+    }
+
+    /// Batch-load rate-limit settings for the teams in a request. Teams with no
+    /// settings row (opted out) or a load error are omitted from the map, so the
+    /// rate-limiting stage simply skips them.
+    pub async fn get_rate_limit_settings(
+        &self,
+        pool: &sqlx::PgPool,
+        team_ids: impl IntoIterator<Item = i32>,
+    ) -> HashMap<TeamId, RateLimitSettings> {
+        let unique_ids: std::collections::HashSet<i32> = team_ids.into_iter().collect();
+
+        let tasks: Vec<(i32, _)> = unique_ids
+            .into_iter()
+            .map(|team_id| {
+                let manager = self.clone();
+                let pool = pool.clone();
+                let task =
+                    tokio::spawn(
+                        async move { manager.get_rate_limit_setting(&pool, team_id).await },
+                    );
+                (team_id, task)
+            })
+            .collect();
+
+        let mut result = HashMap::new();
+        for (team_id, task) in tasks {
+            match task.await.expect("Task was not cancelled") {
+                Ok(Some(settings)) => {
+                    result.insert(team_id, settings);
+                }
+                Ok(None) => {}
+                Err(e) => {
+                    warn!("Failed to load rate limit settings for team {team_id}: {e}");
+                }
+            }
         }
         result
     }
