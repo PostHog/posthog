@@ -5,6 +5,8 @@ import { DEFAULT_Y_AXIS_ID, TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ciRanges } from 'lib/statistics'
 import { percentage } from 'lib/utils/numbers'
 import { formatAggregationAxisValue } from 'scenes/insights/aggregationAxisFormat'
@@ -24,7 +26,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
-import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -35,8 +37,6 @@ import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
-const TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
-
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
@@ -46,6 +46,9 @@ const handleChartError = makeChartErrorHandler('trends-line-chart')
 
 export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const TOOLTIP_CONFIG = tooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps, insight } = useValues(insightLogic)
 
@@ -285,6 +288,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             showValuesOnSeries,
             valueLabelFormatter,
             legendConfig,
+            TOOLTIP_CONFIG,
         ]
     )
 

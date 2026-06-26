@@ -6,6 +6,8 @@ import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
@@ -16,7 +18,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
-import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
+import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import {
     buildRetentionBarChartConfig,
     buildRetentionSeries,
@@ -24,8 +26,6 @@ import {
     type RetentionTrendSeriesEntry,
 } from '../shared/retentionChartTransforms'
 import { RetentionTooltip } from '../shared/RetentionTooltip'
-
-const TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
 
 interface RetentionBarChartProps {
     inSharedMode?: boolean
@@ -55,6 +55,10 @@ function resolveGroupTypeLabel(
 export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartProps): JSX.Element | null {
     const { insightProps } = useValues(insightLogic)
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const TOOLTIP_CONFIG = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+        ? INSIGHT_TOOLTIP_CONFIG
+        : INSIGHT_TOOLTIP_CONFIG_LEGACY
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
 
     const {
@@ -145,7 +149,7 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
 
     const barConfig = useMemo(
         () => buildRetentionBarChartConfig({ isPercentage, goalLines, series, tooltip: TOOLTIP_CONFIG }),
-        [isPercentage, goalLines, series]
+        [isPercentage, goalLines, series, TOOLTIP_CONFIG]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {
