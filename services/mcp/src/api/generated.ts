@@ -9505,38 +9505,6 @@ export namespace Schemas {
       totals: AppMetricsTotalsResponseTotals;
     }
 
-    /**
-     * Serializer for individual transcript segments from AssemblyAI
-     */
-    export interface TranscriptSegment {
-      /**
-         * Milliseconds from recording start
-         * @nullable
-         */
-      timestamp?: number | null;
-      /** @nullable */
-      speaker?: string | null;
-      text: string;
-      /**
-         * Transcription confidence score
-         * @nullable
-         */
-      confidence?: number | null;
-      /**
-         * Whether this is the final version
-         * @nullable
-         */
-      is_final?: boolean | null;
-    }
-
-    /**
-     * Serializer for appending transcript segments (supports batched real-time uploads)
-     */
-    export interface AppendSegments {
-      /** @minItems 1 */
-      segments: TranscriptSegment[];
-    }
-
     export interface ApprovalPolicy {
       readonly id: string;
       /** @maxLength 128 */
@@ -14104,150 +14072,6 @@ export namespace Schemas {
       id: string;
     }
 
-    /**
-     * * `zoom` - zoom
-     * * `teams` - teams
-     * * `meet` - meet
-     * * `desktop_audio` - desktop_audio
-     * * `slack` - slack
-     */
-    export type CreateRecordingRequestPlatformEnum = typeof CreateRecordingRequestPlatformEnum[keyof typeof CreateRecordingRequestPlatformEnum];
-
-
-    export const CreateRecordingRequestPlatformEnum = {
-      Zoom: 'zoom',
-      Teams: 'teams',
-      Meet: 'meet',
-      DesktopAudio: 'desktop_audio',
-      Slack: 'slack',
-    } as const;
-
-    /**
-     * Request body for creating a new recording
-     */
-    export interface CreateRecordingRequest {
-      /** Meeting platform being recorded
-       *
-       * * `zoom` - zoom
-       * * `teams` - teams
-       * * `meet` - meet
-       * * `desktop_audio` - desktop_audio
-       * * `slack` - slack */
-      platform?: CreateRecordingRequestPlatformEnum;
-    }
-
-    /**
-     * * `zoom` - Zoom
-     * * `teams` - Microsoft Teams
-     * * `meet` - Google Meet
-     * * `desktop_audio` - Desktop audio
-     * * `slack` - Slack huddle
-     */
-    export type MeetingPlatformEnum = typeof MeetingPlatformEnum[keyof typeof MeetingPlatformEnum];
-
-
-    export const MeetingPlatformEnum = {
-      Zoom: 'zoom',
-      Teams: 'teams',
-      Meet: 'meet',
-      DesktopAudio: 'desktop_audio',
-      Slack: 'slack',
-    } as const;
-
-    /**
-     * * `recording` - Recording
-     * * `uploading` - Uploading
-     * * `processing` - Processing
-     * * `ready` - Ready
-     * * `error` - Error
-     */
-    export type DesktopRecordingStatusEnum = typeof DesktopRecordingStatusEnum[keyof typeof DesktopRecordingStatusEnum];
-
-
-    export const DesktopRecordingStatusEnum = {
-      Recording: 'recording',
-      Uploading: 'uploading',
-      Processing: 'processing',
-      Ready: 'ready',
-      Error: 'error',
-    } as const;
-
-    /**
-     * Serializer for extracted tasks
-     */
-    export interface DesktopRecordingTask {
-      title: string;
-      description?: string;
-      /** @nullable */
-      assignee?: string | null;
-    }
-
-    /**
-     * Response for creating a new recording (includes upload_token)
-     */
-    export interface CreateRecordingResponse {
-      readonly id: string;
-      readonly team: number;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly sdk_upload_id: string;
-      /** @nullable */
-      recall_recording_id?: string | null;
-      platform: MeetingPlatformEnum;
-      /**
-         * @maxLength 255
-         * @nullable
-         */
-      meeting_title?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      meeting_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      duration_seconds?: number | null;
-      status?: DesktopRecordingStatusEnum;
-      /** @nullable */
-      notes?: string | null;
-      /** @nullable */
-      error_message?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      video_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      video_size_bytes?: number | null;
-      /** List of participant names */
-      participants?: string[];
-      readonly transcript_text: string;
-      /** Transcript segments with timestamps */
-      transcript_segments?: TranscriptSegment[];
-      /** @nullable */
-      summary?: string | null;
-      /** AI-extracted tasks from transcript */
-      extracted_tasks?: DesktopRecordingTask[];
-      /** @nullable */
-      tasks_generated_at?: string | null;
-      /** @nullable */
-      summary_generated_at?: string | null;
-      started_at?: string;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** Recall.ai upload token for the desktop SDK */
-      upload_token: string;
-    }
-
     export interface CreateRepoInput {
       repo_full_name: string;
       /** @nullable */
@@ -17754,67 +17578,6 @@ export namespace Schemas {
       row?: unknown;
       /** add_*\/move_content only. 0-based insert position; omit to append to the end. */
       index?: number;
-    }
-
-    export interface DesktopRecording {
-      readonly id: string;
-      readonly team: number;
-      /** @nullable */
-      readonly created_by: number | null;
-      readonly sdk_upload_id: string;
-      /** @nullable */
-      recall_recording_id?: string | null;
-      platform: MeetingPlatformEnum;
-      /**
-         * @maxLength 255
-         * @nullable
-         */
-      meeting_title?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      meeting_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      duration_seconds?: number | null;
-      status?: DesktopRecordingStatusEnum;
-      /** @nullable */
-      notes?: string | null;
-      /** @nullable */
-      error_message?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      video_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      video_size_bytes?: number | null;
-      /** List of participant names */
-      participants?: string[];
-      readonly transcript_text: string;
-      /** Transcript segments with timestamps */
-      transcript_segments?: TranscriptSegment[];
-      /** @nullable */
-      summary?: string | null;
-      /** AI-extracted tasks from transcript */
-      extracted_tasks?: DesktopRecordingTask[];
-      /** @nullable */
-      tasks_generated_at?: string | null;
-      /** @nullable */
-      summary_generated_at?: string | null;
-      started_at?: string;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
     }
 
     /**
@@ -31117,6 +30880,7 @@ export namespace Schemas {
     }
 
     export interface PaginatedDataModelingJobList {
+      count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
@@ -31167,15 +30931,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: Dataset[];
-    }
-
-    export interface PaginatedDesktopRecordingList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DesktopRecording[];
     }
 
     export interface PaginatedEarlyAccessFeatureList {
@@ -36645,67 +36400,6 @@ export namespace Schemas {
       operations?: DesignOperation[];
     }
 
-    export interface PatchedDesktopRecording {
-      readonly id?: string;
-      readonly team?: number;
-      /** @nullable */
-      readonly created_by?: number | null;
-      readonly sdk_upload_id?: string;
-      /** @nullable */
-      recall_recording_id?: string | null;
-      platform?: MeetingPlatformEnum;
-      /**
-         * @maxLength 255
-         * @nullable
-         */
-      meeting_title?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      meeting_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      duration_seconds?: number | null;
-      status?: DesktopRecordingStatusEnum;
-      /** @nullable */
-      notes?: string | null;
-      /** @nullable */
-      error_message?: string | null;
-      /**
-         * @maxLength 200
-         * @nullable
-         */
-      video_url?: string | null;
-      /**
-         * @minimum -2147483648
-         * @maximum 2147483647
-         * @nullable
-         */
-      video_size_bytes?: number | null;
-      /** List of participant names */
-      participants?: string[];
-      readonly transcript_text?: string;
-      /** Transcript segments with timestamps */
-      transcript_segments?: TranscriptSegment[];
-      /** @nullable */
-      summary?: string | null;
-      /** AI-extracted tasks from transcript */
-      extracted_tasks?: DesktopRecordingTask[];
-      /** @nullable */
-      tasks_generated_at?: string | null;
-      /** @nullable */
-      summary_generated_at?: string | null;
-      started_at?: string;
-      /** @nullable */
-      completed_at?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
     /**
      * Feature flag payload for this early access feature
      */
@@ -40718,6 +40412,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveyOpenQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyOpenQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40745,6 +40441,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveyLinkQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyLinkQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40868,6 +40566,8 @@ export namespace Schemas {
     export type SurveyBranchingSchema = SurveyNextQuestionBranching | SurveyEndBranching | SurveySpecificQuestionBranching | SurveyResponseBasedBranching;
 
     export interface SurveyRatingQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyRatingQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40910,6 +40610,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveySingleChoiceQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveySingleChoiceQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -40948,6 +40650,8 @@ export namespace Schemas {
     } as const;
 
     export interface SurveyMultipleChoiceQuestionSchema {
+      /** Stable question identifier (UUID). When editing an existing question, send back its current id so its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the server generates one. */
+      id?: string;
       type: SurveyMultipleChoiceQuestionSchemaTypeEnum;
       /** Question text shown to respondents. */
       question: string;
@@ -54982,13 +54686,13 @@ export namespace Schemas {
 
     export type EnvironmentsDataModelingJobsListParams = {
     /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
      * Number of results to return per page.
      */
     limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     saved_query_id?: string;
     };
 
@@ -55052,17 +54756,6 @@ export namespace Schemas {
      * Search in name, description, or metadata
      */
     search?: string;
-    };
-
-    export type EnvironmentsDesktopRecordingsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type EnvironmentsElementsListParams = {
@@ -60803,13 +60496,13 @@ export namespace Schemas {
 
     export type DataModelingJobsListParams = {
     /**
-     * The pagination cursor value.
-     */
-    cursor?: string;
-    /**
      * Number of results to return per page.
      */
     limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     saved_query_id?: string;
     };
 
@@ -60906,17 +60599,6 @@ export namespace Schemas {
     };
 
     export type DesktopFileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
-    export type DesktopRecordingsListParams = {
     /**
      * Number of results to return per page.
      */

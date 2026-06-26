@@ -41,7 +41,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },

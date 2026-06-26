@@ -72,7 +72,7 @@ from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
@@ -1351,12 +1351,14 @@ class FeatureFlagSerializer(
                         # export step, even when their inert criteria reference
                         # another cohort.  See #65270.
                         dependency_cohorts = (
-                            [] if initial_cohort.is_static else get_all_cohort_dependencies(initial_cohort)
+                            [] if initial_cohort.is_static else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
                         )
                         for cohort in [initial_cohort, *dependency_cohorts]:
+                            # Static cohorts have materialized membership, any preserved behavioral
+                            # filters are display-only and never evaluated, so skip them.
                             if cohort.is_static:
                                 continue
-                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            if any(cohort_prop.type == "behavioral" for cohort_prop in cohort.properties.flat):
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
@@ -2494,7 +2496,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
             return cached
-        return feature_flag.experiment_set.filter(deleted=False).exists()
+        return flag_has_live_experiment(feature_flag.pk)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):

@@ -714,6 +714,22 @@ class TestDependentCohorts(BaseTest):
         self.assertEqual(get_all_cohort_dependencies(cohort1), [])
         self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
 
+    def test_dependent_cohorts_stop_traversal_at_static_root_cohort(self) -> None:
+        cohort1 = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+
+        static_cohort = _create_cohort(
+            team=self.team,
+            name="static-cohort",
+            groups=[{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}],
+            is_static=True,
+        )
+
+        self.assertEqual(get_all_cohort_dependencies(static_cohort, stop_traversal_at_static=True), [])
+
     def test_dependent_cohorts_for_deeply_nested_cohort(self):
         cohort1 = _create_cohort(
             team=self.team,
