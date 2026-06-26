@@ -70,6 +70,9 @@ def _print_materialized_hogql(query: ast.Expr, team: Team, modifiers: HogQLQuery
             enable_select_queries=True,
             limit_top_select=False,
             modifiers=create_default_modifiers_for_team(team, modifiers),
+            # Userless endpoint materialization transform; bypass warehouse HogQL access control so
+            # the transformed query can resolve source warehouse tables/views before materialization.
+            bypass_warehouse_access_control=True,
         ),
         pretty=True,
     )[0]
