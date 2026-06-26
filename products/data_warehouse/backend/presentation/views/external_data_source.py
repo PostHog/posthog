@@ -102,13 +102,8 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
-    update_sync_type_config_keys,
-)
-from products.warehouse_sources.backend.models.util import (
-    mysql_columns_to_dwh_columns,
-    postgres_columns_to_dwh_columns,
     sync_old_schemas_with_new_schemas,
-    validate_source_prefix,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
@@ -147,6 +142,11 @@ from products.warehouse_sources.backend.facade.source_management import (
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+from products.warehouse_sources.backend.models.util import (
+    mysql_columns_to_dwh_columns,
+    postgres_columns_to_dwh_columns,
+    validate_source_prefix,
+)
 
 logger = structlog.get_logger(__name__)
 
