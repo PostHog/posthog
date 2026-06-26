@@ -708,9 +708,19 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
     def test_preview_stats_rejects_non_clickhouse_team(self):
         request = self._person_request()
         self.user.groups.clear()
-        response = self._call(self.admin.preview_stats_view, request)
+
+        http_request = self.factory.post(f"/admin/posthog/datadeletionrequest/{request.pk}/x/")
+        http_request.user = self.user
+        _attach_messages(http_request)
+        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
+            response = self.admin.preview_stats_view(http_request, str(request.pk))
+
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
+        # The guard must short-circuit before any preview is computed or stashed in the session, and
+        # surface the rejection — otherwise removing the authz check would still pass this test.
+        self.assertNotIn("data_deletion_preview_stats", http_request.session)
+        self.assertIn("Only ClickHouse Team members can preview stats.", [str(m) for m in http_request._messages])
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
