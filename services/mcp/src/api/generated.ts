@@ -18073,6 +18073,52 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface DraftCustomManifestRequest {
+      /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
+      source_name?: string;
+      /** URL of the API documentation to read. Provide this or docs_text; fetched server-side via the egress proxy. */
+      docs_url?: string;
+      /** Raw API documentation or an OpenAPI/Swagger spec, pasted directly. Provide this or docs_url. */
+      docs_text?: string;
+    }
+
+    /**
+     * * `ok` - ok
+     * * `invalid` - invalid
+     * * `model_error` - model_error
+     */
+    export type DraftStatusEnum = typeof DraftStatusEnum[keyof typeof DraftStatusEnum];
+
+
+    export const DraftStatusEnum = {
+      Ok: 'ok',
+      Invalid: 'invalid',
+      ModelError: 'model_error',
+    } as const;
+
+    export interface DraftCustomManifestResponse {
+      /** 'ok' = a manifest validated; 'invalid' = a manifest was drafted but never validated within the budget (see error; manifest_json holds the last attempt to fix by hand); 'model_error' = the model returned no usable JSON.
+       *
+       * * `ok` - ok
+       * * `invalid` - invalid
+       * * `model_error` - model_error */
+      draft_status: DraftStatusEnum;
+      /**
+         * The drafted RESTAPIConfig manifest as a JSON string (non-secret), or null if none was produced.
+         * @nullable
+         */
+      manifest_json: string | null;
+      /** Names of the resources (tables) the validated manifest exposes. Empty unless draft_status is 'ok'. */
+      resource_names: string[];
+      /** How many draft→validate→repair rounds were run. */
+      attempts: number;
+      /**
+         * The last validation error when draft_status is not 'ok'; null on success.
+         * @nullable
+         */
+      error: string | null;
+    }
+
     export interface DraftStatusResponse {
       updated_at: string;
       has_draft: boolean;
@@ -20497,7 +20543,10 @@ export namespace Schemas {
       provider: LLMProviderEnum;
       /** @maxLength 100 */
       model: string;
-      /** @nullable */
+      /**
+         * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+         * @nullable
+         */
       provider_key_id?: string | null;
       /** @nullable */
       readonly provider_key_name: string | null;
@@ -20592,13 +20641,13 @@ export namespace Schemas {
     }
 
     export interface EvaluationConfig {
-      /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+      /** Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key). */
       readonly trial_eval_limit: number;
-      /** Number of llm_judge runs already consumed against the trial credit pool. */
+      /** Trial runs consumed (getting-started affordance only). */
       readonly trial_evals_used: number;
-      /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+      /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
       readonly trial_evals_remaining: number;
-      /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+      /** Provider key used to run llm_judge evals; null if none configured yet. */
       readonly active_provider_key: LLMProviderKey | null;
       /** Timestamp when the evaluation config row was created. */
       readonly created_at: string;
@@ -27584,7 +27633,7 @@ export namespace Schemas {
     export interface LLMModelInfo {
       /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
       id: string;
-      /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+      /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
       posthog_available: boolean;
     }
 
