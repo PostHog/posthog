@@ -99,7 +99,16 @@ export function GanttBar({
 }
 
 export function formatCost(usd: number | null): string {
-    return usd == null ? '—' : `$${usd.toFixed(2)}`
+    if (usd == null) {
+        return '—'
+    }
+    // A short self-hosted job costs a fraction of a cent at the reference rate, so rounding to 2 dp would
+    // print "$0.00" and make a real cost read as free — and a run's jobs then look like they don't sum to
+    // the run total. Show sub-cent positives as "<$0.01"; only a measured zero is "$0.00".
+    if (usd > 0 && usd < 0.01) {
+        return '<$0.01'
+    }
+    return `$${usd.toFixed(2)}`
 }
 
 export function formatMinutes(minutes: number | null): string {
@@ -165,24 +174,35 @@ export function RunJobsTable({
     const { axisStart, axisEnd } = timeAxis(
         jobs.map((job) => ({ startedAt: job.started_at, finishedAt: job.completed_at }))
     )
+    // Column widths mirror the runs table above (Status↔Verdict 110, Cost 110, right-aligned) so the
+    // breakdown reads as the same grid one level down, not a differently-shaped table.
     const jobColumns: LemonTableColumns<WorkflowJobApi> = [
-        { title: 'Job', key: 'name', render: (_, job) => <span className="font-medium">{job.name}</span> },
+        {
+            title: 'Job',
+            key: 'name',
+            sorter: (a, b) => a.name.localeCompare(b.name),
+            render: (_, job) => <span className="font-medium">{job.name}</span>,
+        },
         {
             title: 'Status',
             key: 'status',
             width: 110,
+            sorter: (a, b) => (a.conclusion ?? '').localeCompare(b.conclusion ?? ''),
             render: (_, job) => <StatusDot conclusion={job.conclusion} />,
         },
         {
             title: 'Runner',
             key: 'runner',
             width: 180,
+            sorter: (a, b) => a.runner_label.localeCompare(b.runner_label),
             render: (_, job) => <RunnerBadge provider={job.runner_provider} label={job.runner_label} />,
         },
         {
             title: 'Timeline',
             key: 'timeline',
             width: 200,
+            // Sort by start so the bars read top-to-bottom in execution order, like a Gantt chart.
+            sorter: (a, b) => (a.started_at ?? '').localeCompare(b.started_at ?? ''),
             render: (_, job) => (
                 <GanttBar
                     startedAt={job.started_at}
@@ -197,8 +217,10 @@ export function RunJobsTable({
         {
             title: 'Cost',
             key: 'cost',
-            width: 90,
+            width: 110,
             align: 'right',
+            // Estimate is null for free/unclassified runners — sort those below any real cost.
+            sorter: (a, b) => (a.estimated_cost_usd ?? -1) - (b.estimated_cost_usd ?? -1),
             render: (_, job) => jobCostCell(job),
         },
     ]
@@ -209,6 +231,8 @@ export function RunJobsTable({
             columns={jobColumns}
             dataSource={jobs}
             rowKey={(job) => job.id}
+            useURLForSorting={false}
+            defaultSorting={{ columnKey: 'timeline', order: 1 }}
             nouns={['job', 'jobs']}
         />
     )
