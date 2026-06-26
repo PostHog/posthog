@@ -132,16 +132,14 @@ jobs:
               env:
                   TEST: 1
 
-            # Independent runtimes — run the Python and TypeScript suites concurrently.
-            - parallel:
-                  - name: Run HogVM Python tests
-                    run: |
-                        pytest common/hogvm
+            - name: Run HogVM Python tests
+              run: |
+                  pytest common/hogvm
 
-                  - name: Run HogVM TypeScript tests
-                    run: |
-                        pnpm --filter=@posthog/hogvm install --frozen-lockfile
-                        pnpm --filter=@posthog/hogvm test
+            - name: Run HogVM TypeScript tests
+              run: |
+                  pnpm --filter=@posthog/hogvm install --frozen-lockfile
+                  pnpm --filter=@posthog/hogvm test
 
             - name: Run Hog tests
               run: |

@@ -115,30 +115,27 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
-            # Independent setup — run concurrently. python deps (needs python+uv) stays
-            # sequential after the block.
-            - parallel:
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: 3.13.13
-                        token: ${{ github.token }}
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+                  token: ${{ github.token }}
 
-                  - name: Install uv
-                    uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-                    with:
-                        version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                        enable-cache: true
-                        cache-dependency-glob: uv.lock
-                        save-cache: ${{ github.ref == 'refs/heads/master' }}
-
-                  - name: Install pnpm dependencies
-                    uses: ./.github/actions/pnpm-install
-                    with:
-                        install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
@@ -296,48 +293,23 @@ jobs:
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
                   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
-            # Independent setup — run concurrently. SAML (apt), python deps (python+uv) and
-            # the Rust cache + sqlx-cli + flags build (need cargo) stay sequential after.
-            - parallel:
-                  - name: Add service hostnames to /etc/hosts
-                    shell: bash
-                    run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
+            - name: Add service hostnames to /etc/hosts
+              shell: bash
+              run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
 
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version: 3.13.13
-                        token: ${{ github.token }}
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+                  token: ${{ github.token }}
 
-                  - name: Install uv
-                    uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-                    with:
-                        version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                        enable-cache: true
-                        cache-dependency-glob: uv.lock
-                        save-cache: ${{ github.ref == 'refs/heads/master' }}
-
-                  - name: Install pnpm dependencies
-                    uses: ./.github/actions/pnpm-install
-                    with:
-                        install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
-
-                  - name: Set up needed files
-                    shell: bash
-                    run: |
-                        mkdir -p frontend/dist
-                        touch frontend/dist/index.html
-                        touch frontend/dist/layout.html
-                        touch frontend/dist/exporter.html
-
-                  - name: Install Rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
-                        components: cargo
-
-                  - name: Download MaxMind Database
-                    run: ./bin/download-mmdb
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               shell: bash
@@ -348,6 +320,25 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install pnpm dependencies
+              uses: ./.github/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            - name: Set up needed files
+              shell: bash
+              run: |
+                  mkdir -p frontend/dist
+                  touch frontend/dist/index.html
+                  touch frontend/dist/layout.html
+                  touch frontend/dist/exporter.html
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+                  components: cargo
 
             - name: Cache Rust dependencies
               uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
@@ -368,6 +359,9 @@ jobs:
                   # violations, which would crash the service mid-test-run.
                   RUSTFLAGS: '-C debug-assertions=no'
               run: cargo build -p feature-flags
+
+            - name: Download MaxMind Database
+              run: ./bin/download-mmdb
 
             - name: Log in to Docker Hub
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}

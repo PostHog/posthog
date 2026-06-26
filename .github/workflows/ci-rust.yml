@@ -332,40 +332,35 @@ jobs:
                   docker logs --tail=500 rust-kafka-1 || true
                   docker inspect rust-kafka-1 || true
 
-            # Set before the parallel block: setup-sccache reads this env var, and a
-            # background step's env changes aren't visible to its siblings (only after wait).
+            # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
+            - name: Install rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: 1.91.1
+
+            - name: Install protoc
+              uses: ./.github/actions/setup-protoc
+
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
-            # Independent toolchain installs — run them concurrently. sqlx-cli (needs cargo)
-            # and the python deps sync (needs python+uv) stay sequential below.
-            # please keep the rust tag version here in sync with rust-version in rust/*/Cargo.toml
-            - parallel:
-                  - name: Install rust
-                    uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
-                    with:
-                        toolchain: 1.91.1
+            - name: Install sccache
+              uses: ./.github/actions/setup-sccache
 
-                  - name: Install protoc
-                    uses: ./.github/actions/setup-protoc
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
 
-                  - name: Install sccache
-                    uses: ./.github/actions/setup-sccache
-
-                  - name: Set up Python
-                    uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-                    with:
-                        python-version-file: 'pyproject.toml'
-                        token: ${{ github.token }}
-
-                  - name: Install uv
-                    id: setup-uv
-                    uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-                    with:
-                        version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
-                        enable-cache: true
-                        cache-dependency-glob: uv.lock
-                        save-cache: ${{ github.ref == 'refs/heads/master' }}
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
               if: steps.setup-uv.outputs.cache-hit != 'true'
@@ -416,6 +411,14 @@ jobs:
                           extra_args="-- --test-threads=4"
                       fi
                       cargo test -p "$pkg" $extra_args
+                      # Error-tracking rate-limiter e2e tests are #[ignore]'d (they need a real Redis
+                      # via testcontainers/Docker, absent in some environments). This job has Docker,
+                      # so run them here, single-threaded to avoid concurrent-container flakes. The
+                      # `rate_limiting` filter matches nothing on branches without these tests, so it
+                      # stays safe for unrebased PRs.
+                      if [ "$pkg" = "cymbal" ]; then
+                          cargo test -p cymbal rate_limiting -- --ignored --test-threads=1
+                      fi
                       echo "::endgroup::"
                   done
 
@@ -473,18 +476,8 @@ jobs:
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
-            # Run the cheap format check and the cargo-shear download in the background so
-            # they overlap with the heavy clippy/check compilation. clippy and check stay
-            # sequential (running both at once would roughly double peak memory).
             - name: Check format
-              id: fmt
               run: cargo fmt -- --check
-              background: true
-
-            - name: Install cargo-binstall
-              id: binstall
-              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
-              background: true
 
             - name: Run clippy
               env:
@@ -498,8 +491,8 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
-            - name: Wait for format check and cargo-binstall
-              wait: [fmt, binstall]
+            - name: Install cargo-binstall
+              uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
               # --force is required: Swatinem/rust-cache restores ~/.cargo/.crates2.json
