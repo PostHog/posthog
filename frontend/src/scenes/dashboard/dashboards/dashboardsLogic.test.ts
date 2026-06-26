@@ -8,8 +8,10 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AppContext, DashboardType, UserBasicType } from '~/types'
 
@@ -134,6 +136,53 @@ describe('dashboardsLogic', () => {
                     dashboards.length === inFolder.length && dashboards.every((d) => d.folder === 'Marketing/Website')
             ),
         })
+    })
+
+    it('filters to starred dashboards once shortcuts have loaded', async () => {
+        // Starring is backed by file-system shortcuts: a starred dashboard has a shortcut whose
+        // type is 'dashboard' and ref is the dashboard id. Seed one and assert the filter narrows
+        // to exactly that dashboard.
+        const starred = allDashboards[1] as DashboardType
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'sc-1', path: 'Starred', type: 'dashboard', ref: String(starred.id) } as FileSystemEntry,
+        ])
+
+        await expectLogic(logic, () => {
+            logic.actions.setFilters({ starred: true })
+        }).toMatchValues({
+            dashboards: truth(
+                (dashboards: DashboardType[]) =>
+                    dashboards.length === 1 && String(dashboards[0].id) === String(starred.id)
+            ),
+        })
+    })
+
+    it('toggleStarredDashboard stars an unstarred dashboard and unstars a starred one', async () => {
+        const target = allDashboards[2] as DashboardType
+        useMocks({
+            post: {
+                '/api/environments/:team_id/file_system_shortcut/': {
+                    id: 'sc-new',
+                    path: target.name,
+                    type: 'dashboard',
+                    ref: String(target.id),
+                },
+            },
+            delete: { '/api/environments/:team_id/file_system_shortcut/:id/': { success: true } },
+        })
+
+        // Not starred yet → toggling creates a shortcut.
+        await expectLogic(projectTreeDataLogic, () => {
+            logic.actions.toggleStarredDashboard(target.id, target.name)
+        }).toDispatchActions(['addShortcutItem'])
+
+        // Now that it's starred, toggling removes the shortcut.
+        projectTreeDataLogic.actions.loadShortcutsSuccess([
+            { id: 'sc-new', path: target.name, type: 'dashboard', ref: String(target.id) } as FileSystemEntry,
+        ])
+        await expectLogic(projectTreeDataLogic, () => {
+            logic.actions.toggleStarredDashboard(target.id, target.name)
+        }).toDispatchActions(['deleteShortcut'])
     })
 
     it('shows dashboards from all selected creators when multiple are chosen', async () => {
@@ -342,6 +391,7 @@ describe('dashboardsLogic', () => {
             expected: [2],
         },
         { name: 'pinned', set: { pinned: true }, reset: { pinned: false }, param: 'pinned', expected: true },
+        { name: 'starred', set: { starred: true }, reset: { starred: false }, param: 'starred', expected: true },
         { name: 'shared', set: { shared: true }, reset: { shared: false }, param: 'shared', expected: true },
         { name: 'tags', set: { tags: ['finance'] }, reset: { tags: [] }, param: 'tags', expected: ['finance'] },
     ]
@@ -368,6 +418,7 @@ describe('dashboardsLogic', () => {
     }> = [
         { name: 'created_by', params: { created_by: [2] }, expected: { createdBy: [2] } },
         { name: 'pinned', params: { pinned: true }, expected: { pinned: true } },
+        { name: 'starred', params: { starred: true }, expected: { starred: true } },
         { name: 'shared', params: { shared: true }, expected: { shared: true } },
         { name: 'tags', params: { tags: ['finance', 'q4'] }, expected: { tags: ['finance', 'q4'] } },
     ]

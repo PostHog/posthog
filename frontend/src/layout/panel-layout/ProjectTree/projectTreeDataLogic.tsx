@@ -862,6 +862,23 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 return keyedByRef
             },
         ],
+        // The user's starred items, keyed by `${type}::${ref}` — the canonical "is this entity
+        // starred, and which shortcut row is it?" lookup. Mirrors `itemsByRef` but over the user's
+        // shortcuts rather than the loaded tree, so callers don't each re-scan `shortcutData`.
+        shortcutByTypeRef: [
+            (s) => [s.shortcutData],
+            (shortcutData): Record<string, FileSystemEntry> => {
+                const keyedByRef: Record<string, FileSystemEntry> = {}
+
+                for (const shortcut of shortcutData) {
+                    if (shortcut.type && shortcut.ref) {
+                        keyedByRef[`${shortcut.type}::${shortcut.ref}`] = shortcut
+                    }
+                }
+
+                return keyedByRef
+            },
+        ],
         itemsByHref: [
             (s) => [s.sortedItems],
             (sortedItems): Record<string, FileSystemEntry> => {

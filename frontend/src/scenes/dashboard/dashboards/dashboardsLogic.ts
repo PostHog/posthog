@@ -8,12 +8,14 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'
 
 import type { dashboardsLogicType } from './dashboardsLogicType'
@@ -69,6 +71,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         }),
         setTagSearch: (search: string) => ({ search }),
         setShowTagPopover: (visible: boolean) => ({ visible }),
+        toggleStarredDashboard: (id: number, name: string) => ({ id, name }),
     }),
     reducers({
         tableSorting: [
@@ -181,13 +184,14 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
             },
         ],
         // Starring reuses the file-system "shortcuts" feature: a starred dashboard has a
-        // FileSystemShortcut row (per-user) whose `ref` is the dashboard id. Build the set of
-        // starred dashboard ids so both the list filter and per-row toggle can read it.
+        // FileSystemShortcut row (per-user) whose `ref` is the dashboard id. Project the canonical
+        // `shortcutByTypeRef` map down to the set of starred dashboard ids for the list filter and
+        // the per-row star icon.
         starredDashboardRefs: [
-            () => [projectTreeDataLogic.selectors.shortcutData],
-            (shortcutData): Set<string> =>
+            () => [projectTreeDataLogic.selectors.shortcutByTypeRef],
+            (shortcutByTypeRef): Set<string> =>
                 new Set(
-                    shortcutData
+                    Object.values(shortcutByTypeRef)
                         .filter((shortcut) => shortcut.type === 'dashboard' && shortcut.ref)
                         .map((shortcut) => shortcut.ref as string)
                 ),
@@ -419,6 +423,24 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     folder: values.filters.folder ?? null,
                 })
             }
+        },
+        toggleStarredDashboard: ({ id, name }) => {
+            // Star/unstar a dashboard via the file-system shortcuts feature. If a shortcut already
+            // exists, remove it; otherwise create one — preferring the real tree entry when it's
+            // loaded, falling back to a minimal entry built from the row.
+            const existing = projectTreeDataLogic.values.shortcutByTypeRef[`dashboard::${id}`]
+            if (existing?.id) {
+                projectTreeDataLogic.actions.deleteShortcut(existing.id)
+                return
+            }
+            const entry: FileSystemEntry = projectTreeDataLogic.values.itemsByRef[`dashboard::${id}`] ?? {
+                id: `dashboard::${id}`,
+                path: name || 'Untitled',
+                type: 'dashboard',
+                ref: String(id),
+                href: urls.dashboard(id),
+            }
+            projectTreeDataLogic.actions.addShortcutItem(entry, 'dashboards_list')
         },
     })),
 ])

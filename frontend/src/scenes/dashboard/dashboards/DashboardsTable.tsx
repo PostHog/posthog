@@ -36,7 +36,6 @@ import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -70,9 +69,8 @@ export function DashboardsTable({
     hideActions,
 }: DashboardsTableProps): JSX.Element {
     const { unpinDashboard, pinDashboard } = useActions(dashboardsModel)
-    const { tableSortingChanged, setFilters } = useActions(dashboardsLogic)
+    const { tableSortingChanged, setFilters, toggleStarredDashboard } = useActions(dashboardsLogic)
     const { tableSorting, filters, starredDashboardRefs } = useValues(dashboardsLogic)
-    const { addShortcutItem, deleteShortcut } = useActions(projectTreeDataLogic)
     // Server-side fuzzy search ranks results by relevance; re-sorting alphabetically by name
     // would push the exact match below partial matches. Suppress the persisted column sort
     // while the user has an active search term.
@@ -81,26 +79,8 @@ export function DashboardsTable({
     const { showDuplicateDashboardModal } = useActions(duplicateDashboardLogic)
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
     const { openMoveToModal } = useActions(moveToLogic)
-    const { itemsByRef, shortcutData } = useValues(projectTreeDataLogic)
+    const { itemsByRef } = useValues(projectTreeDataLogic)
     const showStarring = useFeatureFlag('DASHBOARDS_LIST_STARRING', 'test')
-
-    // Reuse the file-system "shortcuts" feature for starring. Prefer the real tree entry when it's
-    // loaded; otherwise build a minimal one from the dashboard row.
-    const toggleStarred = (id: number, name: string): void => {
-        const shortcut = shortcutData.find((s) => s.type === 'dashboard' && s.ref === String(id))
-        if (shortcut?.id) {
-            deleteShortcut(shortcut.id)
-            return
-        }
-        const entry: FileSystemEntry = itemsByRef[`dashboard::${id}`] ?? {
-            id: `dashboard::${id}`,
-            path: name || 'Untitled',
-            type: 'dashboard',
-            ref: String(id),
-            href: urls.dashboard(id),
-        }
-        addShortcutItem(entry, 'dashboards_list')
-    }
 
     const columns: LemonTableColumns<DashboardType> = [
         {
@@ -251,7 +231,7 @@ export function DashboardsTable({
 
                                       {showStarring && (
                                           <LemonButton
-                                              onClick={() => toggleStarred(id, name)}
+                                              onClick={() => toggleStarredDashboard(id, name)}
                                               icon={
                                                   isStarred ? (
                                                       <IconStarFilled className="size-4" />
