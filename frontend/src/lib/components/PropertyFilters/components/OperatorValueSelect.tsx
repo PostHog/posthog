@@ -235,6 +235,14 @@ export function OperatorValueSelect({
             )
         ) {
             propertyType = PropertyType.StringArray
+        } else if (
+            type === PropertyFilterType.Recording &&
+            propertyKey &&
+            ['click_count', 'keypress_count', 'mouse_activity_count'].includes(propertyKey)
+        ) {
+            // Recording activity counts are aggregated numeric columns with no property definition,
+            // so resolve them to Numeric here to get range operators (gt/lt) and a numeric input.
+            propertyType = PropertyType.Numeric
         }
 
         const operatorMapping: Record<string, string> = chooseOperatorMap(propertyType)
