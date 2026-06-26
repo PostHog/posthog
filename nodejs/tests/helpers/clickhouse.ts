@@ -3,6 +3,13 @@ import { performance } from 'perf_hooks'
 import { Readable } from 'stream'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { isTestEnv } from '~/common/utils/env-utils'
+import { parseRawClickHouseEvent } from '~/common/utils/event'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
+import { delay, escapeClickHouseString } from '~/common/utils/utils'
 import {
     ClickHouseEvent,
     ClickHousePerson,
@@ -13,14 +20,8 @@ import {
     RawClickHouseEvent,
     RawSessionRecordingEvent,
 } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { isTestEnv } from '~/utils/env-utils'
-import { parseRawClickHouseEvent } from '~/utils/event'
-import { parseJSON } from '~/utils/json-parse'
-import { fetch } from '~/utils/request'
 
-import { logger } from '../../src/utils/logger'
-import { delay, escapeClickHouseString } from '../../src/utils/utils'
+import { assertTestDatabaseName } from './database-guard'
 
 // Extracts the topic(s) a ClickHouse Kafka engine table consumes from its `engine_full` string.
 // Handles both the keyword form (`kafka_topic_list = 'a,b'`) and the positional form
@@ -75,12 +76,34 @@ export class Clickhouse {
         this.client.close()
     }
 
+    // Memoized so repeated truncates don't re-query the database name. The
+    // onRejected handler resets the cache when the `query` itself fails (a
+    // transient connection error), so it isn't cached as a permanently rejected
+    // promise. An assertTestDatabaseName failure throws from onFulfilled and
+    // stays cached on purpose: it's a deterministic verdict on a fixed database
+    // name, so re-querying would only reach the same conclusion.
+    private databaseGuard?: Promise<void>
+    private ensureTestDatabase(): Promise<void> {
+        this.databaseGuard ??= this.query<{ name: string }>('SELECT currentDatabase() AS name').then(
+            (rows) => assertTestDatabaseName(rows[0].name, 'ClickHouse'),
+            (error) => {
+                this.databaseGuard = undefined
+                throw error
+            }
+        )
+        return this.databaseGuard
+    }
+
     async truncate(table: string) {
+        await this.ensureTestDatabase()
         await this.exec(`TRUNCATE ${table}`)
     }
 
     async resetTestDatabase(): Promise<void> {
         await this.waitForHealthy()
+        // Guard before the truncates: Promise.allSettled below would swallow
+        // the guard error if it only surfaced inside truncate().
+        await this.ensureTestDatabase()
         // NOTE: Don't do more than 5 at once otherwise we get socket timeout errors
         await Promise.allSettled([
             this.truncate('sharded_events'),

@@ -14,6 +14,8 @@ from llm_gateway.rate_limiting.throttles import (
     Throttle,
     ThrottleContext,
     ThrottleResult,
+    get_rate_limit_multiplier,
+    get_staff_multiplier,
     get_team_multiplier,
 )
 
@@ -24,6 +26,7 @@ def make_user(
     auth_method: str = "personal_api_key",
     scopes: list[str] | None = None,
     application_id: str | None = None,
+    is_staff: bool = False,
 ) -> AuthenticatedUser:
     return AuthenticatedUser(
         user_id=user_id,
@@ -32,6 +35,7 @@ def make_user(
         distinct_id=f"test-distinct-id-{user_id}",
         scopes=scopes or ["llm_gateway:read"],
         application_id=application_id,
+        is_staff=is_staff,
     )
 
 
@@ -184,4 +188,50 @@ class TestGetTeamMultiplier:
         get_settings.cache_clear()
         assert get_team_multiplier(2) == 10
         assert get_team_multiplier(5) == 5
+        get_settings.cache_clear()
+
+
+class TestGetStaffMultiplier:
+    def test_returns_1_for_non_staff_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "10")
+        get_settings.cache_clear()
+        assert get_staff_multiplier(make_user(is_staff=False)) == 1
+        get_settings.cache_clear()
+
+    def test_returns_configured_multiplier_for_staff_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "10")
+        get_settings.cache_clear()
+        assert get_staff_multiplier(make_user(is_staff=True)) == 10
+        get_settings.cache_clear()
+
+    def test_staff_multiplier_independent_of_team_id(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "7")
+        get_settings.cache_clear()
+        # Staff keep the elevated cap on any team — the impersonation case.
+        assert get_staff_multiplier(make_user(team_id=99, is_staff=True)) == 7
+        assert get_staff_multiplier(make_user(team_id=99, is_staff=False)) == 1
+        get_settings.cache_clear()
+
+
+class TestGetRateLimitMultiplier:
+    def test_takes_team_multiplier_when_higher(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 10}')
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "3")
+        get_settings.cache_clear()
+        assert get_rate_limit_multiplier(make_user(team_id=2, is_staff=True)) == 10
+        get_settings.cache_clear()
+
+    def test_takes_staff_multiplier_when_higher(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", '{"2": 3}')
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "10")
+        get_settings.cache_clear()
+        # Staff on an unconfigured team still gets the staff cap.
+        assert get_rate_limit_multiplier(make_user(team_id=99, is_staff=True)) == 10
+        get_settings.cache_clear()
+
+    def test_defaults_to_1_for_plain_user(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS", "{}")
+        monkeypatch.setenv("LLM_GATEWAY_STAFF_RATE_LIMIT_MULTIPLIER", "10")
+        get_settings.cache_clear()
+        assert get_rate_limit_multiplier(make_user(team_id=99, is_staff=False)) == 1
         get_settings.cache_clear()

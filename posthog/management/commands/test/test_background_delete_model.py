@@ -1,3 +1,4 @@
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
@@ -5,6 +6,9 @@ from django.core.management.base import CommandError
 
 from posthog.management.commands.background_delete_model import Command
 from posthog.models.person.person import Person
+from posthog.test.persons import create_person
+
+pytestmark = pytest.mark.persons_db_direct
 
 
 class TestBackgroundDeleteModel(BaseTest):
@@ -52,8 +56,8 @@ class TestBackgroundDeleteModel(BaseTest):
         mock_task.delay.return_value = MagicMock(id="test-task-id")
 
         # Create some test persons
-        Person.objects.create(team=self.team, properties={})
-        Person.objects.create(team=self.team, properties={})
+        create_person(team=self.team, properties={})
+        create_person(team=self.team, properties={})
 
         self.command.handle("posthog.Person", team_id=self.team.id)
 
@@ -66,7 +70,7 @@ class TestBackgroundDeleteModel(BaseTest):
     def test_dry_run_does_not_start_task(self, mock_task):
         """Test that dry run shows info but doesn't start task"""
         # Create some test persons
-        Person.objects.create(team=self.team, properties={})
+        create_person(team=self.team, properties={})
 
         self.command.handle("posthog.Person", team_id=self.team.id, dry_run=True)
 
@@ -104,7 +108,7 @@ class TestBackgroundDeleteModel(BaseTest):
     def test_confirmation_cancelled(self, mock_input, mock_task):
         """Test that task is not started when confirmation is cancelled"""
         # Create some test persons
-        Person.objects.create(team=self.team, properties={})
+        create_person(team=self.team, properties={})
 
         self.command.handle("posthog.Person", team_id=self.team.id)
 
@@ -152,8 +156,8 @@ class TestBackgroundDeleteModel(BaseTest):
             mock_task.delay.return_value = MagicMock(id="test-task-id")
 
             # Create some test persons
-            Person.objects.create(team=self.team, properties={})
-            Person.objects.create(team=self.team, properties={})
+            create_person(team=self.team, properties={})
+            create_person(team=self.team, properties={})
 
             # Try to use a batch size larger than the limit
             with patch("builtins.input", return_value="DELETE 2 RECORDS"):
@@ -169,8 +173,8 @@ class TestBackgroundDeleteModel(BaseTest):
     def test_synchronous_execution(self, mock_input, mock_task):
         """Test that synchronous flag runs task directly instead of using .delay()"""
         # Create some test persons
-        Person.objects.create(team=self.team, properties={})
-        Person.objects.create(team=self.team, properties={})
+        create_person(team=self.team, properties={})
+        create_person(team=self.team, properties={})
 
         self.command.handle("posthog.Person", team_id=self.team.id, synchronous=True)
 
@@ -193,11 +197,11 @@ class TestBackgroundDeleteModel(BaseTest):
         team2 = Team.objects.create(organization=self.organization, name="Team 2")
 
         # Create persons across multiple teams
-        Person.objects.create(team=self.team, properties={})  # Team 1
-        Person.objects.create(team=self.team, properties={})  # Team 1
-        Person.objects.create(team=team2, properties={})  # Team 2
-        Person.objects.create(team=team2, properties={})  # Team 2
-        Person.objects.create(team=team2, properties={})  # Team 2
+        create_person(team=self.team, properties={})  # Team 1
+        create_person(team=self.team, properties={})  # Team 1
+        create_person(team=team2, properties={})  # Team 2
+        create_person(team=team2, properties={})  # Team 2
+        create_person(team=team2, properties={})  # Team 2
 
         # Verify initial counts
         self.assertEqual(Person.objects.filter(team=self.team).count(), 2)

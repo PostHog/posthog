@@ -12,6 +12,7 @@ from posthog.schema import (
     AlertConditionType,
     InsightThresholdType,
     InsightVizNode,
+    NodeKind,
     QuerySchemaRoot,
 )
 
@@ -21,8 +22,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
-from posthog.tasks.alerts.utils import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 
+from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.models.alert import AlertConfiguration, AlertSubscription, Threshold
 from products.product_analytics.backend.models.insight import Insight
 
@@ -75,7 +76,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
-    - **every_15_minutes**: Check every 15 minutes (Boost+ and feature flag required)
+    - **every_15_minutes**: Check every 15 minutes (Boost+ required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
     - **weekly**: Check once per week
@@ -149,7 +150,7 @@ class UpdateAlertAction(BaseModel):
     condition_type: AlertConditionType | None = Field(default=None, description="New condition type")
     calculation_interval: AlertCalculationInterval | None = Field(
         default=None,
-        description="New calculation interval (every_15_minutes requires Boost+ and feature flag)",
+        description="New calculation interval (every_15_minutes requires Boost+)",
     )
     upper_threshold: float | None = Field(default=None, description="New upper threshold bound")
     lower_threshold: float | None = Field(default=None, description="New lower threshold bound")
@@ -204,11 +205,9 @@ class UpsertAlertTool(MaxTool):
         existing_interval: str | AlertCalculationInterval | None = None,
     ) -> str | None:
         team = self._team
-        user = self._user
         org = await sync_to_async(lambda: team.organization)()
         return await sync_to_async(AlertConfiguration.every_15_minutes_interval_validation_error)(
             calculation_interval=calculation_interval or existing_interval,
-            user_distinct_id=str(user.distinct_id),
             organization=org,
         )
 
@@ -432,7 +431,9 @@ class UpsertAlertTool(MaxTool):
     ) -> tuple[Insight, bool]:
         insight, was_auto_saved = await self._resolve_insight(insight_id)
         await self.check_object_access(insight, "viewer", resource="insight", action=action_description)
-        if not await sync_to_async(lambda: insight.are_alerts_supported)():
+        # Max's alert tooling only builds trends configs, so it accepts only trends — narrower
+        # than the model's alertable_query_kind (which also allows SQL).
+        if await sync_to_async(lambda: insight.alertable_query_kind)() != NodeKind.TRENDS_QUERY:
             raise ValueError("Alerts are only supported for TrendsQuery insights. This insight type is not supported.")
         return insight, was_auto_saved
 

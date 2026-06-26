@@ -2,10 +2,9 @@ import os
 import json
 import time
 import uuid
-import tempfile
 from collections.abc import Callable
 from datetime import timedelta
-from typing import Any, Literal, Optional, cast
+from typing import Literal, Optional
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urlparse, urlunparse
 
 from django.conf import settings
@@ -18,14 +17,6 @@ from playwright.sync_api import (
     sync_playwright,
 )
 from prometheus_client import Counter, Histogram
-from selenium import webdriver
-from selenium.common.exceptions import TimeoutException
-from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
-from webdriver_manager.chrome import ChromeDriverManager
-from webdriver_manager.core.os_manager import ChromeType
 
 from posthog.schema import FunnelLayout, NodeKind
 
@@ -51,11 +42,6 @@ from products.product_analytics.backend.models.insight_variable import InsightVa
 
 logger = structlog.get_logger(__name__)
 
-IMAGE_EXPORT_BACKEND_COUNTER = Counter(
-    "image_export_backend_total",
-    "Image exports by rendering backend (browserless vs selenium)",
-    labelnames=["backend"],
-)
 IMAGE_EXPORT_RENDER_DURATION = Histogram(
     "image_export_render_duration_seconds",
     "Image export render time (browser navigate + wait + screenshot), by backend and outcome",
@@ -77,10 +63,6 @@ def _build_cache_keys_param(insight_cache_keys: Optional[dict[int, str]]) -> str
 
 TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 
-# Newer versions of selenium seem to include the search bar in the height calculation.
-# This is a manually determined offset to ensure the screenshot is the correct height.
-# See https://github.com/SeleniumHQ/selenium/issues/14660.
-HEIGHT_OFFSET = 85
 MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
 MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on very tall pages
 CONTENT_PADDING = 80  # Padding for card borders
@@ -110,7 +92,15 @@ MEASURE_CONTENT_WIDTH_JS = f"""
                 return replayElement.offsetWidth;
             }}
 
-            // Check for left-to-right funnel (FunnelBarVertical)
+            // Left-to-right funnel (FunnelStepsBarChart, quill-charts). The bars + legend carry an
+            // explicit pixel width on this element, while every ancestor stretches to fill the wide
+            // export viewport — so measure this element directly rather than the stretched wrapper.
+            const funnelStepsCanvas = document.querySelector('[data-attr="funnel-steps-bar-chart-canvas"]');
+            if (funnelStepsCanvas) {{
+                return Math.ceil(funnelStepsCanvas.getBoundingClientRect().width) + {CONTENT_PADDING};
+            }}
+
+            // Legacy left-to-right funnel (FunnelBarVertical, table-based)
             // Top-to-bottom funnels use FunnelBarHorizontal and don't need width expansion
             const funnelElement = document.querySelector('.FunnelBarVertical');
             if (funnelElement) {{
@@ -144,55 +134,6 @@ ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
-# NOTE: We purposefully DON'T re-use the driver. It would be slightly faster but would keep an in-memory browser
-# window permanently around which is unnecessary
-def get_driver() -> webdriver.Chrome:
-    options = Options()
-    # Bypass HTTP_PROXY/HTTPS_PROXY for Selenium's internal communication
-    # with the local chromedriver process (the browser itself also doesn't
-    # use the proxy — it only loads URLs hardcoded to settings.SITE_URL)
-    options.ignore_local_proxy_environment_variables()
-    options.add_argument("--headless=new")  # Hint: Try removing this line when debugging
-    options.add_argument("--force-device-scale-factor=2")  # Scale factor for higher res image
-    options.add_argument("--use-gl=swiftshader")
-    options.add_argument("--disable-software-rasterizer")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--disable-dev-shm-usage")  # This flag can make things slower but more reliable
-    options.add_experimental_option(
-        "excludeSwitches", ["enable-automation"]
-    )  # Removes the "Chrome is being controlled by automated test software" bar
-
-    # Create a unique prefix for the temporary directory
-    pid = os.getpid()
-    timestamp = int(time.time() * 1000)
-    unique_prefix = f"chrome-profile-{pid}-{timestamp}-{uuid.uuid4()}"
-
-    # Use TemporaryDirectory which will automatically clean up when the context manager exits
-    temp_dir = tempfile.TemporaryDirectory(prefix=unique_prefix)
-    options.add_argument(f"--user-data-dir={temp_dir.name}")
-
-    # Necessary to let the nobody user run chromium
-    os.environ["HOME"] = temp_dir.name
-
-    if os.environ.get("CHROMEDRIVER_BIN"):
-        service = webdriver.ChromeService(executable_path=os.environ["CHROMEDRIVER_BIN"])
-        driver = webdriver.Chrome(service=service, options=options)
-    else:
-        driver = webdriver.Chrome(
-            service=Service(ChromeDriverManager(chrome_type=ChromeType.GOOGLE).install()),
-            options=options,
-        )
-
-    # Selenium's Service.send_remote_shutdown_command() uses urllib.request.urlopen()
-    # which routes through HTTP_PROXY. The egress proxy blocks this localhost request,
-    # but it doesn't matter — Service.stop() always calls _terminate_process() (SIGTERM)
-    # right after, so the HTTP shutdown is redundant.
-    cast(Any, driver.service).send_remote_shutdown_command = lambda: None
-
-    return driver
-
-
 def _export_to_png(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
@@ -217,6 +158,12 @@ def _export_to_png(
         if not settings.SITE_URL:
             raise Exception(
                 "The SITE_URL is not set. The exporter must have HTTP access to the web app in order to work"
+            )
+
+        if not settings.BROWSERLESS_CDP_URL:
+            raise Exception(
+                "BROWSERLESS_CDP_URL is not set. Image exports render via a browserless service and "
+                "cannot run without one configured"
             )
 
         image_id = str(uuid.uuid4())
@@ -306,20 +253,9 @@ def _export_to_png(
 
         logger.info("exporting_asset", asset_id=exported_asset.id, render_url=url_to_render)
 
-        use_browserless = _should_use_browserless(exported_asset)
-
-        backend = "browserless" if use_browserless else "selenium"
-        logger.info(
-            "image_exporter.backend_selected",
-            backend=backend,
-            asset_id=exported_asset.id,
-            team_id=exported_asset.team_id,
-        )
-        IMAGE_EXPORT_BACKEND_COUNTER.labels(backend=backend).inc()
-
         render_start = time.perf_counter()
         try:
-            _screenshot_asset(
+            _screenshot_asset_browserless(
                 image_path,
                 url_to_render,
                 screenshot_width,
@@ -327,15 +263,16 @@ def _export_to_png(
                 screenshot_height,
                 max_height_pixels,
                 page_load_timeout,
-                use_browserless=use_browserless,
             )
         except Exception as e:
-            IMAGE_EXPORT_RENDER_DURATION.labels(backend=backend, outcome="failure").observe(
+            IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
                 time.perf_counter() - render_start
             )
-            IMAGE_EXPORT_RENDER_FAILURE_COUNTER.labels(backend=backend, failure_type=classify_failure_type(e)).inc()
+            IMAGE_EXPORT_RENDER_FAILURE_COUNTER.labels(
+                backend="browserless", failure_type=classify_failure_type(e)
+            ).inc()
             raise
-        IMAGE_EXPORT_RENDER_DURATION.labels(backend=backend, outcome="success").observe(
+        IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="success").observe(
             time.perf_counter() - render_start
         )
 
@@ -374,54 +311,6 @@ def _redact_browserless_token(message: str) -> str:
     return message.replace(token, "***").replace(quote_plus(token), "***")
 
 
-def _should_use_browserless(exported_asset: ExportedAsset) -> bool:
-    if not settings.BROWSERLESS_CDP_URL:
-        return False
-    team = exported_asset.team
-    distinct_id = (exported_asset.created_by.distinct_id if exported_asset.created_by else None) or str(team.uuid)
-    return bool(
-        posthoganalytics.feature_enabled(
-            "image-exporter-use-browserless",
-            distinct_id,
-            groups={"organization": str(team.organization_id), "project": str(team.id)},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-    )
-
-
-def _screenshot_asset(
-    image_path: str,
-    url_to_render: str,
-    screenshot_width: ScreenWidth,
-    wait_for_css_selector: CSSSelector,
-    screenshot_height: int = 600,
-    max_height_pixels: Optional[int] = None,
-    page_load_timeout: int = 40,
-    use_browserless: bool = False,
-) -> None:
-    if use_browserless:
-        _screenshot_asset_browserless(
-            image_path,
-            url_to_render,
-            screenshot_width,
-            wait_for_css_selector,
-            screenshot_height,
-            max_height_pixels,
-            page_load_timeout,
-        )
-    else:
-        _screenshot_asset_selenium(
-            image_path,
-            url_to_render,
-            screenshot_width,
-            wait_for_css_selector,
-            screenshot_height,
-            max_height_pixels,
-            page_load_timeout,
-        )
-
-
 def _effective_max_height(max_height_pixels: Optional[int]) -> int:
     return min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
 
@@ -458,87 +347,6 @@ def _resolve_width(raw_width: object, screenshot_width: int, url: str) -> int:
             url=url,
         )
     return min(MAX_WIDTH_PIXELS, int(calculated_width))
-
-
-def _screenshot_asset_selenium(
-    image_path: str,
-    url_to_render: str,
-    screenshot_width: ScreenWidth,
-    wait_for_css_selector: CSSSelector,
-    screenshot_height: int = 600,
-    max_height_pixels: Optional[int] = None,
-    page_load_timeout: int = 40,
-) -> None:
-    driver: Optional[webdriver.Chrome] = None
-    try:
-        driver = get_driver()
-        driver.set_window_size(screenshot_width, screenshot_height)
-        driver.get(url_to_render)
-        posthoganalytics.tag("url_to_render", url_to_render)
-
-        try:
-            WebDriverWait(driver, page_load_timeout).until(
-                lambda x: x.find_element(By.CSS_SELECTOR, wait_for_css_selector)
-            )
-        except TimeoutException as e:
-            with posthoganalytics.new_context():
-                posthoganalytics.tag("stage", "image_exporter.page_load_timeout")
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
-                capture_exception(e)
-
-            raise TimeoutException("Timeout while waiting for the page to load") from e
-
-        try:
-            # Also wait until nothing is loading
-            WebDriverWait(driver, 20).until_not(lambda x: x.find_element(By.CLASS_NAME, "Spinner"))
-        except TimeoutException as e:
-            with posthoganalytics.new_context():
-                posthoganalytics.tag("stage", "image_exporter.wait_for_spinner_timeout")
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
-                capture_exception(e)
-
-        effective_max = _effective_max_height(max_height_pixels)
-        height = _cap_height(int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS)), effective_max, url_to_render)
-        width = _resolve_width(driver.execute_script(MEASURE_CONTENT_WIDTH_JS), screenshot_width, url_to_render)
-
-        # Set window size with the calculated dimensions
-        driver.set_window_size(width, height + HEIGHT_OFFSET)
-
-        # Allow a moment for any dynamic resizing
-        driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
-
-        final_height = _cap_height(
-            int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS)), effective_max, url_to_render, final=True
-        )
-
-        # Set final window size
-        driver.set_window_size(width, final_height + HEIGHT_OFFSET)
-        driver.save_screenshot(image_path)
-    except Exception as e:
-        # To help with debugging, add a screenshot and any chrome logs
-        with posthoganalytics.new_context():
-            posthoganalytics.tag("url_to_render", url_to_render)
-            if driver:
-                # If we encounter issues getting extra info we should silently fail rather than creating a new exception
-                try:
-                    driver.save_screenshot(image_path)
-                    posthoganalytics.tag("image_path", image_path)
-                except Exception:
-                    pass
-        capture_exception(e)
-
-        raise
-    finally:
-        if driver:
-            driver.quit()
 
 
 _BROWSERLESS_CONNECTION_ERROR_INDICATORS = (
@@ -711,7 +519,8 @@ def export_image(
                         team=exported_asset.team,
                         dashboard=exported_asset.dashboard,
                         execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                        user=None,
+                        # Background render (no request user); attribute the read to the export owner.
+                        user=exported_asset.created_by,
                         variables_override=None,
                         tile_filters_override=tile_filters_override,
                         query_override=query_override,
@@ -724,7 +533,8 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            user=None,
+                            # Background render (no request user); attribute the read to the export owner.
+                            user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile_filters_override,
                             analytics_props=export_analytics_props,
@@ -760,7 +570,8 @@ def export_image(
                             team=exported_asset.team,
                             dashboard=exported_asset.dashboard,
                             execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-                            user=None,
+                            # Background render (no request user); attribute the read to the export owner.
+                            user=exported_asset.created_by,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
                             analytics_props=export_analytics_props,

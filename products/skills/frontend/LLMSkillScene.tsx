@@ -1,9 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { combineUrl, router } from 'kea-router'
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { Fragment, lazy, Suspense, useEffect, useRef, useState } from 'react'
 
-import { IconChevronRight, IconColumns, IconDocument, IconPencil, IconPlus, IconTrash, IconX } from '@posthog/icons'
+import {
+    IconChevronRight,
+    IconColumns,
+    IconDocument,
+    IconDownload,
+    IconPencil,
+    IconPlus,
+    IconTrash,
+    IconX,
+} from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -26,10 +35,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { MarkdownOutline } from 'products/ai_observability/frontend/components/MarkdownOutline'
-import type {
-    LLMSkillFileManifestApi,
-    LLMSkillVersionSummaryApi,
-} from 'products/ai_observability/frontend/generated/api.schemas'
+import type { LLMSkillFileManifestApi, LLMSkillVersionSummaryApi } from 'products/skills/frontend/generated/api.schemas'
 
 import type { SkillFormFileValues } from './llmSkillLogic'
 import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLogic'
@@ -65,10 +71,12 @@ export function LLMSkillScene(): JSX.Element {
         versions,
         canLoadMoreVersions,
         fileContentsLoading,
+        downloadingZip,
     } = useValues(llmSkillLogic)
     const { searchParams } = useValues(router)
 
-    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions } = useActions(llmSkillLogic)
+    const { submitSkillForm, deleteSkill, setMode, setSkillFormValues, loadMoreVersions, downloadSkill } =
+        useActions(llmSkillLogic)
 
     if (isSkillMissing) {
         return <NotFound object="skill" />
@@ -132,6 +140,20 @@ export function LLMSkillScene(): JSX.Element {
                                     Use as latest
                                 </LemonButton>
                             </AccessControlAction>
+                        )}
+
+                        {isSkill(skill) && (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconDownload />}
+                                onClick={downloadSkill}
+                                loading={downloadingZip}
+                                size="small"
+                                tooltip="Download this skill as a spec-compliant .zip (SKILL.md + bundled files)"
+                                data-attr="llma-skill-download-zip-button"
+                            >
+                                Download .zip
+                            </LemonButton>
                         )}
 
                         <AccessControlAction
@@ -270,6 +292,23 @@ function SkillViewDetails(): JSX.Element {
         return <></>
     }
 
+    // The spec frontmatter, rendered as a compact monospace key/value block. The top-level spec
+    // fields are authoritative, so any stored metadata entry that reuses one of their names (or
+    // `version`, the platform-owned field shown last) is dropped — otherwise it would render a
+    // second, duplicate row for the same key.
+    const reservedFrontmatterKeys = new Set(['license', 'compatibility', 'allowed-tools', 'version'])
+    const frontmatterRows: [string, string][] = [
+        ...(skill.license ? ([['license', skill.license]] as [string, string][]) : []),
+        ...(skill.compatibility ? ([['compatibility', skill.compatibility]] as [string, string][]) : []),
+        ...(skill.allowed_tools?.length
+            ? ([['allowed-tools', skill.allowed_tools.join(' ')]] as [string, string][])
+            : []),
+        ...Object.entries(skill.metadata ?? {})
+            .filter(([key]) => !reservedFrontmatterKeys.has(key))
+            .map(([key, value]): [string, string] => [key, String(value)]),
+        ['version', String(skill.version)],
+    ]
+
     return (
         <div className="space-y-5">
             <div className="flex flex-wrap items-center gap-2">
@@ -300,35 +339,19 @@ function SkillViewDetails(): JSX.Element {
                 <p className="text-sm">{skill.description}</p>
             </div>
 
-            {(skill.license || skill.compatibility) && (
-                <div className="grid gap-3 sm:grid-cols-2">
-                    {skill.license && (
-                        <div>
-                            <label className="text-xs font-semibold uppercase text-secondary">License</label>
-                            <p className="text-sm">{skill.license}</p>
-                        </div>
-                    )}
-                    {skill.compatibility && (
-                        <div>
-                            <label className="text-xs font-semibold uppercase text-secondary">Compatibility</label>
-                            <p className="text-sm">{skill.compatibility}</p>
-                        </div>
-                    )}
+            <div>
+                <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>
+                <div className="mt-1 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-0.5 font-mono text-xs">
+                    {frontmatterRows.map(([key, value], index) => (
+                        // Composite key: a metadata entry could share a name with a reserved
+                        // frontmatter field (license/compatibility/allowed-tools), so `key` alone isn't unique.
+                        <Fragment key={`${index}-${key}`}>
+                            <span className="text-muted">{key}</span>
+                            <span className="text-secondary whitespace-pre-wrap break-words">{value}</span>
+                        </Fragment>
+                    ))}
                 </div>
-            )}
-
-            {skill.allowed_tools && skill.allowed_tools.length > 0 && (
-                <div>
-                    <label className="text-xs font-semibold uppercase text-secondary">Allowed tools</label>
-                    <div className="mt-1 flex flex-wrap gap-1">
-                        {skill.allowed_tools.map((tool) => (
-                            <LemonTag key={tool} type="highlight" size="small">
-                                {tool}
-                            </LemonTag>
-                        ))}
-                    </div>
-                </div>
-            )}
+            </div>
 
             <div>
                 <div className="flex items-center gap-2">
@@ -389,15 +412,17 @@ function SkillViewDetails(): JSX.Element {
                         Bundled files ({skill.files.length})
                     </label>
                     <div className="mt-1 space-y-1">
-                        {skill.files.map((file) => (
-                            <SkillFileViewer
-                                key={file.path}
-                                skillName={skill.name}
-                                file={file}
-                                version={skill.is_latest ? undefined : skill.version}
-                                autoOpen={selectedFilePath === file.path}
-                            />
-                        ))}
+                        {[...skill.files]
+                            .sort((a, b) => a.path.localeCompare(b.path))
+                            .map((file) => (
+                                <SkillFileViewer
+                                    key={file.path}
+                                    skillName={skill.name}
+                                    file={file}
+                                    version={skill.is_latest ? undefined : skill.version}
+                                    autoOpen={selectedFilePath === file.path}
+                                />
+                            ))}
                     </div>
                 </div>
             )}
@@ -530,6 +555,34 @@ function getFileLanguage(path: string, contentType?: string): Language | null {
     return null
 }
 
+// Bundled markdown files can carry their own YAML frontmatter; mirror the backend regex so it
+// renders as a tidy block rather than a run-on paragraph the markdown renderer makes of it.
+const BUNDLED_FRONTMATTER_RE = /^---[^\n]*\n([\s\S]*?)\n---[^\n]*\n?([\s\S]*)$/
+
+function splitBundledFrontmatter(text: string): { frontmatter: string; body: string } {
+    const match = text.match(BUNDLED_FRONTMATTER_RE)
+    if (!match) {
+        return { frontmatter: '', body: text }
+    }
+    return { frontmatter: match[1].replace(/\s+$/, ''), body: match[2] }
+}
+
+function BundledMarkdown({ content }: { content: string }): JSX.Element {
+    const { frontmatter, body } = splitBundledFrontmatter(content)
+    return (
+        <>
+            {frontmatter && (
+                <pre className="mb-2 overflow-auto whitespace-pre-wrap rounded bg-fill-secondary px-2 py-1 font-mono text-xs text-muted">
+                    {frontmatter}
+                </pre>
+            )}
+            <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
+                {body}
+            </LemonMarkdownWithMermaid>
+        </>
+    )
+}
+
 function SkillFileViewer({
     skillName,
     file,
@@ -599,9 +652,7 @@ function SkillFileViewer({
                             <LemonSkeleton active className="h-3 w-1/2" />
                         </div>
                     ) : content === null ? null : isMarkdown ? (
-                        <LemonMarkdownWithMermaid className="text-sm" generateHeadingIds>
-                            {content}
-                        </LemonMarkdownWithMermaid>
+                        <BundledMarkdown content={content} />
                     ) : codeLanguage !== null ? (
                         <CodeSnippet language={codeLanguage} compact thing={file.path} maxLinesWithoutExpansion={20}>
                             {content}

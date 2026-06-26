@@ -17,7 +17,7 @@ export class FunnelsInsight {
     private readonly conversionWindowSection: Locator
 
     constructor(private readonly page: Page) {
-        this.verticalChart = page.getByTestId('funnel-bar-vertical')
+        this.verticalChart = page.getByTestId('funnel-steps-bar-chart')
         this.horizontalChart = page.getByTestId('funnel-bar-horizontal')
         this.chart = this.verticalChart.or(this.horizontalChart)
         this.histogram = page.getByTestId('funnel-histogram')
@@ -117,6 +117,12 @@ export class FunnelsInsight {
         await input.press('Enter')
     }
 
+    async getConversionWindowInterval(): Promise<string> {
+        await this.expandFunnelSettings()
+        await expect(this.conversionWindowInput).toHaveValue(/\d+/)
+        return await this.conversionWindowInput.inputValue()
+    }
+
     async selectConversionWindowUnit(unit: string): Promise<void> {
         await this.expandFunnelSettings()
         await this.conversionWindowSection.getByTestId('funnel-conversion-window-unit').click()
@@ -131,5 +137,20 @@ export class FunnelsInsight {
 
     stepLegend(index: number): Locator {
         return this.stepLegends.nth(index)
+    }
+
+    // The steps chart renders its bars onto a canvas, so the tooltip is driven by
+    // hovering the canvas rather than a per-bar DOM element. Retry the move until
+    // the tooltip shows, mirroring ChartInsightBase.hoverChartAt.
+    async hoverStepBars(): Promise<void> {
+        const canvas = this.verticalChart.locator('canvas[role="img"]')
+        await expect(canvas).toBeVisible()
+        await expect(async () => {
+            await canvas.scrollIntoViewIfNeeded()
+            const box = (await canvas.boundingBox())!
+            await this.page.mouse.move(box.x - 5, box.y - 5)
+            await this.page.mouse.move(box.x + box.width * 0.25, box.y + box.height * 0.5)
+            await expect(this.tooltip.first()).toBeVisible({ timeout: 1000 })
+        }).toPass({ timeout: 15000 })
     }
 }

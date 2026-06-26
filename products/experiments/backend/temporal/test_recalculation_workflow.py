@@ -1,6 +1,7 @@
 import uuid
 
 import pytest
+from unittest.mock import patch
 
 import temporalio.worker
 from parameterized import parameterized
@@ -11,6 +12,7 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
 from products.experiments.backend.temporal.models import (
+    MAX_METRIC_ATTEMPTS,
     ExperimentMetricsRecalculationWorkflowInputs,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
@@ -46,9 +48,14 @@ def _make_mock_activities(
 
     @activity.defn(name="calculate_experiment_metric_for_recalculation")
     async def mock_calculate(
-        experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+        experiment_id: int,
+        metric_uuid: str,
+        recalculation_id: str,
+        query_to: str,
+        metric_type: str = "primary",
+        is_final_attempt: bool = True,
     ) -> MetricRecalculationResult:
-        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to))
+        calculate_calls.append((experiment_id, metric_uuid, recalculation_id, query_to, metric_type))
         return metric_results.get(metric_uuid, MetricRecalculationResult(metric_uuid=metric_uuid, success=True))
 
     activities = [mock_discover, mock_update_progress, mock_calculate]
@@ -119,6 +126,79 @@ class TestExperimentMetricsRecalculationWorkflow:
         assert progress_updates[-1].status == expected_final_status
         assert progress_updates[-1].mark_completed is True
 
+    async def test_transient_failure_is_requeued_and_retried_until_it_succeeds(self):
+        # A raised activity is a transient failure: the workflow requeues the metric and retries it, freeing
+        # the slot in between. m2 raises on its first two attempts, then succeeds on the third; m1 succeeds
+        # immediately. The run ends fully succeeded, and m2 was invoked three times.
+        metrics = [_metric("m1"), _metric("m2")]
+        attempts: dict[str, int] = {}
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return metrics
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+            is_final_attempt: bool = True,
+        ) -> MetricRecalculationResult:
+            attempts[metric_uuid] = attempts.get(metric_uuid, 0) + 1
+            if metric_uuid == "m2" and attempts[metric_uuid] <= 2:
+                raise RuntimeError("transient blip")
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
+
+        result = await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
+
+        assert result == {"total": 2, "succeeded": 2, "failed": 0}
+        assert attempts["m1"] == 1
+        assert attempts["m2"] == 3
+
+    async def test_transient_failure_is_marked_failed_after_max_attempts(self):
+        # A metric that raises on every attempt is requeued until MAX_METRIC_ATTEMPTS is exhausted, then
+        # counted as failed (the final attempt persists the failure inside the real activity).
+        metrics = [_metric("m1")]
+        attempts: dict[str, int] = {}
+        # is_final_attempt is the only signal that tells the real activity to persist the failure. Track it
+        # per call so we can assert the workflow flips it to True exactly on the last attempt; otherwise a
+        # run would be counted failed here while the metric row stayed in its loading state forever.
+        is_final_attempt_log: list[bool] = []
+
+        @activity.defn(name="discover_experiment_metrics")
+        async def mock_discover(recalculation_id: str) -> list[ExperimentMetricToRecalculate]:
+            return metrics
+
+        @activity.defn(name="update_recalculation_progress")
+        async def mock_update_progress(update: RecalculationProgressUpdate) -> str | None:
+            return _START_QUERY_TO if update.mark_started else None
+
+        @activity.defn(name="calculate_experiment_metric_for_recalculation")
+        async def mock_calculate(
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
+            is_final_attempt: bool = True,
+        ) -> MetricRecalculationResult:
+            attempts[metric_uuid] = attempts.get(metric_uuid, 0) + 1
+            is_final_attempt_log.append(is_final_attempt)
+            raise RuntimeError("always fails")
+
+        result = await _run_workflow([mock_discover, mock_update_progress, mock_calculate])
+
+        assert result == {"total": 1, "succeeded": 0, "failed": 1}
+        assert attempts["m1"] == MAX_METRIC_ATTEMPTS
+        # Only the final attempt is flagged final; earlier attempts must not be, or they'd persist early.
+        assert is_final_attempt_log == [False] * (MAX_METRIC_ATTEMPTS - 1) + [True]
+
     @parameterized.expand(
         [
             # name, metrics — exercise both the empty-metrics path and the fan-out path.
@@ -147,13 +227,43 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         @activity.defn(name="calculate_experiment_metric_for_recalculation")
         async def mock_calculate(
-            experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
         # Workflow must complete without the validating activity raising — i.e., every progress call has exactly
         # one of mark_started / mark_completed set.
         await _run_workflow([mock_discover, progress_with_xor_guard, mock_calculate])
+
+    @parameterized.expand(
+        [
+            # name, failed_uuids, metrics, expected_status — covers both return sites (empty and fan-out) and
+            # both terminal status values. Without this, either return site could silently lose the counter
+            # call without any test failure.
+            ("empty_completes", set(), [], "completed"),
+            ("all_succeed_completes", set(), [_metric("m1"), _metric("m2")], "completed"),
+            ("any_failure_fails", {"m1"}, [_metric("m1"), _metric("m2")], "failed"),
+        ]
+    )
+    async def test_workflow_finished_counter_fires_with_terminal_status(
+        self, name: str, failed_uuids: set, metrics: list[ExperimentMetricToRecalculate], expected_status: str
+    ):
+        metric_results = {
+            uuid_: MetricRecalculationResult(metric_uuid=uuid_, success=False, error_step="calculation")
+            for uuid_ in failed_uuids
+        }
+        activities, _progress, _calls = _make_mock_activities(metrics=metrics, metric_results=metric_results)
+
+        with patch(
+            "products.experiments.backend.temporal.recalculation_workflow.increment_workflow_finished"
+        ) as mock_finished:
+            await _run_workflow(activities)
+
+        mock_finished.assert_called_once_with(expected_status)
 
     async def test_workflow_fails_non_retryable_if_start_activity_returns_none(self):
         # The workflow narrows the start activity's Optional[str] return into a real str via an if/raise
@@ -169,7 +279,11 @@ class TestExperimentMetricsRecalculationWorkflow:
 
         @activity.defn(name="calculate_experiment_metric_for_recalculation")
         async def mock_calculate(
-            experiment_id: int, metric_uuid: str, recalculation_id: str, query_to: str
+            experiment_id: int,
+            metric_uuid: str,
+            recalculation_id: str,
+            query_to: str,
+            metric_type: str = "primary",
         ) -> MetricRecalculationResult:
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 

@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonCollapse } from 'lib/lemon-ui/LemonCollapse'
-import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,10 +19,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
+import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
+import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
 
@@ -33,13 +36,15 @@ export const scene: SceneExport = {
 }
 
 export function ReplayScannerSceneComponent(): JSX.Element {
-    const { scannerId } = useValues(replayScannerSceneLogic)
+    const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
+    const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
 
-    const { scanner, scannerLoading, togglingEnabled } = useValues(scannerLogic)
-    const { deleteScanner, toggleEnabled } = useActions(scannerLogic)
+    const { scanner, scannerLoading } = useValues(scannerLogic)
 
     if (scannerLoading || !scanner) {
         return (
@@ -57,24 +62,6 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                 resourceType={{ type: 'replay_vision' }}
                 actions={
                     <>
-                        <div className="flex items-center gap-2">
-                            <AccessControlAction
-                                resourceType={AccessControlResourceType.SessionRecording}
-                                minAccessLevel={AccessControlLevel.Editor}
-                            >
-                                <LemonSwitch
-                                    checked={scanner.enabled}
-                                    onChange={() => toggleEnabled()}
-                                    disabled={togglingEnabled}
-                                    size="small"
-                                    data-attr="vision-scanner-toggle-enabled"
-                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                />
-                            </AccessControlAction>
-                            <span className={scanner.enabled ? 'text-success' : 'text-muted'}>
-                                {scanner.enabled ? 'Enabled' : 'Disabled'}
-                            </span>
-                        </div>
                         <AccessControlAction
                             resourceType={AccessControlResourceType.SessionRecording}
                             minAccessLevel={AccessControlLevel.Editor}
@@ -90,53 +77,48 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                             </LemonButton>
                         </AccessControlAction>
                         <ReplayVisionFeedbackButton />
-                        <More
-                            size="small"
-                            overlay={
-                                <LemonButton
-                                    status="danger"
-                                    fullWidth
-                                    onClick={() =>
-                                        LemonDialog.open({
-                                            title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
-                                            description: 'This cannot be undone.',
-                                            primaryButton: {
-                                                children: 'Delete',
-                                                status: 'danger',
-                                                onClick: () => deleteScanner(),
-                                            },
-                                            secondaryButton: { children: 'Cancel' },
-                                        })
-                                    }
-                                    data-attr="vision-scanner-delete"
-                                    data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                                >
-                                    Delete
-                                </LemonButton>
-                            }
-                        />
                     </>
                 }
             />
 
             <QuotaBanner />
 
-            <ScannerOverview scannerId={scannerId} />
-
-            <div className="flex flex-col gap-2">
-                <LemonCollapse
-                    panels={[
-                        {
-                            key: 'configuration',
-                            header: 'Configuration',
-                            content: <ScannerConfigReadonly scanner={scanner} />,
-                            dataAttr: 'vision-scanner-config-expand',
-                        },
-                    ]}
-                />
-                <SummarizerMaxChat scannerId={scannerId} />
-                <ScannerObservationsTable scannerId={scannerId} />
-            </div>
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                data-attr="vision-scanner-tabs"
+                tabs={[
+                    {
+                        key: 'observations',
+                        label: 'Observations',
+                        content: (
+                            <div className="flex flex-col gap-6">
+                                <ScannerOverview scannerId={scannerId} />
+                                <div className="flex flex-col gap-2">
+                                    <SummarizerMaxChat scannerId={scannerId} />
+                                    <ObservationSearchMaxChat scannerId={scannerId} />
+                                    <ScannerObservationsTable scannerId={scannerId} />
+                                </div>
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'on-demand',
+                        label: 'On-demand',
+                        content: <ScannerRunTab scannerId={scannerId} />,
+                    },
+                    {
+                        key: 'configuration',
+                        label: 'Configuration',
+                        content: <ScannerConfigReadonly scanner={scanner} />,
+                    },
+                    actionsTabEnabled && {
+                        key: 'actions',
+                        label: 'Actions',
+                        content: <VisionActionsTab scannerId={scannerId} />,
+                    },
+                ]}
+            />
         </SceneContent>
     )
 }

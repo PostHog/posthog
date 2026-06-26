@@ -6,17 +6,17 @@ import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 import { DateTime } from 'luxon'
 import { Pool } from 'pg'
 
+import { KAFKA_HOG_INVOCATION_RESULTS } from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
-import { ensureKafkaTopics, resetKafka } from '~/tests/helpers/kafka'
+import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { PersonReadRepository } from '~/worker/ingestion/persons/repositories/person-repository'
 
-import { KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS } from '../../config/kafka-topics'
-import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { insertHogFunction as _insertHogFunction, createHogExecutionGlobals } from '../_tests/fixtures'
 import { CdpConsumerBaseDeps } from '../consumers/cdp-base.consumer'
@@ -30,7 +30,7 @@ import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
-const ActualKafkaProducerWrapper = jest.requireActual('../../kafka/producer').KafkaProducerWrapper
+const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
 const NODE_DB_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
 
@@ -45,11 +45,10 @@ interface PersistedRow {
 }
 
 /**
- * Probe the ClickHouse Kafka MV for our topic in particular. resetKafka()
- * deletes and recreates the topic, which forces the MV's internal consumer to
- * reconnect; with auto.offset.reset=latest, anything produced before the
- * reconnect is silently dropped. Send probe rows until one lands in CH so we
- * know the MV is live.
+ * Probe the ClickHouse Kafka MV for our topic in particular. With
+ * auto.offset.reset=latest, anything produced before the MV's internal consumer
+ * has attached is silently dropped. Send probe rows until one lands in CH so we
+ * know the MV is live before the test produces real rows.
  */
 const waitForHogInvocationResultsMvReady = async (clickhouse: Clickhouse): Promise<void> => {
     const producer = await ActualKafkaProducerWrapper.create(undefined)
@@ -149,10 +148,10 @@ describe('CDP hog invocation rerun e2e', () => {
         // real producer to observe via KafkaProducerObserver.
         MockKafkaProducerWrapper.create = jest.fn((...args: any[]) => ActualKafkaProducerWrapper.create(...args))
 
-        await resetKafka()
-        // resetKafka does not include KAFKA_HOG_INVOCATION_RESULTS — add it so the
-        // ClickHouse Kafka engine consumer can attach.
-        await ensureKafkaTopics([KAFKA_HOG_INVOCATION_RESULTS, KAFKA_INGESTION_WARNINGS])
+        // Ensure all topics exist (idempotently, without deleting) so the ClickHouse
+        // Kafka engine consumers keep their connections. Includes KAFKA_HOG_INVOCATION_RESULTS,
+        // which this test's MV needs but the shared set does not cover.
+        await ensureKafkaTopics([...TEST_KAFKA_TOPICS, KAFKA_HOG_INVOCATION_RESULTS])
         await clickhouse.truncate('hog_invocation_results_data')
         await waitForHogInvocationResultsMvReady(clickhouse)
         await resetTestDatabase()

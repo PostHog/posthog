@@ -5,15 +5,12 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import {
+    RecurrenceIntervalEnumApi,
     ResourceTypeEnumApi,
-    SubscriptionFrequencyEnumApi,
     SubscriptionsDeliveriesListStatus,
     TargetTypeEnumApi,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 import type { SubscriptionApi } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
-
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -40,7 +37,7 @@ const MOCK_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -62,7 +59,7 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     dashboard_export_insights: [],
     target_type: TargetTypeEnumApi.Email,
     target_value: 'a@b.com',
-    frequency: SubscriptionFrequencyEnumApi.Weekly,
+    frequency: RecurrenceIntervalEnumApi.Weekly,
     interval: 1,
     start_date: '2022-01-01T00:00:00Z',
     created_at: '2023-04-27T10:04:37.977401Z',
@@ -85,17 +82,17 @@ describe('subscriptionSceneLogic', () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: (req) => {
-                    deliveriesRequestUrls.push(req.url.toString())
+                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
+                    return [200, { results: [], next: null, previous: null }]
+                },
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: ({ request }) => {
+                    deliveriesRequestUrls.push(request.url)
                     return [200, { results: [], next: null, previous: null }]
                 },
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
-            [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
-        })
 
         const logic = subscriptionSceneLogic({ id: '1' })
         logic.mount()
@@ -110,47 +107,19 @@ describe('subscriptionSceneLogic', () => {
         expect(deliveriesRequestUrls).toHaveLength(2)
         expect(deliveriesRequestUrls[1]).toContain('status=failed')
         logic.unmount()
-        featureFlagLogic.unmount()
     })
 
-    it('does not request deliveries when the hackathons_subscriptions flag is off', async () => {
+    it('loads delivery history once the subscription has loaded', async () => {
         useMocks({
             get: {
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
-
-        const logic = subscriptionSceneLogic({ id: '1' })
-        logic.mount()
-
-        await expectLogic(logic).toDispatchActions(['loadSubscriptionSuccess'])
-        expect(deliveriesRequestUrls).toHaveLength(0)
-        logic.unmount()
-        featureFlagLogic.unmount()
-    })
-
-    it('loads delivery history when the hackathons_subscriptions flag is on', async () => {
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
-                    deliveriesRequestUrls.push('deliveries')
-                    return [200, { results: [], next: null, previous: null }]
-                },
-            },
-        })
-        initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
-            [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
-        })
 
         const logic = subscriptionSceneLogic({ id: '1' })
         logic.mount()
@@ -158,62 +127,21 @@ describe('subscriptionSceneLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()
-        featureFlagLogic.unmount()
     })
 
-    it('refetches deliveries after subscription loads when the flag turns on', async () => {
-        useMocks({
-            get: {
-                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: () => {
-                    deliveriesRequestUrls.push('deliveries')
-                    return [200, { results: [], next: null, previous: null }]
-                },
-            },
-        })
-        initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
-
-        const logic = subscriptionSceneLogic({ id: '1' })
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSubscriptionSuccess'])
-        expect(deliveriesRequestUrls).toHaveLength(0)
-
-        await expectLogic(logic, () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS], {
-                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
-            })
-        }).toFinishAllListeners()
-
-        expect(deliveriesRequestUrls).toHaveLength(1)
-        logic.unmount()
-        featureFlagLogic.unmount()
-    })
-
-    it('loads an AI prompt subscription and its deliveries when the flag is on', async () => {
+    it('loads an AI prompt subscription and its deliveries', async () => {
         useMocks({
             get: {
                 // Function form, not the `[200, body]` shorthand: useMocks serializes a bare array as
                 // the whole response body, so only a function-returned tuple delivers the object itself.
                 [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/`]: () => [200, MOCK_AI_SUBSCRIPTION],
-                [`/api/environments/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/2/deliveries/`]: () => {
                     deliveriesRequestUrls.push('deliveries')
                     return [200, { results: [], next: null, previous: null }]
                 },
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        // HACKATHONS_SUBSCRIPTIONS gates the delivery history this test asserts; SUBSCRIPTION_AI_PROMPT
-        // is what makes AI prompt subscriptions exist in the first place, so both are on in a realistic run.
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS, FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT],
-            {
-                [FEATURE_FLAGS.HACKATHONS_SUBSCRIPTIONS]: true,
-                [FEATURE_FLAGS.SUBSCRIPTION_AI_PROMPT]: true,
-            }
-        )
 
         const logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -223,7 +151,6 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.subscription?.prompt).toBeTruthy()
         expect(deliveriesRequestUrls).toHaveLength(1)
         logic.unmount()
-        featureFlagLogic.unmount()
     })
 
     it.each([
@@ -236,8 +163,6 @@ describe('subscriptionSceneLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
         const captureSpy = jest.spyOn(posthog, 'capture')
 
         const logic = subscriptionSceneLogic({ id: '2' })
@@ -262,7 +187,6 @@ describe('subscriptionSceneLogic', () => {
         expect(captureSpy.mock.calls.filter(([event]) => event === 'ai_report_feedback')).toHaveLength(1)
 
         logic.unmount()
-        featureFlagLogic.unmount()
         captureSpy.mockRestore()
     })
 
@@ -273,8 +197,6 @@ describe('subscriptionSceneLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
         const captureSpy = jest.spyOn(posthog, 'capture')
 
         const logic = subscriptionSceneLogic({ id: '2' })
@@ -298,7 +220,6 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.deliveryFeedback).toEqual({ 'd-123': 'positive' })
 
         logic.unmount()
-        featureFlagLogic.unmount()
         captureSpy.mockRestore()
     })
 
@@ -309,8 +230,6 @@ describe('subscriptionSceneLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
 
         let logic = subscriptionSceneLogic({ id: '2' })
         logic.mount()
@@ -326,7 +245,6 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.recentlyThankedDeliveries).toEqual({})
 
         logic.unmount()
-        featureFlagLogic.unmount()
     })
 
     it('captures in-app thumbs feedback and records it per delivery', async () => {
@@ -336,8 +254,6 @@ describe('subscriptionSceneLogic', () => {
             },
         })
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], {})
         const captureSpy = jest.spyOn(posthog, 'capture')
 
         const logic = subscriptionSceneLogic({ id: '2' })
@@ -376,7 +292,6 @@ describe('subscriptionSceneLogic', () => {
         expect(logic.values.deliveryFeedback).toEqual({ 'd-9': 'positive' })
 
         logic.unmount()
-        featureFlagLogic.unmount()
         captureSpy.mockRestore()
     })
 })

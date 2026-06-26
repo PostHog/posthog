@@ -283,6 +283,7 @@ export const funnelResultTimeToConvert: FunnelAPIResponse = {
             [441526.0, 0],
         ],
         average_conversion_time: 86456.76,
+        median_conversion_time: 60492.5,
     },
     timezone: 'UTC',
     last_refresh: '2023-02-22T17:32:24.245364Z',
@@ -299,9 +300,42 @@ export const funnelResultTimeToConvertWithoutConversions: FunnelAPIResponse = {
             [1.0, 0],
         ],
         average_conversion_time: null,
+        median_conversion_time: null,
     },
     timezone: 'UTC',
     last_refresh: '2023-03-03T12:02:22.618420Z',
+    is_cached: false,
+}
+
+// 1. Add step "Pageview"
+// 2. Select graph type "Time to convert"
+// 3. Toggle "Compare to previous"
+// Both periods carry the same bin boundaries (shared bins); only the counts differ.
+export const funnelResultTimeToConvertCompare: FunnelAPIResponse = {
+    result: [
+        {
+            compare_label: 'current',
+            bins: [
+                [4.0, 74],
+                [73591.0, 24],
+                [147178.0, 10],
+            ],
+            average_conversion_time: 86456.76,
+            median_conversion_time: 60492.5,
+        },
+        {
+            compare_label: 'previous',
+            bins: [
+                [4.0, 52],
+                [73591.0, 31],
+                [147178.0, 17],
+            ],
+            average_conversion_time: 91230.5,
+            median_conversion_time: 65000.0,
+        },
+    ] as any,
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T17:32:24.245364Z',
     is_cached: false,
 }
 
@@ -319,6 +353,309 @@ export const funnelResultTrends = {
     timezone: 'UTC',
     last_refresh: '2023-03-03T18:55:57.840129Z',
     is_cached: false,
+}
+
+// 1. Add step "Pageview"
+// 2. Select graph type "Trends"
+// 3. Toggle "Compare to previous"
+// Note: the runner tags rows with `compare_label` but does not set `compare: true` —
+// indexedSteps normalizes that so LineGraph dims the previous-period series.
+export const funnelResultTrendsCompare = {
+    result: [
+        {
+            count: 31,
+            data: [74.12, 68.67, 71.05, 72.06, 69.33, 70.83, 72.37],
+            days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
+            labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
+            compare_label: 'current',
+        },
+        {
+            count: 18,
+            data: [55.2, 60.1, 58.9, 61.0, 56.4, 59.8, 57.3],
+            days: ['2023-01-25', '2023-01-26', '2023-01-27', '2023-01-28', '2023-01-29', '2023-01-30', '2023-01-31'],
+            labels: [
+                '25-Jan-2023',
+                '26-Jan-2023',
+                '27-Jan-2023',
+                '28-Jan-2023',
+                '29-Jan-2023',
+                '30-Jan-2023',
+                '31-Jan-2023',
+            ],
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-03-03T18:55:57.840129Z',
+    is_cached: false,
+}
+
+// 1. Add step "Pageview"
+// 2. Select graph type "Trends"
+// 3. Break down by country
+// 4. Toggle "Compare to previous"
+// Note: the runner tags rows with `compare_label` but does not set `compare: true` —
+// indexedSteps normalizes that so LineGraph dims the previous-period series.
+export const funnelResultTrendsCompareWithBreakdown = {
+    result: [
+        {
+            count: 31,
+            data: [74.12, 68.67, 71.05, 72.06, 69.33, 70.83, 72.37],
+            days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
+            labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
+            breakdown_value: 'us',
+            compare_label: 'current',
+        },
+        {
+            count: 24,
+            data: [62.5, 64.1, 60.0, 65.2, 63.4, 61.9, 66.1],
+            days: ['2023-02-01', '2023-02-02', '2023-02-03', '2023-02-04', '2023-02-05', '2023-02-06', '2023-02-07'],
+            labels: ['1-Feb-2023', '2-Feb-2023', '3-Feb-2023', '4-Feb-2023', '5-Feb-2023', '6-Feb-2023', '7-Feb-2023'],
+            breakdown_value: 'uk',
+            compare_label: 'current',
+        },
+        {
+            count: 18,
+            data: [55.2, 60.1, 58.9, 61.0, 56.4, 59.8, 57.3],
+            days: ['2023-01-25', '2023-01-26', '2023-01-27', '2023-01-28', '2023-01-29', '2023-01-30', '2023-01-31'],
+            labels: [
+                '25-Jan-2023',
+                '26-Jan-2023',
+                '27-Jan-2023',
+                '28-Jan-2023',
+                '29-Jan-2023',
+                '30-Jan-2023',
+                '31-Jan-2023',
+            ],
+            breakdown_value: 'us',
+            compare_label: 'previous',
+        },
+        {
+            count: 15,
+            data: [48.0, 51.3, 50.2, 52.7, 49.8, 53.1, 50.6],
+            days: ['2023-01-25', '2023-01-26', '2023-01-27', '2023-01-28', '2023-01-29', '2023-01-30', '2023-01-31'],
+            labels: [
+                '25-Jan-2023',
+                '26-Jan-2023',
+                '27-Jan-2023',
+                '28-Jan-2023',
+                '29-Jan-2023',
+                '30-Jan-2023',
+                '31-Jan-2023',
+            ],
+            breakdown_value: 'uk',
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-03-03T18:55:57.840129Z',
+    is_cached: false,
+}
+
+// 1. Add steps "sign up" -> "buy"
+// 2. Toggle "Compare to previous" (default STEPS viz, no breakdown)
+// The runner returns a flat list of step dicts for both periods, each tagged with compare_label:
+// [step0_current, step1_current, step0_previous, step1_previous].
+export const funnelResultStepsCompare: FunnelAPIResponse = {
+    result: [
+        {
+            action_id: 'sign up',
+            name: 'sign up',
+            custom_name: null,
+            order: 0,
+            people: [],
+            count: 200,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'current',
+        },
+        {
+            action_id: 'buy',
+            name: 'buy',
+            custom_name: null,
+            order: 1,
+            people: [],
+            count: 100,
+            type: 'events',
+            average_conversion_time: 3600,
+            median_conversion_time: 1800,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'current',
+        },
+        {
+            action_id: 'sign up',
+            name: 'sign up',
+            custom_name: null,
+            order: 0,
+            people: [],
+            count: 150,
+            type: 'events',
+            average_conversion_time: null,
+            median_conversion_time: null,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'previous',
+        },
+        {
+            action_id: 'buy',
+            name: 'buy',
+            custom_name: null,
+            order: 1,
+            people: [],
+            count: 60,
+            type: 'events',
+            average_conversion_time: 4200,
+            median_conversion_time: 2100,
+            converted_people_url: '',
+            dropped_people_url: null,
+            compare_label: 'previous',
+        },
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T08:24:07.710763Z',
+    is_cached: true,
+}
+
+// The runner returns 2·N inner funnels for breakdown + compare — N current then N previous, aligned
+// by breakdown value, each step tagged with compare_label. Chrome converts more than Safari.
+export const funnelResultStepsBreakdownCompare: FunnelAPIResponse = {
+    result: [
+        [
+            {
+                action_id: 'sign up',
+                name: 'sign up',
+                order: 0,
+                count: 100,
+                type: 'events',
+                average_conversion_time: null,
+                median_conversion_time: null,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Chrome'],
+                breakdown_value: ['Chrome'],
+                compare_label: 'current',
+            },
+            {
+                action_id: 'buy',
+                name: 'buy',
+                order: 1,
+                count: 50,
+                type: 'events',
+                average_conversion_time: 3600,
+                median_conversion_time: 1800,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Chrome'],
+                breakdown_value: ['Chrome'],
+                compare_label: 'current',
+            },
+        ],
+        [
+            {
+                action_id: 'sign up',
+                name: 'sign up',
+                order: 0,
+                count: 40,
+                type: 'events',
+                average_conversion_time: null,
+                median_conversion_time: null,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Safari'],
+                breakdown_value: ['Safari'],
+                compare_label: 'current',
+            },
+            {
+                action_id: 'buy',
+                name: 'buy',
+                order: 1,
+                count: 20,
+                type: 'events',
+                average_conversion_time: 3600,
+                median_conversion_time: 1800,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Safari'],
+                breakdown_value: ['Safari'],
+                compare_label: 'current',
+            },
+        ],
+        [
+            {
+                action_id: 'sign up',
+                name: 'sign up',
+                order: 0,
+                count: 80,
+                type: 'events',
+                average_conversion_time: null,
+                median_conversion_time: null,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Chrome'],
+                breakdown_value: ['Chrome'],
+                compare_label: 'previous',
+            },
+            {
+                action_id: 'buy',
+                name: 'buy',
+                order: 1,
+                count: 30,
+                type: 'events',
+                average_conversion_time: 4200,
+                median_conversion_time: 2100,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Chrome'],
+                breakdown_value: ['Chrome'],
+                compare_label: 'previous',
+            },
+        ],
+        [
+            {
+                action_id: 'sign up',
+                name: 'sign up',
+                order: 0,
+                count: 25,
+                type: 'events',
+                average_conversion_time: null,
+                median_conversion_time: null,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Safari'],
+                breakdown_value: ['Safari'],
+                compare_label: 'previous',
+            },
+            {
+                action_id: 'buy',
+                name: 'buy',
+                order: 1,
+                count: 10,
+                type: 'events',
+                average_conversion_time: 4200,
+                median_conversion_time: 2100,
+                people: [],
+                converted_people_url: '',
+                dropped_people_url: null,
+                breakdown: ['Safari'],
+                breakdown_value: ['Safari'],
+                compare_label: 'previous',
+            },
+        ],
+    ],
+    timezone: 'UTC',
+    last_refresh: '2023-02-22T08:24:07.710763Z',
+    is_cached: true,
 }
 
 // 1. Add step "Pageview"

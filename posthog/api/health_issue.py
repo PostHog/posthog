@@ -22,8 +22,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.health_issue import HealthIssue
 from posthog.rate_limit import HealthIssueRefreshThrottle
 
-from products.growth.backend.sdk_health import sdks_within_freshness_grace_period
-
 
 @extend_schema_field(OpenApiTypes.OBJECT)
 class HealthIssuePayloadField(serializers.JSONField):
@@ -198,6 +196,7 @@ VALID_STATUSES = {choice.value for choice in HealthIssue.Status}
 VALID_SEVERITIES = {choice.value for choice in HealthIssue.Severity}
 
 
+@extend_schema(extensions={"x-product": "health_issues"})
 @extend_schema_view(
     list=extend_schema(
         summary="List health issues",
@@ -275,9 +274,6 @@ class HealthIssueViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelMi
             .annotate(severity_order=SEVERITY_ORDERING)
             .order_by("severity_order", "-created_at")
         )
-
-        if fresh_sdks := sdks_within_freshness_grace_period():
-            queryset = queryset.exclude(kind="sdk_outdated", payload__sdk_name__in=fresh_sdks)
 
         if status_filter := self.request.query_params.get("status"):
             if status_filter not in VALID_STATUSES:

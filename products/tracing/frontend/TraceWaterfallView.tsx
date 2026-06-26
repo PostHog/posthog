@@ -1,19 +1,27 @@
 import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { List, useDynamicRowHeight } from 'react-window'
+import { List, useDynamicRowHeight, useListRef } from 'react-window'
 
-import { IconWarning } from '@posthog/icons'
-import { LemonTag } from '@posthog/lemon-ui'
+import { IconChevronRight, IconCollapse, IconExpand, IconWarning } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { cn } from 'lib/utils/css-classes'
 
-import { SPAN_KIND_LABELS, STATUS_CODE_LABELS } from './types'
 import type { Span } from './types'
 
 interface TraceWaterfallViewProps {
     spans: Span[]
+    /** Currently-selected span (controlled by the scene's URL-canonical state). */
+    selectedSpanId?: string | null
+    onSpanSelect?: (spanId: string | null) => void
+    /** The trace has more spans than are loaded — show the infinite-scroll affordance at the bottom. */
+    hasMore?: boolean
+    /** A next page of spans is being fetched. */
+    loadingMore?: boolean
+    onLoadMore?: () => void
 }
 
 interface SpanNode {
@@ -60,10 +68,22 @@ function sortChildren(nodes: SpanNode[]): SpanNode[] {
     return [...nodes].sort((a, b) => parseTimestampUs(a.span.timestamp) - parseTimestampUs(b.span.timestamp))
 }
 
-function flattenTree(nodes: SpanNode[]): SpanNode[] {
+function countDescendants(node: SpanNode): number {
+    let total = 0
+    for (const child of node.children) {
+        total += 1 + countDescendants(child)
+    }
+    return total
+}
+
+/** Depth-first flatten for rendering, skipping the subtree of any collapsed span. */
+function flattenTree(nodes: SpanNode[], collapsedSpanIds: Set<string>): SpanNode[] {
     const result: SpanNode[] = []
     function walk(node: SpanNode): void {
         result.push(node)
+        if (collapsedSpanIds.has(node.span.span_id)) {
+            return
+        }
         for (const child of sortChildren(node.children)) {
             walk(child)
         }
@@ -72,6 +92,23 @@ function flattenTree(nodes: SpanNode[]): SpanNode[] {
         walk(root)
     }
     return result
+}
+
+/** span_ids of every node that has children — the set of spans that can be collapsed. */
+function collectCollapsibleSpanIds(nodes: SpanNode[]): Set<string> {
+    const ids = new Set<string>()
+    function walk(node: SpanNode): void {
+        if (node.children.length > 0) {
+            ids.add(node.span.span_id)
+        }
+        for (const child of node.children) {
+            walk(child)
+        }
+    }
+    for (const root of nodes) {
+        walk(root)
+    }
+    return ids
 }
 
 export function formatDuration(durationNano: number): string {
@@ -112,7 +149,7 @@ function parseTimestampUs(iso: string): number {
     return ms * 1_000 + subMsUs
 }
 
-function buildServiceColorMap(spans: Span[]): Map<string, number> {
+export function buildServiceColorMap(spans: Span[]): Map<string, number> {
     const services = [...new Set(spans.map((s) => s.service_name))].sort()
     const map = new Map<string, number>()
     services.forEach((service, i) => map.set(service, i))
@@ -146,9 +183,10 @@ const LABEL_SPLITTER_HIT_PX = 8
 const ROW_HEIGHT = 32
 // Cap the windowed list viewport; taller traces scroll inside it instead of growing the modal.
 const MAX_WATERFALL_HEIGHT = 600
+// Fetch the next page once the bottom of the rendered window is within this many rows of the end.
+const LOAD_MORE_THRESHOLD = 10
 // Rough extra room reserved when a span's detail panel is open, so a selection near the top of a
 // short trace doesn't pop an unexpected scrollbar.
-const SELECTED_DETAIL_RESERVE = 320
 
 function clampLabelColumnWidth(px: number): number {
     return Math.min(MAX_LABEL_COLUMN_WIDTH, Math.max(MIN_LABEL_COLUMN_WIDTH, Math.round(px)))
@@ -246,44 +284,6 @@ function TreeIndent({ node }: { node: SpanNode }): JSX.Element | null {
     )
 }
 
-function SpanDetailPanel({ span }: { span: Span }): JSX.Element {
-    const status = STATUS_CODE_LABELS[span.status_code] ?? { label: String(span.status_code), type: 'default' as const }
-    const isError = span.status_code === 2
-
-    return (
-        <div className={`border-t bg-surface-primary px-4 py-3 text-xs ${isError ? 'border-l-2 border-l-danger' : ''}`}>
-            <div className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5">
-                <span className="text-muted font-medium">Service</span>
-                <span className="font-mono">{span.service_name}</span>
-                <span className="text-muted font-medium">Operation</span>
-                <span className="font-mono">{span.name}</span>
-                <span className="text-muted font-medium">Duration</span>
-                <span className="font-mono">{formatDuration(span.duration_nano)}</span>
-                <span className="text-muted font-medium">Kind</span>
-                <span>{SPAN_KIND_LABELS[span.kind] ?? span.kind}</span>
-                <span className="text-muted font-medium">Status</span>
-                <span>
-                    <LemonTag type={status.type} size="small">
-                        {status.label}
-                    </LemonTag>
-                </span>
-                <span className="text-muted font-medium">Span ID</span>
-                <span className="font-mono">{span.span_id}</span>
-                {span.parent_span_id && (
-                    <>
-                        <span className="text-muted font-medium">Parent ID</span>
-                        <span className="font-mono">{span.parent_span_id}</span>
-                    </>
-                )}
-                <span className="text-muted font-medium">Start</span>
-                <span className="font-mono">{span.timestamp}</span>
-                <span className="text-muted font-medium">End</span>
-                <span className="font-mono">{span.end_time}</span>
-            </div>
-        </div>
-    )
-}
-
 interface WaterfallRowData {
     flatSpans: SpanNode[]
     traceStartUs: number
@@ -293,6 +293,8 @@ interface WaterfallRowData {
     labelColumnWidth: number
     selectedSpanId: string | null
     onSelect: (spanId: string) => void
+    collapsedSpanIds: Set<string>
+    onToggleCollapse: (spanId: string) => void
     dynamicRowHeight: ReturnType<typeof useDynamicRowHeight>
 }
 
@@ -305,8 +307,13 @@ function WaterfallRow({
     labelColumnWidth,
     selectedSpanId,
     onSelect,
+    collapsedSpanIds,
+    onToggleCollapse,
 }: Omit<WaterfallRowData, 'flatSpans' | 'dynamicRowHeight'> & { node: SpanNode }): JSX.Element {
     const { span } = node
+    const hasChildren = node.children.length > 0
+    const isCollapsed = collapsedSpanIds.has(span.span_id)
+    const hiddenDescendants = isCollapsed ? countDescendants(node) : 0
     const spanStartUs = parseTimestampUs(span.timestamp)
     const spanDurationUs = span.duration_nano / 1_000
     const leftPct = traceDurationUs > 0 ? Math.max(((spanStartUs - traceStartUs) / traceDurationUs) * 100, 0) : 0
@@ -318,24 +325,30 @@ function WaterfallRow({
     const seriesIndex = serviceColorMap.get(span.service_name) ?? 0
     const seriesColor = isError ? ERROR_COLOR : getSeriesColor(seriesIndex)
     const barColor = isUnmatched ? 'var(--border)' : seriesColor
-    const isSelected = selectedSpanId === span.uuid
+    // Select by span_id (the OTel id the tree is keyed by, and what the inspector/URL resolve),
+    // not the ClickHouse row uuid.
+    const isSelected = selectedSpanId === span.span_id
 
     return (
         <div>
             <div
-                className={`flex items-stretch cursor-pointer transition-colors ${
-                    isSelected ? 'bg-surface-primary-active' : 'hover:bg-surface-primary-hover'
+                // The 3px left border is always reserved (transparent when unselected) so selecting
+                // a span shows an accent bar without shifting the row content.
+                className={`flex items-stretch cursor-pointer transition-colors border-l-[3px] ${
+                    isSelected
+                        ? 'bg-surface-primary-active border-l-accent'
+                        : 'border-l-transparent hover:bg-surface-primary-hover'
                 }`}
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ minHeight: ROW_HEIGHT }}
                 role="button"
                 tabIndex={0}
                 aria-pressed={isSelected}
-                onClick={() => onSelect(span.uuid)}
+                onClick={() => onSelect(span.span_id)}
                 onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault()
-                        onSelect(span.uuid)
+                        onSelect(span.span_id)
                     }
                 }}
             >
@@ -346,6 +359,27 @@ function WaterfallRow({
                     style={{ width: labelColumnWidth }}
                 >
                     <TreeIndent node={node} />
+                    <span className="shrink-0 flex items-center justify-center w-4 self-stretch">
+                        {hasChildren && (
+                            <Tooltip title={isCollapsed ? 'Expand child spans' : 'Collapse child spans'}>
+                                <button
+                                    type="button"
+                                    className="flex items-center justify-center w-4 h-4 rounded text-muted hover:text-default hover:bg-fill-button-tertiary-hover"
+                                    aria-label={isCollapsed ? 'Expand child spans' : 'Collapse child spans'}
+                                    aria-expanded={!isCollapsed}
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        onToggleCollapse(span.span_id)
+                                    }}
+                                >
+                                    <IconChevronRight
+                                        className={cn('transition-transform', !isCollapsed && 'rotate-90')}
+                                        fontSize={14}
+                                    />
+                                </button>
+                            </Tooltip>
+                        )}
+                    </span>
                     {isError && (
                         <Tooltip title="This span has an error status">
                             <IconWarning className="text-danger shrink-0 mr-1" fontSize={14} />
@@ -353,11 +387,20 @@ function WaterfallRow({
                     )}
                     <Tooltip title={span.name}>
                         <span
-                            className={`text-xs truncate ${isError ? 'text-danger font-semibold' : 'font-medium'} ${isUnmatched ? 'opacity-40' : ''}`}
+                            className={`text-xs truncate ${isError ? 'text-danger' : ''} ${
+                                isSelected || isError ? 'font-semibold' : 'font-medium'
+                            } ${isUnmatched ? 'opacity-40' : ''}`}
                         >
                             {span.name}
                         </span>
                     </Tooltip>
+                    {isCollapsed && (
+                        <Tooltip title={`${hiddenDescendants} hidden child span${hiddenDescendants === 1 ? '' : 's'}`}>
+                            <span className="shrink-0 ml-1 px-1 rounded text-[10px] leading-4 font-medium text-muted bg-fill-button-tertiary-hover">
+                                {hiddenDescendants}
+                            </span>
+                        </Tooltip>
+                    )}
                 </div>
 
                 {/* Timeline column */}
@@ -411,9 +454,6 @@ function WaterfallRow({
                     </Tooltip>
                 </div>
             </div>
-
-            {/* Detail panel */}
-            {isSelected && <SpanDetailPanel span={span} />}
         </div>
     )
 }
@@ -430,6 +470,8 @@ function WaterfallListRow({
     labelColumnWidth,
     selectedSpanId,
     onSelect,
+    collapsedSpanIds,
+    onToggleCollapse,
     dynamicRowHeight,
 }: {
     ariaAttributes: { 'aria-posinset': number; 'aria-setsize': number; role: 'listitem' }
@@ -457,13 +499,21 @@ function WaterfallListRow({
                 labelColumnWidth={labelColumnWidth}
                 selectedSpanId={selectedSpanId}
                 onSelect={onSelect}
+                collapsedSpanIds={collapsedSpanIds}
+                onToggleCollapse={onToggleCollapse}
             />
         </div>
     )
 }
 
-export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Element {
-    const [selectedSpanId, setSelectedSpanId] = useState<string | null>(null)
+export function TraceWaterfallView({
+    spans,
+    selectedSpanId = null,
+    onSpanSelect,
+    hasMore = false,
+    loadingMore = false,
+    onLoadMore,
+}: TraceWaterfallViewProps): JSX.Element {
     const [cursorPct, setCursorPct] = useState<number | null>(null)
     const [labelColumnWidth, setLabelColumnWidth] = useState(
         () => readStoredLabelColumnWidth() ?? DEFAULT_LABEL_COLUMN_WIDTH
@@ -477,14 +527,81 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
             labelSplitterDragCleanupRef.current?.()
         }
     }, [])
+    const [collapsedSpanIds, setCollapsedSpanIds] = useState<Set<string>>(() => new Set())
     const serviceColorMap = useMemo(() => buildServiceColorMap(spans), [spans])
     const tree = useMemo(() => buildSpanTree(spans), [spans])
-    const flatSpans = useMemo(() => flattenTree(tree), [tree])
+    const flatSpans = useMemo(() => flattenTree(tree, collapsedSpanIds), [tree, collapsedSpanIds])
+    const collapsibleSpanIds = useMemo(() => collectCollapsibleSpanIds(tree), [tree])
+    const allCollapsed = collapsibleSpanIds.size > 0 && collapsedSpanIds.size >= collapsibleSpanIds.size
     const dynamicRowHeight = useDynamicRowHeight({ defaultRowHeight: ROW_HEIGHT })
 
-    const handleSelect = useCallback((spanId: string): void => {
-        setSelectedSpanId((cur) => (cur === spanId ? null : spanId))
+    const handleToggleCollapse = useCallback((spanId: string): void => {
+        setCollapsedSpanIds((prev) => {
+            const next = new Set(prev)
+            if (next.has(spanId)) {
+                next.delete(spanId)
+            } else {
+                next.add(spanId)
+            }
+            return next
+        })
     }, [])
+
+    const handleToggleCollapseAll = useCallback((): void => {
+        setCollapsedSpanIds((prev) => (prev.size >= collapsibleSpanIds.size ? new Set() : new Set(collapsibleSpanIds)))
+    }, [collapsibleSpanIds])
+    const listRef = useListRef(null)
+
+    // Infinite scroll: fetch the next page once the rendered window nears the end of the loaded spans.
+    // Tracks the span count we last paged against so the trigger fires at most once per loaded count —
+    // without this, a page that returns no new rows (dupes / end of data) leaves the window pinned at
+    // the bottom and the trigger spins on every render, pegging the CPU.
+    const lastRequestedSpanCountRef = useRef(-1)
+    const handleRowsRendered = useCallback(
+        (
+            _visibleRows: { startIndex: number; stopIndex: number },
+            allRows: { startIndex: number; stopIndex: number }
+        ): void => {
+            if (!onLoadMore || !hasMore || loadingMore) {
+                return
+            }
+            if (allRows.stopIndex < flatSpans.length - 1 - LOAD_MORE_THRESHOLD) {
+                return
+            }
+            if (lastRequestedSpanCountRef.current === flatSpans.length) {
+                return
+            }
+            lastRequestedSpanCountRef.current = flatSpans.length
+            onLoadMore()
+        },
+        [onLoadMore, hasMore, loadingMore, flatSpans.length]
+    )
+
+    // Deep links land with a span anchor — scroll it into view once the tree is built. The anchor
+    // is captured at mount (the drawer keys this component by trace, so it remounts per trace) so
+    // later selection changes from clicking don't recenter, and data refreshes (full-trace fetch
+    // replacing the prefetch) don't yank scroll after the user has started exploring.
+    const initialSpanRef = useRef(selectedSpanId)
+    const scrolledToInitialRef = useRef(false)
+    useEffect(() => {
+        if (scrolledToInitialRef.current || !initialSpanRef.current || flatSpans.length === 0) {
+            return
+        }
+        const index = flatSpans.findIndex((node) => node.span.span_id === initialSpanRef.current)
+        if (index >= 0) {
+            listRef.current?.scrollToRow({ index, align: 'center' })
+            scrolledToInitialRef.current = true
+        }
+    }, [flatSpans, listRef])
+
+    // Controlled: emit the new selection (toggling off if the same span is clicked) and let the
+    // scene flow it back via `selectedSpanId`. No internal copy, so highlight can't drift from the URL.
+    const handleSelect = useCallback(
+        (spanId: string): void => {
+            onSpanSelect?.(selectedSpanId === spanId ? null : spanId)
+        },
+        [selectedSpanId, onSpanSelect]
+    )
 
     const { traceStartUs, traceDurationUs } = useMemo(() => {
         if (spans.length === 0) {
@@ -629,11 +746,21 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
             {/* Timeline header */}
             <div className="flex border-b border-border sticky top-0 bg-surface-primary z-10">
                 <div
-                    className="shrink-0 text-xs font-medium text-muted px-2 flex items-center border-r border-border"
+                    className="shrink-0 text-xs font-medium text-muted pl-2 pr-1 flex items-center justify-between gap-1 border-r border-border"
                     // eslint-disable-next-line react/forbid-dom-props
                     style={{ width: labelColumnWidth }}
                 >
-                    Span
+                    <span>Span</span>
+                    {collapsibleSpanIds.size > 0 && (
+                        <Tooltip title={allCollapsed ? 'Expand all spans' : 'Collapse all spans'}>
+                            <LemonButton
+                                size="xsmall"
+                                icon={allCollapsed ? <IconExpand /> : <IconCollapse />}
+                                onClick={handleToggleCollapseAll}
+                                aria-label={allCollapsed ? 'Expand all spans' : 'Collapse all spans'}
+                            />
+                        </Tooltip>
+                    )}
                 </div>
                 <div className="relative grow h-7" ref={timelineRef}>
                     {(cursorPct === null || cursorPct > 5) && (
@@ -683,10 +810,7 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
                 renderProp={({ width }: SizeProps) => (
                     <List<WaterfallRowData>
                         style={{
-                            height: Math.min(
-                                flatSpans.length * ROW_HEIGHT + (selectedSpanId ? SELECTED_DETAIL_RESERVE : 0),
-                                MAX_WATERFALL_HEIGHT
-                            ),
+                            height: Math.min(flatSpans.length * ROW_HEIGHT, MAX_WATERFALL_HEIGHT),
                             width,
                         }}
                         overscanCount={10}
@@ -702,11 +826,32 @@ export function TraceWaterfallView({ spans }: TraceWaterfallViewProps): JSX.Elem
                             labelColumnWidth,
                             selectedSpanId,
                             onSelect: handleSelect,
+                            collapsedSpanIds,
+                            onToggleCollapse: handleToggleCollapse,
                             dynamicRowHeight,
                         }}
+                        onRowsRendered={handleRowsRendered}
+                        listRef={listRef}
                     />
                 )}
             />
+
+            {/* Infinite-scroll footer: a trace can exceed the per-page span cap, so page the rest in
+                as the user scrolls to the bottom. The button is a manual fallback to the auto-trigger. */}
+            {hasMore && (
+                <div className="flex items-center justify-center gap-2 py-2 text-xs text-muted border-t border-border">
+                    {loadingMore ? (
+                        <>
+                            <Spinner />
+                            <span>Loading more spans…</span>
+                        </>
+                    ) : (
+                        <LemonButton size="xsmall" type="tertiary" onClick={() => onLoadMore?.()}>
+                            Load more spans
+                        </LemonButton>
+                    )}
+                </div>
+            )}
 
             {/* Full-height splitter between label column and timeline */}
             <div

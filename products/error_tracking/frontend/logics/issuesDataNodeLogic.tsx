@@ -36,7 +36,6 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                     'assignIssues',
                     'updateIssueAssignee',
                     'updateIssueStatus',
-                    'mutationSuccess',
                     'mutationFailure',
                     'clearNeedsReload',
                 ],
@@ -75,9 +74,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             )
             const sortBy = query?.orderBy ?? null
             const sortDirection = query?.orderDirection ?? null
-            const isV3 = query?.useQueryV3 ?? false
-            const eventName = isV3 ? 'error_tracking_issue_list_loaded_v3' : 'error_tracking_issue_list_loaded'
-            posthog.capture(eventName, {
+            posthog.capture('error_tracking_issue_list_loaded', {
                 duration_ms: durationMs,
                 result_count: (results as ErrorTrackingIssue[]).length,
                 is_cached: response?.is_cached ?? null,
@@ -189,15 +186,7 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             }
         },
 
-        mutationSuccess: () => {
-            // in v3 when mutation succeeds, phantom gets added (which is injected into the query) so the query reloads
-            // in v1 when mutation succeeds, we need to reload the data manually
-            const query = props.query as Record<string, any> | null
-            if (query?.useQueryV3) {
-                return
-            }
-            actions.reloadData()
-        },
+        // on mutation success a phantom pending update is injected into the query, so it reloads itself
         mutationFailure: () => actions.reloadData(),
     })),
 

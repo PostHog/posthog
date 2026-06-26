@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.models.team.production_event_activation import (
-    MOBILE_PHYSICAL_DEVICES_THRESHOLD,
+    MOBILE_LIB_USERS_THRESHOLD,
     SERVER_LIB_USERS_THRESHOLD,
     WINDOW_DAYS,
     ProductionTrafficSignal,
@@ -48,22 +48,27 @@ def _seed_event(
     properties: dict[str, Any] | None = None,
     days_ago: float = 1,
     distinct_id: str = "user-0",
-) -> None:
+) -> datetime:
+    # `now()` lives in this helper (not a `test_*` body) on purpose: tests that
+    # need the event's instant read it from the return value instead of
+    # recomputing it, which keeps them off the time-sensitivity semgrep rule.
+    timestamp = datetime.now(tz=UTC) - timedelta(days=days_ago)
     _create_event(
         team=Team.objects.get(id=team_id),
         event="$pageview",
         distinct_id=distinct_id,
-        timestamp=datetime.now(tz=UTC) - timedelta(days=days_ago),
+        timestamp=timestamp,
         properties=properties or {},
     )
     flush_persons_and_events()
+    return timestamp
 
 
-def _seed_mobile_events(team_id: int, device_count: int, is_emulator: Any = False) -> None:
-    for i in range(device_count):
+def _seed_mobile_events(team_id: int, user_count: int, is_emulator: Any = False) -> None:
+    for i in range(user_count):
         _seed_event(
             team_id,
-            properties={"$lib": "posthog-ios", "$is_emulator": is_emulator, "$device_id": f"device-{i}"},
+            properties={"$lib": "posthog-ios", "$is_emulator": is_emulator},
             distinct_id=f"mobile-user-{i}",
         )
 
@@ -160,9 +165,39 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
     def test_team_with_no_events_does_not_qualify(self) -> None:
         self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
 
+    def _assert_web_qualifiers(self, result: dict[int, ProductionTrafficSignal], expected: dict[int, str]) -> None:
+        # Web signals carry a time-dependent `converted_at`, so compare every
+        # field except that one; `converted_at` has dedicated tests below.
+        self.assertEqual(set(result), set(expected))
+        for team_id, host in expected.items():
+            self.assertEqual(result[team_id].kind, "production_host")
+            self.assertEqual(result[team_id].production_host, host)
+            self.assertIsNotNone(result[team_id].converted_at)
+
     def test_single_production_event_qualifies(self) -> None:
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
-        self.assertEqual(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST_SIGNAL})
+        self._assert_web_qualifiers(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST})
+
+    def test_web_signal_carries_earliest_production_event_timestamp(self) -> None:
+        # The conversion instant is the earliest production-host event in the
+        # window; a later production event must not move it, and a dev event in
+        # between must not become it.
+        earliest = _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=5)
+        _seed_event(self.team.id, properties={"$host": "localhost:3000"}, days_ago=4)
+        _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=2)
+
+        signal = _teams_meeting_criterion([self.team.id])[self.team.id]
+        self.assertEqual(signal.kind, "production_host")
+        self.assertIsNotNone(signal.converted_at)
+        assert signal.converted_at is not None  # narrow for the subtraction below
+        self.assertLess(abs((signal.converted_at - earliest).total_seconds()), 1)
+
+    def test_mobile_signal_has_no_conversion_timestamp(self) -> None:
+        # Only the web leg resolves a precise instant; mobile/server stay None.
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD)
+        signal = _teams_meeting_criterion([self.team.id])[self.team.id]
+        self.assertEqual(signal.kind, "mobile_lib_users")
+        self.assertIsNone(signal.converted_at)
 
     def test_dev_only_traffic_does_not_qualify(self) -> None:
         for host in ["localhost:3000", "127.0.0.1:8000", "myapp.test", "192.168.1.10"]:
@@ -171,7 +206,7 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
 
     def test_current_url_fallback_qualifies(self) -> None:
         _seed_event(self.team.id, properties={"$current_url": f"https://{PRODUCTION_HOST}/dashboard?x=1"})
-        self.assertEqual(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST_SIGNAL})
+        self._assert_web_qualifiers(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST})
 
     def test_local_host_takes_precedence_over_production_current_url(self) -> None:
         _seed_event(
@@ -191,57 +226,55 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
     def test_mixed_dev_and_production_traffic_qualifies_with_production_host(self) -> None:
         _seed_event(self.team.id, properties={"$host": "myapp.test"})
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
-        self.assertEqual(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST_SIGNAL})
+        self._assert_web_qualifiers(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST})
 
-    def test_mobile_physical_devices_at_threshold_qualify(self) -> None:
-        _seed_mobile_events(self.team.id, device_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD)
+    def test_mobile_users_at_threshold_qualify(self) -> None:
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD)
         self.assertEqual(
             _teams_meeting_criterion([self.team.id]),
-            {
-                self.team.id: ProductionTrafficSignal(
-                    kind="mobile_physical_devices", distinct_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD
-                )
-            },
+            {self.team.id: ProductionTrafficSignal(kind="mobile_lib_users", distinct_count=MOBILE_LIB_USERS_THRESHOLD)},
         )
 
-    def test_mobile_physical_devices_below_threshold_do_not_qualify(self) -> None:
-        _seed_mobile_events(self.team.id, device_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD - 1)
+    def test_mobile_users_below_threshold_do_not_qualify(self) -> None:
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD - 1)
         self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
 
-    def test_emulator_only_traffic_does_not_qualify(self) -> None:
-        _seed_mobile_events(self.team.id, device_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD + 2, is_emulator=True)
+    def test_mobile_qualifies_without_device_id_or_emulator_flag(self) -> None:
+        # Regression: mobile SDKs don't put $device_id in event properties and
+        # most events omit $is_emulator — these events must still count.
+        for i in range(MOBILE_LIB_USERS_THRESHOLD):
+            _seed_event(self.team.id, properties={"$lib": "posthog-ios"}, distinct_id=f"mobile-user-{i}")
+        signal = _teams_meeting_criterion([self.team.id])[self.team.id]
+        self.assertEqual(signal.kind, "mobile_lib_users")
+        self.assertEqual(signal.distinct_count, MOBILE_LIB_USERS_THRESHOLD)
+
+    @parameterized.expand([("boolean", True), ("stringly", "true")])
+    def test_emulator_flagged_traffic_is_dropped(self, _name: str, is_emulator: Any) -> None:
+        # Events affirmatively flagged as emulators don't count, even well above
+        # the threshold — a developer's simulator runs are not production.
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD + 2, is_emulator=is_emulator)
         self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
 
-    def test_mobile_counts_devices_not_distinct_ids(self) -> None:
-        # One physical device with many logins/anon ids is still one device.
-        for i in range(MOBILE_PHYSICAL_DEVICES_THRESHOLD + 2):
-            _seed_event(
-                self.team.id,
-                properties={"$lib": "posthog-ios", "$is_emulator": False, "$device_id": "device-0"},
-                distinct_id=f"mobile-user-{i}",
-            )
-        self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
-
-    def test_mobile_without_device_id_does_not_qualify(self) -> None:
-        # Without $device_id, distinct_ids can't stand in for devices — fail closed.
-        for i in range(MOBILE_PHYSICAL_DEVICES_THRESHOLD + 2):
+    def test_mobile_counts_distinct_users(self) -> None:
+        # The unit is distinct_id: many events from a few ids stay below the bar.
+        for i in range(MOBILE_LIB_USERS_THRESHOLD + 5):
             _seed_event(
                 self.team.id,
                 properties={"$lib": "posthog-ios", "$is_emulator": False},
-                distinct_id=f"mobile-user-{i}",
+                distinct_id="mobile-user-0" if i % 2 else "mobile-user-1",
             )
         self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
 
-    def test_mobile_stringly_false_emulator_counts_as_physical(self) -> None:
-        _seed_mobile_events(self.team.id, device_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD, is_emulator="false")
-        self.assertEqual(
-            _teams_meeting_criterion([self.team.id]),
-            {
-                self.team.id: ProductionTrafficSignal(
-                    kind="mobile_physical_devices", distinct_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD
-                )
-            },
-        )
+    def test_non_mobile_lib_users_do_not_count_toward_mobile_leg(self) -> None:
+        # Plenty of distinct users on a non-mobile, non-server dev lib must not
+        # drift into the mobile leg — it only counts allowlisted mobile SDKs.
+        for i in range(MOBILE_LIB_USERS_THRESHOLD + 5):
+            _seed_event(
+                self.team.id,
+                properties={"$lib": "web", "$host": "localhost:3000"},
+                distinct_id=f"web-user-{i}",
+            )
+        self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
 
     def test_server_lib_users_at_threshold_qualify(self) -> None:
         _seed_server_events(self.team.id, user_count=SERVER_LIB_USERS_THRESHOLD)
@@ -266,18 +299,27 @@ class TestTeamsMeetingCriterion(ClickhouseTestMixin, BaseTest):
         self.assertEqual(_teams_meeting_criterion([self.team.id]), {})
 
     def test_production_host_takes_precedence_over_other_signals(self) -> None:
-        _seed_mobile_events(self.team.id, device_count=MOBILE_PHYSICAL_DEVICES_THRESHOLD)
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD)
         _seed_server_events(self.team.id, user_count=SERVER_LIB_USERS_THRESHOLD)
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
-        self.assertEqual(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST_SIGNAL})
+        self._assert_web_qualifiers(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST})
 
-    def test_only_listed_teams_are_evaluated(self) -> None:
+    def test_mobile_takes_precedence_over_server(self) -> None:
+        # Both legs cross their thresholds with no web host; mobile must win, per
+        # the documented web > mobile > server precedence.
+        _seed_mobile_events(self.team.id, user_count=MOBILE_LIB_USERS_THRESHOLD)
+        _seed_server_events(self.team.id, user_count=SERVER_LIB_USERS_THRESHOLD)
+        self.assertEqual(
+            _teams_meeting_criterion([self.team.id]),
+            {self.team.id: ProductionTrafficSignal(kind="mobile_lib_users", distinct_count=MOBILE_LIB_USERS_THRESHOLD)},
+        )
+
         other_team = Team.objects.create(organization=self.organization, name="other")
         _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST})
         _seed_event(other_team.id, properties={"$host": PRODUCTION_HOST})
 
         # other_team has production events but isn't in the input set, so isn't returned.
-        self.assertEqual(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST_SIGNAL})
+        self._assert_web_qualifiers(_teams_meeting_criterion([self.team.id]), {self.team.id: PRODUCTION_HOST})
 
 
 class TestMarkTeamsIngestedProductionEvent(BaseTest):
@@ -301,6 +343,8 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
         ((), kwargs) = capture.call_args
         self.assertEqual(kwargs["event"], "first team production event ingested")
         self.assertEqual(kwargs["distinct_id"], str(self.team.uuid))
+        # No `converted_at` on this signal, so the emit falls back to run time.
+        self.assertEqual(kwargs["timestamp"], now)
         self.assertEqual(
             kwargs["properties"],
             {
@@ -311,18 +355,34 @@ class TestMarkTeamsIngestedProductionEvent(BaseTest):
             },
         )
 
+    def test_web_signal_emits_with_conversion_timestamp(self) -> None:
+        converted_at = datetime(2026, 5, 30, 8, 0, 0, tzinfo=UTC)
+        signal = ProductionTrafficSignal(
+            kind="production_host", production_host=PRODUCTION_HOST, converted_at=converted_at
+        )
+
+        with _mock_capture() as capture:
+            _mark_teams_ingested_production_event({self.team.id: signal}, now=_FIXED_NOW)
+
+        ((), kwargs) = capture.call_args
+        # Web leg stamps the conversion instant, not the run time.
+        self.assertEqual(kwargs["timestamp"], converted_at)
+        self.assertNotEqual(kwargs["timestamp"], _FIXED_NOW)
+
     def test_mobile_signal_emits_distinct_count(self) -> None:
-        signal = ProductionTrafficSignal(kind="mobile_physical_devices", distinct_count=4)
+        signal = ProductionTrafficSignal(kind="mobile_lib_users", distinct_count=4)
 
         with _mock_capture() as capture:
             marked = _mark_teams_ingested_production_event({self.team.id: signal}, now=_FIXED_NOW)
 
         self.assertEqual(marked, 1)
         ((), kwargs) = capture.call_args
+        # Mobile leg has no conversion instant, so it stamps the run time.
+        self.assertEqual(kwargs["timestamp"], _FIXED_NOW)
         self.assertEqual(
             kwargs["properties"],
             {
-                "detection_signal": "mobile_physical_devices",
+                "detection_signal": "mobile_lib_users",
                 "distinct_count": 4,
                 "window_days": WINDOW_DAYS,
                 "team": str(self.team.uuid),
@@ -391,6 +451,21 @@ class TestEvaluateAndMarkTeamBatch(ClickhouseTestMixin, BaseTest):
             self.team.ingested_production_event_last_checked_at,
             datetime(2026, 6, 5, 12, 0, 0, tzinfo=UTC),
         )
+
+    def test_web_qualifier_emits_at_conversion_time(self) -> None:
+        # End-to-end through the batch: the activation event is stamped at the
+        # production event's own time, not the run time we pass as `now`.
+        conversion_time = _seed_event(self.team.id, properties={"$host": PRODUCTION_HOST}, days_ago=3)
+
+        with _mock_capture() as capture:
+            evaluate_and_mark_team_batch([self.team.id], now=_FIXED_NOW)
+
+        ((), kwargs) = capture.call_args
+        self.assertEqual(kwargs["event"], "first team production event ingested")
+        emitted = kwargs["timestamp"]
+        self.assertIsNotNone(emitted)
+        assert emitted is not None  # narrow for the subtraction below
+        self.assertLess(abs((emitted - conversion_time).total_seconds()), 1)
 
     def test_non_qualifying_team_only_gets_last_checked_at_bumped(self) -> None:
         _seed_event(self.team.id, properties={"$host": "localhost:3000"})

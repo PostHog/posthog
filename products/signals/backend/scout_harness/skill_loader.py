@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from posthog.models.team.team import Team
 
-from products.ai_observability.backend.models.skills import LLMSkill, LLMSkillFile
+from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
@@ -27,10 +27,14 @@ class LoadedSkill:
     version: int
     body: str
     description: str
-    # Portable skill metadata — opaque to the harness. Logged on spawn for observability,
-    # not consulted at runtime. Downstream consumers (e.g. Claude Code) may read this list
-    # to narrow their own tool exposure; the scout harness itself gates via
-    # `posthog_mcp_scopes` at the OAuth/MCP boundary (scope-level), not tool-level.
+    # Portable skill metadata, and the opt-in gate for the report channel. The harness reads it at
+    # spawn time: listing `emit_report` / `edit_report` here makes the runner grant the
+    # `signals_scout_reports` scope posture (vs plain `signals_scout`), which carries
+    # `signal_scout_report:write` — the scope the report tools require. A scout that doesn't list them
+    # gets no report scope, so the MCP server strips those tools from its toolset (exposure is
+    # scope-level at the OAuth/MCP boundary). The `emit-report` / `edit-report` viewset actions also
+    # re-check this list server-side (`views.SignalScoutRunViewSet._assert_report_tool_opted_in`) as a
+    # fail-closed gate on the write. Downstream consumers (e.g. Claude Code) may also read it.
     allowed_tools: list[str]
     files: list[LoadedSkillFile]
     skill_id: str
@@ -46,10 +50,10 @@ def load_skill_for_run(team: Team, skill_name: str, *, version: int | None = Non
     Pass `version=None` to follow-latest. The `signals-scout-*` prefix is not enforced
     here — the management command can hand-trigger any skill on the team.
     """
-    # Lazy import: `products.ai_observability.backend.api` triggers a temporal module load
+    # Lazy import: `products.skills.backend.api` triggers a temporal module load
     # that this package is itself imported from at temporal-worker boot, so a top-level
     # import here cycles. Models only is fine.
-    from products.ai_observability.backend.api.skill_services import get_skill_by_name_from_db
+    from products.skills.backend.api.skill_services import get_skill_by_name_from_db
 
     skill = get_skill_by_name_from_db(team, skill_name, version=version)
     if skill is None:

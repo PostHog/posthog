@@ -6,7 +6,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
-import { uuid } from 'lib/utils'
+import { uuid } from 'lib/utils/dom'
 import { performWideEventsQueryInTwoPhases } from 'scenes/hog-functions/sampleEventsQuery'
 
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'

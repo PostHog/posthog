@@ -54,7 +54,7 @@ export interface AccountApi {
      */
     name: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
@@ -82,6 +82,34 @@ export interface PaginatedAccountListApi {
     /** @nullable */
     previous?: string | null
     results: AccountApi[]
+}
+
+/**
+ * An account's current value for a custom property (read shape).
+ */
+export interface CustomPropertyValueApi {
+    /** Unique id of this value record. */
+    readonly id: string
+    /** Account the value belongs to. */
+    readonly account_id: string
+    /** Custom property definition the value is for. */
+    readonly definition_id: string
+    /** The stored value, typed per the property's data type. */
+    readonly value: string | number | boolean
+    /** When this value was set. */
+    readonly created_at: string
+    /**
+     * Id of the user who set this value, if known.
+     * @nullable
+     */
+    readonly created_by_id: number | null
+}
+
+export interface CustomPropertyValueWriteApi {
+    /** UUID of the custom property definition whose value to set for this account. */
+    definition: string
+    /** Value to store, matching the definition's type: a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties. */
+    value: string | number | boolean
 }
 
 /**
@@ -217,7 +245,7 @@ export interface PatchedAccountApi {
      */
     name?: string
     /**
-     * Identifier for the account in an external system (e.g. CRM ID). Optional.
+     * Identifier linking this account to its source customer — the analytics group key (the customer's organization id), used to match billing and external records. Optional.
      * @maxLength 400
      * @nullable
      */
@@ -231,6 +259,113 @@ export interface PatchedAccountApi {
     tags?: string[]
     /** Short IDs of the internal notebooks linked to this account, used to persist investigations, call notes, and other free-form context. Empty list if no notebooks have been created for the account. */
     readonly notebooks?: readonly string[]
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
+ * * `text` - text
+ * * `number` - number
+ * * `currency` - currency
+ * * `percent` - percent
+ * * `date` - date
+ * * `datetime` - datetime
+ * * `boolean` - boolean
+ */
+export type CustomPropertyDisplayTypeEnumApi =
+    (typeof CustomPropertyDisplayTypeEnumApi)[keyof typeof CustomPropertyDisplayTypeEnumApi]
+
+export const CustomPropertyDisplayTypeEnumApi = {
+    Text: 'text',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+} as const
+
+/**
+ * A team-scoped definition of a custom account property — the attribute side of the model.
+ *
+ * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+ * stored separately, so this serializer never reads or writes account values. The numeric-only
+ * big-number rule and the unique-name conflict are enforced behind the facade.
+ */
+export interface CustomPropertyDefinitionApi {
+    readonly id: string
+    /**
+     * Human-readable name of the custom property. Unique within the team.
+     * @maxLength 400
+     */
+    name: string
+    /**
+     * Optional description of what the property represents.
+     * @nullable
+     */
+    description?: string | null
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+     *
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean */
+    display_type: CustomPropertyDisplayTypeEnumApi
+    /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+    is_big_number?: boolean
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedCustomPropertyDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertyDefinitionApi[]
+}
+
+/**
+ * A team-scoped definition of a custom account property — the attribute side of the model.
+ *
+ * Holds only the property's shape (name, display type, big-number flag). Per-account values are
+ * stored separately, so this serializer never reads or writes account values. The numeric-only
+ * big-number rule and the unique-name conflict are enforced behind the facade.
+ */
+export interface PatchedCustomPropertyDefinitionApi {
+    readonly id?: string
+    /**
+     * Human-readable name of the custom property. Unique within the team.
+     * @maxLength 400
+     */
+    name?: string
+    /**
+     * Optional description of what the property represents.
+     * @nullable
+     */
+    description?: string | null
+    /** How the property is interpreted and rendered: 'text', 'number', 'currency', 'percent', 'date', 'datetime', or 'boolean'.
+     *
+     * * `text` - text
+     * * `number` - number
+     * * `currency` - currency
+     * * `percent` - percent
+     * * `date` - date
+     * * `datetime` - datetime
+     * * `boolean` - boolean */
+    display_type?: CustomPropertyDisplayTypeEnumApi
+    /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
+    is_big_number?: boolean
     readonly created_at?: string
     /** @nullable */
     readonly created_by?: number | null
@@ -502,6 +637,25 @@ export type AccountsListParams = {
 }
 
 export type AccountsNotebooksListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort by creation date or author. Defaults to '-created_at'.
+     */
+    ordering?: string
+    /**
+     * Full-text search across notebook title and content.
+     */
+    search?: string
+}
+
+export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
      */

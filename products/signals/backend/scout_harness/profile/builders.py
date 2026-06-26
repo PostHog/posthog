@@ -12,10 +12,11 @@ Sections fall into three layers. **Capability / configured (sticky)** — `proje
 across every entity type). **Per-entity recent inventory** — `recent_dashboards`,
 `recent_surveys`, `recent_feature_flags`, `recent_experiments`, `recent_alerts`,
 `recent_hog_functions`, `recent_hog_flows`, `recent_notebooks`, `recent_cohorts`,
-`recent_actions`, plus `top_events` and `existing_inbox_reports`. Light shape per
-entity: counts + 5 most-recently-modified items with name + status + timestamp. The
-agent gets MCP tools (`surveys-get-all`, `feature-flag-get-all`, `experiment-list`,
-`insights-trending-retrieve`, etc.) for deep drilldowns; the profile only orients.
+`recent_actions`, `business_knowledge`, plus `top_events` and
+`existing_inbox_reports`. Light shape per entity: counts + 5 most-recently-modified
+items with name + status + timestamp. The agent gets MCP tools (`surveys-get-all`,
+`feature-flag-get-all`, `experiment-list`, `insights-trending-retrieve`, etc.) for
+deep drilldowns; the profile only orients.
 
 Per-entity ordering picks `updated_at` / `last_modified_at` where available, falling
 back to `created_at` for entities that don't track modifications (cohorts, alerts).
@@ -42,6 +43,8 @@ from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action
 from products.alerts.backend.models.alert import AlertConfiguration
+from products.business_knowledge.backend.models.constants import SourceStatus
+from products.business_knowledge.backend.models.knowledge_source import KnowledgeSource
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -53,11 +56,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -66,7 +69,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v5"
+INVENTORY_SOURCE_VERSION = "v6"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -129,6 +132,7 @@ def build_inventory(team: Team) -> Inventory:
             "recent_notebooks": _recent_notebooks(team),
             "recent_cohorts": _recent_cohorts(team),
             "recent_actions": _recent_actions(team),
+            "business_knowledge": _business_knowledge(team),
             "top_events": _top_events(team),
         }
     )
@@ -497,18 +501,16 @@ def _recent_notebooks(team: Team) -> dict[str, Any]:
     scope (405 edits in 14d), so this section is high-signal even at small recent-
     list size.
     """
-    qs = Notebook.objects.filter(team=team, deleted=False)
-    total = qs.count()
-    recent = qs.order_by("-last_modified_at")[:RECENT_ENTITY_LIMIT].values("short_id", "title", "last_modified_at")
+    summary = notebooks.get_notebook_activity_summary(team.id, RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
+        "total_count": summary.total_count,
         "recent": [
             {
-                "short_id": row["short_id"],
-                "title": (row["title"] or "").strip(),
-                "last_modified_at": row["last_modified_at"].isoformat() if row["last_modified_at"] else None,
+                "short_id": entry.short_id,
+                "title": (entry.title or "").strip(),
+                "last_modified_at": entry.last_modified_at.isoformat() if entry.last_modified_at else None,
             }
-            for row in recent
+            for entry in summary.recent
         ],
     }
 
@@ -558,6 +560,49 @@ def _recent_actions(team: Team) -> dict[str, Any]:
             {
                 "id": row["id"],
                 "name": (row["name"] or "").strip(),
+                "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
+            }
+            for row in recent
+        ],
+    }
+
+
+def _business_knowledge(team: Team) -> dict[str, Any]:
+    """Business knowledge orientation — total + ready count, aggregate doc/chunk volume,
+    plus the 5 most recently updated sources.
+
+    Tells the scout whether the team has a curated knowledge base worth searching via
+    `business-knowledge-documents-search`. The profile does NOT evaluate the
+    `product-business-knowledge` feature flag — it reads only authoritative tables so
+    cached profiles stay valid across flag flips; the base prompt conditions on "tool
+    present AND ready_count > 0" instead.
+    """
+    qs = KnowledgeSource.objects.for_team(team.id)
+    total = qs.count()
+    ready = qs.filter(status=SourceStatus.READY).count()
+    # distinct=True is load-bearing: the two Counts share one query, and the
+    # sources→documents→chunks join repeats each document row once per chunk.
+    # Tombstoned documents are pending hard-delete and excluded from search,
+    # so they don't count toward searchable volume either.
+    live_docs = Q(documents__tombstoned_at__isnull=True)
+    aggregates = qs.aggregate(
+        total_documents=Count("documents", filter=live_docs, distinct=True),
+        total_chunks=Count("documents__chunks", filter=live_docs, distinct=True),
+    )
+    recent = qs.order_by("-updated_at")[:RECENT_ENTITY_LIMIT].values(
+        "id", "name", "source_type", "status", "updated_at"
+    )
+    return {
+        "total_count": total,
+        "ready_count": ready,
+        "document_count": aggregates["total_documents"] or 0,
+        "chunk_count": aggregates["total_chunks"] or 0,
+        "recent": [
+            {
+                "id": str(row["id"]),
+                "name": row["name"] or "",
+                "source_type": row["source_type"],
+                "status": row["status"],
                 "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
             }
             for row in recent

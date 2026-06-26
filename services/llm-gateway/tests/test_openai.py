@@ -111,6 +111,7 @@ class TestChatCompletionsEndpoint:
                 "scopes": ["llm_gateway:read"],
                 "current_team_id": 1,
                 "distinct_id": "test-distinct-id",
+                "is_staff": False,
             }
         )
         mock_db_pool.acquire = AsyncMock(return_value=conn)
@@ -278,6 +279,103 @@ class TestChatCompletionsEndpoint:
         assert forwarded_metadata["safe"] == "value"
         assert forwarded_metadata["nested"]["keep"] == "ok"
 
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    @patch("llm_gateway.api.openai.make_cloudflare_completion_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_cf_model_routes_through_cloudflare(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        mock_acompletion: MagicMock,
+        authenticated_client: TestClient,
+        mock_openai_response: dict,
+    ) -> None:
+        mock_ensure_configured.return_value = ("https://api.cloudflare.com/ai/v1", "test-key")
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_openai_response)
+        mock_make_call.return_value = AsyncMock(return_value=mock_response)
+
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
+        mock_acompletion.assert_not_called()
+
+    @patch("llm_gateway.api.openai.litellm.acompletion")
+    @patch("llm_gateway.api.openai.make_cloudflare_completion_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_cf_model_streams_through_cloudflare(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        mock_acompletion: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        """Exercises the streaming branch of the Cloudflare OpenAI route end to end:
+        the routed llm_call returns an async iterator, format_sse_stream wraps it,
+        and the gateway emits SSE chunks back to the client.
+        """
+        mock_ensure_configured.return_value = ("https://api.cloudflare.com/ai/v1", "test-key")
+
+        async def fake_stream():
+            for content in ("hello", "world"):
+                chunk = MagicMock()
+                chunk.model_dump = MagicMock(return_value={"choices": [{"delta": {"content": content}, "index": 0}]})
+                yield chunk
+
+        mock_make_call.return_value = AsyncMock(return_value=fake_stream())
+
+        with authenticated_client.stream(
+            "POST",
+            "/v1/chat/completions",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+                "stream": True,
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        ) as response:
+            assert response.status_code == 200
+            body = "".join(response.iter_text())
+
+        assert '"hello"' in body
+        assert '"world"' in body
+        assert "[DONE]" in body
+        mock_make_call.assert_called_once_with("https://api.cloudflare.com/ai/v1", "test-key")
+        mock_acompletion.assert_not_called()
+
+    @patch("llm_gateway.api.openai.make_cloudflare_completion_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_unpriced_cf_model_rejected_before_routing(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/chat/completions",
+            json={
+                "model": "@cf/meta/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
+        # Critical: rejection must happen before we hand the model off to CF, otherwise the
+        # gateway eats the real CF bill while billing the user $0.01 fallback.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
 
 class TestUnsupportedModelRejection:
     """Gemini/Vertex models must be rejected before reaching litellm, which would
@@ -299,6 +397,11 @@ class TestUnsupportedModelRejection:
             "gemini-1.5-pro",
             "gemini-2.0-flash",
             "Gemini-3-Pro-Preview",  # case-insensitive
+            # The `cloudflare/...` prefix would route to litellm's native CF
+            # provider and bypass CLOUDFLARE_ALLOWED_MODELS. Block at the edge.
+            "cloudflare/@cf/meta/llama-3.3-70b-instruct",
+            "cloudflare/@cf/moonshotai/kimi-k2.6",
+            "CLOUDFLARE/@cf/foo",
         ],
     )
     @patch("llm_gateway.api.openai.litellm.acompletion")

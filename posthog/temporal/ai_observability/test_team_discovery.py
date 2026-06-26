@@ -7,10 +7,12 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.temporal.ai_observability.team_discovery import (
+    DEFAULT_DISCOVERY_LOOKBACK_DAYS,
     DEFAULT_GUARANTEED_TEAM_IDS,
     DEFAULT_SAMPLE_PERCENTAGE,
     TeamDiscoveryInput,
     _get_ai_observability_workflow_config,
+    get_min_traces_override,
     get_team_ids_for_ai_observability,
 )
 
@@ -41,6 +43,7 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == DEFAULT_GUARANTEED_TEAM_IDS
         assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
+        assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @patch(FF_PAYLOAD_PATH)
     def test_valid_payload(self, mock_ff):
@@ -48,6 +51,7 @@ class TestGetLlmaWorkflowConfig:
             "guaranteed_team_ids": [100, 200],
             "skip_team_ids": [300, 400],
             "sample_percentage": 0.5,
+            "discovery_lookback_days": 14,
         }
 
         config = _get_ai_observability_workflow_config()
@@ -55,6 +59,7 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == [100, 200]
         assert config.skip_team_ids == [300, 400]
         assert config.sample_percentage == 0.5
+        assert config.discovery_lookback_days == 14
 
     @patch(FF_PAYLOAD_PATH)
     def test_partial_payload_fills_missing_with_defaults(self, mock_ff):
@@ -65,6 +70,7 @@ class TestGetLlmaWorkflowConfig:
         assert config.guaranteed_team_ids == [42]
         assert config.skip_team_ids == []
         assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
+        assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @parameterized.expand(
         [
@@ -77,6 +83,11 @@ class TestGetLlmaWorkflowConfig:
             ("pct_above_one", {"sample_percentage": 1.5}, "sample_percentage"),
             ("nan_pct", {"sample_percentage": float("nan")}, "sample_percentage"),
             ("inf_pct", {"sample_percentage": float("inf")}, "sample_percentage"),
+            ("string_lookback", {"discovery_lookback_days": "30"}, "discovery_lookback_days"),
+            ("float_lookback", {"discovery_lookback_days": 3.5}, "discovery_lookback_days"),
+            ("zero_lookback", {"discovery_lookback_days": 0}, "discovery_lookback_days"),
+            ("negative_lookback", {"discovery_lookback_days": -5}, "discovery_lookback_days"),
+            ("bool_lookback", {"discovery_lookback_days": True}, "discovery_lookback_days"),
         ]
     )
     @patch(FF_PAYLOAD_PATH)
@@ -91,6 +102,8 @@ class TestGetLlmaWorkflowConfig:
             assert config.skip_team_ids == []
         if bad_field == "sample_percentage":
             assert config.sample_percentage == DEFAULT_SAMPLE_PERCENTAGE
+        if bad_field == "discovery_lookback_days":
+            assert config.discovery_lookback_days == DEFAULT_DISCOVERY_LOOKBACK_DAYS
 
     @patch(FF_PAYLOAD_PATH)
     def test_exception_returns_defaults(self, mock_ff):
@@ -110,6 +123,34 @@ class TestGetLlmaWorkflowConfig:
 
         assert config.sample_percentage == 1.0
         assert isinstance(config.sample_percentage, float)
+
+
+class TestGetMinTracesOverride:
+    @parameterized.expand(
+        [
+            ("no_payload", None, None),
+            ("non_dict_payload", "nope", None),
+            ("no_overrides_key", {"guaranteed_team_ids": [1]}, None),
+            ("overrides_not_dict", {"min_traces_overrides": [1, 2]}, None),
+            ("team_present", {"min_traces_overrides": {"370629": 20}}, 20),
+            ("team_absent", {"min_traces_overrides": {"111": 20}}, None),
+            ("zero_value", {"min_traces_overrides": {"370629": 0}}, None),
+            ("negative_value", {"min_traces_overrides": {"370629": -5}}, None),
+            ("bool_value", {"min_traces_overrides": {"370629": True}}, None),
+            ("string_value", {"min_traces_overrides": {"370629": "20"}}, None),
+        ]
+    )
+    @patch(FF_PAYLOAD_PATH)
+    def test_override_resolution(self, _name, payload, expected, mock_ff):
+        mock_ff.return_value = payload
+
+        assert get_min_traces_override(370629) == expected
+
+    @patch(FF_PAYLOAD_PATH)
+    def test_exception_returns_none(self, mock_ff):
+        mock_ff.side_effect = Exception("network error")
+
+        assert get_min_traces_override(370629) is None
 
 
 @patch(FF_PAYLOAD_PATH, return_value=None)
@@ -136,14 +177,17 @@ class TestGetTeamIdsForAIObservability:
         assert len(result) == len(set(result))
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_result_is_sorted(self, mock_get_teams, mock_ff):
-        mock_ff.return_value = {"sample_percentage": 1.0}
-        mock_get_teams.return_value = [9999, 5555, 3333]
+    async def test_guaranteed_teams_ordered_before_sampled(self, mock_get_teams, mock_ff):
+        # High guaranteed id placed ahead of a lower sampled id proves ordering is by
+        # guaranteed-first, not global sort — the coordinator must reach allowlisted
+        # teams before it exhausts its run budget on the sampled tail.
+        mock_ff.return_value = {"guaranteed_team_ids": [9000], "sample_percentage": 1.0}
+        mock_get_teams.return_value = [5555, 3333, 7777]
         inputs = TeamDiscoveryInput()
 
         result = await get_team_ids_for_ai_observability(inputs)
 
-        assert result == sorted(result)
+        assert result == [9000, 3333, 5555, 7777]
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
     async def test_zero_sample_returns_only_guaranteed(self, mock_get_teams, mock_ff):
@@ -283,16 +327,14 @@ class TestGetTeamIdsForAIObservability:
         assert set(passed_trigger_events) < set(AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
 
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events")
-    async def test_lookback_uses_inputs_value(self, mock_get_teams, _mock_ff):
-        """The discovery activity scopes its eligibility query to the caller's
-        TeamDiscoveryInput.lookback_days (passed by the coordinator from the
-        downstream workflow's own lookback) so discovery matches what the
-        workflow will actually analyze.
+    async def test_lookback_uses_ff_payload_value(self, mock_get_teams, mock_ff):
+        """The discovery activity scopes its eligibility query to the
+        discovery_lookback_days from the feature flag payload.
         """
+        mock_ff.return_value = {"discovery_lookback_days": 3}
         mock_get_teams.return_value = []
-        inputs = TeamDiscoveryInput(lookback_days=3)
 
-        await get_team_ids_for_ai_observability(inputs)
+        await get_team_ids_for_ai_observability(TeamDiscoveryInput())
 
         begin, end = mock_get_teams.call_args.args[0], mock_get_teams.call_args.args[1]
         delta_days = (end - begin).total_seconds() / 86400

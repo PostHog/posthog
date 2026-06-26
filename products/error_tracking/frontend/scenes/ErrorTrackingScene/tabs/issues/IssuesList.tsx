@@ -3,11 +3,11 @@ import { useMemo } from 'react'
 
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { humanFriendlyLargeNumber } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { Query } from '~/queries/Query/Query'
 import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 import {
@@ -36,9 +36,6 @@ import { ERROR_TRACKING_LISTING_RESOLUTION } from 'products/error_tracking/front
 
 const VolumeColumn: QueryContextColumnComponent = (props) => {
     const record = props.record as ErrorTrackingIssue
-    if (!record.aggregations) {
-        throw new Error('No aggregations found')
-    }
     const sparklineKey = record.id ?? 'issue-unknown'
     const baseData = useSparklineData(record.aggregations, ERROR_TRACKING_LISTING_RESOLUTION)
     const { spikeEventsByIssueId } = useValues(batchSpikeEventsLogic)

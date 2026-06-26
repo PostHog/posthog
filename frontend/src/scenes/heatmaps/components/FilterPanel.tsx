@@ -14,7 +14,7 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { Popover } from 'lib/lemon-ui/Popover'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS } from 'scenes/feature-flags/cohortPickerProps'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 

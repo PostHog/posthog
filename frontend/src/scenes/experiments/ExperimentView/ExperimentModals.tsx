@@ -62,7 +62,7 @@ function ConclusionForm(): JSX.Element {
                 <LemonTextArea
                     className="w-full border rounded p-2"
                     minRows={6}
-                    maxLength={400}
+                    maxLength={4000}
                     placeholder="Optional details about why this conclusion was selected..."
                     value={experiment.conclusion_comment || ''}
                     onChange={(value) =>
@@ -198,7 +198,8 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } = useValues(experimentLogic)
+    const { experiment, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } =
+        useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
@@ -289,7 +290,10 @@ export function FinishExperimentModal(): JSX.Element {
                     ) : (
                         <>
                             <div>
-                                <LemonLabel>Variant to keep</LemonLabel>
+                                <LemonLabel showOptional>Variant to keep</LemonLabel>
+                                <div className="text-xs text-muted mb-1">
+                                    Leave blank to end the experiment without rolling out a variant.
+                                </div>
                                 <div className="w-1/2 mt-1">
                                     <LemonSelect
                                         className="w-full"

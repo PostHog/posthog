@@ -60,7 +60,7 @@ export function RadialChart<Meta = unknown>({
     buildLayout,
     drawStatic,
     drawHover,
-    tooltip: renderTooltip = DefaultTooltip,
+    tooltip: renderTooltipProp,
     showTooltip = true,
     onSliceClick,
     hitOuterSlack = 0,
@@ -72,6 +72,13 @@ export function RadialChart<Meta = unknown>({
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({
         margins: RADIAL_MARGINS,
     })
+
+    // Wrap DefaultTooltip in a JSX render function so its hooks run inside its own component
+    // tree — calling it as a plain function would violate rules-of-hooks.
+    const renderTooltip = useMemo<(ctx: TooltipContext<Meta>) => React.ReactNode>(
+        () => renderTooltipProp ?? ((ctx: TooltipContext<Meta>) => <DefaultTooltip {...ctx} />),
+        [renderTooltipProp]
+    )
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 
@@ -144,6 +151,7 @@ export function RadialChart<Meta = unknown>({
             resolvePositionValue: defaultResolveValue,
             canvasBounds,
             axis: { orientation: 'vertical', xTickFormatter: undefined, isPercent: false },
+            yGutters: [],
         }
     }, [scales, dimensions, coloredSeries, theme, canvasBounds])
 

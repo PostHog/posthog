@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import { urls } from 'scenes/urls'
 
 import { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/insightVizKeys'
 import { AnyResponseType, DataTableNode, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { Breadcrumb, InsightLogicProps, PropertyFilterType } from '~/types'
 
@@ -73,6 +73,7 @@ export const aiObservabilitySessionLogic = kea<aiObservabilitySessionLogicType>(
             ): DataTableNode => {
                 const tracesQuery: TracesQuery = {
                     kind: NodeKind.TracesQuery,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? {
                               date_from: dateRange.dateFrom,

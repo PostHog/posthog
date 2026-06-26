@@ -101,7 +101,7 @@ graph TB
 
 - `team_id` (required): Team ID to cluster traces for
 - `lookback_days` (optional): Days of trace history to analyze (default: 7)
-- `max_samples` (optional): Maximum traces to sample (default: 2500)
+- `max_samples` (optional): Maximum traces to sample (default: 1500)
 - `min_k` (optional): Minimum clusters for k-means (default: 2)
 - `max_k` (optional): Maximum clusters for k-means (default: 10)
 - `embedding_normalization` (optional): L2 normalize embeddings - "none" or "l2" (default: "l2")
@@ -320,40 +320,46 @@ The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedul
 2. Spawns clustering workflow for each team in parallel
 3. Handles failures gracefully (individual team failures don't affect others)
 
-Team discovery is configured in `team_discovery.py`:
+Team discovery is configured at runtime from the `llm-analytics-clustering-workflows`
+feature flag payload (distinct ID `internal_llma_team_discovery`), so it can change
+without a deploy. The payload carries:
 
-- `GUARANTEED_TEAM_IDS` — always included (development, internal, dogfooding teams)
-- `SAMPLE_PERCENTAGE` — fraction of remaining teams to sample (default 10%)
-- `DISCOVERY_LOOKBACK_DAYS` — how far back to look for AI events (default 30 days)
+- `guaranteed_team_ids` — teams always included (dogfooding and customer teams). This
+  is the source of truth for the allowlist.
+- `skip_team_ids` — teams always excluded, even if guaranteed or sampled.
+- `sample_percentage` — fraction of remaining teams (with AI events) to sample.
 
-If discovery fails, the coordinator falls back to guaranteed teams only.
+`team_discovery.py` holds only the dev/test fallbacks (`DEFAULT_GUARANTEED_TEAM_IDS`,
+`DEFAULT_SAMPLE_PERCENTAGE`), used when the flag payload is missing or invalid — i.e.
+local development and CI. If discovery fails entirely, the coordinator falls back to
+those guaranteed teams only.
 
 ## Configuration
 
 Key constants in `constants.py`:
 
-| Constant                            | Default                           | Description                                   |
-| ----------------------------------- | --------------------------------- | --------------------------------------------- |
-| `WORKFLOW_NAME`                     | llma-trace-clustering             | Temporal workflow name                        |
-| `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name            |
-| `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze              |
-| `DEFAULT_MAX_SAMPLES`               | 2500                              | Maximum traces to sample                      |
-| `MIN_TRACES_FOR_CLUSTERING`         | 20                                | Minimum traces required for workflow          |
-| `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                    |
-| `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                        |
-| `LABELING_AGENT_MODEL`              | gpt-5.4                           | OpenAI model for labeling agent               |
-| `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization      |
-| `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                     |
-| `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)              |
-| `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                                 | Min samples for HDBSCAN core points           |
-| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.02                              | Min cluster size as fraction of total samples |
-| `DEFAULT_UMAP_N_COMPONENTS`         | 100                               | UMAP dimensions for clustering                |
-| `DEFAULT_UMAP_N_NEIGHBORS`          | 15                                | UMAP neighborhood size                        |
-| `DEFAULT_UMAP_MIN_DIST`             | 0.0                               | UMAP min distance (tighter for clustering)    |
-| `NOISE_CLUSTER_ID`                  | -1                                | HDBSCAN noise/outlier cluster ID              |
-| `LLMA_TRACE_DOCUMENT_TYPE`          | llm-trace-summary-detailed        | Document type filter for embeddings           |
-| `GUARANTEED_TEAM_IDS`               | [1, 2, 112495, ...]               | Teams always included (in team_discovery.py)  |
-| `SAMPLE_PERCENTAGE`                 | 0.1                               | Fraction of discovered teams to sample        |
+| Constant                            | Default                           | Description                                                          |
+| ----------------------------------- | --------------------------------- | -------------------------------------------------------------------- |
+| `WORKFLOW_NAME`                     | llma-trace-clustering             | Temporal workflow name                                               |
+| `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name                                   |
+| `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze                                     |
+| `DEFAULT_MAX_SAMPLES`               | 1500                              | Maximum traces to sample                                             |
+| `MIN_TRACES_FOR_CLUSTERING`         | 1000                              | Minimum items per level required for workflow                        |
+| `COMPUTE_ACTIVITY_TIMEOUT`          | 120s                              | Clustering compute timeout                                           |
+| `EMIT_ACTIVITY_TIMEOUT`             | 60s                               | Event emission timeout                                               |
+| `LABELING_AGENT_MODEL`              | gpt-5.4                           | OpenAI model for labeling agent                                      |
+| `LABELING_AGENT_MAX_ITERATIONS`     | 50                                | Max agent iterations before finalization                             |
+| `LABELING_AGENT_RECURSION_LIMIT`    | 150                               | LangGraph recursion limit                                            |
+| `LABELING_AGENT_TIMEOUT`            | 600.0                             | Full agent run timeout (seconds)                                     |
+| `DEFAULT_HDBSCAN_MIN_SAMPLES`       | 5                                 | Min samples for HDBSCAN core points                                  |
+| `DEFAULT_MIN_CLUSTER_SIZE_FRACTION` | 0.02                              | Min cluster size as fraction of total samples                        |
+| `DEFAULT_UMAP_N_COMPONENTS`         | 100                               | UMAP dimensions for clustering                                       |
+| `DEFAULT_UMAP_N_NEIGHBORS`          | 15                                | UMAP neighborhood size                                               |
+| `DEFAULT_UMAP_MIN_DIST`             | 0.0                               | UMAP min distance (tighter for clustering)                           |
+| `NOISE_CLUSTER_ID`                  | -1                                | HDBSCAN noise/outlier cluster ID                                     |
+| `LLMA_TRACE_DOCUMENT_TYPE`          | llm-trace-summary-detailed        | Document type filter for embeddings                                  |
+| `DEFAULT_GUARANTEED_TEAM_IDS`       | [1, 2]                            | Dev/test fallback only; live list is in the flag payload (see above) |
+| `DEFAULT_SAMPLE_PERCENTAGE`         | 0.5                               | Sample fraction fallback; live value is in the flag payload          |
 
 ## Processing Flow
 
@@ -389,7 +395,7 @@ Key constants in `constants.py`:
 
 ## Error Handling
 
-- **Insufficient data**: Skip clustering if fewer than 20 traces
+- **Insufficient data**: Skip clustering if fewer than 1000 items (per analysis level)
 - **Compute activity retries**: 3 attempts with exponential backoff
 - **LLM activity retries**: 2 attempts with longer intervals (for rate limits)
 - **Emit activity retries**: 3 attempts with exponential backoff

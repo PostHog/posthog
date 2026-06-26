@@ -1,6 +1,7 @@
+import { isDevEnv } from '~/common/utils/env-utils'
+
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
-import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -135,6 +136,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerEmail: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
+            return {
+                cdpCyclotronWorkerEmailLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
@@ -186,7 +191,6 @@ export function getPluginServerCapabilities(
                 cdpRerunWorker: true,
             }
         case PluginServerMode.ingestion_v2:
-        case PluginServerMode.ingestion_v2_testing:
         case PluginServerMode.ingestion_v2_combined:
             throw new Error(`Mode ${mode} is handled by IngestionGeneralServer, not PluginServer`)
         case PluginServerMode.ingestion_api:

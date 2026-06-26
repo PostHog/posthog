@@ -1,6 +1,8 @@
 import time
 from datetime import datetime, timedelta
 
+from django.conf import settings
+from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
 from temporalio import activity
@@ -16,6 +18,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.scoped import scoped_temporal
 
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -23,9 +26,14 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
 )
 
 PREFERRED_EMBEDDING_MODEL = "text-embedding-3-large-3072"
+AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
 
 
 class TargetFingerprintEmbeddingNotFoundError(RuntimeError):
+    pass
+
+
+class FingerprintIssueNotFoundError(RuntimeError):
     pass
 
 
@@ -203,6 +211,60 @@ def _report_closest_fingerprint_metrics(
         )
 
 
+def _merge_fingerprint_into_closest_issue(
+    team: Team,
+    fingerprint: str,
+    closest_fingerprints: list[SimilarFingerprintDistance],
+) -> int:
+    closest_fingerprint = closest_fingerprints[0] if closest_fingerprints else None
+    team_id = team.id
+    if not settings.ERROR_TRACKING_AUTO_MERGE_ENABLED or closest_fingerprint is None:
+        return 0
+    if closest_fingerprint.distance >= AUTO_MERGE_DISTANCE_THRESHOLD:
+        return 0
+
+    with transaction.atomic():
+        # Lock both fingerprints together so reciprocal auto-merge attempts re-check the post-merge state.
+        locked_fingerprints = {
+            row.fingerprint: row
+            for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
+            .filter(team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint])
+            .select_related("issue")
+            .order_by("fingerprint", "id")
+        }
+        source_fingerprint = locked_fingerprints.get(fingerprint)
+        if source_fingerprint is None:
+            raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
+
+        target_fingerprint = locked_fingerprints.get(closest_fingerprint.fingerprint)
+        if target_fingerprint is None:
+            raise FingerprintIssueNotFoundError(
+                f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
+            )
+        if source_fingerprint.issue_id == target_fingerprint.issue_id:
+            return 0
+
+        source_issue_id = source_fingerprint.issue_id
+        target_issue_id = target_fingerprint.issue_id
+        target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)])
+
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(team.uuid),
+            event="error_tracking_issue_merged",
+            groups=groups(team=team),
+            properties={
+                "merge_source": "auto",
+                "source_issue_id": str(source_issue_id),
+                "target_issue_id": str(target_issue_id),
+                "source_fingerprint": fingerprint,
+                "target_fingerprint": closest_fingerprint.fingerprint,
+                "distance": closest_fingerprint.distance,
+            },
+        )
+    return 1
+
+
 @activity.defn
 @scoped_temporal()
 async def merge_similar_fingerprints_activity(
@@ -218,9 +280,16 @@ async def merge_similar_fingerprints_activity(
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
+        # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
         _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, model_name, query_duration_ms)
+        merged_count = await database_sync_to_async(_merge_fingerprint_into_closest_issue)(
+            team,
+            inputs.fingerprint,
+            closest_fingerprints,
+        )
 
         return FingerprintEmbeddingMergeResult(
+            merged_count=merged_count,
             query_duration_ms=query_duration_ms,
             closest_fingerprints=closest_fingerprints,
         )

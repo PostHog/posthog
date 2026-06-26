@@ -10,18 +10,18 @@ import {
 } from 'node-rdkafka'
 import path from 'path'
 
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
-import { parseJSON } from '~/utils/json-parse'
-
 import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-} from '../../src/config/kafka-topics'
-import { KafkaProducerWrapper, MessageWithoutTopic } from '../../src/kafka/producer'
-import { UUIDT } from '../../src/utils/utils'
+} from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper, MessageWithoutTopic } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
+
 import { Clickhouse } from '../helpers/clickhouse'
 import {
     DEFAULT_TEAM,
@@ -151,16 +151,16 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
 
             const metricsAfterInitialBatch = await waitForRoutedMetrics(rustConsumer, rustMetricsPort, {
                 expectedMessages: initialEvents.length,
-                expectedWorkers: ['0', '1'],
+                expectedWorkers: [workers[0].url, workers[1].url],
                 expectedMinCommits: 2,
             })
             const initialWorker0Routed = getPrometheusSample(metricsAfterInitialBatch, {
                 name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                labels: { worker: '0' },
+                labels: { worker: workers[0].url },
             })
             const initialWorker1Routed = getPrometheusSample(metricsAfterInitialBatch, {
                 name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                labels: { worker: '1' },
+                labels: { worker: workers[1].url },
             })
             expect(initialWorker0Routed).toBeGreaterThan(0)
             expect(initialWorker1Routed).toBeGreaterThan(0)
@@ -273,24 +273,24 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
             await assertKafkaIngestionState(groupId, allEvents)
             await waitForRoutedMetrics(rustConsumer, rustMetricsPort, {
                 expectedMessages: healthyEvents.length,
-                expectedWorkers: ['0', '1'],
+                expectedWorkers: [workers[0].url, workers[1].url],
                 expectedMinCommits: 1,
             })
 
             const metricsAfterHealthyBatch = await fetchMetrics(rustConsumer, rustMetricsPort)
             const worker0RoutedAfterHealthyBatch = getPrometheusSample(metricsAfterHealthyBatch, {
                 name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                labels: { worker: '0' },
+                labels: { worker: workers[0].url },
             })
             const worker1RoutedAfterHealthyBatch = getPrometheusSample(metricsAfterHealthyBatch, {
                 name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                labels: { worker: '1' },
+                labels: { worker: workers[1].url },
             })
             expect(worker0RoutedAfterHealthyBatch).toBeGreaterThan(0)
             expect(worker1RoutedAfterHealthyBatch).toBeGreaterThan(0)
 
             await workers[0].service.stop()
-            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 2)
+            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 'unhealthy')
             const failoverEvents = buildSingleBatchEvents(
                 team,
                 'rust node e2e failover event',
@@ -309,13 +309,13 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
                 expect(
                     getPrometheusSample(metrics, {
                         name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                        labels: { worker: '0' },
+                        labels: { worker: workers[0].url },
                     })
                 ).toBe(worker0RoutedAfterHealthyBatch)
                 expect(
                     getPrometheusSample(metrics, {
                         name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                        labels: { worker: '1' },
+                        labels: { worker: workers[1].url },
                     })
                 ).toBeGreaterThanOrEqual(worker1RoutedAfterHealthyBatch + failoverEvents.length)
                 expect(
@@ -329,11 +329,11 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
             const metricsBeforeRecovery = await fetchMetrics(rustConsumer, rustMetricsPort)
             const worker0RoutedBeforeRecovery = getPrometheusSample(metricsBeforeRecovery, {
                 name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                labels: { worker: '0' },
+                labels: { worker: workers[0].url },
             })
 
             workers[0] = await restartNodeIngestionApiWorker(services, workers[0], 'node-worker-1-recovered')
-            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 0)
+            await waitForWorkerHealthState(rustConsumer, rustMetricsPort, workers[0].url, 'healthy')
 
             const recoveryEvents = buildSingleBatchEvents(
                 team,
@@ -353,7 +353,7 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
                 expect(
                     getPrometheusSample(metrics, {
                         name: 'ingestion_consumer_dispatcher_messages_routed_total',
-                        labels: { worker: '0' },
+                        labels: { worker: workers[0].url },
                     })
                 ).toBeGreaterThan(worker0RoutedBeforeRecovery)
                 expect(
@@ -383,7 +383,9 @@ describe('Rust ingestion consumer with Node ingestion API workers', () => {
         try {
             await Promise.all(workers.map((worker) => worker.service.stop()))
             await Promise.all(
-                workers.map((worker) => waitForWorkerHealthState(rustConsumer, rustMetricsPort, worker.url, 2))
+                workers.map((worker) =>
+                    waitForWorkerHealthState(rustConsumer, rustMetricsPort, worker.url, 'unhealthy')
+                )
             )
 
             const events = buildSingleBatchEvents(
@@ -1010,16 +1012,16 @@ async function waitForWorkerHealthState(
     rustConsumer: ServiceProcess,
     rustMetricsPort: number,
     worker: string,
-    state: number
+    state: 'healthy' | 'degraded' | 'unhealthy'
 ): Promise<void> {
     await waitForExpect(async () => {
         const metrics = await fetchMetrics(rustConsumer, rustMetricsPort)
         expect(
             getPrometheusSample(metrics, {
                 name: 'ingestion_consumer_worker_health_state',
-                labels: { worker },
+                labels: { worker, state },
             })
-        ).toBe(state)
+        ).toBe(1)
     }, 30_000)
 }
 

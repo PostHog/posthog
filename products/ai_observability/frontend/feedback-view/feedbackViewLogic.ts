@@ -59,8 +59,8 @@ export const feedbackViewLogic = kea<feedbackViewLogicType>([
                     if (surveyIds.length === 0) {
                         return {}
                     }
-                    const surveys = await Promise.all(surveyIds.map((id) => api.surveys.get(id)))
-                    return Object.fromEntries(surveys.map((survey) => [survey.id, survey]))
+                    const response = await api.surveys.list({ ids: surveyIds.join(','), limit: surveyIds.length })
+                    return Object.fromEntries(response.results.map((survey) => [survey.id, survey]))
                 },
             },
         ],

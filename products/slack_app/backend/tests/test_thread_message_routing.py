@@ -20,7 +20,7 @@ class TestRouteThreadMessage(TestCase):
     workflow so the webhook handler stays fast."""
 
     def setUp(self):
-        from products.slack_app.backend.api import POSTHOG_CODE_REQUIRED_SLACK_SCOPES
+        from posthog.helpers.slack_scopes import REQUIRED_SLACK_SCOPES
 
         cache.clear()
         self.factory = RequestFactory()
@@ -39,7 +39,7 @@ class TestRouteThreadMessage(TestCase):
             team=self.team,
             kind="slack",
             integration_id="T_SLACK",
-            config={"scope": ",".join(sorted(POSTHOG_CODE_REQUIRED_SLACK_SCOPES))},
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
             sensitive_config={"access_token": "xoxb-test"},
         )
         SlackUserProfileCache.objects.create(
@@ -248,7 +248,7 @@ class TestRouteThreadMessage(TestCase):
 
     # --- Scope + approval gates ------------------------------------------
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_missing_scopes_dropped_silently(self):
         """Scopes can only be missing if they were revoked after the mapping
         was created. Drop silently rather than reposting the notice on every
@@ -267,7 +267,7 @@ class TestRouteThreadMessage(TestCase):
         mock_notify.assert_not_called()
         mock_start.assert_not_called()
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_unapproved_ext_shared_channel_dropped_silently(self):
         from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, route_posthog_code_event_to_relevant_region
 
@@ -286,7 +286,7 @@ class TestRouteThreadMessage(TestCase):
 
     # --- Rules command not invoked for untagged --------------------------
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_rules_command_text_does_not_trigger_command_workflow(self):
         """A rules-shaped message in an untagged thread (no @mention) must not
         kick off the command workflow — the user never tagged us. It should
@@ -310,7 +310,7 @@ class TestRouteThreadMessage(TestCase):
 
     # --- Workflow handoff (happy path) -----------------------------------
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_tagged_message_starts_workflow_with_resolved_user_and_untagged_flag(self):
         """Happy path: the handler runs the same gates as a mention but on
         success starts the workflow with ``untagged_followup=True`` and the
@@ -330,7 +330,7 @@ class TestRouteThreadMessage(TestCase):
 
     # --- Symmetry with the app_mention path -------------------------------
 
-    @override_settings(DEBUG=False)
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
     def test_app_mention_and_tagged_message_both_reach_mention_workflow(self):
         """Both event types end at ``_start_mention_workflow`` with the user
         resolved; only the ``untagged_followup`` kwarg differs."""

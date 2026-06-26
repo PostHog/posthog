@@ -1,13 +1,18 @@
 import logging
+from typing import TYPE_CHECKING
 
 from django.core.exceptions import ValidationError
 from django.db import models
 
-from posthog.schema import AttributionMode, NodeKind, SourceMap
-
 from posthog.models.team import Team
 from posthog.models.team.extensions import register_team_extension_signal
 from posthog.rbac.decorators import field_access_control
+from posthog.schema_enums import AttributionMode, NodeKind
+
+# This model loads at django.setup() in every process; posthog.schema (the pydantic models)
+# is runtime-imported in the accessors that materialize typed objects.
+if TYPE_CHECKING:
+    from posthog.schema import SourceMap
 
 # ruff: noqa: DJ012  # Properties act as field accessors for mangled DB fields, so they need to come before save()
 
@@ -258,6 +263,13 @@ def validate_conversion_goals(conversion_goals: list) -> None:
                 f"Conversion goal kind must be one of {NodeKind.EVENTS_NODE}, {NodeKind.ACTIONS_NODE} or {NodeKind.DATA_WAREHOUSE_NODE}, got {goal.get('kind')}"
             )
 
+    # conversion_goal_name is used verbatim as a SQL column alias in marketing analytics
+    # queries, so duplicates collide at query time ("Cannot redefine an alias").
+    goal_names = [name for goal in conversion_goals if (name := goal.get("conversion_goal_name"))]
+    duplicates = sorted({name for name in goal_names if goal_names.count(name) > 1})
+    if duplicates:
+        raise ValidationError(f"Conversion goal names must be unique. Duplicate names: {', '.join(duplicates)}")
+
 
 # Intentionally not inheriting from UUIDModel because we're using a OneToOneField
 # and therefore using the exact same primary key as the Team model.
@@ -347,8 +359,10 @@ class TeamMarketingAnalyticsConfig(models.Model):
             raise ValidationError(f"Invalid sources map schema: {str(e)}")
 
     @property
-    def sources_map_typed(self) -> dict[str, SourceMap]:
+    def sources_map_typed(self) -> dict[str, "SourceMap"]:
         """Return sources_map as typed SourceMap objects for Python usage"""
+        from posthog.schema import SourceMap  # noqa: PLC0415
+
         response = {}
         for source_id, field_mapping in self._sources_map.items():
             if field_mapping is None:

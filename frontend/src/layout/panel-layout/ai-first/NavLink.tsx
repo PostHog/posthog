@@ -1,11 +1,12 @@
 import { useValues } from 'kea'
 
 import { IconGear } from '@posthog/icons'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { cn } from 'lib/utils/css-classes'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
@@ -23,6 +24,7 @@ interface NavLinkProps {
     'data-attr'?: string
     onClick?: (e: React.MouseEvent) => void
     sideAction?: NavLinkSideAction
+    tag?: 'alpha' | 'beta' | 'new'
 }
 
 export function NavLink({
@@ -33,6 +35,7 @@ export function NavLink({
     'data-attr': dataAttr,
     onClick,
     sideAction,
+    tag,
 }: NavLinkProps): JSX.Element {
     const { pathname } = useValues(panelLayoutLogic)
 
@@ -77,6 +80,15 @@ export function NavLink({
                     >
                         {label}
                     </span>
+                )}
+                {!isCollapsed && tag && (
+                    <LemonTag
+                        type={tag === 'alpha' ? 'completion' : tag === 'beta' ? 'warning' : 'success'}
+                        size="small"
+                        className="relative top-[-1px]"
+                    >
+                        {tag.toUpperCase()}
+                    </LemonTag>
                 )}
             </Link>
             {hasSideActionRight && sideAction && (

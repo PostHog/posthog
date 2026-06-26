@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from '~/lib/api'
 
-import { llmSkillsNameFilesRetrieve } from 'products/ai_observability/frontend/generated/api'
-import type { LLMSkillFileApi } from 'products/ai_observability/frontend/generated/api.schemas'
+import { llmSkillsNameFilesRetrieve } from 'products/skills/frontend/generated/api'
+import type { LLMSkillFileApi } from 'products/skills/frontend/generated/api.schemas'
 
 import type { skillFileLogicType } from './skillFileLogicType'
 

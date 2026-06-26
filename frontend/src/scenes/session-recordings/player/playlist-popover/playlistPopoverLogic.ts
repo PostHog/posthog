@@ -3,7 +3,7 @@ import { forms } from 'kea-forms'
 import { lazyLoaders, loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { toParams } from 'lib/utils'
+import { toParams } from 'lib/utils/url'
 import {
     SessionRecordingPlayerLogicProps,
     sessionRecordingPlayerLogic,

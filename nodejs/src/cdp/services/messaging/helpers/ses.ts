@@ -2,11 +2,11 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { fetch } from '~/utils/request'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
 
-import { parseEmailTrackingCode } from './tracking-code'
+import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
 /**
  * ---------- SNS envelope types ----------
@@ -40,6 +40,7 @@ const SesMailSchema = z.object({
     destination: z.array(z.string()),
     headersTruncated: z.boolean().optional(),
     headers: z.array(z.object({ name: z.string(), value: z.string() })).optional(),
+    commonHeaders: z.object({ subject: z.string().optional() }).passthrough().optional(),
     tags: z.record(z.string(), z.array(z.string())).optional(), // your message tags: { user_id: ["u_123"] }
 })
 
@@ -157,6 +158,8 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
 
 export class SesWebhookHandler {
     certCache: Record<string, Promise<string> | undefined> = {}
+
+    constructor(private trackingCodeSigner: EmailTrackingCodeSigner) {}
 
     private async fetchText(url: string): Promise<string> {
         const response = await fetch(url)
@@ -314,7 +317,10 @@ export class SesWebhookHandler {
             invocationId?: string
             actionId?: string
             parentRunId?: string
+            distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            properties?: Record<string, any>
+            timestamp?: string
         }[]
         optOutRecipients?: {
             teamId?: string
@@ -326,8 +332,12 @@ export class SesWebhookHandler {
 
         logger.info('[SesWebhookHandler] parsed', { parsed })
 
-        // If SNS envelope present and verification requested, verify signature
-        if ('envelope' in parsed && opts.verifySignature) {
+        // When verification is required the message must be a signed SNS envelope. Raw deliveries
+        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
+        if (opts.verifySignature) {
+            if (!('envelope' in parsed)) {
+                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
+            }
             logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
             const ok = await this.verifySnsSignature(parsed.envelope)
             logger.info('[SesWebhookHandler] signature verified', { ok })
@@ -368,7 +378,10 @@ export class SesWebhookHandler {
             invocationId?: string
             actionId?: string
             parentRunId?: string
+            distinctId?: string
             metricName: MinimalAppMetric['metric_name']
+            properties?: Record<string, any>
+            timestamp?: string
         }[] = []
         const optOutRecipients: {
             teamId?: string
@@ -377,9 +390,18 @@ export class SesWebhookHandler {
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
-            const tags = rec.mail.tags
-            const { functionId, invocationId, teamId, actionId, parentRunId } =
-                parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+            // Prefer the custom MIME header (carries the full signed code including distinct_id,
+            // unbounded). Fall back to the SES EmailTag for messages sent before the header carrier
+            // was added, or where the configuration set hasn't enabled `IncludeOriginalHeaders`.
+            const headerValue = rec.mail.headers?.find(
+                (h) => h.name.toLowerCase() === TRACKING_CODE_HEADER_NAME.toLowerCase()
+            )?.value
+            const tagValue = rec.mail.tags?.ph_id?.[0]
+            const parsedCode = this.trackingCodeSigner.parse(headerValue ?? tagValue ?? '')
+            if (parsedCode) {
+                trackingCodeFormatCounter.inc({ format: parsedCode.format, source: 'ses' })
+            }
+            const { functionId, invocationId, teamId, actionId, parentRunId, distinctId, isTest } = parsedCode || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -387,8 +409,43 @@ export class SesWebhookHandler {
             }
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
-            if (metricName) {
-                metrics.push({ functionId, invocationId, actionId, parentRunId, metricName })
+            // Test sends (from the editor's "Run test") are not production activity, so we skip
+            // their delivery/open/click metrics — otherwise a draft/never-enabled workflow shows
+            // email activity in its Metrics tab. Bounce-driven opt-outs below still apply.
+            if (metricName && !isTest) {
+                const properties: Record<string, any> = {
+                    $email_to: rec.mail.destination?.[0],
+                    $email_subject: rec.mail.commonHeaders?.subject,
+                }
+
+                // Each SES event detail carries its own timestamp (open.timestamp, click.timestamp, etc.)
+                // — prefer those over the webhook receipt time so the event reflects when the action
+                // actually happened, not when AWS got around to delivering the notification.
+                let timestamp: string | undefined
+                if ('open' in rec && rec.open) {
+                    timestamp = rec.open.timestamp
+                } else if ('click' in rec && rec.click) {
+                    timestamp = rec.click.timestamp
+                    properties.$link_url = rec.click.link
+                } else if ('delivery' in rec && rec.delivery) {
+                    timestamp = rec.delivery.timestamp
+                } else if ('bounce' in rec && rec.bounce) {
+                    timestamp = rec.bounce.timestamp
+                } else if ('complaint' in rec && rec.complaint) {
+                    timestamp = rec.complaint.timestamp
+                }
+                timestamp = timestamp ?? rec.mail.timestamp
+
+                metrics.push({
+                    functionId,
+                    invocationId,
+                    actionId,
+                    parentRunId,
+                    distinctId,
+                    metricName,
+                    properties,
+                    timestamp,
+                })
             }
 
             // Opt out recipients on permanent bounces

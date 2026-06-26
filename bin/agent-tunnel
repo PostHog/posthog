@@ -1,0 +1,168 @@
+#!/bin/bash
+# Expose the local agent-ingress (port 3030) on a public URL so Slack /
+# webhooks can reach your dev box. Wraps `cloudflared tunnel --url ...`,
+# parses the trycloudflare URL it emits, and writes
+# `AGENT_INGRESS_PUBLIC_URL=<url>` into `.env.local` so the next
+# `./bin/start` / `hogli start` boots the agent stack with the URL
+# already wired into agent-ingress + Django.
+#
+# Usage:
+#   bin/agent-tunnel                 # tunnel to http://localhost:3030
+#   bin/agent-tunnel --port=3030     # explicit port (defaults to $AGENT_INGRESS_PORT or 3030)
+#   bin/agent-tunnel --no-write-env  # don't touch .env.local — just print the URL
+#
+# Restart your stack after the URL appears: in-flight Django + agent
+# processes were launched before this run and don't re-read `.env.local`.
+#
+# On Ctrl-C the script removes the entry from `.env.local` so a stale
+# (now-dead) trycloudflare URL doesn't linger across restarts.
+
+set -euo pipefail
+
+PORT="${AGENT_INGRESS_PORT:-3030}"
+WRITE_ENV=1
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ENV_FILE="$REPO_ROOT/.env.local"
+ENV_KEY="AGENT_INGRESS_PUBLIC_URL"
+
+for arg in "$@"; do
+    case "$arg" in
+        --port=*) PORT="${arg#*=}" ;;
+        --no-write-env) WRITE_ENV=0 ;;
+        -h|--help)
+            sed -n '2,19p' "$0"
+            exit 0
+            ;;
+        *)
+            echo "unknown arg: $arg" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if ! command -v cloudflared >/dev/null 2>&1; then
+    cat >&2 <<EOF
+error: cloudflared is not installed.
+
+On macOS:
+    brew install cloudflared
+
+On Linux:
+    https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/
+EOF
+    exit 1
+fi
+
+if ! curl -fsS --max-time 1 "http://localhost:${PORT}/healthz" >/dev/null 2>&1; then
+    echo "warn: agent-ingress doesn't look healthy on http://localhost:${PORT}/healthz." >&2
+    echo "      Start the agent stack first (./bin/start or hogli start), then re-run." >&2
+    echo >&2
+fi
+
+# Replace any existing AGENT_INGRESS_PUBLIC_URL=… line in .env.local
+# (creating the file if it doesn't exist) with the supplied value. Empty
+# value removes the line entirely. Idempotent.
+write_env_value() {
+    local value="$1"
+    if [ "$WRITE_ENV" != "1" ]; then
+        return
+    fi
+    # Create .env.local if missing so the sed pass below has a target.
+    if [ ! -f "$ENV_FILE" ]; then
+        touch "$ENV_FILE"
+    fi
+    local tmp
+    tmp="$(mktemp -t agent-tunnel-env.XXXXXX)"
+    # Drop any prior AGENT_INGRESS_PUBLIC_URL line — match optional leading
+    # `export ` so both shell-style and dotenv-style entries are caught.
+    # Also strip trailing blank lines so repeated tunnel runs don't pile up
+    # whitespace in .env.local. The awk pass remembers the last non-empty
+    # line index and only prints up to there.
+    grep -vE "^[[:space:]]*(export[[:space:]]+)?${ENV_KEY}=" "$ENV_FILE" |
+        awk '{lines[NR]=$0} NF{last=NR} END{for(i=1;i<=last;i++) print lines[i]}' > "$tmp" || true
+    if [ -n "$value" ]; then
+        # Separate from prior content with one blank line for readability
+        # when the file already has entries; skip the blank line when the
+        # file is empty so the result is just `KEY=value\n`.
+        if [ -s "$tmp" ]; then
+            echo "" >> "$tmp"
+        fi
+        printf '%s=%s\n' "$ENV_KEY" "$value" >> "$tmp"
+    fi
+    mv "$tmp" "$ENV_FILE"
+}
+
+echo "Starting cloudflared tunnel to http://localhost:${PORT} ..."
+echo "  (waits ~5s for the trycloudflare URL, then prints the Slack endpoints)"
+echo
+
+# Run cloudflared, tee stderr so we can both display it live and parse the URL.
+# trycloudflare emits a line like
+#   |  https://random-words.trycloudflare.com   |
+# Grep for the first `https://*.trycloudflare.com` we see, capture it, and
+# print our own banner. We keep cloudflared running in the foreground —
+# Ctrl-C tears it down cleanly.
+TMPLOG="$(mktemp -t agent-tunnel.XXXXXX)"
+
+cleanup() {
+    kill "$CFD_PID" 2>/dev/null || true
+    rm -f "$TMPLOG"
+    # Clear the env entry so a dead trycloudflare URL doesn't get re-used
+    # on the next `./bin/start`. The user can always opt out with
+    # --no-write-env if they want a stale entry to persist (rare).
+    if [ "$WRITE_ENV" = "1" ]; then
+        write_env_value ""
+        echo
+        echo "(removed $ENV_KEY from $ENV_FILE)"
+    fi
+}
+
+(
+    cloudflared tunnel --no-autoupdate --url "http://localhost:${PORT}" 2>&1 | tee "$TMPLOG"
+) &
+CFD_PID=$!
+trap cleanup INT TERM EXIT
+
+# Wait for the URL to appear (max 30s).
+PUBLIC_URL=""
+for _ in $(seq 1 60); do
+    PUBLIC_URL=$(grep -oE 'https://[a-z0-9-]+\.trycloudflare\.com' "$TMPLOG" | head -n1 || true)
+    if [ -n "$PUBLIC_URL" ]; then
+        break
+    fi
+    sleep 0.5
+done
+
+if [ -z "$PUBLIC_URL" ]; then
+    echo "warn: didn't see a trycloudflare URL in 30s — check cloudflared output above." >&2
+else
+    if [ "$WRITE_ENV" = "1" ]; then
+        write_env_value "$PUBLIC_URL"
+        WROTE_ENV_LINE="✓ Wrote $ENV_KEY=$PUBLIC_URL → $ENV_FILE"
+    else
+        WROTE_ENV_LINE="(skipped writing $ENV_FILE — passed --no-write-env)"
+    fi
+    cat <<EOF
+
+
+────────────────────────────────────────────────────────────────────────
+  Public agent-ingress URL:  $PUBLIC_URL
+────────────────────────────────────────────────────────────────────────
+
+  Slack endpoints for an agent with slug <SLUG>:
+    Event Subscriptions → Request URL:
+      $PUBLIC_URL/agents/<SLUG>/slack/events
+    Interactivity & Shortcuts → Request URL:
+      $PUBLIC_URL/agents/<SLUG>/slack/interactivity
+
+  $WROTE_ENV_LINE
+
+  Restart your dev stack so the new URL flows into Django + agent-ingress:
+    ./bin/start    (or restart \`hogli start\`)
+
+  Ctrl-C to stop the tunnel — the entry is removed from $ENV_FILE on exit.
+
+EOF
+fi
+
+wait $CFD_PID
