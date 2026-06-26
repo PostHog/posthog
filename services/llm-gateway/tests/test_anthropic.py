@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
 from llm_gateway.api.anthropic import _is_anthropic_billing_block
+from llm_gateway.api.handler import ProviderError
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
@@ -1553,6 +1554,32 @@ class TestAnthropicCircuitBreakerIntegration:
         breaker.record_outcome.assert_awaited_with(success=False)
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_gateway_validation_400_does_not_poison_breaker(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """A gateway-generated unsupported-model 400 echoes the caller's model name. A crafted name
+        containing a billing phrase must NOT be recorded as an Anthropic provider failure — otherwise
+        an authenticated caller could open the shared circuit breaker (breaker poisoning)."""
+        breaker = install_breaker(bypass=False)
+        request_body = {"model": "gemini/credit balance is too low", "messages": [{"role": "user", "content": "Hi"}]}
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 400
+        assert mock_anthropic.call_count == 0  # rejected before any provider call
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_generic_400_not_routed_to_bedrock(
         self,
         mock_anthropic: MagicMock,
@@ -1639,7 +1666,8 @@ class TestAnthropicCircuitBreakerIntegration:
 class TestAnthropicBillingBlockDetection:
     """`_is_anthropic_billing_block` must separate Anthropic's financial blocks (fail over to Bedrock)
     from genuinely malformed requests (don't) — both arrive as HTTP 400 invalid_request_error, so the
-    only signal is the upstream message. Fixtures are real messages captured in production."""
+    only signal is the upstream message. Fixtures are real messages captured in production. Detection
+    is gated on ProviderError so a gateway-local 400 that echoes caller input can't be misread."""
 
     @pytest.mark.parametrize(
         "case,status_code,message,expected",
@@ -1674,10 +1702,26 @@ class TestAnthropicBillingBlockDetection:
         ],
     )
     def test_billing_block_detection(self, case: str, status_code: int, message: str, expected: bool) -> None:
-        exc = HTTPException(
+        exc = ProviderError(
             status_code=status_code, detail={"error": {"message": message, "type": "invalid_request_error"}}
         )
         assert _is_anthropic_billing_block(exc) is expected
 
     def test_non_dict_detail_is_not_billing(self) -> None:
-        assert _is_anthropic_billing_block(HTTPException(status_code=400, detail="opaque string")) is False
+        assert _is_anthropic_billing_block(ProviderError(status_code=400, detail="opaque string")) is False
+
+    def test_gateway_origin_billing_text_is_not_billing(self) -> None:
+        """A gateway-local 400 (plain HTTPException, not ProviderError) that echoes a caller model
+        name containing a billing phrase must not be treated as a provider billing block — otherwise
+        a crafted model name could poison the shared circuit breaker."""
+        exc = HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": "Model 'gemini/credit balance is too low' is not supported by this gateway",
+                    "type": "invalid_request_error",
+                    "code": "model_not_supported",
+                }
+            },
+        )
+        assert _is_anthropic_billing_block(exc) is False

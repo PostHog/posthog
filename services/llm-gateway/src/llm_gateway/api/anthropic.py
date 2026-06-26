@@ -15,6 +15,7 @@ from llm_gateway.api.handler import (
     ANTHROPIC_CONFIG,
     BEDROCK_CONFIG,
     CLOUDFLARE_ANTHROPIC_CONFIG,
+    ProviderError,
     _sanitize_request_data,
     handle_llm_request,
     normalize_litellm_model_name,
@@ -307,7 +308,14 @@ def _is_anthropic_billing_block(exc: HTTPException) -> bool:
     These surface as HTTP 400 invalid_request_error (e.g. a workspace usage-limit block or an
     exhausted prepaid balance), not 5xx/429 — so they are genuinely provider-down but look like a
     caller error. We match the upstream message carried in `detail["error"]["message"]`.
+
+    Gated on `ProviderError` so it only ever fires on a genuine upstream-provider failure: a
+    gateway-local 400 (e.g. unsupported model) echoes the caller's model name into the message, and
+    without this guard a crafted name like "gemini/credit balance is too low" would be misread as a
+    billing block and poison the shared circuit breaker.
     """
+    if not isinstance(exc, ProviderError):
+        return False
     if exc.status_code != 400:
         return False
     detail = exc.detail
