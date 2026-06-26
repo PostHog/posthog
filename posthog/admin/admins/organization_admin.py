@@ -213,10 +213,17 @@ class OrganizationAdmin(admin.ModelAdmin):
         return format_html(f'<a href="{url}">Billing →</a>')
 
     def usage_posthog(self, organization: Organization):
-        return format_html(
-            '<a target="_blank" href="/insights/new?insight=TRENDS&interval=day&display=ActionsLineGraph&events=%5B%7B%22id%22%3A%22%24pageview%22%2C%22name%22%3A%22%24pageview%22%2C%22type%22%3A%22events%22%2C%22order%22%3A0%2C%22math%22%3A%22dau%22%7D%5D&properties=%5B%7B%22key%22%3A%22organization_id%22%2C%22value%22%3A%22{}%22%2C%22operator%22%3A%22exact%22%2C%22type%22%3A%22person%22%7D%5D&actions=%5B%5D&new_entity=%5B%5D">See usage on PostHog →</a>',
-            organization.id,
+        # Route to the region-appropriate Metabase customer usage breakdown dashboard.
+        metabase_host = (
+            "https://metabase.prod-eu.posthog.dev"
+            if settings.CLOUD_DEPLOYMENT == "EU"
+            else "https://metabase.prod-us.posthog.dev"
         )
+        url = (
+            f"{metabase_host}/dashboard/139-customer-usage-breakdown"
+            f"?tab=35-events&organization_id={organization.id}&lookback_days=30&search_event=%20"
+        )
+        return format_html('<a target="_blank" href="{}">See usage on PostHog →</a>', url)
 
     @admin.display(description="Limited Products")
     def limited_products_display(self, organization: Organization):
