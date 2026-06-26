@@ -1,5 +1,5 @@
 from functools import cache
-from typing import Optional
+from typing import Optional, cast
 
 from django.conf import settings
 
@@ -49,10 +49,13 @@ def build_function_call(postgres_table_name: str, context: Optional[HogQLContext
             # The persons DB is not a Django-managed connection. Source its credentials from the
             # off-ORM URL (posthog/persons_db.py), which conftest points at the test-prefixed
             # persons DB under tests — mirroring the test DB name Django would have resolved.
-            conninfo = conninfo_to_dict(persons_db_url(writer=True))
-            db = add_param(conninfo.get("dbname", ""))
-            user = add_param(conninfo.get("user", ""))
-            password = add_param(conninfo.get("password", ""))
+            # Index directly (not .get with a default): a missing critical field should raise a
+            # clear KeyError here rather than pass blank credentials that surface as an opaque
+            # ClickHouse connection error at query time.
+            conninfo = cast(dict[str, str], conninfo_to_dict(persons_db_url(writer=True)))
+            db = add_param(conninfo["dbname"])
+            user = add_param(conninfo["user"])
+            password = add_param(conninfo["password"])
         else:
             from django.db import connections
 

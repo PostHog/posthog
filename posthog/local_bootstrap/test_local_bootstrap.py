@@ -1,12 +1,9 @@
 from datetime import UTC, datetime
-from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
 from django.conf import settings
 
-import psycopg
 from parameterized import parameterized
 
 from posthog.local_bootstrap.config import BootstrapConfig, BootstrapConfigError, S3Location, TableImportConfig
@@ -161,8 +158,10 @@ class TestWritePersonsToPostgres:
     # transaction, so the test cleans up its own rows in the shared persons test database.
     TEAM_ID = 2_000_000_002
 
-    def _cleanup(self, conn: psycopg.Connection[Any]) -> None:
-        with conn.cursor() as cursor:
+    def _cleanup(self) -> None:
+        # Own autocommit connection: the DELETEs must commit even when the caller is unwinding a
+        # failed assertion, otherwise the seeded rows leak and the next run hits a unique violation.
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
             cursor.execute("DELETE FROM posthog_persondistinctid WHERE team_id = %s", (self.TEAM_ID,))
             cursor.execute(f"DELETE FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s", (self.TEAM_ID,))
 
@@ -187,31 +186,31 @@ class TestWritePersonsToPostgres:
             ),
         }
 
-        with persons_db_connection(writer=True) as conn:
-            try:
-                _write_persons_to_postgres(SimpleNamespace(id=self.TEAM_ID), persons)
+        self._cleanup()  # clear any rows a prior failed run may have left behind
+        try:
+            _write_persons_to_postgres(self.TEAM_ID, persons)
 
-                with conn.cursor() as cursor:
-                    cursor.execute(
-                        f"SELECT uuid, properties, version, is_identified FROM {settings.PERSON_TABLE_NAME} "
-                        "WHERE team_id = %s",
-                        (self.TEAM_ID,),
-                    )
-                    by_uuid = {str(uuid): (props, version, identified) for uuid, props, version, identified in cursor}
+            with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT uuid, properties, version, is_identified FROM {settings.PERSON_TABLE_NAME} "
+                    "WHERE team_id = %s",
+                    (self.TEAM_ID,),
+                )
+                by_uuid = {str(uuid): (props, version, identified) for uuid, props, version, identified in cursor}
 
-                    cursor.execute(
-                        "SELECT pdi.distinct_id, pdi.version, p.uuid "
-                        f"FROM posthog_persondistinctid pdi JOIN {settings.PERSON_TABLE_NAME} p ON p.id = pdi.person_id "
-                        "WHERE pdi.team_id = %s",
-                        (self.TEAM_ID,),
-                    )
-                    dids = {did: (version, str(owner)) for did, version, owner in cursor}
+                cursor.execute(
+                    "SELECT pdi.distinct_id, pdi.version, p.uuid "
+                    f"FROM posthog_persondistinctid pdi JOIN {settings.PERSON_TABLE_NAME} p ON p.id = pdi.person_id "
+                    "WHERE pdi.team_id = %s",
+                    (self.TEAM_ID,),
+                )
+                dids = {did: (version, str(owner)) for did, version, owner in cursor}
 
-                # Both persons land, JSON properties are parsed, is_identified is set.
-                assert set(by_uuid) == {uuid_with_dids, uuid_without_dids}
-                assert by_uuid[uuid_with_dids] == ({"email": "a@b.com"}, 7, True)
+            # Both persons land, JSON properties are parsed, is_identified is set.
+            assert set(by_uuid) == {uuid_with_dids, uuid_without_dids}
+            assert by_uuid[uuid_with_dids] == ({"email": "a@b.com"}, 7, True)
 
-                # Distinct IDs attach to the right person (the uuid->id mapping) with their versions.
-                assert dids == {"da1": (0, uuid_with_dids), "da2": (3, uuid_with_dids)}
-            finally:
-                self._cleanup(conn)
+            # Distinct IDs attach to the right person (the uuid->id mapping) with their versions.
+            assert dids == {"da1": (0, uuid_with_dids), "da2": (3, uuid_with_dids)}
+        finally:
+            self._cleanup()

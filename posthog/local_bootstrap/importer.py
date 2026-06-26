@@ -273,7 +273,7 @@ def _accumulate_persons(
     return persons
 
 
-def _write_persons_to_postgres(team: Team, persons: dict[str, _PersonAccumulator]) -> None:
+def _write_persons_to_postgres(team_id: int, persons: dict[str, _PersonAccumulator]) -> None:
     if not persons:
         return
 
@@ -291,35 +291,35 @@ def _write_persons_to_postgres(team: Team, persons: dict[str, _PersonAccumulator
         # Map each canonical UUID to its generated id so distinct IDs can reference person_id.
         id_by_uuid: dict[str, int] = {}
         for i in range(0, len(person_rows), _PG_WRITE_BATCH):
-            batch = person_rows[i : i + _PG_WRITE_BATCH]
-            placeholders = ", ".join(["(%s, %s, %s, %s, %s, true)"] * len(batch))
-            params = [
+            person_batch = person_rows[i : i + _PG_WRITE_BATCH]
+            person_placeholders = ", ".join(["(%s, %s, %s, %s, %s, true)"] * len(person_batch))
+            person_params = [
                 value
-                for person_uuid, properties, version, created_at in batch
-                for value in (team.id, person_uuid, properties, version, created_at)
+                for person_uuid, properties, version, created_at in person_batch
+                for value in (team_id, person_uuid, properties, version, created_at)
             ]
             cursor.execute(
                 f"INSERT INTO {settings.PERSON_TABLE_NAME} "
-                f"(team_id, uuid, properties, version, created_at, is_identified) VALUES {placeholders} "
+                f"(team_id, uuid, properties, version, created_at, is_identified) VALUES {person_placeholders} "
                 "RETURNING id, uuid",
-                params,
+                person_params,
             )
             for person_pk, person_uuid in cursor.fetchall():
                 id_by_uuid[str(person_uuid)] = person_pk
 
         distinct_rows: list[tuple[str, int, int, int]] = [
-            (distinct_id, id_by_uuid[str(uuid.UUID(person_id))], team.id, version)
+            (distinct_id, id_by_uuid[str(uuid.UUID(person_id))], team_id, version)
             for person_id, entry in persons.items()
             for distinct_id, version in entry.distinct_ids.items()
         ]
         for i in range(0, len(distinct_rows), _PG_WRITE_BATCH):
-            batch = distinct_rows[i : i + _PG_WRITE_BATCH]
-            placeholders = ", ".join(["(%s, %s, %s, %s)"] * len(batch))
-            params = [value for row in batch for value in row]
+            distinct_batch = distinct_rows[i : i + _PG_WRITE_BATCH]
+            distinct_placeholders = ", ".join(["(%s, %s, %s, %s)"] * len(distinct_batch))
+            distinct_params = [value for row in distinct_batch for value in row]
             cursor.execute(
                 f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id, version) "
-                f"VALUES {placeholders}",
-                params,
+                f"VALUES {distinct_placeholders}",
+                distinct_params,
             )
 
 
@@ -372,7 +372,7 @@ def import_persons(
     accumulated = _accumulate_persons(config, files, batch_size, progress)
     live = {pid: entry for pid, entry in accumulated.items() if not entry.is_deleted}
 
-    _write_persons_to_postgres(team, live)
+    _write_persons_to_postgres(team.id, live)
     _write_persons_to_clickhouse(team, live)
 
     distinct_ids = sum(len(entry.distinct_ids) for entry in live.values())
