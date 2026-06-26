@@ -89,10 +89,21 @@ class TestResolveScoutModel:
         resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "claude"}}}))
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="claude")
 
-    def test_unknown_explicit_runtime_adapter_falls_back_to_inference(self) -> None:
-        # A typo'd runtime ("cluade") must not reach the run state — it'd blow up when cast to the
-        # RuntimeAdapter enum downstream. Drop it and infer from the id instead.
-        resolved = _resolve_full(payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": "cluade"}}}))
+    @parameterized.expand(
+        [
+            # A bad runtime must not reach the run state — it'd blow up when cast to the RuntimeAdapter
+            # enum downstream. Drop it and infer from the id instead. The unhashable cases (list/dict)
+            # would also raise from the set-membership test if not guarded, failing the run.
+            ("typo", "cluade"),
+            ("non_string", 5),
+            ("list", ["codex"]),
+            ("dict", {"codex": 1}),
+        ]
+    )
+    def test_bad_explicit_runtime_adapter_falls_back_to_inference(self, _name: str, bad_adapter: object) -> None:
+        resolved = _resolve_full(
+            payload=_scouts({_SKILL: {GLM_MODEL: {"fraction": 1, "runtime_adapter": bad_adapter}}})
+        )
         assert resolved == ScoutModel(model=GLM_MODEL, runtime_adapter="codex")
 
     def test_object_form_drops_malformed_fraction(self) -> None:

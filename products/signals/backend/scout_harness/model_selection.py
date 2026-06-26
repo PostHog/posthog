@@ -185,7 +185,9 @@ def _parse_model_spec(spec: object) -> tuple[float | None, str | None]:
     if isinstance(spec, dict):
         weight = spec.get(FRACTION_KEY)
         adapter_value = spec.get(RUNTIME_ADAPTER_KEY)
-        adapter = adapter_value if adapter_value in _KNOWN_RUNTIME_ADAPTERS else None
+        # `isinstance` first: an unhashable value (JSON array/object) would raise from the set
+        # membership test, and that escapes `_read_payload`'s guard and would fail the run.
+        adapter = adapter_value if isinstance(adapter_value, str) and adapter_value in _KNOWN_RUNTIME_ADAPTERS else None
     else:
         weight = spec
         adapter = None
