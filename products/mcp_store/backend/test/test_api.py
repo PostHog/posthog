@@ -867,7 +867,7 @@ class TestOAuthIssuerSpoofingProtection(ClickhouseTestMixin, APIBaseTest, QueryM
         sensitive = installation.sensitive_configuration
         assert sensitive["dcr_client_id"] == "user-supplied-client-id"
         assert sensitive["dcr_client_secret"] == "user-supplied-secret"
-        assert sensitive["dcr_token_endpoint_auth_method"] == "client_secret_post"
+        assert sensitive["dcr_token_endpoint_auth_method"] == "client_secret_basic"
         # EncryptedJSONField stringifies leaf values on round-trip; accept either bool or str.
         assert sensitive["dcr_is_user_provided"] in (True, "True")
 
