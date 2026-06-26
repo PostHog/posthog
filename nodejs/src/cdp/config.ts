@@ -112,14 +112,6 @@ export type CdpConfig = ClickhouseConfig & {
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
     MESSAGE_ASSETS_CAPTURE_ENABLED: boolean
-    // Object storage the rendered HTML is written to — must point at the same
-    // S3-compatible store the Django assets API reads from (OBJECT_STORAGE_*).
-    MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_REGION: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY: string
-    MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER: string
     HOG_INVOCATION_RERUN_MAX_COUNT: number
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
@@ -260,18 +252,8 @@ export function getDefaultCdpConfig(): CdpConfig {
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         // Global kill-switch. Dev-on so the feature works locally; graduates to
-        // true in prod once the ClickHouse table + bucket lifecycle are provisioned.
+        // true in prod once the ClickHouse table is provisioned.
         MESSAGE_ASSETS_CAPTURE_ENABLED: isDevEnv() ? true : false,
-        // Default to the shared OBJECT_STORAGE_* store the Django side reads from,
-        // so the writer and the assets API agree without extra deployment config.
-        MESSAGE_ASSETS_OBJECT_STORAGE_ENDPOINT: process.env.OBJECT_STORAGE_ENDPOINT || 'http://objectstorage:19000',
-        MESSAGE_ASSETS_OBJECT_STORAGE_REGION: process.env.OBJECT_STORAGE_REGION || 'us-east-1',
-        MESSAGE_ASSETS_OBJECT_STORAGE_BUCKET: process.env.OBJECT_STORAGE_BUCKET || 'posthog',
-        MESSAGE_ASSETS_OBJECT_STORAGE_ACCESS_KEY_ID:
-            process.env.OBJECT_STORAGE_ACCESS_KEY_ID || 'object_storage_root_user',
-        MESSAGE_ASSETS_OBJECT_STORAGE_SECRET_ACCESS_KEY:
-            process.env.OBJECT_STORAGE_SECRET_ACCESS_KEY || 'object_storage_root_password',
-        MESSAGE_ASSETS_OBJECT_STORAGE_FOLDER: 'message_assets',
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,

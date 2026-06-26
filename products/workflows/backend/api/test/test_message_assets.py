@@ -2,7 +2,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -13,8 +12,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
-
-_STORAGE_PATH = "products.workflows.backend.api.hog_flow"
 
 
 def create_message_asset(
@@ -30,7 +27,7 @@ def create_message_asset(
     person_id: str = "person-1",
     recipient: str = "person@example.com",
     subject: str = "Welcome",
-    s3_key: str = "message_assets/team-1/flow/inv/email-step.html",
+    html: str = "<html><body>Hello</body></html>",
     asset_status: str = "sent",
     sent_at: Optional[datetime] = None,
     version: int = 1,
@@ -49,7 +46,7 @@ def create_message_asset(
         "person_id": person_id,
         "recipient": recipient,
         "subject": subject,
-        "s3_key": s3_key,
+        "html": html,
         "status": asset_status,
         "sent_at": sent,
         "version": version,
@@ -79,8 +76,9 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert res.status_code == status.HTTP_200_OK
         assert res.json() == []
 
-    def test_returns_asset_without_leaking_storage_key(self):
-        # The storage key is resolved server-side for serving; it must not appear in the list response.
+    def test_listing_returns_metadata_without_html(self):
+        # The list endpoint must never include the rendered HTML — column-oriented
+        # storage means we don't pay to read it, and clients shouldn't see it here.
         self._seed("inv-1", recipient="bob@example.com", subject="Hi Bob", distinct_id="user-7")
         results = self._list().json()
         assert len(results) == 1
@@ -89,7 +87,7 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert row["recipient"] == "bob@example.com"
         assert row["subject"] == "Hi Bob"
         assert row["distinct_id"] == "user-7"
-        assert "s3_key" not in row
+        assert "html" not in row
 
     def test_collapses_to_latest_version(self):
         self._seed("inv-1", subject="first", version=1)
@@ -119,6 +117,21 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         self._seed("inv-2", action_id="step-b")
         results = self._list({"action_id": "step-a"}).json()
         assert {r["invocation_id"] for r in results} == {"inv-1"}
+
+    def test_filters_by_invocation_id(self):
+        # Deep-link from a single invocation log entry to the email that run sent.
+        self._seed("inv-1")
+        self._seed("inv-2")
+        results = self._list({"invocation_id": "inv-1"}).json()
+        assert {r["invocation_id"] for r in results} == {"inv-1"}
+
+    def test_invocation_id_filter_returns_empty_when_no_asset_was_captured(self):
+        # A run can complete without producing an asset (text-only, kill-switch off,
+        # standalone email send). The deep-link should resolve to 0 rows in that case,
+        # not raise — the UI uses that to hide the "View email" link.
+        self._seed("inv-1")
+        results = self._list({"invocation_id": "inv-nonexistent"}).json()
+        assert results == []
 
     def test_filters_by_distinct_id(self):
         self._seed("inv-1", distinct_id="user-a")
@@ -165,16 +178,30 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         # offset past the first page still returns rows
         assert len(self._list({"limit": 2, "offset": 4}).json()) == 1
 
-    def test_content_redirects_to_presigned_url(self):
-        self._seed("inv-1", action_id="step-a", s3_key="message_assets/team/flow/inv-1/step-a.html")
-        with patch(f"{_STORAGE_PATH}.presigned_content_url", return_value="https://s3.example/presigned") as mock_url:
-            res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
-        assert res.status_code == status.HTTP_302_FOUND
-        assert res["Location"] == "https://s3.example/presigned"
-        mock_url.assert_called_once_with("message_assets/team/flow/inv-1/step-a.html")
+    def test_content_returns_html_bytes_inline(self):
+        self._seed("inv-1", action_id="step-a", html="<html><body>Hello Bob</body></html>")
+        res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
+        assert res.status_code == status.HTTP_200_OK
+        assert res["Content-Type"] == "text/html; charset=utf-8"
+        assert res.content == b"<html><body>Hello Bob</body></html>"
+
+    def test_content_returns_latest_version_html(self):
+        # ReplacingMergeTree collapse: argMax on version wins on read.
+        self._seed("inv-1", action_id="step-a", html="<p>old</p>", version=1)
+        self._seed("inv-1", action_id="step-a", html="<p>new</p>", version=2)
+        res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
+        assert res.status_code == status.HTTP_200_OK
+        assert res.content == b"<p>new</p>"
 
     def test_content_404_for_unknown_asset(self):
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=nope&action_id=step-a")
+        assert res.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_content_404_for_deleted_asset(self):
+        # is_deleted=1 row should hide the asset from /content the same way it hides from /list.
+        self._seed("inv-1", action_id="step-a", version=1)
+        self._seed("inv-1", action_id="step-a", version=2, is_deleted=1)
+        res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
         assert res.status_code == status.HTTP_404_NOT_FOUND
 
     @parameterized.expand(

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useEffect } from 'react'
 
 import { LemonCollapse, LemonInput, LemonModal, LemonTable, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
@@ -24,8 +25,8 @@ function EmptyAssets(): JSX.Element {
     )
 }
 
-function AssetViewerModal({ workflowId, parentRunId, actionId }: AssetsTableProps): JSX.Element {
-    const logic = workflowAssetsLogic({ id: workflowId, parentRunId, actionId })
+function AssetViewerModal({ workflowId, parentRunId, actionId, invocationId }: AssetsTableProps): JSX.Element {
+    const logic = workflowAssetsLogic({ id: workflowId, parentRunId, actionId, invocationId })
     const { selectedAsset, contentUrl } = useValues(logic)
     const { closeAsset } = useActions(logic)
 
@@ -54,12 +55,24 @@ interface AssetsTableProps {
     workflowId: string
     parentRunId?: string
     actionId?: string
+    invocationId?: string
 }
 
-function AssetsTable({ workflowId, parentRunId, actionId }: AssetsTableProps): JSX.Element {
-    const logic = workflowAssetsLogic({ id: workflowId, parentRunId, actionId })
-    const { assets, assetsLoading, search } = useValues(logic)
+function AssetsTable({ workflowId, parentRunId, actionId, invocationId }: AssetsTableProps): JSX.Element {
+    const logic = workflowAssetsLogic({ id: workflowId, parentRunId, actionId, invocationId })
+    const { assets, assetsLoading, search, selectedAsset } = useValues(logic)
     const { setSearch, openAsset } = useActions(logic)
+
+    // Deep-link from a log entry: when ?assetInvocation=<id> resolves to exactly one row,
+    // open it inline so the user lands on the rendered HTML without an extra click.
+    // Skip when an asset is already open (don't re-open after the user dismissed) or when
+    // the user has typed into search (would steal focus on every keystroke).
+    useEffect(() => {
+        if (invocationId && assets.length === 1 && !selectedAsset && !search) {
+            openAsset(assets[0])
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [invocationId, assets.length])
     const { workflow } = useValues(workflowLogic)
 
     const stepNameById = new Map(workflow.actions.map((action) => [action.id, action.name]))
@@ -109,7 +122,12 @@ function AssetsTable({ workflowId, parentRunId, actionId }: AssetsTableProps): J
                     },
                 ]}
             />
-            <AssetViewerModal workflowId={workflowId} parentRunId={parentRunId} actionId={actionId} />
+            <AssetViewerModal
+                workflowId={workflowId}
+                parentRunId={parentRunId}
+                actionId={actionId}
+                invocationId={invocationId}
+            />
         </div>
     )
 }
@@ -130,7 +148,15 @@ function BatchJobAssetsHeader({ job }: { job: HogFlowBatchJob }): JSX.Element {
     )
 }
 
-function WorkflowBatchAssets({ workflowId, actionId }: { workflowId: string; actionId?: string }): JSX.Element {
+function WorkflowBatchAssets({
+    workflowId,
+    actionId,
+    invocationId,
+}: {
+    workflowId: string
+    actionId?: string
+    invocationId?: string
+}): JSX.Element {
     const { jobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id: workflowId }))
 
     if (batchWorkflowJobsLoading) {
@@ -150,7 +176,14 @@ function WorkflowBatchAssets({ workflowId, actionId }: { workflowId: string; act
             panels={jobs.map((job) => ({
                 key: job.id,
                 header: <BatchJobAssetsHeader job={job} />,
-                content: <AssetsTable workflowId={workflowId} parentRunId={job.id} actionId={actionId} />,
+                content: (
+                    <AssetsTable
+                        workflowId={workflowId}
+                        parentRunId={job.id}
+                        actionId={actionId}
+                        invocationId={invocationId}
+                    />
+                ),
             }))}
         />
     )
@@ -162,6 +195,9 @@ export function WorkflowAssets(props: WorkflowLogicProps): JSX.Element {
     const workflowId = props.id ?? 'new'
     // Deep link from a step's metric: ?assetAction=<actionId> pre-filters to that email step.
     const actionId = (searchParams.assetAction as string | undefined) || undefined
+    // Deep link from a single log entry: ?assetInvocation=<id> filters to that run's one email
+    // and auto-opens it (handled in AssetsTable below).
+    const invocationId = (searchParams.assetInvocation as string | undefined) || undefined
 
     if (workflowLoading) {
         return (
@@ -174,9 +210,9 @@ export function WorkflowAssets(props: WorkflowLogicProps): JSX.Element {
     return (
         <div className="flex flex-col gap-2" data-attr="workflow-assets">
             {workflow?.trigger?.type === 'batch' ? (
-                <WorkflowBatchAssets workflowId={workflowId} actionId={actionId} />
+                <WorkflowBatchAssets workflowId={workflowId} actionId={actionId} invocationId={invocationId} />
             ) : (
-                <AssetsTable workflowId={workflowId} actionId={actionId} />
+                <AssetsTable workflowId={workflowId} actionId={actionId} invocationId={invocationId} />
             )}
         </div>
     )

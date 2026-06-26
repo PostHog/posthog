@@ -26,6 +26,8 @@ export interface MessageAsset {
 export interface MessageAssetsParams {
     parent_run_id?: string
     action_id?: string
+    /** Pre-filter to a single invocation — used to deep-link from a log entry to the email that run sent. */
+    invocation_id?: string
     distinct_id?: string
     search?: string
     after?: string

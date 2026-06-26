@@ -7,7 +7,7 @@ from typing import Optional, cast
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -15,7 +15,8 @@ import structlog
 import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import LimitOffsetPagination
@@ -67,7 +68,6 @@ from products.feature_flags.backend.user_blast_radius import (
     get_user_blast_radius_persons,
 )
 from products.notifications.backend.facade.api import publish_resource_edited
-from products.workflows.backend.api.assets_storage import presigned_content_url
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
@@ -75,7 +75,7 @@ from products.workflows.backend.api.message_assets import (
     MessageAssetContentRequestSerializer,
     MessageAssetSerializer,
     MessageAssetsRequestSerializer,
-    fetch_message_asset,
+    fetch_message_asset_html,
     fetch_message_assets,
 )
 from products.workflows.backend.models.hog_flow.hog_flow import (
@@ -1626,6 +1626,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             offset=params["offset"],
             parent_run_id=params.get("parent_run_id"),
             action_id=params.get("action_id"),
+            invocation_id=params.get("invocation_id"),
             distinct_id=params.get("distinct_id"),
             search=params.get("search"),
             after=after_date,
@@ -1636,37 +1637,31 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     @extend_schema(
         operation_id="hog_flows_asset_content_retrieve",
         parameters=[MessageAssetContentRequestSerializer],
-        responses={302: OpenApiResponse(description="Redirect to a short-lived presigned URL for the email HTML.")},
+        responses={(200, "text/html"): OpenApiTypes.STR},
     )
     @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
     def asset_content(self, request: Request, *args, **kwargs):
-        # Resolve the asset for this team+workflow, then redirect to a presigned URL for its HTML.
-        # We validate ownership before presigning so the storage key can't be used as an oracle.
+        # The HTML body lives inline in the message_assets ClickHouse table, so we serve
+        # the bytes directly. Ownership-check the HogFlow first (so other teams' assets
+        # can't be probed) before pulling the row.
         obj = self.get_object()
-        asset = self._get_asset_for_request(request, obj)
 
-        url = presigned_content_url(asset.s3_key)
-        if not url:
-            raise exceptions.NotFound("Asset content is no longer available.")
-        return HttpResponseRedirect(url)
-
-    def _get_asset_for_request(self, request: Request, hog_flow: HogFlow):
         param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data
 
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
 
-        asset = fetch_message_asset(
+        html = fetch_message_asset_html(
             team_id=self.team_id,
             function_kind=self.function_kind,
-            function_id=str(hog_flow.id),
+            function_id=str(obj.id),
             invocation_id=params["invocation_id"],
             action_id=params.get("action_id", ""),
         )
-        if asset is None:
-            raise exceptions.NotFound("Asset not found.")
-        return asset
+        if html is None:
+            raise exceptions.NotFound("Asset content is no longer available.")
+        return HttpResponse(html, content_type="text/html; charset=utf-8")
 
     @extend_schema(
         operation_id="hog_flows_metrics_global_retrieve",

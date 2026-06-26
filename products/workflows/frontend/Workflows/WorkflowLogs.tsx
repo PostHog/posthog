@@ -2,13 +2,15 @@ import { useValues } from 'kea'
 import { type ReactNode, useMemo } from 'react'
 
 import { HedgehogGreek } from '@posthog/brand/hoggies'
-import { IconClock } from '@posthog/icons'
-import { LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconClock, IconLetter } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonDivider, ProfilePicture, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
+import { GroupedLogEntry } from 'scenes/hog-functions/logs/logsViewerLogic'
+import { urls } from 'scenes/urls'
 
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { OccurrencesList } from './hogflows/steps/components/OccurrencesList'
@@ -27,6 +29,46 @@ export type WorkflowLogsProps = {
     id: string
 }
 
+// Email send-success log line emitted by the SES path in `email.service.ts`. The local-dev
+// maildev variant emits `Email sent to your local maildev server: …` instead, so we anchor on
+// the recipient-shaped prefix here and skip the maildev one (no asset is captured anyway when
+// the kill-switch is off in dev).
+const EMAIL_SENT_LOG_RE = /^Email sent to (?!your local maildev server)/
+
+const hasCapturedEmail = (record: GroupedLogEntry): boolean =>
+    record.entries.some((entry) => EMAIL_SENT_LOG_RE.test(entry.message))
+
+// Adds a "View email" column to the grouped logs table for invocations that emitted the
+// `Email sent to ...` log. Clicking deep-links into the workflow's Assets tab with
+// `?assetInvocation=<id>`, which `WorkflowAssets` filters by and auto-opens.
+const renderAssetColumn =
+    (workflowId: string) =>
+    (
+        columns: import('lib/lemon-ui/LemonTable').LemonTableColumn<
+            GroupedLogEntry,
+            keyof GroupedLogEntry | undefined
+        >[]
+    ) => [
+        ...columns,
+        {
+            key: 'asset',
+            title: '',
+            width: 0,
+            render: (_: any, record: GroupedLogEntry) =>
+                hasCapturedEmail(record) ? (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconLetter />}
+                        to={`${urls.workflow(workflowId, 'assets')}?assetInvocation=${encodeURIComponent(record.instanceId)}`}
+                        tooltip="View the email sent in this run"
+                    >
+                        View email
+                    </LemonButton>
+                ) : null,
+        },
+    ]
+
 function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
@@ -36,6 +78,7 @@ function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
             sourceId={props.id!}
             instanceLabel="workflow run"
             renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
+            renderColumns={renderAssetColumn(props.id)}
         />
     )
 }
@@ -80,6 +123,7 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
                 groupByInstanceId
                 instanceLabel="workflow job"
                 renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
+                renderColumns={renderAssetColumn(workflow.id)}
             />
         </div>
     )

@@ -24,8 +24,8 @@ MESSAGE_ASSETS_TTL_DAYS = 30
 #
 # One row per successfully sent email, keyed by (invocation_id, action_id) — a
 # single workflow invocation can fan out to multiple email steps. The rendered
-# HTML body itself lives in object storage at `s3_key`; this table holds only the
-# compact metadata needed to list and locate assets.
+# HTML body lives inline in the `html` column (ZSTD-compressed); columnar
+# storage means the listing query never reads it.
 MESSAGE_ASSETS_TABLE = "message_assets"
 MESSAGE_ASSETS_DATA_TABLE = f"{MESSAGE_ASSETS_TABLE}_data"
 KAFKA_MESSAGE_ASSETS_TABLE = f"kafka_{MESSAGE_ASSETS_TABLE}"
@@ -51,7 +51,8 @@ def MESSAGE_ASSETS_ENGINE() -> ReplacingMergeTree:
 
 
 # Kafka payload column list — reused between the Kafka engine table, the MV
-# projection, and the distributed read alias.
+# projection, and the distributed read alias. `html` is last because it dominates
+# row size; column-oriented reads mean listing queries never touch it.
 MESSAGE_ASSETS_KAFKA_COLUMNS = """
     team_id Int64,
     function_kind LowCardinality(String),
@@ -64,11 +65,11 @@ MESSAGE_ASSETS_KAFKA_COLUMNS = """
     person_id String,
     recipient String,
     subject String,
-    s3_key String,
     status LowCardinality(String),
     sent_at DateTime64(6, 'UTC'),
     version UInt64,
-    is_deleted UInt8
+    is_deleted UInt8,
+    html String
 """.strip()
 
 
@@ -89,11 +90,11 @@ CREATE TABLE IF NOT EXISTS {MESSAGE_ASSETS_DATA_TABLE}
     person_id String,
     recipient String,
     subject String,
-    s3_key String,
     status LowCardinality(String),
     sent_at DateTime64(6, 'UTC'),
     version UInt64,
     is_deleted UInt8 DEFAULT 0,
+    html String CODEC(ZSTD(3)),
     INDEX parent_run_idx parent_run_id TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX distinct_id_idx distinct_id  TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX person_id_idx   person_id    TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -159,11 +160,11 @@ AS SELECT
     person_id,
     recipient,
     subject,
-    s3_key,
     status,
     sent_at,
     version,
     is_deleted,
+    html,
     _timestamp,
     _offset,
     _partition
@@ -189,11 +190,11 @@ INSERT INTO {MESSAGE_ASSETS_DATA_TABLE} (
     person_id,
     recipient,
     subject,
-    s3_key,
     status,
     sent_at,
     version,
     is_deleted,
+    html,
     _timestamp,
     _offset,
     _partition
@@ -210,11 +211,11 @@ SELECT
     %(person_id)s,
     %(recipient)s,
     %(subject)s,
-    %(s3_key)s,
     %(status)s,
     %(sent_at)s,
     %(version)s,
     %(is_deleted)s,
+    %(html)s,
     now(),
     0,
     0

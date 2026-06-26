@@ -22,7 +22,6 @@ _COLLAPSED_AGGREGATES = """
     argMax(subject, version) AS latest_subject,
     argMax(status, version) AS latest_status,
     argMax(sent_at, version) AS latest_sent_at,
-    argMax(s3_key, version) AS latest_s3_key,
     argMax(is_deleted, version) AS latest_is_deleted
 """.strip()
 
@@ -36,8 +35,7 @@ _OUTER_COLUMNS = """
     latest_recipient,
     latest_subject,
     latest_status,
-    latest_sent_at,
-    latest_s3_key
+    latest_sent_at
 """.strip()
 
 
@@ -53,9 +51,6 @@ class MessageAsset:
     subject: str
     status: str
     sent_at: datetime
-    # Object-storage key for the rendered HTML. Used server-side to serve the
-    # content; not exposed in the list response (see MessageAssetSerializer).
-    s3_key: str
 
 
 class MessageAssetSerializer(serializers.Serializer):
@@ -85,6 +80,12 @@ class MessageAssetsRequestSerializer(serializers.Serializer):
     action_id = serializers.CharField(
         required=False,
         help_text="Only return assets sent by this email step (action node id) — used to drill in from a step's metric.",
+    )
+    invocation_id = serializers.CharField(
+        required=False,
+        help_text="Only return the asset for this specific workflow run — used to deep-link from a single log entry "
+        "to the email it sent. Returns 0 rows when the send had no captured asset (text-only, kill-switch off, "
+        "or standalone email).",
     )
     distinct_id = serializers.CharField(
         required=False,
@@ -141,7 +142,6 @@ def _build_asset(row: tuple) -> MessageAsset:
         subject=row[7],
         status=row[8],
         sent_at=row[9],
-        s3_key=row[10],
     )
 
 
@@ -153,12 +153,17 @@ def fetch_message_assets(
     offset: int = 0,
     parent_run_id: Optional[str] = None,
     action_id: Optional[str] = None,
+    invocation_id: Optional[str] = None,
     distinct_id: Optional[str] = None,
     search: Optional[str] = None,
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
 ) -> list[MessageAsset]:
-    """List a workflow's sent-email assets, each collapsed to its latest version."""
+    """List a workflow's sent-email assets, each collapsed to its latest version.
+
+    The `html` column is not selected here — column-oriented storage means we
+    don't pay for it on the listing path.
+    """
     where = [
         "team_id = %(team_id)s",
         "function_kind = %(function_kind)s",
@@ -181,6 +186,9 @@ def fetch_message_assets(
     if action_id:
         where.append("action_id = %(action_id)s")
         kwargs["action_id"] = action_id
+    if invocation_id:
+        where.append("invocation_id = %(invocation_id)s")
+        kwargs["invocation_id"] = invocation_id
     if distinct_id:
         where.append("distinct_id = %(distinct_id)s")
         kwargs["distinct_id"] = distinct_id
@@ -211,14 +219,16 @@ def fetch_message_assets(
     return [_build_asset(row) for row in results]
 
 
-def fetch_message_asset(
+def fetch_message_asset_html(
     team_id: int,
     function_kind: str,
     function_id: str,
     invocation_id: str,
     action_id: str,
-) -> Optional[MessageAsset]:
-    """Fetch a single asset by (invocation_id, action_id), including its storage key."""
+) -> Optional[str]:
+    """Return the rendered HTML for the latest non-deleted version of one asset,
+    or None if no such row exists (never written, or expired by TTL).
+    """
     kwargs = {
         "team_id": team_id,
         "function_kind": function_kind,
@@ -226,10 +236,15 @@ def fetch_message_asset(
         "invocation_id": invocation_id,
         "action_id": action_id,
     }
-    query = f"""
-        SELECT {_OUTER_COLUMNS}
+    # GROUP BY (instead of a bare aggregate) so a no-match query returns zero rows
+    # rather than a single default-value row that would let the action return HTTP 200
+    # with empty HTML.
+    query = """
+        SELECT latest_html
         FROM (
-            SELECT {_COLLAPSED_AGGREGATES}
+            SELECT
+                argMax(html, version) AS latest_html,
+                argMax(is_deleted, version) AS latest_is_deleted
             FROM message_assets
             WHERE team_id = %(team_id)s
               AND function_kind = %(function_kind)s
@@ -244,4 +259,4 @@ def fetch_message_asset(
     results = cast(list, sync_execute(query, kwargs))
     if not results:
         return None
-    return _build_asset(results[0])
+    return results[0][0]

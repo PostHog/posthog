@@ -10,12 +10,17 @@ export interface WorkflowAssetsLogicProps {
     parentRunId?: string
     /** Pre-filter to a single email step, e.g. when arriving from a step's metric. */
     actionId?: string
+    /** Pre-filter to a single invocation — used to deep-link from a log entry to its email. */
+    invocationId?: string
 }
 
 export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
     path(['products', 'workflows', 'frontend', 'Workflows', 'workflowAssetsLogic']),
     props({ id: 'new' } as WorkflowAssetsLogicProps),
-    key((props) => `${props.id || 'new'}-${props.parentRunId ?? 'all'}-${props.actionId ?? 'all'}`),
+    key(
+        (props) =>
+            `${props.id || 'new'}-${props.parentRunId ?? 'all'}-${props.actionId ?? 'all'}-${props.invocationId ?? 'all'}`
+    ),
     actions({
         setSearch: (search: string) => ({ search }),
         openAsset: (asset: MessageAsset) => ({ asset }),
@@ -42,6 +47,7 @@ export const workflowAssetsLogic = kea<workflowAssetsLogicType>([
                     return await getMessageAssets(props.id, {
                         parent_run_id: props.parentRunId,
                         action_id: props.actionId,
+                        invocation_id: props.invocationId,
                         search: values.search || undefined,
                     })
                 },

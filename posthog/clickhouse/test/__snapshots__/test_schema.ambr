@@ -374,11 +374,11 @@
       person_id String,
       recipient String,
       subject String,
-      s3_key String,
       status LowCardinality(String),
       sent_at DateTime64(6, 'UTC'),
       version UInt64,
-      is_deleted UInt8
+      is_deleted UInt8,
+      html String
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_message_assets_test', kafka_group_name = 'clickhouse_message_assets', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
@@ -2261,11 +2261,11 @@
       person_id String,
       recipient String,
       subject String,
-      s3_key String,
       status LowCardinality(String),
       sent_at DateTime64(6, 'UTC'),
       version UInt64,
-      is_deleted UInt8
+      is_deleted UInt8,
+      html String
   )
   ENGINE = Kafka(warpstream_cyclotron, kafka_topic_list = 'clickhouse_message_assets_test', kafka_group_name = 'clickhouse_message_assets', kafka_format = 'JSONEachRow')
   SETTINGS kafka_skip_broken_messages = 100
@@ -3419,11 +3419,11 @@
       person_id String,
       recipient String,
       subject String,
-      s3_key String,
       status LowCardinality(String),
       sent_at DateTime64(6, 'UTC'),
       version UInt64,
-      is_deleted UInt8
+      is_deleted UInt8,
+      html String
       
   , _timestamp DateTime
   , _offset UInt64
@@ -3450,11 +3450,11 @@
       person_id String,
       recipient String,
       subject String,
-      s3_key String,
       status LowCardinality(String),
       sent_at DateTime64(6, 'UTC'),
       version UInt64,
       is_deleted UInt8 DEFAULT 0,
+      html String CODEC(ZSTD(3)),
       INDEX parent_run_idx parent_run_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX distinct_id_idx distinct_id  TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX person_id_idx   person_id    TYPE bloom_filter(0.01) GRANULARITY 1,
@@ -3490,11 +3490,11 @@
       person_id,
       recipient,
       subject,
-      s3_key,
       status,
       sent_at,
       version,
       is_deleted,
+      html,
       _timestamp,
       _offset,
       _partition
@@ -9571,11 +9571,11 @@
       person_id String,
       recipient String,
       subject String,
-      s3_key String,
       status LowCardinality(String),
       sent_at DateTime64(6, 'UTC'),
       version UInt64,
       is_deleted UInt8 DEFAULT 0,
+      html String CODEC(ZSTD(3)),
       INDEX parent_run_idx parent_run_id TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX distinct_id_idx distinct_id  TYPE bloom_filter(0.01) GRANULARITY 1,
       INDEX person_id_idx   person_id    TYPE bloom_filter(0.01) GRANULARITY 1,
