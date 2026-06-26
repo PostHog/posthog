@@ -74,6 +74,7 @@ import { JSONValueDisplay } from './components/JSONValueDisplay'
 import { MetricTag } from './components/MetricTag'
 import { SentimentBar } from './components/SentimentTag'
 import { TagsTabContent } from './components/TagsTabContent'
+import { TraceTimeline } from './components/TraceTimeline/TraceTimeline'
 import {
     ConversationDisplayOption,
     ConversationMessagesDisplay,
@@ -442,6 +443,7 @@ function TraceSceneWrapper(): JSX.Element {
     const traceDataLogic = useMountedLogic(aiObservabilityTraceDataLogic)
     useMountedLogic(traceReviewsLazyLoaderLogic)
     const { traceId, searchQuery, commentCount, viewMode } = useValues(traceLogic)
+    const { setEventId } = useActions(traceLogic)
     const { searchParams } = useValues(router)
     const {
         enrichedTree,
@@ -537,6 +539,11 @@ function TraceSceneWrapper(): JSX.Element {
                             </div>
                         </div>
                     </div>
+                    <TraceTimeline
+                        events={trace.events}
+                        selectedEventId={effectiveEventId ?? null}
+                        onSelectEvent={setEventId}
+                    />
                     <div className="flex flex-1 min-h-0 gap-3 flex-col md:flex-row">
                         <TraceSidebar
                             trace={trace}
