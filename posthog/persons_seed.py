@@ -85,15 +85,60 @@ def insert_seed_group(
     group_type_index: int,
     group_properties: dict[str, Any],
     version: int = 0,
-) -> None:
-    """Insert one group row. ``created_at``/``version`` are NOT NULL with no DB default."""
+    created_at: datetime | None = None,
+) -> int:
+    """Insert one group row and return its id. ``created_at`` defaults to ``now()``; ``version`` is NOT NULL."""
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO posthog_group "
             "(team_id, group_key, group_type_index, group_properties, created_at, version) "
-            "VALUES (%s, %s, %s, %s, now(), %s)",
-            (team_id, group_key, group_type_index, Jsonb(group_properties), version),
+            "VALUES (%s, %s, %s, %s, COALESCE(%s, now()), %s) RETURNING id",
+            (team_id, group_key, group_type_index, Jsonb(group_properties), created_at, version),
         )
+        row = cursor.fetchone()
+        assert row is not None  # RETURNING always yields a row on a successful insert
+        return row[0]
+
+
+def insert_seed_group_type_mapping(
+    conn: psycopg.Connection[Any],
+    *,
+    project_id: int,
+    team_id: int | None,
+    group_type: str,
+    group_type_index: int,
+    name_singular: str | None = None,
+    name_plural: str | None = None,
+    default_columns: list[str] | None = None,
+    detail_dashboard_id: int | None = None,
+    created_at: datetime | None = None,
+) -> int:
+    """Insert one group-type-mapping row and return its id.
+
+    ``created_at`` is written as given (``None`` stays NULL — the model's auto_now_add only fires
+    through ``save()``, which this bypasses); callers pass ``now()`` for the normal case.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO posthog_grouptypemapping "
+            "(project_id, team_id, group_type, group_type_index, name_singular, name_plural, "
+            "default_columns, detail_dashboard_id, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                project_id,
+                team_id,
+                group_type,
+                group_type_index,
+                name_singular,
+                name_plural,
+                default_columns,
+                detail_dashboard_id,
+                created_at,
+            ),
+        )
+        row = cursor.fetchone()
+        assert row is not None  # RETURNING always yields a row on a successful insert
+        return row[0]
 
 
 def update_seed_person(

@@ -30,7 +30,12 @@ from posthog.models.person.util import (
 from posthog.models.utils import UUIDT
 from posthog.person_db_router import persons_orm_blocked
 from posthog.persons_db import persons_db_connection
-from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
+from posthog.persons_seed import (
+    insert_seed_distinct_id,
+    insert_seed_group,
+    insert_seed_group_type_mapping,
+    insert_seed_person,
+)
 
 if TYPE_CHECKING:
     import uuid
@@ -472,7 +477,22 @@ def create_group(*, team: Team | None = None, group_type_index: int, group_key: 
         create_kwargs["team"] = team
 
     if not persons_orm_blocked():
-        return Group.objects.create(**create_kwargs)
+        group = Group(**create_kwargs)
+        if group.created_at is None:
+            group.created_at = now()
+        group.version = group.version or 0
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            group.id = insert_seed_group(
+                conn,
+                team_id=group.team_id,
+                group_key=group.group_key,
+                group_type_index=group.group_type_index,
+                group_properties=group.group_properties or {},
+                version=group.version,
+                created_at=group.created_at,
+            )
+        group._state.adding = False
+        return group
 
     group = Group(**create_kwargs)
     group.id = _next_synthetic_pk()
@@ -502,7 +522,24 @@ def create_group_type_mapping(*, team: Team | None = None, **kwargs: Any) -> Gro
         kwargs["team"] = team
 
     if not persons_orm_blocked():
-        return GroupTypeMapping.objects.create(**kwargs)
+        mapping = GroupTypeMapping(**kwargs)
+        if mapping.created_at is None:
+            mapping.created_at = now()
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            mapping.id = insert_seed_group_type_mapping(
+                conn,
+                project_id=mapping.project_id,
+                team_id=mapping.team_id,
+                group_type=mapping.group_type,
+                group_type_index=mapping.group_type_index,
+                name_singular=mapping.name_singular,
+                name_plural=mapping.name_plural,
+                default_columns=list(mapping.default_columns) if mapping.default_columns else None,
+                detail_dashboard_id=mapping.detail_dashboard_id,
+                created_at=mapping.created_at,
+            )
+        mapping._state.adding = False
+        return mapping
 
     mapping = GroupTypeMapping(**kwargs)
     mapping.id = _next_synthetic_pk()
