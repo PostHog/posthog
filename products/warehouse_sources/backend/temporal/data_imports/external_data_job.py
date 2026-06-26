@@ -9,7 +9,7 @@ from django.conf import settings
 import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, exceptions, workflow
-from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
+from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy, start_child_workflow
 
@@ -55,6 +55,10 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.check_billing_limits import (
     CheckBillingLimitsActivityInputs,
     check_billing_limits_activity,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.compute_table_statistics import (
+    ComputeTableStatisticsInputs,
+    ComputeTableStatisticsWorkflow,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     CreateExternalDataJobModelActivityInputs,
@@ -365,6 +369,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 job_id, incremental_or_append, source_type = create_job_result
                 schema_name, last_synced_at, emit_signals_enabled = None, None, False
                 enrichment_enabled = False
+                statistics_enabled = False
             else:
                 job_id = create_job_result.job_id
                 incremental_or_append = create_job_result.incremental_or_append
@@ -373,6 +378,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                 last_synced_at = create_job_result.last_synced_at
                 emit_signals_enabled = create_job_result.emit_signals_enabled
                 enrichment_enabled = create_job_result.enrichment_enabled
+                statistics_enabled = create_job_result.statistics_enabled
             update_inputs.job_id = str(job_id) if job_id is not None else None
 
             # Check billing limits
@@ -496,7 +502,7 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
             # Generate semantic descriptions for the synced table. Gated up front (feature flag + AI
             # data-processing consent, resolved in create_external_data_job_model_activity) so we don't
             # spawn a child that would immediately no-op; the activity re-checks as a safety net and is
-            # idempotent. Fire-and-forget child on the data-warehouse queue; ABANDON means it never
+            # idempotent. Fire-and-forget child on the dedicated metadata queue; ABANDON means it never
             # blocks or fails the import.
             if enrichment_enabled:
                 await workflow.start_child_workflow(
@@ -507,7 +513,26 @@ class ExternalDataJobWorkflow(PostHogWorkflow):
                     ),
                     id=f"enrich-warehouse-table-semantics-{job_id}",
                     id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                    task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
+                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    execution_timeout=dt.timedelta(minutes=30),
+                )
+
+            # Profile the synced table's columns (null %, min/max, row count) from the Delta log. Gated up
+            # front (feature flag only — no data leaves our infra). Keyed per schema with USE_EXISTING so
+            # only one runs per schema at a time; the activity itself caps recompute to once a day. Same
+            # fire-and-forget metadata queue; ABANDON so it never blocks or fails the import.
+            if statistics_enabled:
+                await workflow.start_child_workflow(
+                    ComputeTableStatisticsWorkflow.run,
+                    ComputeTableStatisticsInputs(
+                        team_id=inputs.team_id,
+                        schema_id=inputs.external_data_schema_id,
+                    ),
+                    id=f"compute-warehouse-table-statistics-{inputs.external_data_schema_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+                    id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+                    task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
                     parent_close_policy=ParentClosePolicy.ABANDON,
                     execution_timeout=dt.timedelta(minutes=30),
                 )
