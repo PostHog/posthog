@@ -12,7 +12,7 @@ describe('anonymize/url', () => {
         )
     })
 
-    it('drops query and fragment', () => {
+    it('drops non-allow-listed query params and fragments', () => {
         expect(scrub('https://example.com/dashboard?token=secret#frag')).toBe('https://example.com/dashboard')
     })
 
@@ -55,6 +55,28 @@ describe('anonymize/url', () => {
         })
         it('default (no opts) keeps the authority verbatim', () => {
             expect(scrub('https://us.website.com/users/42')).toBe('https://us.website.com/users/[redacted]')
+        })
+    })
+
+    describe('query and fragment (allow-listed + alphanumeric only)', () => {
+        const ctx = { allow: new AllowLists([], ['app', 'page', 'sort', 'q', 'about']) }
+        const q = (i: string): string => scrubUrl(ctx, i).value
+
+        it('keeps allow-listed alphanumeric params and an allow-listed alphanumeric fragment', () => {
+            expect(q('https://example.com/app?page=2&sort=asc#about')).toBe(
+                'https://example.com/app?page=2&sort=asc#about'
+            )
+        })
+        it('drops a param whose key is not allow-listed', () => {
+            expect(q('https://example.com/app?page=2&token=abc')).toBe('https://example.com/app?page=2')
+        })
+        it('drops a param whose value is not 100% alphanumeric (tokens, encoded, etc.)', () => {
+            expect(q('https://example.com/app?q=a%20b&page=2')).toBe('https://example.com/app?page=2')
+            expect(q('https://example.com/app?sort=a-b')).toBe('https://example.com/app')
+        })
+        it('drops a non-allow-listed or non-alphanumeric fragment', () => {
+            expect(q('https://example.com/app#xyz')).toBe('https://example.com/app') // not allow-listed
+            expect(q('https://example.com/app#ab-1')).toBe('https://example.com/app') // not alphanumeric
         })
     })
 })
