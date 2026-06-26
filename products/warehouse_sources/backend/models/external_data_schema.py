@@ -281,6 +281,27 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def partition_mode_override(self) -> PartitionMode | None:
+        # Operator-pinned partition_mode set via the admin "change partition mode" action.
+        # Like `partition_count_override`, it survives `update_sync_type_config_for_reset_pipeline`
+        # (which wipes the auto-detected `partition_mode`) so the operator's choice wins the reset
+        # resync that the mode change triggers, then is consumed by `set_partitioning_enabled`.
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_mode_override", None)
+
+        return None
+
+    @property
+    def partitioning_keys_override(self) -> list[str] | None:
+        # Operator-pinned partitioning_keys paired with `partition_mode_override` — e.g. the
+        # date/timestamp column to bucket on when switching a table to datetime mode. Same
+        # one-shot, reset-surviving semantics as `partition_mode_override`.
+        if self.sync_type_config:
+            return self.sync_type_config.get("partitioning_keys_override", None)
+
+        return None
+
+    @property
     def partition_mode(self) -> PartitionMode | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partition_mode", None)
@@ -363,6 +384,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # repartition action if needed).
         self.sync_type_config.pop("partition_count_override", None)
         self.sync_type_config.pop("partition_size_override", None)
+        self.sync_type_config.pop("partition_mode_override", None)
+        self.sync_type_config.pop("partitioning_keys_override", None)
         self.save()
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
@@ -434,9 +457,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
-        # We intentionally don't reset partition_count_override / partition_size_override:
-        # an operator pins those via the admin repartition action precisely so they survive
-        # this reset and win the resync it triggers. They're consumed in set_partitioning_enabled.
+        # We intentionally don't reset partition_count_override / partition_size_override /
+        # partition_mode_override / partitioning_keys_override: an operator pins those via the admin
+        # repartition / change-partition-mode actions precisely so they survive this reset and win
+        # the resync it triggers. They're consumed in set_partitioning_enabled.
 
         self.initial_sync_complete = False
 

@@ -126,3 +126,71 @@ class TestExternalDataSchemaAdmin(BaseTest):
         for key, value in extra_config_assertions.items():
             assert schema.sync_type_config[key] == value
         mock_start.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "md5_to_datetime",
+                {"partition_mode": "md5", "partition_count": 30, "partitioning_enabled": True},
+                {"partition_mode": "datetime", "partitioning_keys": "action_date", "partition_format": "month"},
+                {
+                    "partition_mode_override": "datetime",
+                    "partitioning_keys_override": ["action_date"],
+                    "partition_format": "month",
+                },
+            ),
+            (
+                "to_numerical",
+                {"partition_mode": "md5", "partition_count": 30, "partitioning_enabled": True},
+                {"partition_mode": "numerical", "partitioning_keys": "id", "partition_size": "1000000"},
+                {
+                    "partition_mode_override": "numerical",
+                    "partitioning_keys_override": ["id"],
+                    "partition_size_override": 1_000_000,
+                },
+            ),
+        ]
+    )
+    def test_change_partition_mode_writes_overrides(
+        self,
+        _name: str,
+        initial_config: dict,
+        post_data: dict,
+        expected_config: dict,
+    ) -> None:
+        schema = self._schema(sync_type_config=initial_config)
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
+            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+        ):
+            response = self.admin.change_partition_mode_view(self._request("post", post_data), schema.id)
+
+        assert response.status_code == 302
+        schema.refresh_from_db()
+        for key, value in expected_config.items():
+            assert schema.sync_type_config[key] == value
+        assert schema.sync_type_config["reset_pipeline"] is True
+        # The resync must be non-billable — the operator's reset shouldn't charge the customer.
+        mock_start.assert_called_once()
+        assert mock_start.call_args.args[2].billable is False
+
+    def test_change_partition_mode_rejects_datetime_without_single_key(self) -> None:
+        schema = self._schema(sync_type_config={"partition_mode": "md5", "partition_count": 30})
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+        ):
+            response = self.admin.change_partition_mode_view(
+                self._request("post", {"partition_mode": "datetime", "partitioning_keys": "record_id,action_date"}),
+                schema.id,
+            )
+
+        assert response.status_code == 302
+        schema.refresh_from_db()
+        # Invalid input must not stage an override or kick off a resync.
+        assert "partition_mode_override" not in schema.sync_type_config
+        assert "reset_pipeline" not in schema.sync_type_config
+        mock_start.assert_not_called()

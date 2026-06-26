@@ -82,6 +82,9 @@
     <form id="repartition-action-form" method="post" action="{{ repartition_url }}" style="display:none;">
         {% csrf_token %}
     </form>
+    <form id="change-partition-mode-action-form" method="post" action="{{ change_partition_mode_url }}" style="display:none;">
+        {% csrf_token %}
+    </form>
     <form id="trigger-sync-action-form" method="post" action="{{ trigger_sync_url }}" style="display:none;">
         {% csrf_token %}
     </form>
@@ -141,6 +144,18 @@
                 <tr>
                     <th>partition_size_override</th>
                     <td>{{ current_partition_size_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partition_mode_override is not None %}
+                <tr>
+                    <th>partition_mode_override</th>
+                    <td>{{ current_partition_mode_override }} (pinned, applies on next reset)</td>
+                </tr>
+                {% endif %}
+                {% if current_partitioning_keys_override is not None %}
+                <tr>
+                    <th>partitioning_keys_override</th>
+                    <td>{{ current_partitioning_keys_override }} (pinned, applies on next reset)</td>
                 </tr>
                 {% endif %}
                 <tr>
@@ -226,6 +241,79 @@
                     Unsupported <code>partition_mode</code>: <code>{{ current_partition_mode }}</code>.
                 </p>
             {% endif %}
+        </div>
+
+        <div class="form-row partitioning-section">
+            <h3>Change partition mode</h3>
+            <p class="help">
+                <strong>Pause the schedule first.</strong> Repartition (above) only tunes the knob
+                <em>within</em> the current mode; this changes the mode itself and kicks off a
+                non-billable <code>reset_pipeline=true</code> resync. Use it when the auto-detected
+                mode is a poor fit — most often switching a table whose primary key contains a
+                date/timestamp column from <code>md5</code> (scatters every change across all
+                buckets, the least efficient mode) to <code>datetime</code> on that column
+                (bounded, time-pruned partitions). The pipeline only auto-selects datetime when a
+                column is literally named <code>created_at</code>/<code>inserted_at</code>, so
+                other date columns must be set here explicitly.
+            </p>
+            <div class="partitioning-controls">
+                <label for="new_partition_mode_select">New partition mode:</label>
+                <select id="new_partition_mode_select" name="partition_mode" form="change-partition-mode-action-form" required>
+                    {% for choice in partition_mode_choices %}
+                        <option value="{{ choice }}" {% if choice == current_partition_mode %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="partitioning-controls" id="change_mode_keys_row">
+                <label for="new_partitioning_keys_input">Partitioning key(s):</label>
+                <input id="new_partitioning_keys_input" name="partitioning_keys" form="change-partition-mode-action-form"
+                       type="text" value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
+                       placeholder="e.g. action_date (datetime/numerical need exactly one)">
+            </div>
+            <div class="partitioning-controls" id="change_mode_format_row">
+                <label for="new_partition_format_select">Partition format (datetime):</label>
+                <select id="new_partition_format_select" name="partition_format" form="change-partition-mode-action-form">
+                    {% for choice in partition_format_choices %}
+                        <option value="{{ choice }}" {% if choice == current_partition_format %}selected{% endif %}>{{ choice }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="partitioning-controls" id="change_mode_count_row">
+                <label for="new_partition_count_input">Partition count (md5):</label>
+                <input id="new_partition_count_input" name="partition_count" form="change-partition-mode-action-form"
+                       type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
+                       placeholder="number of buckets">
+            </div>
+            <div class="partitioning-controls" id="change_mode_size_row">
+                <label for="new_partition_size_input">Partition size (numerical):</label>
+                <input id="new_partition_size_input" name="partition_size" form="change-partition-mode-action-form"
+                       type="number" min="1" step="1" value="{{ current_partition_size|default_if_none:'' }}"
+                       placeholder="rows per bucket">
+            </div>
+            <div class="partitioning-controls">
+                <button type="submit" form="change-partition-mode-action-form" class="default"
+                        onclick="return confirm('Change partition mode + reset resync (non-billable) for this schema?');">
+                    Change mode &amp; resync
+                </button>
+            </div>
+            <script>
+                (function () {
+                    var modeSelect = document.getElementById("new_partition_mode_select");
+                    var rows = {
+                        format: document.getElementById("change_mode_format_row"),
+                        count: document.getElementById("change_mode_count_row"),
+                        size: document.getElementById("change_mode_size_row"),
+                    };
+                    function sync() {
+                        var mode = modeSelect.value;
+                        rows.format.style.display = mode === "datetime" ? "" : "none";
+                        rows.count.style.display = mode === "md5" ? "" : "none";
+                        rows.size.style.display = mode === "numerical" ? "" : "none";
+                    }
+                    modeSelect.addEventListener("change", sync);
+                    sync();
+                })();
+            </script>
         </div>
 
         <div class="form-row partitioning-section">

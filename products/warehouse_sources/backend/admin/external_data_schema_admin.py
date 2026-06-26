@@ -18,11 +18,15 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
+    PartitionFormat,
+    PartitionMode,
+)
 
-# Source of truth lives in pipeline.typings.PartitionFormat. Re-deriving here keeps
-# the dropdown in sync if a new format is ever added.
+# Source of truth lives in pipeline.typings. Re-deriving here keeps the dropdowns in
+# sync if a new format / mode is ever added.
 PARTITION_FORMAT_CHOICES: tuple[str, ...] = get_args(PartitionFormat)
+PARTITION_MODE_CHOICES: tuple[str, ...] = get_args(PartitionMode)
 
 
 @async_to_sync
@@ -88,6 +92,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 "<uuid:schema_id>/repartition/",
                 self.admin_site.admin_view(self.repartition_view),
                 name="external_data_schema_repartition",
+            ),
+            path(
+                "<uuid:schema_id>/change-partition-mode/",
+                self.admin_site.admin_view(self.change_partition_mode_view),
+                name="external_data_schema_change_partition_mode",
             ),
             path(
                 "<uuid:schema_id>/trigger-sync/",
@@ -193,16 +202,36 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         pin_note = " (pinned for this reset)" if partition_field.endswith("_override") else ""
         change_label = f"{display_field}: {previous_value!r} → {partition_value!r}{pin_note}"
 
-        # Pause the schedule before triggering an admin resync so the scheduled
-        # workflow doesn't race with the admin one (Temporal's "OnlyOne" overlap
-        # policy is per-schedule, not across schedule + ad-hoc workflow). If the
-        # schedule was already paused (operator paused it manually beforehand),
-        # skip auto-unpause so we don't undo their action.
+        return self._pause_save_and_resync(
+            request,
+            schema,
+            staged_updates={partition_field: partition_value},
+            change_label=change_label,
+            workflow_kind="repartition",
+        )
+
+    def _pause_save_and_resync(
+        self,
+        request,
+        schema: ExternalDataSchema,
+        *,
+        staged_updates: dict[str, Any],
+        change_label: str,
+        workflow_kind: str,
+    ):
+        # Shared tail for the partition-tuning admin actions (repartition, change partition mode):
+        # pause the schedule, stage the operator's sync_type_config updates alongside
+        # reset_pipeline, and trigger a single non-billable reset resync.
+        #
+        # Pause first so the scheduled workflow doesn't race with the admin one (Temporal's
+        # "OnlyOne" overlap policy is per-schedule, not across schedule + ad-hoc workflow). If
+        # the schedule was already paused (operator paused it manually beforehand), skip
+        # auto-unpause so we don't undo their action.
         try:
             client = sync_connect()
         except Exception as e:
             messages.error(request, f"Failed to connect to Temporal: {e}.")
-            return redirect(_change_url(schema_id))
+            return redirect(_change_url(schema.id))
 
         was_paused = _is_schedule_paused(client, str(schema.id))
         admin_paused_now = False
@@ -212,15 +241,15 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 admin_paused_now = True
             except Exception as e:
                 messages.error(request, f"Failed to pause schedule before resync: {e}.")
-                return redirect(_change_url(schema_id))
+                return redirect(_change_url(schema.id))
 
-        # Single save: stage the partition update, reset_pipeline, and the auto-
-        # unpause marker (read by `update_external_data_job_model` at workflow end)
-        # in one round-trip. reset_pipeline goes on sync_type_config rather than the
-        # workflow input so the pipeline can pop it after the first reset; passing
-        # it on inputs makes every activity retry re-read True and wipe Delta +
-        # cursor, restarting from row 0.
-        schema.sync_type_config[partition_field] = partition_value
+        # Single save: stage the partition update(s), reset_pipeline, and the auto-unpause
+        # marker (read by `update_external_data_job_model` at workflow end) in one round-trip.
+        # reset_pipeline goes on sync_type_config rather than the workflow input so the pipeline
+        # can pop it after the first reset; passing it on inputs makes every activity retry
+        # re-read True and wipe Delta + cursor, restarting from row 0.
+        for key, value in staged_updates.items():
+            schema.sync_type_config[key] = value
         schema.sync_type_config["reset_pipeline"] = True
         if admin_paused_now:
             schema.sync_type_config["admin_unpause_schedule_after_run"] = True
@@ -233,7 +262,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             billable=False,
             reset_pipeline=None,
         )
-        workflow_id = f"{schema.id}-admin-repartition-{int(time.time())}"
+        workflow_id = f"{schema.id}-admin-{workflow_kind}-{int(time.time())}"
         try:
             _start_external_data_workflow(client, workflow_id, inputs)
         except Exception as e:
@@ -253,7 +282,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 f"Saved {change_label}, but failed to trigger reset resync: {e}. "
                 f"Trigger one manually before the next scheduled sync.",
             )
-            return redirect(_change_url(schema_id))
+            return redirect(_change_url(schema.id))
 
         pause_note = (
             " Schedule paused for the duration of this run; will auto-unpause on a successful completion."
@@ -264,7 +293,102 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             request,
             f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).{pause_note}",
         )
-        return redirect(_change_url(schema_id))
+        return redirect(_change_url(schema.id))
+
+    def change_partition_mode_view(self, request, schema_id):
+        # Switch a schema's partition *mode* (md5 / numerical / datetime) and immediately trigger a
+        # non-billable reset resync, mirroring repartition_view's bundled-reset machinery. The
+        # repartition action only tunes the knob *within* the current mode; this one changes the
+        # mode itself — e.g. moving a table with a date column in its composite PK from md5 (which
+        # scatters every change across all buckets) to datetime on that column (bounded,
+        # prunable partitions).
+        #
+        # The chosen mode/keys are written as *_override keys that survive the bundled reset (which
+        # wipes the auto-detected partition_mode/partitioning_keys) and are consumed once applied —
+        # same one-shot semantics as the count/size overrides.
+        if request.method != "POST":
+            return redirect(_change_url(schema_id))
+
+        try:
+            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
+        except ExternalDataSchema.DoesNotExist:
+            messages.error(request, f"Schema {schema_id} not found.")
+            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
+
+        new_mode = request.POST.get("partition_mode")
+        if new_mode not in get_args(PartitionMode):
+            messages.error(
+                request,
+                f"Invalid partition_mode: {new_mode!r}. Choose one of {', '.join(get_args(PartitionMode))}.",
+            )
+            return redirect(_change_url(schema_id))
+
+        staged: dict[str, Any] = {"partition_mode_override": new_mode}
+        label_bits = [f"partition_mode: {schema.partition_mode!r} → {new_mode!r}"]
+
+        # partitioning_keys: required for datetime/numerical (the single column to bucket on);
+        # optional for md5 (defaults to the table's primary keys). Comma-separated input.
+        raw_keys = request.POST.get("partitioning_keys", "").strip()
+        keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+
+        if new_mode == "datetime":
+            if len(keys) != 1:
+                messages.error(
+                    request,
+                    "datetime mode needs exactly one partitioning key — the date/timestamp column "
+                    "to bucket on (e.g. action_date).",
+                )
+                return redirect(_change_url(schema_id))
+            new_format = request.POST.get("partition_format")
+            if new_format not in PARTITION_FORMAT_CHOICES:
+                messages.error(request, f"Invalid partition_format: {new_format!r}.")
+                return redirect(_change_url(schema_id))
+            staged["partitioning_keys_override"] = keys
+            # partition_format already survives the reset and is read directly by the pipeline.
+            staged["partition_format"] = new_format
+            label_bits.append(f"keys={keys}")
+            label_bits.append(f"format={new_format!r}")
+        elif new_mode == "numerical":
+            if len(keys) != 1:
+                messages.error(request, "numerical mode needs exactly one integer partitioning key.")
+                return redirect(_change_url(schema_id))
+            raw = request.POST.get("partition_size", "").strip()
+            try:
+                new_size = int(raw)
+            except ValueError:
+                messages.error(request, f"partition_size must be an integer; got {raw!r}.")
+                return redirect(_change_url(schema_id))
+            if new_size < 1:
+                messages.error(request, f"partition_size must be >= 1; got {new_size}.")
+                return redirect(_change_url(schema_id))
+            staged["partitioning_keys_override"] = keys
+            staged["partition_size_override"] = new_size
+            label_bits.append(f"keys={keys}")
+            label_bits.append(f"partition_size={new_size}")
+        else:  # md5
+            raw = request.POST.get("partition_count", "").strip()
+            try:
+                new_count = int(raw)
+            except ValueError:
+                messages.error(request, f"partition_count must be an integer; got {raw!r}.")
+                return redirect(_change_url(schema_id))
+            if new_count < 1:
+                messages.error(request, f"partition_count must be >= 1; got {new_count}.")
+                return redirect(_change_url(schema_id))
+            if keys:
+                staged["partitioning_keys_override"] = keys
+                label_bits.append(f"keys={keys}")
+            staged["partition_count_override"] = new_count
+            label_bits.append(f"partition_count={new_count}")
+
+        change_label = ", ".join(label_bits) + " (pinned for this reset)"
+        return self._pause_save_and_resync(
+            request,
+            schema,
+            staged_updates=staged,
+            change_label=change_label,
+            workflow_kind="change-partition-mode",
+        )
 
     def trigger_sync_view(self, request, schema_id):
         # Ad-hoc external-data-job workflow execution. Bypasses the schedule because
@@ -401,6 +525,7 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["team_id"] = obj.team_id
 
             extra_context["partition_format_choices"] = PARTITION_FORMAT_CHOICES
+            extra_context["partition_mode_choices"] = PARTITION_MODE_CHOICES
             extra_context["current_partition_format"] = obj.partition_format
             extra_context["current_partition_mode"] = obj.partition_mode
             extra_context["current_partition_keys"] = obj.partitioning_keys
@@ -408,8 +533,13 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["current_partition_count"] = obj.partition_count
             extra_context["current_partition_count_override"] = obj.partition_count_override
             extra_context["current_partition_size_override"] = obj.partition_size_override
+            extra_context["current_partition_mode_override"] = obj.partition_mode_override
+            extra_context["current_partitioning_keys_override"] = obj.partitioning_keys_override
             extra_context["partitioning_enabled"] = obj.partitioning_enabled
             extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
+            extra_context["change_partition_mode_url"] = reverse(
+                "admin:external_data_schema_change_partition_mode", args=[obj.id]
+            )
             extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])
             extra_context["pause_schedule_url"] = reverse("admin:external_data_schema_pause_schedule", args=[obj.id])
             extra_context["unpause_schedule_url"] = reverse(
