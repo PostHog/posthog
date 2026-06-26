@@ -95,6 +95,7 @@ export const MetricsViewer = (): JSX.Element => {
         viewMode,
         statSummary,
         groupByKeys,
+        filterStrings,
         chartSeries,
         sparklineValues,
         sparklineLabels,
@@ -112,6 +113,7 @@ export const MetricsViewer = (): JSX.Element => {
         setViewMode,
         setStatSummary,
         setGroupByKeys,
+        setFilterStrings,
         setLiveRefresh,
         fetchQueryResults,
         fetchAnomaly,
@@ -122,7 +124,7 @@ export const MetricsViewer = (): JSX.Element => {
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [metricName, aggregation, dateFrom, dateTo, groupByKeys]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [metricName, aggregation, dateFrom, dateTo, groupByKeys, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
 
     // Characterize the recent window only while the stat card is visible — the badge is stat-mode only.
     useEffect(() => {
@@ -131,7 +133,7 @@ export const MetricsViewer = (): JSX.Element => {
         } else {
             clearAnomaly()
         }
-    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const selectedMetricType = useMemo(
         () => pickerItems.find((item) => item.name === metricName)?.metric_type,
@@ -209,6 +211,16 @@ export const MetricsViewer = (): JSX.Element => {
                     options={[]}
                     placeholder="Group by attribute…"
                     className="min-w-[12rem]"
+                />
+                <LemonInputSelect
+                    mode="multiple"
+                    size="small"
+                    allowCustomValues
+                    value={filterStrings}
+                    onChange={setFilterStrings}
+                    options={[]}
+                    placeholder="Filter attribute=value…"
+                    className="min-w-[14rem]"
                 />
                 <DateFilter
                     size="small"

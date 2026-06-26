@@ -10,6 +10,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { metricsCharacterizeCreate, metricsQueryCreate } from 'products/metrics/frontend/generated/api'
 import type {
     _MetricAnomalyReportApi,
+    _MetricFilterApi,
     _MetricSeriesApi,
     MetricAnomalyDirectionEnumApi,
 } from 'products/metrics/frontend/generated/api.schemas'
@@ -41,6 +42,15 @@ const ANOMALY_WINDOW_FRACTION = 0.2
 export const LIVE_REFRESH_MS = 15_000
 const LIVE_REFRESH_KEY = 'metricsLiveRefresh'
 
+// Parse a "key=value" chip into an equality filter. Returns null for malformed input (no key before '=').
+const parseFilter = (raw: string): _MetricFilterApi | null => {
+    const eq = raw.indexOf('=')
+    if (eq <= 0) {
+        return null
+    }
+    return { key: raw.slice(0, eq).trim(), op: 'eq', value: raw.slice(eq + 1).trim() }
+}
+
 const resolveDate = (value: string | null | undefined): string | null => {
     if (!value) {
         return null
@@ -63,6 +73,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         setStatSummary: (statSummary: MetricSummary) => ({ statSummary }),
         setLiveRefresh: (liveRefresh: boolean) => ({ liveRefresh }),
         setGroupByKeys: (groupByKeys: string[]) => ({ groupByKeys }),
+        setFilterStrings: (filterStrings: string[]) => ({ filterStrings }),
         // AbortController plumbing mirrors logsViewerDataLogic: a `cancelInProgress`
         // action aborts the previous controller before storing the new one.
         setQueryAbortController: (controller: AbortController | null) => ({ controller }),
@@ -82,6 +93,8 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
         liveRefresh: [false, { setLiveRefresh: (_, { liveRefresh }) => liveRefresh }],
         // Attribute keys to split the metric into one series each (e.g. ['service.name', 'env']).
         groupByKeys: [[] as string[], { setGroupByKeys: (_, { groupByKeys }) => groupByKeys }],
+        // Raw "key=value" filter chips; parsed into query filters by the `queryFilters` selector.
+        filterStrings: [[] as string[], { setFilterStrings: (_, { filterStrings }) => filterStrings }],
         queryAbortController: [
             null as AbortController | null,
             { setQueryAbortController: (_, { controller }) => controller },
@@ -139,6 +152,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                                 ...(values.groupByKeys.length
                                     ? { groupBy: values.groupByKeys.map((key) => ({ key })) }
                                     : {}),
+                                ...(values.queryFilters.length ? { filters: values.queryFilters } : {}),
                             },
                         },
                         { signal: controller.signal }
@@ -174,6 +188,7 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
                             aggregation: values.aggregation,
                             anomalyFrom,
                             anomalyTo: toISO,
+                            ...(values.queryFilters.length ? { filters: values.queryFilters } : {}),
                         },
                     })
                     breakpoint()
@@ -184,6 +199,11 @@ export const metricsViewerLogic = kea<metricsViewerLogicType>([
     })),
     selectors({
         hasMetricName: [(s) => [s.metricName], (metricName) => metricName.trim().length > 0],
+        queryFilters: [
+            (s) => [s.filterStrings],
+            (filterStrings: string[]): _MetricFilterApi[] =>
+                filterStrings.map(parseFilter).filter((f): f is _MetricFilterApi => f !== null),
+        ],
         // The viewer renders the first series only for now; group-by lands
         // multi-series rendering in a later PR.
         // Metrics has no compare/previous-series concept, so "current" is simply the first series.
