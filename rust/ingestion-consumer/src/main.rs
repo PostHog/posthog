@@ -79,7 +79,7 @@ async fn async_main(config: Config) -> Result<()> {
 
     tracing_subscriber::registry().with(log_layer).init();
 
-    info!(?config, "Starting ingestion consumer");
+    info!("Starting ingestion consumer");
 
     // Lifecycle manager handles signals, health, and shutdown coordination
     let mut manager = Manager::builder("ingestion-consumer")
