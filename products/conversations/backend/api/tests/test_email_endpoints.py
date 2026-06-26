@@ -1293,6 +1293,45 @@ class TestEmailInboundTeamMemberDetection(BaseTest):
         assert forged.item_context["author_type"] == "customer"
         assert forged.created_by is None
 
+    @parameterized.expand(
+        [
+            # (name, claimed_email, reply_sender, expected_verified)
+            # Same identity re-authenticates on a later message → legitimately promoted.
+            ("matching_sender", "alice@external.com", "alice@external.com", True),
+            # A different SPF-aligned sender threads onto a ticket claiming someone else's
+            # identity — must NOT promote it to verified (confused-deputy / impersonation).
+            ("different_sender", "victim@external.com", "attacker@evil.com", False),
+        ]
+    )
+    @patch("products.conversations.backend.api.email_events.validate_webhook_signature", return_value=True)
+    def test_promotion_requires_authenticated_sender_to_match_ticket_identity(
+        self, _name: str, claimed_email: str, reply_sender: str, expected_verified: bool, _mock_sig: MagicMock
+    ):
+        # First message: unauthenticated (no SPF) → unverified ticket claiming `claimed_email`.
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"Claimant <{claimed_email}>",
+                "Message-Id": f"<promote-init-{_name}@external.com>",
+                "subject": "Question",
+                "stripped-text": "Hello",
+            }
+        )
+        # Reply: SPF-authenticated (envelope sender aligned with From) threaded onto the same ticket.
+        self._post(
+            {
+                "recipient": "team-ab01cd23ef45@mg.posthog.com",
+                "from": f"Reply <{reply_sender}>",
+                "sender": reply_sender,
+                "X-Mailgun-Spf": "Pass",
+                "Message-Id": f"<promote-reply-{_name}@external.com>",
+                "In-Reply-To": f"<promote-init-{_name}@external.com>",
+                "stripped-text": "Follow-up",
+            }
+        )
+        ticket = Ticket.objects.get(team=self.team)
+        assert ticket.identity_verified is expected_verified
+
 
 class TestEmailInboundCcParticipants(BaseTest):
     def setUp(self):
