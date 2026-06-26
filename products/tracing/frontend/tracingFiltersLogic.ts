@@ -19,9 +19,7 @@ export const DEFAULT_HIDE_NON_MATCHING_SPANS = false
 // whether to expand trace selection to any matching span (see tracingDataLogic) — there's nothing to
 // match against, and no perf reason to leave the cheap root-only path, when no span filter is set.
 export function groupFilterHasValues(group: UniversalFiltersGroup): boolean {
-    return group.values.some((value) =>
-        isUniversalGroupFilterLike(value) ? groupFilterHasValues(value) : true
-    )
+    return group.values.some((value) => (isUniversalGroupFilterLike(value) ? groupFilterHasValues(value) : true))
 }
 
 // Column the list is ordered by, and its direction. timestamp+DESC is "latest" (keyset paginated via

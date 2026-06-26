@@ -170,7 +170,10 @@ describe('tracingDataLogic', () => {
 
         it.each([
             { name: 'a service filter', apply: () => tracingFiltersLogic().actions.setServiceNames(['web']) },
-            { name: 'a property filter', apply: () => tracingFiltersLogic().actions.setFilterGroup(filterGroupWithValue) },
+            {
+                name: 'a property filter',
+                apply: () => tracingFiltersLogic().actions.setFilterGroup(filterGroupWithValue),
+            },
         ])('matches any span once $name is set', ({ apply }) => {
             apply()
             expect(logic.values.rootSpansOnly).toBe(false)
