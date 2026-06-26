@@ -44,8 +44,6 @@ the revision row. It declares:
 - `mcps[]` — runtime MCP servers the agent connects to at session
   start (these expose remote tools)
 - `skills[]` — markdown skills the model can load on demand
-- `integrations[]` — team-level integrations the agent expects
-  (e.g. `slack`)
 - `secrets[]` — names of encrypted env keys the agent uses
 - `limits` — per-session caps (`max_turns`, `max_tool_calls`,
   `max_wall_seconds`)
@@ -148,15 +146,15 @@ The skill body is in the bundle at the declared `path`. Skills can
 be short (a few hundred lines) because the platform pays for them
 only when loaded. Push depth into skills, keep `agent.md` lean.
 
-## Secrets vs integrations
+## Secrets and remote credentials
 
 - **Secrets** (`spec.secrets[]`) are per-application encrypted env
   values the agent uses (e.g. a specific Stripe API key). Set via
   the punch-out flow — you never see the value.
-- **Integrations** (`spec.integrations[]`) are team-wide OAuth
-  connections (e.g. `slack`). Resolved at session start from the
-  team's integration table. You don't issue them; the team
-  installs them via the PostHog integrations UI.
+- For a remote service the agent talks to, connect an MCP server and
+  reference it with `mcps[].connection` (one shared credential the
+  owner connects once), or wire an `identity_providers[]` entry for
+  per-asker OAuth. There is no team-wide `integrations[]` spec field.
 
 ## Revisions vs sessions — the lifetime distinction
 
