@@ -8,6 +8,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { FeatureFlagFilters } from '~/types'
 
 import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { distributeAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 export function DefaultReleaseConditions(): JSX.Element {
@@ -43,13 +44,11 @@ export function DefaultReleaseConditions(): JSX.Element {
                         id="default-release-conditions"
                         filters={filtersForEditor}
                         onChange={(updatedFilters: FeatureFlagFilters) => {
-                            // Mirror the top-level aggregation onto every group; null clears it back to users.
-                            const aggregationIndex = updatedFilters.aggregation_group_type_index ?? null
                             setLocalGroups(
-                                updatedFilters.groups.map((group) => ({
-                                    ...group,
-                                    aggregation_group_type_index: aggregationIndex,
-                                }))
+                                distributeAggregationGroupTypeIndex(
+                                    updatedFilters.groups,
+                                    updatedFilters.aggregation_group_type_index ?? null
+                                )
                             )
                         }}
                         isDisabled={!!restrictedReason}
