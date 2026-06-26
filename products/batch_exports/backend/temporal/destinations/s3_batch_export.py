@@ -118,11 +118,8 @@ class UnsupportedCompressionError(Exception):
 class S3IntegrationNotFoundError(Exception):
     """Raised when an S3-family export references an Integration that can't be resolved."""
 
-    def __init__(self, integration_id: int | None, team_id: int):
-        if integration_id is None:
-            super().__init__(f"S3 integration ID not provided for team '{team_id}'")
-        else:
-            super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
+    def __init__(self, integration_id: int, team_id: int):
+        super().__init__(f"S3 integration with ID '{integration_id}' not found for team '{team_id}'")
 
 
 async def _get_s3_integration(integration_id: int, team_id: int) -> AwsS3Integration | S3CompatibleIntegration:
