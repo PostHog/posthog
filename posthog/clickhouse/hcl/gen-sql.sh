@@ -15,7 +15,10 @@ MANIFEST="$HCL/nodes"
 SQL_DIR="${1:-$HCL/sql}"  # optional override (check.sh writes to a temp dir to verify freshness)
 
 mkdir -p "$SQL_DIR"
-EMPTY="$(mktemp)"; printf 'database "posthog" {\n}\n' > "$EMPTY"
+# Empty schema for the diff baseline. It must live under the repo (which bin/hclexp
+# bind-mounts into the container) and be referenced by a repo-relative path — an
+# absolute $TMPDIR path is not visible inside the container in CI.
+EMPTY="$HCL/.empty-schema.$$.hcl"; printf 'database "posthog" {\n}\n' > "$EMPTY"
 trap 'rm -f "$EMPTY"' EXIT
 
 while read -r env role layers; do
