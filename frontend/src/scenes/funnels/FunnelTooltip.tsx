@@ -36,7 +36,7 @@ export interface FunnelTooltipProps {
     embedded?: boolean
     /** Date range of the hovered series' compare period; shown when the series is compare-tagged. */
     comparePeriodDateRange?: string | null
-    /** Aggregate "conversion so far" across all breakdown values; shown only when a breakdown variant is displayed. */
+    /** Baseline conversion rate across all breakdown values; shown only for breakdown variants past the first step. */
     aggregateConversionRate?: number | null
 }
 
@@ -99,9 +99,9 @@ export function FunnelTooltip({
                         <td>Conversion so far</td>
                         <td>{percentage(series.conversionRates.total, 2, true)}</td>
                     </tr>
-                    {aggregateConversionRate != null && (
+                    {stepIndex > 0 && aggregateConversionRate != null && (
                         <tr>
-                            <td>Overall conversion so far</td>
+                            <td>Baseline conversion rate</td>
                             <td>{percentage(aggregateConversionRate, 2, true)}</td>
                         </tr>
                     )}
