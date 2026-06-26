@@ -441,7 +441,10 @@ class OrganizationFeatureFlagView(
                 "key": flag_to_copy.key,
                 "name": flag_to_copy.name,
                 "filters": filters,
-                "active": False if disable_copied_flag else flag_to_copy.active,
+                # Dropping a flag dependency leaves its condition group ungated (an empty-property
+                # group matches everyone), so a copy with dropped dependencies must never land
+                # enabled — force it inactive for review.
+                "active": False if (disable_copied_flag or flag_dependency_warnings) else flag_to_copy.active,
                 "ensure_experience_continuity": flag_to_copy.ensure_experience_continuity,
                 "deleted": False,
                 "evaluation_runtime": flag_to_copy.evaluation_runtime,
@@ -513,7 +516,9 @@ class OrganizationFeatureFlagView(
             status=status.HTTP_200_OK,
         )
 
-    def _remap_flag_dependencies(self, filters, source_dependency_keys, target_project_id):
+    def _remap_flag_dependencies(
+        self, filters: dict, source_dependency_keys: dict[int, str], target_project_id: int
+    ) -> list[str]:
         """Remap flag-dependency references to the matching flag in the target project.
 
         Flag dependencies store the parent flag's ID, which differs across projects, so we match by
@@ -550,7 +555,7 @@ class OrganizationFeatureFlagView(
                         f"Removed dependency on flag '{source_key}' because that flag is disabled in the target project."
                     )
                 else:
-                    label = source_key or prop.get("key")
+                    label = source_key or prop.get("key") or "unknown"
                     warnings.append(
                         f"Removed dependency on flag '{label}' because no flag with that key exists in the target project."
                     )
