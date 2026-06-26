@@ -41,41 +41,34 @@ from ee.hogai.eval.sandboxed.data_warehouse.scorers import (
 from ee.hogai.eval.sandboxed.data_warehouse.seeder import seed_warehouse_schema
 from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
     DESC_NEEDLE_TABLE,
-    REL_NEEDLE_KEY,
     REL_NEEDLE_SOURCE,
-    REL_NEEDLE_TARGET,
     RETRIEVAL_NEEDLE_ANSWER,
     RETRIEVAL_NEEDLE_EVENT_ID,
     RETRIEVAL_NEEDLE_TABLE,
     TYPE_NEEDLE_TABLE,
+    VIEW_NEEDLE_NAME,
 )
 from ee.hogai.eval.sandboxed.scorers import ExitCodeZero
 
 
 async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_client, mcp_mode):
     cases: list[SandboxedEvalCase] = [
-        # 1 — discover the relevant tables/models for a topic.
+        # 1 — discover a specific data model (view) among hundreds of tables. Graded
+        #     on discovery success (the right model is named), mechanism-agnostic: a
+        #     view is legitimately discoverable via the `view-list` tool, so this
+        #     doesn't force information_schema. The information_schema path is enforced
+        #     by the table search / relationship cases, where read-data-warehouse-schema
+        #     is gated off.
         SandboxedEvalCase(
-            name="dw_discover_models_for_topic",
+            name="dw_discover_model_view",
             prompt=(
-                "We sync a lot into our data warehouse. Which tables and data models do we have "
-                "related to billing and subscriptions? Just list their names."
+                "Which data model (view) in our warehouse produces the daily MRR numbers the "
+                "finance dashboard reads? Just give me its name."
             ),
-            expected={"information_schema_queried": {}, "agentic_search_used": {}},
+            expected={"needle_table_identified": {"table": VIEW_NEEDLE_NAME}},
             setup=seed_warehouse_schema,
         ),
-        # 2 — identify a specific needle table by topic (no row query needed).
-        SandboxedEvalCase(
-            name="dw_needle_table_by_topic",
-            prompt="Which warehouse table is the canonical source of truth for MRR?",
-            expected={
-                "information_schema_queried": {},
-                "agentic_search_used": {},
-                "needle_table_identified": {"table": DESC_NEEDLE_TABLE},
-            },
-            setup=seed_warehouse_schema,
-        ),
-        # 3 — value lookup against the queryable needle.
+        # 2 — value lookup against the queryable needle.
         SandboxedEvalCase(
             name="dw_needle_value_lookup",
             prompt=(
@@ -97,7 +90,7 @@ async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_cli
             },
             setup=seed_warehouse_schema,
         ),
-        # 4 — search by description text.
+        # 3 — search by description text.
         SandboxedEvalCase(
             name="dw_search_by_description",
             prompt=(
@@ -111,7 +104,7 @@ async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_cli
             },
             setup=seed_warehouse_schema,
         ),
-        # 5 — search by column data_type (an equality filter, not a text pattern).
+        # 4 — search by column data_type (an equality filter, not a text pattern).
         SandboxedEvalCase(
             name="dw_search_by_column_type",
             prompt=(
@@ -125,7 +118,10 @@ async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_cli
             },
             setup=seed_warehouse_schema,
         ),
-        # 6 — relationship / join traversal.
+        # 5 — relationship / join traversal. Graded deterministically by
+        #     relationship_discovery (relationships queried + both tables named); no
+        #     LLM judge here, since the answer comes from the information_schema
+        #     discovery query rather than a row query the judge could anchor on.
         SandboxedEvalCase(
             name="dw_relationship_traversal",
             prompt=(
@@ -135,13 +131,10 @@ async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_cli
             expected={
                 "information_schema_queried": {},
                 "relationship_discovery": {},
-                "warehouse_answer_correctness": {
-                    "expected_answer": (f"{REL_NEEDLE_SOURCE} joins {REL_NEEDLE_TARGET} on the {REL_NEEDLE_KEY} key."),
-                },
             },
             setup=seed_warehouse_schema,
         ),
-        # 7 — duck typing: declared String, content is numeric/JSON.
+        # 6 — duck typing: declared String, content is numeric/JSON.
         SandboxedEvalCase(
             name="dw_duck_typing_amount",
             prompt=(

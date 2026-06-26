@@ -93,6 +93,13 @@ function makeResolver(): RequestStateResolver {
     return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
 }
 
+function makeResolverWithTools(toolNames: string[]): RequestStateResolver {
+    const catalog = {
+        getFilteredTools: vi.fn(() => toolNames.map((name) => ({ name }))),
+    }
+    return new RequestStateResolver(catalog as any, {} as RedisLike, {} as Env)
+}
+
 describe('RequestStateResolver MCP client contexts', () => {
     beforeEach(() => {
         mockSessionStore.clear()
@@ -317,5 +324,34 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.requestContext.mcpConsumer).toBe('posthog-code')
         expect(result.sessionContext?.mcpConsumer).toBe('posthog-code')
         expect(mockSessionStore.get('mcpConsumer')).toBe('posthog-code')
+    })
+})
+
+describe('RequestStateResolver SQL schema-discovery tool gating', () => {
+    beforeEach(() => {
+        mockSessionStore.clear()
+        mockTokenStore.clear()
+        vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
+    })
+
+    it('removes read-data-warehouse-schema from the tool set when the flag is on', async () => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': true })
+        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
+
+        const result = await resolver.resolve(makeProps())
+
+        const names = result.allTools.map((t) => t.name)
+        expect(names).toContain('execute-sql')
+        expect(names).not.toContain('read-data-warehouse-schema')
+    })
+
+    it('keeps read-data-warehouse-schema available when the flag is off', async () => {
+        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
+
+        const result = await resolver.resolve(makeProps())
+
+        const names = result.allTools.map((t) => t.name)
+        expect(names).toContain('read-data-warehouse-schema')
+        expect(names).toContain('execute-sql')
     })
 })

@@ -3,13 +3,16 @@ import type { Context, ToolBase } from '@/tools/types'
 
 import { invokeMcpTool } from './invokeTool'
 
-// Prompt-only flag: gates whether the SQL discovery instructions steer the agent
-// through `system.information_schema.*` instead of the `read-data-warehouse-schema`
-// tool. It is deliberately NOT attached to this tool's definition — the tool stays
-// registered, advertised, and callable regardless of the flag (the flag only changes
-// what the prompts tell the agent to use). Rides the same batched evaluation as
-// `RENDER_UI_FEATURE_FLAG` (see request-state-resolver.ts).
+// Flag that routes schema discovery through `system.information_schema.*` SQL. When
+// it is on, the discovery instructions steer the agent to SQL AND this
+// `read-data-warehouse-schema` tool is removed from the advertised/callable set
+// (see request-state-resolver.ts) so the agent can't fall back to it — discovery
+// must go through `execute-sql`. When off, the tool stays registered and callable.
+// Rides the same batched evaluation as `RENDER_UI_FEATURE_FLAG`.
 export const SQL_SCHEMA_DISCOVERY_FEATURE_FLAG = 'mcp-sql-schema-discovery'
+
+// The advertised name of this tool, exported so the flag gate can identify it.
+export const READ_DATA_WAREHOUSE_SCHEMA_TOOL_NAME = 'read-data-warehouse-schema'
 
 const schema = ReadDataWarehouseSchemaSchema
 
@@ -26,7 +29,7 @@ export const readDataWarehouseSchemaHandler: ToolBase<typeof schema, string>['ha
 }
 
 const tool = (): ToolBase<typeof schema, string> => ({
-    name: 'read-data-warehouse-schema',
+    name: READ_DATA_WAREHOUSE_SCHEMA_TOOL_NAME,
     schema,
     handler: readDataWarehouseSchemaHandler,
 })
