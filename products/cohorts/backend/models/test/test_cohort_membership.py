@@ -1,89 +1,13 @@
-"""Tests that cohort person-lookup methods produce identical results
-via the personhog path."""
+"""Tests for cohort membership operations (insert, delete, count, list, check)."""
 
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.models import Team
-from posthog.test.personhog_fake import get_active_fake
+from posthog.personhog_client.fake_client import get_active_fake
 from posthog.test.persons import add_cohort_members, create_person
 
-from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-
-
-class TestGetPersonUuidsByDistinctIds(BaseTest):
-    def _get_uuids(self, distinct_ids: list[str]) -> list[str]:
-        from posthog.models.person.util import get_person_uuids_by_distinct_ids
-
-        return get_person_uuids_by_distinct_ids(self.team.pk, distinct_ids)
-
-    def test_returns_uuids_for_matching_distinct_ids(self):
-        p1 = create_person(team=self.team, distinct_ids=["d1", "d2"])
-        p2 = create_person(team=self.team, distinct_ids=["d3"])
-
-        result = self._get_uuids(["d1", "d3"])
-
-        assert set(result) == {str(p1.uuid), str(p2.uuid)}
-        get_active_fake().assert_called("get_persons_by_distinct_ids_in_team")
-
-    def test_returns_empty_list_for_empty_input(self):
-        result = self._get_uuids([])
-
-        assert result == []
-        get_active_fake().assert_not_called("get_persons_by_distinct_ids_in_team")
-
-    def test_returns_empty_list_when_no_persons_match(self):
-        result = self._get_uuids(["nonexistent"])
-
-        assert result == []
-
-    def test_cross_team_isolation(self):
-        other_team = self.organization.teams.create(name="Other Team")
-        create_person(team=other_team, distinct_ids=["d1"])
-
-        result = self._get_uuids(["d1"])
-
-        assert result == []
-
-    def test_deduplicates_persons_with_multiple_distinct_ids(self):
-        p = create_person(team=self.team, distinct_ids=["d1", "d2", "d3"])
-
-        result = self._get_uuids(["d1", "d2", "d3"])
-
-        assert result == [str(p.uuid)]
-
-    def test_handles_mix_of_found_and_missing_distinct_ids(self):
-        p = create_person(team=self.team, distinct_ids=["exists"])
-
-        result = self._get_uuids(["exists", "missing1", "missing2"])
-
-        assert result == [str(p.uuid)]
-
-    def test_multiple_persons_each_with_single_distinct_id(self):
-        persons = [create_person(team=self.team, distinct_ids=[f"d{i}"]) for i in range(5)]
-
-        result = self._get_uuids([f"d{i}" for i in range(5)])
-
-        assert set(result) == {str(p.uuid) for p in persons}
-
-
-class TestGetPersonUuidsByDistinctIdsFieldMask(BaseTest):
-    """Verify the personhog path sends a UUID-only field mask."""
-
-    def test_sends_uuid_only_field_mask(self):
-        from posthog.models.person.util import get_person_uuids_by_distinct_ids
-
-        create_person(team=self.team, distinct_ids=["d1"])
-
-        get_person_uuids_by_distinct_ids(self.team.pk, ["d1"])
-
-        fake = get_active_fake()
-        calls = fake.assert_called("get_persons_by_distinct_ids_in_team", times=1)
-        mask = list(calls[0].request.read_options.field_mask)
-        assert "uuid" in mask
-        assert "id" in mask
-        assert "team_id" in mask
-        assert "properties" not in mask
+from products.cohorts.backend.models.cohort import Cohort
 
 
 class TestRemoveUserByUuid(BaseTest):
@@ -153,7 +77,7 @@ class TestRemoveUserByUuid(BaseTest):
         result = other_team_cohort.remove_user_by_uuid(str(person.uuid), team_id=self.team.id)
 
         assert result is False
-        assert CohortPeople.objects.filter(cohort=other_team_cohort, person=person).exists()
+        assert (other_team_cohort.id, person.id) in get_active_fake()._cohort_members
         mock_remove_ch.assert_not_called()
 
     @patch("products.cohorts.backend.models.util.remove_person_from_static_cohort")
@@ -369,7 +293,7 @@ class TestInsertCohortMembers(BaseTest):
         inserted = insert_cohort_members(self.team.id, other_cohort.id, [person.id], version=1)
 
         assert inserted == 0
-        assert not CohortPeople.objects.filter(cohort=other_cohort).exists()
+        assert (other_cohort.id, person.id) not in get_active_fake()._cohort_members
         get_active_fake().assert_not_called("insert_cohort_members")
 
     def test_skip_ownership_check_bypasses_team_validation(self):
@@ -425,7 +349,7 @@ class TestDeleteCohortMember(BaseTest):
         result = delete_cohort_member(self.team.id, other_cohort.id, person.id)
 
         assert result is False
-        assert CohortPeople.objects.filter(cohort=other_cohort, person=person).exists()
+        assert (other_cohort.id, person.id) in get_active_fake()._cohort_members
         get_active_fake().assert_not_called("delete_cohort_member")
 
 
