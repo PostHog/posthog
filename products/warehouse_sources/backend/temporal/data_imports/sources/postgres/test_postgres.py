@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
+    _SSH_HANDSHAKE_EOF_ERROR,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
@@ -101,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _safe_close_connection,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
+    _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_foreign_keys,
@@ -786,6 +788,48 @@ class TestPostgresSourceNonRetryableErrors:
         # dedicated message fragment is what recognises it at the activity layer.
         assert "QueryTimeoutException" not in matching_keys
         assert "has an appropriate index" in matching_keys
+
+    def test_ssh_handshake_eof_is_non_retryable(self, source):
+        # `_tunnel_with_handshake_translation` turns paramiko's bare, empty-message handshake
+        # EOFError into this stable message; without the entry it would match no rule and retry forever.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
+
+def _raise_eof() -> None:
+    # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
+    # this raises before the generator yields, standing in for paramiko's handshake EOFError.
+    raise EOFError()
+
+
+@contextmanager
+def _handshake_eof_tunnel() -> Iterator[tuple[str, int]]:
+    _raise_eof()
+    yield ("127.0.0.1", 5432)
+
+
+@contextmanager
+def _body_eof_tunnel() -> Iterator[tuple[str, int]]:
+    yield ("127.0.0.1", 5432)
+
+
+class TestTunnelWithHandshakeTranslation:
+    def test_bare_handshake_eof_is_translated_with_cause(self):
+        # The translated message (verified non-retryable in `test_ssh_handshake_eof_is_non_retryable`)
+        # replaces the bare EOFError while preserving it as the cause.
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with _tunnel_with_handshake_translation(_handshake_eof_tunnel):
+                pass
+
+        assert isinstance(exc_info.value.__cause__, EOFError)
+
+    def test_body_eof_is_not_translated(self):
+        # A failure raised by the body (not the handshake) must surface as the original EOFError,
+        # never the translated handshake message — guards the `yield`-outside-`except` invariant.
+        with pytest.raises(EOFError):
+            with _tunnel_with_handshake_translation(_body_eof_tunnel):
+                raise EOFError()
 
 
 class TestPostgresSourceSetupRecoveryConflictRetry:

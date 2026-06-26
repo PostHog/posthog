@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import grpc
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
@@ -21,6 +23,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
+    _get_integration,
     _is_invalid_page_token_error,
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
@@ -682,3 +685,56 @@ class TestSearchTransientRetry:
         # First call raises and propagates immediately — no retry, no backoff.
         assert service.calls == 1
         assert sleep.call_count == 0
+
+
+_INTEGRATION_GET_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get"
+)
+_CLOSE_CONNECTIONS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
+)
+
+
+class TestGetIntegrationDbResilience:
+    def test_retries_once_on_dropped_connection_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 2
+        # Evicted up front, then again after the failed query marked the connection unusable.
+        assert close.call_count == 2
+
+    def test_reraises_when_retry_also_fails(self):
+        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(OperationalError):
+                _get_integration(integration_id=1, team_id=2)
+
+        # One retry only — the second failure propagates so Temporal still retries the activity.
+        assert get.call_count == 2
+
+    def test_missing_integration_is_not_retried(self):
+        get = mock.Mock(side_effect=Integration.DoesNotExist())
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(Integration.DoesNotExist):
+                _get_integration(integration_id=1, team_id=2)
+
+        # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
+        assert get.call_count == 1
+
+    def test_no_retry_on_success(self):
+        integration = object()
+        get = mock.Mock(return_value=integration)
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 1
+        assert close.call_count == 1

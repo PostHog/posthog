@@ -20,7 +20,6 @@
         "@dnd-kit/sortable": "*",
         "@dnd-kit/utilities": "*",
         "@posthog/icons": "*",
-        "@storybook/addon-actions": "catalog:",
         "@storybook/react": "catalog:",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",

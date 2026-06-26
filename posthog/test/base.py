@@ -114,7 +114,7 @@ from posthog.models.event.sql import (
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
 )
-from posthog.models.event.util import bulk_create_events
+from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -1516,11 +1516,9 @@ def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None
             team = event.get("team")
             team_id = event.get("team_id") or (team.pk if team else None)
             if team_id:
-                from posthog.models import PersonDistinctId
-
-                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-                if pdi:
-                    event["person_id"] = str(pdi.person.uuid)
+                person = _resolve_person_for_bulk_event(team_id, distinct_id)
+                if person is not None:
+                    event["person_id"] = str(person.uuid)
 
     from posthog.models.ai_events.test_util import bulk_create_ai_events
 
