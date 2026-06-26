@@ -62,8 +62,9 @@ with `posthog__agent-native-tools-list`.
 Sketch the spec in your head / out loud with the user, BEFORE
 calling any create endpoint. Cover:
 
-- **`model`** — start with `anthropic/claude-sonnet-4-6` unless
-  the user has a preference. It's the platform default.
+- **`models`** — leave it at the default (`auto` / `medium`) unless the
+  user has a preference; don't hardcode a model id. Load
+  `skills/choosing-the-model` to match the policy to the job.
 - **`triggers`** — one is fine; many is fine; pick what the user
   asked for. Each trigger has its own config.
 - **`tools[]`** — minimum needed for the job. Don't pre-emptively

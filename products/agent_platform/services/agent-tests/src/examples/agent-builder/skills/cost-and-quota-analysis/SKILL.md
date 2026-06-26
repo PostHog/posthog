@@ -222,7 +222,7 @@ Useful to know when someone asks "how do I make it cheaper?":
 
 | Lever                              | Effect                                                              |
 | ---------------------------------- | ------------------------------------------------------------------- |
-| Model (`spec.models`)              | Biggest factor — claude-haiku is ~1/5 sonnet, gpt-4-mini is similar |
+| Model (`spec.models`)              | Biggest factor — a `low`-level model is often ~5-10x cheaper than `high`; see `@posthog/agent-applications-models` for live per-Mtok pricing |
 | Reasoning level (`spec.reasoning`) | Higher levels (`high` / `xhigh`) add deliberation tokens            |
 | Skills layout                      | Many skills loaded per turn means a fatter system prompt every turn |
 | Custom tool egress                 | Tools that fetch large pages inflate input tokens on the next turn  |

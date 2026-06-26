@@ -15,7 +15,9 @@ the cheapest either. Match the policy to the job.
 every field, enum, and default — call
 `@posthog/agent-applications-spec-schema` with `section: "models"` rather
 than reciting it from memory; it stays current as the schema moves. The
-judgment that schema can't give you is below.
+`mode`, `level`, and `reasoning` names used throughout this skill are the
+set that exists *today* — if the schema returns a different set, the schema
+wins. The judgment that schema can't give you is below.
 
 - **`auto`** (the default for almost every agent) — pick a `level`
   (`low` / `medium` / `high`) and the platform resolves it to a
@@ -91,10 +93,14 @@ same provider as the primary doesn't help when that provider is the
 thing that's down — list a different vendor next so an outage degrades
 instead of failing.
 
-- Good: `[ anthropic/claude-sonnet-4-6, openai/gpt-5 ]` — Anthropic
-  down → OpenAI catches it.
-- Pointless: `[ anthropic/claude-sonnet-4-6,
-anthropic/claude-haiku-4-5 ]` — one provider outage takes out both.
+- Good: a primary from one vendor, then a model from a *different* vendor —
+  if the first vendor has an outage, the other still answers.
+- Pointless: two models from the *same* vendor — one provider outage takes
+  out both.
+
+Don't hardcode model ids from memory — they get added and retired. Call
+`@posthog/agent-applications-models` for the currently served ids (grouped by
+provider) and pick the primary + a different-vendor fallback from that.
 
 Set per-model `reasoning` when the fallback should think differently
 from the primary (e.g. high on the primary, unset on a cheaper
