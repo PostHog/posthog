@@ -562,7 +562,9 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         ]
         try:
             result = emit_report_sync(
-                team=self.team,
+                # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
+                # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
+                team=run.team,
                 run=run,
                 title=data["title"],
                 summary=data["summary"],
@@ -618,7 +620,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         data = request.validated_data
         try:
             result = edit_report_sync(
-                team=self.team,
+                # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
+                team=run.team,
                 run=run,
                 report_id=data["report_id"],
                 title=data.get("title"),

@@ -47,6 +47,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     _resolve_task_id,
 )
 from products.signals.backend.scout_report import (
+    MAX_REPORT_SIGNALS,
     InvalidScoutReportError,
     ScoutReportSignal,
     append_report_note,
@@ -60,6 +61,11 @@ logger = logging.getLogger(__name__)
 # Defensive caps at the tool boundary (the service caps signals too; these bound caller input early).
 MAX_REPORT_TITLE_LENGTH = 300
 MAX_SUGGESTED_REVIEWERS = 10
+# Bound the free-text the scout supplies before any of it is rendered into the safety-judge prompt or
+# the embedding requests — a report can carry up to MAX_REPORT_SIGNALS evidence items, so an unbounded
+# per-item description (or summary) lets one malformed call spend/fail on a huge LLM prompt.
+MAX_EVIDENCE_DESCRIPTION_LENGTH = 4000
+MAX_REPORT_SUMMARY_LENGTH = 20000
 
 # Repository modes for `emit_report`, mirroring `custom_agent`'s three-mode contract:
 #   "owner/repo" -> that repo; NO_REPO -> explicitly no repo (lands without a draft PR);
@@ -119,13 +125,40 @@ def _build_actionability(*, explanation: str, choice: str, already_addressed: bo
     )
 
 
-def _validate_emit_inputs(title: str, evidence: list[ReportEvidence]) -> None:
+def _validate_emit_inputs(title: str, summary: str, evidence: list[ReportEvidence]) -> None:
     if not title or not title.strip():
         raise InvalidScoutReportError("title must not be empty")
     if len(title) > MAX_REPORT_TITLE_LENGTH:
         raise InvalidScoutReportError(f"title exceeds {MAX_REPORT_TITLE_LENGTH} chars ({len(title)})")
+    if len(summary) > MAX_REPORT_SUMMARY_LENGTH:
+        raise InvalidScoutReportError(f"summary exceeds {MAX_REPORT_SUMMARY_LENGTH} chars ({len(summary)})")
     if not evidence:
         raise InvalidScoutReportError("emit_report needs at least one piece of evidence")
+    # Enforce the service's evidence cap here, before the expensive safety-judge LLM call below — an
+    # oversized report would otherwise pay for the judge only to be rejected by `create_scout_report`.
+    if len(evidence) > MAX_REPORT_SIGNALS:
+        raise InvalidScoutReportError(
+            f"emit_report accepts at most {MAX_REPORT_SIGNALS} evidence items ({len(evidence)})"
+        )
+    for item in evidence:
+        if len(item.description) > MAX_EVIDENCE_DESCRIPTION_LENGTH:
+            raise InvalidScoutReportError(
+                f"evidence description exceeds {MAX_EVIDENCE_DESCRIPTION_LENGTH} chars ({len(item.description)})"
+            )
+
+
+def _normalize_repository(repository: str | None) -> str | None:
+    """Validate + normalize the scout's `repository` input. `None` / the `NO_REPO` sentinel pass through;
+    an explicit value is lowercased and format-checked as `owner/repo`. Raises `InvalidScoutReportError`
+    on a malformed value. Pure and cheap — called before the safety judge so a bad explicit repo fails
+    fast (rather than after paying for the judge), and reused by the resolver so the parsing lives once."""
+    if repository is None or repository == NO_REPO:
+        return repository
+    normalized = repository.strip().lower()
+    parts = normalized.split("/")
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
+    return normalized
 
 
 def _gate_skip_result(preflight: str) -> EmitReportResult:
@@ -209,15 +242,14 @@ async def _resolve_report_repository(
     Three modes mirror `custom_agent`: ``NO_REPO`` -> explicitly no repo; ``"owner/repo"`` -> that
     repo (validated, lowercased); omitted (None) -> free-form selection across the team's repos. The
     free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
-    scout that knows its repo should pass it explicitly (see the report contract)."""
+    scout that knows its repo should pass it explicitly (see the report contract). The cheap
+    `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
+    so by here an explicit repo is already well-formed; only the free-form path remains."""
+    repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
     if repository is not None:
-        normalized = repository.strip().lower()
-        parts = normalized.split("/")
-        if len(parts) != 2 or not parts[0] or not parts[1]:
-            raise InvalidScoutReportError("repository must be in 'owner/repo' format (or the NO_REPO sentinel)")
-        return RepoSelectionResult(repository=normalized, reason="Repository provided by the scout.")
+        return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
 
     # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
     # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
@@ -234,7 +266,19 @@ async def _resolve_report_repository(
     )
     from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — break worker-boot import cycle
 
-    user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team_id)
+    # A team with no GitHub integration can't resolve an acting user — `resolve_user_id_for_team`
+    # raises. Repo selection / autostart is optional, so treat that as "no repo" (the report still
+    # surfaces, just without a draft PR) rather than failing the whole emit — same null-repo outcome
+    # the repo-selection activity returns for a GitHub-less team.
+    try:
+        user_id = await database_sync_to_async(resolve_user_id_for_team, thread_sensitive=False)(team_id)
+    except Exception as exc:
+        logger.info(
+            "signals_scout.emit_report: skipping repo selection, no acting user for team",
+            extra={"team_id": team_id, "error": str(exc)},
+        )
+        return RepoSelectionResult(repository=None, reason="No GitHub integration; report lands without a draft PR.")
+
     sandbox_env_id = await database_sync_to_async(get_or_create_signals_sandbox_env, thread_sensitive=False)(
         team_id,
         SIGNALS_REPO_DISCOVERY_ENV_NAME,
@@ -362,7 +406,10 @@ async def emit_report(
     autostart inputs (custom_agent parity): with them a surfaced, immediately-actionable report can
     open a draft PR. They're only resolved/written when the report actually surfaces."""
     _assert_team_owns_run(team, run)
-    _validate_emit_inputs(title, evidence)
+    _validate_emit_inputs(title, summary, evidence)
+    # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
+    # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
+    _normalize_repository(repository)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
@@ -380,7 +427,9 @@ async def emit_report(
 
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
     attribution = _attribution_for(task_id)
-    judgement = await judge_scout_report(team_id=team.id, signals=signals, actionability=actionability_assessment)
+    judgement = await judge_scout_report(
+        team_id=team.id, title=title, summary=summary, signals=signals, actionability=actionability_assessment
+    )
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         await _resolve_report_repository(
@@ -401,6 +450,9 @@ async def emit_report(
         repo_selection=repo_selection,
         priority=priority_assessment if surfaced else None,
         suggested_reviewers=reviewers if surfaced else None,
+        # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+        # otherwise become semantic-search / matching context despite never surfacing.
+        emit_signals=judgement.safety.choice,
         run=run,
     )
     if surfaced:
@@ -433,7 +485,10 @@ def emit_report_sync(
     report transaction, so they don't share its connection). Wrapping the whole async function instead
     would run every DB op on a separate connection, which a request's transaction can't see."""
     _assert_team_owns_run(team, run)
-    _validate_emit_inputs(title, evidence)
+    _validate_emit_inputs(title, summary, evidence)
+    # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
+    # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
+    _normalize_repository(repository)
     signals = _build_signals(evidence)
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
@@ -450,7 +505,7 @@ def emit_report_sync(
     task_id = _resolve_task_id(run)
     attribution = _attribution_for(task_id)
     judgement = async_to_sync(judge_scout_report)(
-        team_id=team.id, signals=signals, actionability=actionability_assessment
+        team_id=team.id, title=title, summary=summary, signals=signals, actionability=actionability_assessment
     )
     surfaced = _surfaced(judgement.status)
     repo_selection = (
@@ -472,6 +527,9 @@ def emit_report_sync(
         repo_selection=repo_selection,
         priority=priority_assessment if surfaced else None,
         suggested_reviewers=reviewers if surfaced else None,
+        # Don't index the backing observations of a safety-suppressed (unsafe) report — they'd
+        # otherwise become semantic-search / matching context despite never surfacing.
+        emit_signals=judgement.safety.choice,
         run=run,
     )
     if surfaced:
@@ -499,7 +557,14 @@ def _do_edit_report(
     attribution = _attribution_for(_resolve_task_id(run))
     updated_fields: list[str] = []
     if title is not None or summary is not None:
-        updated_fields = update_scout_report(team_id=team.id, report_id=report_id, title=title, summary=summary)
+        updated_fields = update_scout_report(
+            team_id=team.id,
+            report_id=report_id,
+            title=title,
+            summary=summary,
+            attribution=attribution,
+            author=run.skill_name,
+        )
     note_appended = False
     if append_note is not None:
         append_report_note(
