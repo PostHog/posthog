@@ -73,6 +73,7 @@
           ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
           ExternalDataSourceType.APIFYDATASET: ApifyDatasetSourceConfig,
           ExternalDataSourceType.APOLLO: ApolloSourceConfig,
+          ExternalDataSourceType.APPLOVIN: AppLovinSourceConfig,
           ExternalDataSourceType.APPCUES: AppcuesSourceConfig,
           ExternalDataSourceType.APPFIGURES: AppfiguresSourceConfig,
           ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,

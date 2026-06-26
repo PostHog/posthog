@@ -69,7 +69,7 @@ import {
     isTerminalRunStatus,
     INITIAL_PERMISSION_MODE,
     runStreamLogic,
-} from 'products/posthog_ai/frontend'
+} from 'products/posthog_ai/frontend/api/logics'
 import { LogEntry, parseLogEvent } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { handsFreeLogic } from './handsFreeLogic'

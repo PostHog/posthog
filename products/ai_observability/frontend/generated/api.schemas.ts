@@ -413,7 +413,10 @@ export interface ModelConfigurationApi {
     provider: LLMProviderEnumApi
     /** @maxLength 100 */
     model: string
-    /** @nullable */
+    /**
+     * Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.
+     * @nullable
+     */
     provider_key_id?: string | null
     /** @nullable */
     readonly provider_key_name: string | null
@@ -865,13 +868,13 @@ export interface LLMProviderKeyApi {
 }
 
 export interface EvaluationConfigApi {
-    /** Maximum number of llm_judge runs the team may execute on PostHog trial credits. */
+    /** Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key). */
     readonly trial_eval_limit: number
-    /** Number of llm_judge runs already consumed against the trial credit pool. */
+    /** Trial runs consumed (getting-started affordance only). */
     readonly trial_evals_used: number
-    /** Number of trial evaluation runs remaining before the team must supply its own provider key. */
+    /** Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key. */
     readonly trial_evals_remaining: number
-    /** Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits. */
+    /** Provider key used to run llm_judge evals; null if none configured yet. */
     readonly active_provider_key: LLMProviderKeyApi | null
     /** Timestamp when the evaluation config row was created. */
     readonly created_at: string
@@ -1143,7 +1146,7 @@ export interface EvaluationSummaryResponseApi {
 export interface LLMModelInfoApi {
     /** Provider-specific model identifier (e.g. 'gpt-4o-mini', 'claude-3-5-sonnet-20241022'). */
     id: string
-    /** Whether this model is available on PostHog's trial credits without bringing a provider key. */
+    /** True if the model can run without a provider key — for getting-started testing only; real evals should use the team's own key. */
     posthog_available: boolean
 }
 

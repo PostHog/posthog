@@ -1,6 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { RunViewer, type RunInteractionLogicProps, runInteractionLogic } from 'products/posthog_ai/frontend'
+import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
+import { RunViewer } from 'products/posthog_ai/frontend/api/run'
 
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 

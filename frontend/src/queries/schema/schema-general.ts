@@ -7050,6 +7050,7 @@ export const externalDataSources = [
     'Ikas',
     'Talkwalker',
     'NextdoorAds',
+    'AppLovin',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

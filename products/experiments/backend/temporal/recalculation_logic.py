@@ -26,6 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
+from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -174,10 +175,12 @@ def _update_recalculation_progress_sync(update: RecalculationProgressUpdate) -> 
         # Temporal retry of this activity can't move query_to forward (which would orphan any rows persisted by
         # calc activities still in flight from the prior attempt).
         if update.mark_started:
-            end_date = Experiment.objects.filter(id=state.experiment_id).values_list("end_date", flat=True).first()
-            proposed_query_to = timezone.now()
-            if end_date is not None:
-                proposed_query_to = min(proposed_query_to, end_date)
+            # query_to is the run's data-window end, not bare "now": for a stopped experiment
+            # experiment_window_end resolves it to end_date (a fixed value), so repeated recalcs reuse the
+            # same (fingerprint, query_to)-keyed result row instead of appending a redundant post-end
+            # timeseries point on every run. A running experiment still advances with now.
+            experiment = Experiment.objects.get(id=state.experiment_id)
+            proposed_query_to = experiment_window_end(experiment, timezone.now())
             won = (
                 ExperimentMetricsRecalculation.objects.filter(id=update.recalculation_id, query_to__isnull=True).update(
                     query_to=proposed_query_to,
@@ -493,13 +496,13 @@ def _calculate_experiment_metric_for_recalculation_sync(
         calc_started_at = time.perf_counter()
         try:
             # Metric build + query live inside the try so unexpected shapes surface as a calculation-step failure.
-            # override_end_date forces the run's shared query_to into the ClickHouse query bounds. Without it
-            # the runner falls back to its default ("now-ish"), so every metric in the run would query a
-            # slightly different time window — defeating the "one query_to for the whole run" guarantee.
+            # as_of pins the run's shared query_to as the window's evaluation instant (the runner caps it at
+            # end_date). Without it each metric defaults to its own now(), giving slightly different windows —
+            # defeating the "one query_to for the whole run" guarantee.
             runner = ExperimentQueryRunner(
                 query=ExperimentQuery(experiment_id=experiment_id, metric=build_metric(metric_dict)),
                 team=experiment.team,
-                override_end_date=query_to_dt,
+                as_of=query_to_dt,
                 workload=Workload.OFFLINE,
                 # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
                 # warehouse HogQL access control is enforced against an accountable user instead of bypassed.

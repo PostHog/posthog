@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     drop_slot_and_publication,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
+    _SSH_HANDSHAKE_EOF_ERROR,
     PostgresImplementation,
     SSLRequiredError,
     _rls_active_from_conn,
@@ -405,6 +406,18 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             "SSLRequiredError": None,
             "SSL/TLS connection is required": None,
             "Could not establish session to SSH gateway": None,
+            # paramiko raises a bare, message-less EOFError when the SSH gateway accepts the TCP
+            # connection but drops it mid-handshake (a non-SSH service on the port, the bastion
+            # refusing PostHog's IPs, a proxy resetting the stream). sshtunnel doesn't wrap it, so
+            # without translation it surfaces as an empty-message crash that matches no rule and
+            # retries forever. `postgres_source` re-raises it as `_SSH_HANDSHAKE_EOF_ERROR` — same
+            # gateway-configuration class as "Could not establish session to SSH gateway" above.
+            _SSH_HANDSHAKE_EOF_ERROR: (
+                "Could not connect to your SSH tunnel — the gateway accepted the connection but "
+                "closed it during the SSH handshake. Check that the SSH host and port point to an "
+                "SSH server (not the database port), that the bastion is running and reachable, and "
+                "that PostHog's IP addresses are allowed through its firewall, then re-enable the sync."
+            ),
             # Raised by `SSHTunnel.get_tunnel` when `is_auth_valid()` fails — the SSH tunnel private
             # key can't be parsed, or password auth is missing a username/password. The auth config
             # is fixed, so retrying just replays the same invalid credentials. The streaming path

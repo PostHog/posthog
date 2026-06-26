@@ -1169,11 +1169,11 @@ class BigQueryStorageConsumer(Consumer):
     ):
         super().__init__(model=model)
         channel = BigQueryWriteGrpcTransport.create_channel(
+            credentials=client.sync_client._credentials,
             compression=grpc.Compression.Gzip,
         )
         transport = BigQueryWriteGrpcTransport(channel=channel)
         self.write_client = bigquery_storage_v1.BigQueryWriteClient(
-            credentials=client.sync_client._credentials,
             transport=transport,
         )
         self.stream: AppendRowsStream | None = None

@@ -115,7 +115,11 @@ class ModelConfigurationSerializer(serializers.Serializer):
 
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
-    provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.",
+    )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
