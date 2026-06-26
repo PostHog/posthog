@@ -6,7 +6,7 @@ from django.utils import timezone
 
 from posthog.models import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_oauth_access_token
-from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS
+from posthog.scopes import API_SCOPE_OBJECTS, INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS, resolve_ceiling
 from posthog.utils import get_instance_region
 
 ARRAY_APP_CLIENT_ID_US = "HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W"
@@ -221,8 +221,9 @@ def create_wizard_oauth_access_token_for_user(user, team_id: int) -> str:
     wizard's scopes stay independent of the agent's. Uses the wizard app's configured scope ceiling.
     """
     app = get_wizard_app()
-    scopes = list(app.ceiling_scopes)
-    if not scopes:
+
+    ceiling = resolve_ceiling(app.ceiling_scopes)
+    if ceiling is None or len(ceiling) == 0:
         raise RuntimeError("Wizard app has no scope ceiling. Must be configured in the database.")
 
-    return _mint_oauth_access_token(user, team_id, app=app, scopes=scopes)
+    return _mint_oauth_access_token(user, team_id, app=app, scopes=sorted(ceiling))
