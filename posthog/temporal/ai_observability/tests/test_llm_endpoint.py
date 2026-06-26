@@ -31,7 +31,9 @@ class TestBuildOpenAIChatClient:
             client = build_openai_chat_client("gpt-5.4", 600.0)
 
         assert client.openai_api_base == expected_base
-        assert client.openai_api_key.get_secret_value() == expected_key
+        api_key = client.openai_api_key
+        assert api_key is not None
+        assert api_key.get_secret_value() == expected_key
         # Gateway mode injects a trust_env=False http client; direct mode uses the SDK default.
         if custom_http_client:
             assert client.http_client is not None
@@ -58,7 +60,9 @@ class TestBuildOpenAIChatClient:
             client = build_openai_chat_client("gpt-5.4", 600.0)
 
         assert client.openai_api_base is None
-        assert client.openai_api_key.get_secret_value() == "sk-direct"
+        api_key = client.openai_api_key
+        assert api_key is not None
+        assert api_key.get_secret_value() == "sk-direct"
         mock_logger.warning.assert_called_once()
         assert reason in str(mock_logger.warning.call_args)
 
