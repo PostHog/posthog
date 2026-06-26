@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import * as path from 'path'
 import { mergeConfig } from 'vite'
 
+import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin'
 import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin'
 import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin'
 
@@ -41,7 +42,7 @@ const config: StorybookConfig = {
 
     viteFinal: (viteConfig) =>
         mergeConfig(viteConfig, {
-            plugins: [tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
+            plugins: [frontendResolvePlugin(FRONTEND), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
             resolve: {
                 // Keep a single copy of these in the monorepo — duplicate React/kea
                 // instances break hooks and kea's context.
