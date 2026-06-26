@@ -22,7 +22,7 @@ export function ActionMatchGroups({ item }: { item: TaxonomicDefinitionTypes }):
     // the rows currently shown — which carries no `steps`. Hydrate it from
     // actionsModel so the match groups render instead of silently nothing.
     const partial = item as Partial<ActionType>
-    const action =
+    const action: ActionType | undefined =
         partial && Array.isArray(partial.steps)
             ? (partial as ActionType)
             : partial?.id != null
