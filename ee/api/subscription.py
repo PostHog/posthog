@@ -35,7 +35,7 @@ from posthog.constants import (
 from posthog.event_usage import groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.slo.context import SloSpec, slo_operation
@@ -429,6 +429,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+
+            if attrs.get("delivery_config", {}).get("post_all_insights_in_main_message"):
+                if SlackIntegration(integration).missing_scopes({"files:write"}):
+                    raise serializers.ValidationError(
+                        {
+                            "delivery_config": "Posting all insights in the main message requires the Slack "
+                            "'files:write' permission. Reconnect Slack to grant it."
+                        }
+                    )
 
         # delivery_config currently holds Slack-only options; reject them on non-Slack subs so the
         # API contract doesn't silently accept a value that never takes effect (mirrors integration_id).

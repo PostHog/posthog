@@ -466,7 +466,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert "does not belong to your team" in response.json()["detail"]
 
     def test_can_create_slack_subscription_with_delivery_config(self):
-        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
         response = self._create_subscription(
             target_type="slack",
             target_value="C1234|#general",
@@ -484,7 +486,9 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert "only supported for Slack subscriptions" in response.json()["detail"]
 
     def test_can_patch_delivery_config_on_slack_subscription(self):
-        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
         subscription_id = self._create_subscription(
             target_type="slack",
             target_value="C1234|#general",
@@ -496,6 +500,45 @@ class TestSubscriptionTemporal(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["delivery_config"] == {"post_all_insights_in_main_message": True}
+
+    def test_post_all_in_main_requires_files_write_scope(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "slack",
+                "target_value": "C1|#x",
+                "integration_id": integration.id,
+                "frequency": "weekly",
+                "interval": 1,
+                "insight": self.insight.id,
+                "start_date": "2026-01-01T00:00:00Z",
+                "delivery_config": {"post_all_insights_in_main_message": True},
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
+    def test_post_all_in_main_allowed_with_files_write(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
+        )
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/",
+            {
+                "target_type": "slack",
+                "target_value": "C1|#x",
+                "integration_id": integration.id,
+                "frequency": "weekly",
+                "interval": 1,
+                "insight": self.insight.id,
+                "start_date": "2026-01-01T00:00:00Z",
+                "delivery_config": {"post_all_insights_in_main_message": True},
+            },
+        )
+        assert res.status_code == status.HTTP_201_CREATED
 
     def test_cannot_create_slack_subscription_with_non_slack_integration(self):
         integration = Integration.objects.create(team=self.team, kind="hubspot", config={})
