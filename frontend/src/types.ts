@@ -5389,6 +5389,7 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    files_write_requestable?: boolean
 }
 
 export interface EmailIntegrationDomainGroupedType {

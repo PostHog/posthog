@@ -104,6 +104,14 @@ export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boole
     return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
 }
 
+// Returns whether the connected Slack integration has the files:write scope granted.
+// Used to gate the "post all insights in main message" toggle.
+export function integrationHasFilesWrite(scope: string | null | undefined): boolean {
+    return String(scope ?? '')
+        .split(',')
+        .includes('files:write')
+}
+
 export function EditSubscription(props: EditSubscriptionProps): JSX.Element {
     const { hasAvailableFeature } = useValues(userLogic)
     const isCreating = props.id === 'new'
@@ -548,22 +556,48 @@ function EditSubscriptionForm({
                                             </LemonField>
                                         )}
 
-                                        {subscription.integration_id && subscription.target_value && (
-                                            <LemonField
-                                                name={['delivery_config', 'post_all_insights_in_main_message']}
-                                                help="By default, extra insights are posted in a thread reply. Enable this to post every insight image in the main Slack message instead."
-                                            >
-                                                {({ value, onChange }) => (
-                                                    <LemonSwitch
-                                                        checked={value}
-                                                        onChange={onChange}
-                                                        bordered
-                                                        fullWidth
-                                                        label="Post all insights in the main message"
-                                                    />
-                                                )}
-                                            </LemonField>
-                                        )}
+                                        {subscription.integration_id &&
+                                            subscription.target_value &&
+                                            (() => {
+                                                const selectedIntegration = integrations?.find(
+                                                    (i) => i.id === subscription.integration_id
+                                                )
+                                                if (!selectedIntegration?.files_write_requestable) {
+                                                    return null
+                                                }
+                                                const hasFilesWrite = integrationHasFilesWrite(
+                                                    selectedIntegration.config?.scope
+                                                )
+                                                return (
+                                                    <LemonField
+                                                        name={['delivery_config', 'post_all_insights_in_main_message']}
+                                                        help="Posts every insight as a grouped image gallery in the main Slack message."
+                                                    >
+                                                        {({ value, onChange }) => (
+                                                            <>
+                                                                <LemonSwitch
+                                                                    checked={value && hasFilesWrite}
+                                                                    onChange={onChange}
+                                                                    disabledReason={
+                                                                        !hasFilesWrite
+                                                                            ? 'Reconnect Slack to grant image-upload (files:write) permission'
+                                                                            : undefined
+                                                                    }
+                                                                    bordered
+                                                                    fullWidth
+                                                                    label="Post all insights in the main message"
+                                                                />
+                                                                {value && !hasFilesWrite && (
+                                                                    <LemonBanner type="warning">
+                                                                        To post insights as a grouped gallery, reconnect
+                                                                        Slack with the image-upload permission.
+                                                                    </LemonBanner>
+                                                                )}
+                                                            </>
+                                                        )}
+                                                    </LemonField>
+                                                )
+                                            })()}
                                     </>
                                 )}
                             </>

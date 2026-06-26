@@ -26449,6 +26449,8 @@ export namespace Schemas {
       readonly created_by: UserBasic;
       readonly errors: string;
       readonly display_name: string;
+      /** Slack only: whether the app currently requests the files:write scope in this environment. */
+      readonly files_write_requestable: boolean;
     }
 
     export interface RecommendedAction {
@@ -36957,6 +36959,8 @@ export namespace Schemas {
       readonly created_by?: UserBasic;
       readonly errors?: string;
       readonly display_name?: string;
+      /** Slack only: whether the app currently requests the files:write scope in this environment. */
+      readonly files_write_requestable?: boolean;
     }
 
     export interface PatchedIntervieweeContext {

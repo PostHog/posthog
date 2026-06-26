@@ -23,6 +23,7 @@ from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    POSTHOG_SLACK_SCOPE,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     EmailIntegration,
@@ -3813,3 +3814,25 @@ class TestGoogleSearchConsoleSitesEndpoint:
         response = client.get(self._url(integration.id))
 
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+
+
+class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
+    def test_slack_integration_exposes_files_write_requestable(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": "chat:write"})
+        res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+        assert "files_write_requestable" in res.json()
+
+    def test_non_slack_integration_returns_files_write_requestable_false(self):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="github",
+            config={"installation_id": "12345"},
+        )
+        res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+        assert res.json()["files_write_requestable"] is False
+
+    def test_slack_integration_files_write_requestable_reflects_scope(self):
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": "chat:write"})
+        res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
+        expected = "files:write" in POSTHOG_SLACK_SCOPE
+        assert res.json()["files_write_requestable"] is expected
