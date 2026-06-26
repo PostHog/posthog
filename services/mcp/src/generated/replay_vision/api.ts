@@ -304,6 +304,10 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .describe(
             'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
         ),
+    recording_subject: zod
+        .string()
+        .optional()
+        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()

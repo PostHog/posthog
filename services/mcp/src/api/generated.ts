@@ -32146,6 +32146,26 @@ export namespace Schemas {
       readonly triggered_by: ObservationTriggerEnum;
       /** User who triggered an on-demand observation; null for scheduled observations. */
       readonly triggered_by_user: UserBasic | null;
+      /**
+         * Distinct id of the person in the recorded session (the subject being watched); null if unknown.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
+         * Email of the person in the recorded session (the subject being watched, not the user who triggered the observation), captured at scan time. Null when the session had no identified person.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Id of the newer sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the start.
+         * @nullable
+         */
+      readonly previous_observation_id: string | null;
+      /**
+         * Id of the older sibling observation for the same scanner (prev/next nav); only set on retrieve, null at the end.
+         * @nullable
+         */
+      readonly next_observation_id: string | null;
       /** @nullable */
       started_at?: string | null;
       /** @nullable */
@@ -58316,6 +58336,10 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
@@ -58342,6 +58366,10 @@ export namespace Schemas {
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
     /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
@@ -65600,6 +65628,10 @@ export namespace Schemas {
      */
     order_by?: string;
     /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
+    /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
     session_id?: string;
@@ -65626,6 +65658,10 @@ export namespace Schemas {
      * Window size in days for the coverage `recent_sessions` count. Clamped to [1, 365]. Defaults to 14 when omitted.
      */
     recent_days?: number;
+    /**
+     * Filter to observations whose recording subject email contains this value (case-insensitive).
+     */
+    recording_subject?: string;
     /**
      * Filter to observations of one or more session recordings. Accepts a comma-separated list.
      */
