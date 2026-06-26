@@ -67,14 +67,10 @@ pub struct Config {
     #[envconfig(from = "RECENT_IDS_TTL_SECONDS", default = "604800")]
     pub recent_ids_ttl_seconds: i64,
 
-    // Optional region/endpoint overrides for the DynamoDB client. Region falls back to
-    // the standard AWS provider chain when unset; endpoint is for pointing at a local
-    // DynamoDB / LocalStack in tests and is unset in production.
+    // Optional region override for the DynamoDB client. Falls back to the standard AWS
+    // provider chain when unset.
     #[envconfig(from = "RECENT_IDS_AWS_REGION")]
     pub aws_region: Option<String>,
-
-    #[envconfig(from = "RECENT_IDS_DYNAMODB_ENDPOINT")]
-    pub dynamodb_endpoint: Option<String>,
 }
 
 impl Config {
