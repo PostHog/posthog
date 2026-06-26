@@ -3,6 +3,8 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db import transaction
+
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -112,11 +114,13 @@ def _register_companion_sync(
     db_columns = {key: str(column.get("clickhouse", "")) for key, column in raw_db_columns.items()}
     existing_columns = companion_table.columns or {}
     columns = merge_columns(db_columns, table_schema_dict or {}, existing_columns)
-    companion_table.columns = columns
-    companion_table.save()
 
-    if set_as_schema_table:
-        ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)
+    with transaction.atomic():
+        companion_table.columns = columns
+        companion_table.save(update_fields=["columns"])
+
+        if set_as_schema_table:
+            ExternalDataSchema.objects.filter(id=schema_id, team_id=team_id).update(table=companion_table)
 
 
 class TestRegisterCDCCompanionTable(BaseTest):
