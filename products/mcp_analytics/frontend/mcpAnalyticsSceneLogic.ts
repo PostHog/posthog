@@ -1,7 +1,14 @@
-import { connect, kea, path, selectors } from 'kea'
+import { connect, kea, listeners, path, selectors } from 'kea'
+import { router } from 'kea-router'
 
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
+
+import { ProductKey } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
+import { OnboardingStepKey } from '~/types'
 
+import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import type { mcpAnalyticsSceneLogicType } from './mcpAnalyticsSceneLogicType'
 
 export type MCPAnalyticsTab = 'dashboard' | 'sessions' | 'tool-quality' | 'intent-clustering'
@@ -24,7 +31,14 @@ const SCENE_KEY_TO_TAB: Record<string, MCPAnalyticsTab> = {
 export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpAnalyticsSceneLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneKey']],
+        values: [
+            sceneLogic,
+            ['sceneKey'],
+            mcpAnalyticsOnboardingLogic,
+            ['onboardingState'],
+            teamLogic,
+            ['currentTeam'],
+        ],
     })),
     selectors({
         activeTab: [
@@ -32,4 +46,18 @@ export const mcpAnalyticsSceneLogic = kea<mcpAnalyticsSceneLogicType>([
             (sceneKey: string): MCPAnalyticsTab => SCENE_KEY_TO_TAB[sceneKey] ?? 'dashboard',
         ],
     }),
+    listeners(({ values }) => ({
+        // Send never-set-up projects straight into the polished onboarding flow,
+        // rather than the bare in-scene card. Guarded on `has_completed_onboarding_for`
+        // so the post-onboarding return to the dashboard doesn't bounce back here —
+        // once they've been through setup we let the in-scene "waiting" state show.
+        [mcpAnalyticsOnboardingLogic.actionTypes.loadSignalsSuccess]: () => {
+            const completed = values.currentTeam?.has_completed_onboarding_for?.[ProductKey.MCP_ANALYTICS]
+            if (values.onboardingState === 'not-instrumented' && !completed) {
+                router.actions.replace(
+                    urls.onboarding({ productKey: ProductKey.MCP_ANALYTICS, stepKey: OnboardingStepKey.INSTALL })
+                )
+            }
+        },
+    })),
 ])

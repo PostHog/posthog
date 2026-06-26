@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { router, combineUrl } from 'kea-router'
 
-import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
@@ -11,6 +11,8 @@ import { SceneExport } from '~/scenes/sceneTypes'
 
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
+import { MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
+import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
@@ -25,6 +27,7 @@ const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 export function MCPAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
+    const { onboardingState, signals, signalsLoading } = useValues(mcpAnalyticsOnboardingLogic)
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
@@ -69,7 +72,13 @@ export function MCPAnalyticsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
+            {signalsLoading && signals === null ? (
+                <LemonSkeleton className="h-64 w-full" />
+            ) : onboardingState && onboardingState !== 'onboarded' ? (
+                <MCPAnalyticsOnboarding state={onboardingState} />
+            ) : (
+                <LemonTabs activeKey={activeTab} data-attr="mcp-analytics-tabs" tabs={tabs} sceneInset />
+            )}
         </SceneContent>
     )
 }
