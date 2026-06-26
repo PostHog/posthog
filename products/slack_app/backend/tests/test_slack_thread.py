@@ -42,7 +42,9 @@ class TestSlackThreadHandler(TestCase):
         )
         handler = SlackThreadHandler(context)
 
-        handler.post_or_update_progress("In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz")
+        handler.post_or_update_progress(
+            "In progress...", task_url="https://us.posthog.com/project/1/tasks/abc?runId=xyz"
+        )
 
         mock_client.chat_postMessage.assert_called_once()
         blocks = mock_client.chat_postMessage.call_args.kwargs["blocks"]
