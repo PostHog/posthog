@@ -26,7 +26,6 @@ from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 
