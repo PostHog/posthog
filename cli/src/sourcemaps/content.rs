@@ -285,6 +285,40 @@ impl MinifiedSourceFile {
         None
     }
 
+    /// Remove the `//# sourceMappingURL=` (or `//@ sourceMappingURL=`) comment
+    /// from the end of the JS file and write the result back to disk.
+    ///
+    /// Used with `--delete-after` so that browsers don't see 404s from
+    /// references to map files that have already been removed.
+    pub fn strip_sourcemap_reference(&mut self) -> Result<()> {
+        let patterns = ["//# sourceMappingURL=", "//@ sourceMappingURL="];
+        let new_content = self
+            .inner
+            .content
+            .lines()
+            .rev()
+            .skip_while(|line| {
+                patterns
+                    .iter()
+                    .any(|p| line.trim_start().starts_with(p))
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        // Preserve a trailing newline if the original had one
+        let new_content = if self.inner.content.ends_with('\n') {
+            format!("{new_content}\n")
+        } else {
+            new_content
+        };
+
+        self.inner.content = new_content;
+        self.inner.save(None)
+    }
+
     pub fn remove_chunk_id(&mut self, chunk_id: String) -> Result<SourceMap> {
         let (new_source_content, source_adjustment) = {
             // Update source content with chunk ID

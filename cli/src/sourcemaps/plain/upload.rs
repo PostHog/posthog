@@ -1,4 +1,4 @@
-use std::time::Instant;
+use std::{path::PathBuf, time::Instant};
 
 use anyhow::{Context, Result};
 use serde_json::json;
@@ -19,12 +19,26 @@ use crate::{
     invocation_context::context,
     sourcemaps::{
         args::{FileSelectionArgs, ReleaseArgs, UploadConflictArgs},
+        content::MinifiedSourceFile,
         inject::get_release_for_maps,
         plain::inject::is_javascript_file,
         source_pairs::read_pairs,
     },
     utils::files::{delete_files, FileSelection},
 };
+
+fn strip_sourcemap_references(paths: Vec<PathBuf>) -> Result<()> {
+    for path in paths {
+        if !path.exists() {
+            continue;
+        }
+        let mut file = MinifiedSourceFile::load(&path)
+            .with_context(|| format!("Failed to load {}", path.display()))?;
+        file.strip_sourcemap_reference()
+            .with_context(|| format!("Failed to strip sourceMappingURL from {}", path.display()))?;
+    }
+    Ok(())
+}
 
 #[derive(clap::Args, Clone)]
 pub struct Args {
@@ -73,6 +87,11 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
     let sourcemap_paths = pairs
         .iter()
         .map(|pair| pair.sourcemap.inner.path.clone())
+        .collect::<Vec<_>>();
+
+    let source_paths = pairs
+        .iter()
+        .map(|pair| pair.source.inner.path.clone())
         .collect::<Vec<_>>();
     info!("Found {} chunks to upload", pairs.len());
 
@@ -166,6 +185,8 @@ pub fn upload(args: &Args, existing_release: Option<&Release>) -> Result<()> {
 
     if args.delete_after {
         delete_files(sourcemap_paths).context("While deleting sourcemaps")?;
+        strip_sourcemap_references(source_paths)
+            .context("While stripping sourceMappingURL comments")?;
     }
 
     Ok(())
