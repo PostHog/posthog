@@ -2150,14 +2150,14 @@ class TestGitHubTeamIntegrationComplete:
 
     def test_github_error_redirects_with_setup_error(self, client: HttpClient):
         client.force_login(self.user)
-        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        next_path = f"/project/{self.team.pk}/integrations/github"
         store_unified_authorize_state(
             GitHubAuthorizeState(
                 token="t",
                 flow=FlowKind.TEAM_INSTALL,
                 user_id=self.user.id,
                 team_id=self.team.pk,
-                next_url=next_path or None,
+                next_url=next_path,
             ),
         )
 
@@ -2165,7 +2165,7 @@ class TestGitHubTeamIntegrationComplete:
 
         assert response.status_code == status.HTTP_302_FOUND
         assert "github_setup_error=access_denied" in response["Location"]
-        assert f"project/{self.team.pk}/settings/project-integrations" in response["Location"]
+        assert next_path in response["Location"]
 
     @override_settings(GITHUB_APP_CLIENT_ID="client_id", SITE_URL="https://us.posthog.com")
     def test_team_install_via_oauth_callback_routes_to_team_not_personal(self, client: HttpClient):
@@ -2203,14 +2203,14 @@ class TestGitHubTeamIntegrationComplete:
 
     def test_missing_installation_id_redirects_pending(self, client: HttpClient):
         client.force_login(self.user)
-        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        next_path = f"/project/{self.team.pk}/integrations/github"
         store_unified_authorize_state(
             GitHubAuthorizeState(
                 token="t",
                 flow=FlowKind.TEAM_INSTALL,
                 user_id=self.user.id,
                 team_id=self.team.pk,
-                next_url=next_path or None,
+                next_url=next_path,
             ),
         )
 
@@ -2271,7 +2271,7 @@ class TestGitHubTeamIntegrationComplete:
 
         # No valid authorize state — the member supplies the team via the user-controlled `state` `next`,
         # which resolves team_id purely from the path. Membership alone must not let them complete it.
-        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        next_path = f"/project/{self.team.pk}/integrations/github"
         response = client.get(
             "/integrations/github/callback/",
             {
@@ -2385,9 +2385,7 @@ class TestGitHubTeamIntegrationComplete:
         # flow-based routing the forged `next` would otherwise reach team setup and pass its admin gate.
         client.force_login(self.user)
         state_token = "personal-install-token"
-        forged_state = urlencode(
-            {"token": state_token, "next": f"/project/{self.team.pk}/settings/project-integrations"}
-        )
+        forged_state = urlencode({"token": state_token, "next": f"/project/{self.team.pk}/integrations/github"})
         store_unified_authorize_state(
             GitHubAuthorizeState(token=state_token, flow=FlowKind.PERSONAL_INSTALL, user_id=self.user.id),
         )
@@ -2479,7 +2477,7 @@ class TestGitHubTeamIntegrationComplete:
         )
 
         assert response.status_code == status.HTTP_302_FOUND
-        assert f"project/{self.team.pk}/settings/project-integrations" in response["Location"]
+        assert f"project/{self.team.pk}/integrations/github" in response["Location"]
         assert "integration_id=" in response["Location"]
         assert "github_setup_error" not in response["Location"]
         mock_refresh.assert_called_once_with("12345", self.team.pk, self.user)
@@ -2576,14 +2574,14 @@ class TestGitHubTeamIntegrationComplete:
 
     def test_install_callback_without_state_redirects_invalid_state(self, client: HttpClient):
         client.force_login(self.user)
-        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        next_path = f"/project/{self.team.pk}/integrations/github"
         store_unified_authorize_state(
             GitHubAuthorizeState(
                 token="valid-token",
                 flow=FlowKind.TEAM_INSTALL,
                 user_id=self.user.id,
                 team_id=self.team.pk,
-                next_url=next_path or None,
+                next_url=next_path,
             ),
         )
 
@@ -2599,7 +2597,7 @@ class TestGitHubTeamIntegrationComplete:
     def test_orphan_installation_update_redirects_to_oauth(self, mock_build_oauth_url, client: HttpClient):
         mock_build_oauth_url.return_value = "https://github.com/login/oauth/authorize?client_id=test"
         client.force_login(self.user)
-        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        next_path = f"/project/{self.team.pk}/integrations/github"
         state_token = "orphan-token"
         store_unified_authorize_state(
             GitHubAuthorizeState(
@@ -2607,7 +2605,7 @@ class TestGitHubTeamIntegrationComplete:
                 flow=FlowKind.TEAM_INSTALL,
                 user_id=self.user.id,
                 team_id=self.team.pk,
-                next_url=next_path or None,
+                next_url=next_path,
             ),
         )
 
@@ -2631,7 +2629,7 @@ class TestGitHubTeamIntegrationComplete:
         attacker = User.objects.create_and_join(
             self.organization, "attacker@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
         )
-        next_path = f"/project/{self.team.pk}/settings/project-integrations"
+        next_path = f"/project/{self.team.pk}/integrations/github"
         state_token = "victim-token"
         store_unified_authorize_state(
             GitHubAuthorizeState(
@@ -2639,7 +2637,7 @@ class TestGitHubTeamIntegrationComplete:
                 flow=FlowKind.TEAM_INSTALL,
                 user_id=self.user.id,
                 team_id=self.team.pk,
-                next_url=next_path or None,
+                next_url=next_path,
             ),
         )
 
