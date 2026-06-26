@@ -10,6 +10,10 @@ use crate::{
     HogLiteral, HogValue,
 };
 
+/// Function names that always suspend, mirroring the reference VM's `ASYNC_STL`. These are async
+/// regardless of host configuration; `with_async_functions` registers additional ones.
+const BUILTIN_ASYNC_FNS: &[&str] = &["sleep"];
+
 /// The read-only context for the virtual machine.
 pub struct ExecutionContext {
     program: Program,
@@ -35,6 +39,9 @@ pub struct ExecutionContext {
     // How many async suspensions a single run may take before the VM errors instead of suspending
     // (the reference VM's `maxAsyncSteps`). Default 0: no async allowed (matches the sync consumers).
     pub(crate) max_async_steps: usize,
+    // When set, the VM records a per-opcode execution trace (the reference's `telemetry`), surfaced
+    // in the snapshot for the playground/debugger. Off by default (it has a per-step cost).
+    pub(crate) collect_telemetry: bool,
 }
 
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
@@ -64,6 +71,7 @@ impl ExecutionContext {
             symbol_table: HashMap::new(),
             async_fns: HashSet::new(),
             max_async_steps: 0,
+            collect_telemetry: false,
         }
         .with_modules(&modules)
     }
@@ -123,8 +131,16 @@ impl ExecutionContext {
         self
     }
 
+    /// Opt into per-opcode telemetry (the reference's execution trace), surfaced in the snapshot.
+    pub fn with_telemetry(mut self) -> Self {
+        self.collect_telemetry = true;
+        self
+    }
+
     pub fn is_async(&self, name: &str) -> bool {
-        self.async_fns.contains(name)
+        // The reference's `ASYNC_STL` (currently just `sleep`) is always async, regardless of the
+        // host-registered `asyncFunctions`. Host registrations are additive on top.
+        BUILTIN_ASYNC_FNS.contains(&name) || self.async_fns.contains(name)
     }
 
     pub fn with_max_stack_depth(mut self, max_stack_depth: usize) -> Self {
@@ -206,6 +222,17 @@ impl ExecutionContext {
 
     pub fn version(&self) -> u64 {
         self.program.version()
+    }
+
+    /// The root program's full bytecode (header included), for a snapshot's `bytecodes.root`.
+    pub fn program_tokens(&self) -> &[JsonValue] {
+        self.program.tokens()
+    }
+
+    /// Header-token count of the root program — the offset between our body-relative `ip` and the
+    /// reference VM's header-inclusive per-frame `ip` for the root chunk.
+    pub fn program_header_len(&self) -> usize {
+        self.program.header_len()
     }
 }
 

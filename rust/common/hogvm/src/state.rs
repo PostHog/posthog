@@ -1,21 +1,19 @@
 //! Suspend/resume state serialization — the async-coroutine half of Node-VM parity.
 //!
 //! The reference VM (`@posthog/hogvm`) is a suspendable coroutine: when a program calls a registered
-//! async function (`fetch`, `email`, …) it returns a fully-serializable `VMState`; the host performs
-//! the side effect out-of-band (often across a queue) and resumes by re-entering with that state.
-//! CDP hog functions (destinations) depend on this. This module is the Rust equivalent: snapshot the
-//! live [`crate::vm::HogVM`] to a JSON-serializable [`VmSnapshot`] and rehydrate it.
+//! async function (`fetch`, `email`, `sleep`) it returns a fully-serializable `VMState`; the host
+//! performs the side effect out-of-band (often across a queue) and resumes by re-entering with that
+//! state. CDP hog functions (destinations) depend on this. This module snapshots the live
+//! [`crate::vm::HogVM`] to a [`VmSnapshot`] whose JSON is **byte-compatible with the reference's
+//! `VMState`**, so the two VMs can resume each other's states during migration.
 //!
-//! The encoding mirrors the reference's value shapes so the two can interoperate during migration:
-//!   - the heap is flattened — `HogValue::Ref`s are resolved inline, exactly as the reference stores
-//!     arrays/objects directly (JSON can't represent sharing anyway, except upvalues),
+//! Shape decisions that mirror the reference:
+//!   - the heap is flattened (`HogValue::Ref`s resolved inline; JSON can't share anyway),
 //!   - closures serialize as `{__hogClosure__, callable, upvalues: [id…]}`,
-//!   - upvalues serialize as a flat `__hogUpValue__[]` keyed by `id`; the open/close sharing of
-//!     Rust's `Rc<RefCell<Upvalue>>` graph is reconstructed from those ids on resume.
-//!
-//! Frame-level state (the call stack) is serialized in Rust-native form for now; see [`FrameJson`]
-//! for the exact mapping required to reach byte-compatibility with the reference's per-frame
-//! `{closure, ip, chunk}` layout.
+//!   - upvalues are a flat `__hogUpValue__[]` keyed by `id` and **sorted by location** (the
+//!     reference keeps `sortedUpValues` sorted so its capture early-break stays correct on resume),
+//!   - the call stack carries a per-frame `{closure, ip, chunk, stackStart, argCount}` with an
+//!     explicit root frame, and `ip` is header-inclusive for the root chunk (see [`VmSnapshot`]).
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,25 +28,34 @@ use crate::error::VmError;
 use crate::memory::VmHeap;
 use crate::values::{Callable, Closure, HogLiteral, HogValue, LocalCallable, Upvalue, UpvalueCell};
 
-/// A serializable snapshot of a suspended VM. The program/STL live in the `ExecutionContext`, which
-/// the host re-supplies on resume, so they are not part of the snapshot (the reference keeps
-/// `bytecodes` here for wire transport; resuming against a known context makes that redundant).
+/// A snapshot of a suspended VM, serializing to the reference VM's `VMState` JSON. Field names match
+/// the reference (camelCase) so a state produced here can be resumed by Node and vice versa.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VmSnapshot {
+    /// The chunk map — `{ "root": { "bytecode": [...], "globals": {...} } }`. Carried for wire
+    /// compatibility; Rust resume ignores it and uses the supplied `ExecutionContext` instead.
+    pub bytecodes: JsonValue,
     /// The value stack, heap flattened, in reference value shapes.
     pub stack: Vec<JsonValue>,
-    /// Hoisted upvalues, flat and keyed by `id`; closures reference these ids.
+    /// Hoisted upvalues, flat, sorted by location, each carrying its `id`; closures reference ids.
     pub upvalues: Vec<UpvalueJson>,
-    /// The call stack (Rust-native form — see [`FrameJson`]).
-    pub call_stack: Vec<FrameJson>,
-    /// The try/catch stack.
-    pub throw_stack: Vec<ThrowJson>,
-    /// Instruction pointer of the active frame.
-    pub ip: usize,
-    /// The module the active frame is executing in (`None` == root program).
-    pub chunk: Option<SymbolJson>,
-    /// How many async suspensions have happened so far this run.
+    /// The call stack, root frame first, active frame last (never empty).
+    #[serde(rename = "callStack")]
+    pub call_stack: Vec<CallFrameJson>,
+    #[serde(rename = "throwStack")]
+    pub throw_stack: Vec<ThrowFrameJson>,
+    /// Deprecated reference field; always empty here.
+    #[serde(rename = "declaredFunctions")]
+    pub declared_functions: JsonValue,
+    pub ops: usize,
+    #[serde(rename = "asyncSteps")]
     pub async_steps: usize,
+    #[serde(rename = "syncDuration")]
+    pub sync_duration: u64,
+    #[serde(rename = "maxMemUsed")]
+    pub max_mem_used: usize,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub telemetry: Option<Vec<JsonValue>>,
 }
 
 /// One hoisted upvalue. `closed` upvalues own their `value`; open ones read through `location` into
@@ -63,46 +70,28 @@ pub struct UpvalueJson {
     pub value: JsonValue,
 }
 
-/// A call frame. Rust drives a single live `ip` plus a `ret_ptr` per pushed frame, whereas the
-/// reference stores an `ip` (and full `closure`) in *every* frame including the active one. Mapping
-/// to the reference layout means: the active reference frame's `ip` is the VM's live `ip`; each
-/// parent reference frame's `ip` is the `ret_ptr` of the frame below it; and each frame's `closure`
-/// must be reconstructed from `captures` + the callable metadata. That remap is the remaining step
-/// for full wire-compatibility; the Rust-native form here round-trips losslessly within Rust.
+/// A call frame in the reference's layout: the `closure` running in this frame, its current `ip`
+/// (header-inclusive for the root chunk), the `chunk` (module) it runs in, where its stack window
+/// starts, and how many args it was called with.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FrameJson {
-    pub ret_ptr: usize,
-    pub ret_chunk: Option<SymbolJson>,
+pub struct CallFrameJson {
+    pub closure: JsonValue,
+    pub ip: usize,
+    pub chunk: String,
+    #[serde(rename = "stackStart")]
     pub stack_start: usize,
-    /// Ids (into `upvalues`) of the cells this frame captured from its parent scope.
-    pub captures: Vec<usize>,
+    #[serde(rename = "argCount")]
+    pub arg_count: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ThrowJson {
-    pub catch_ptr: usize,
-    pub catch_chunk: Option<SymbolJson>,
-    pub stack_start: usize,
-    pub call_depth: usize,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SymbolJson {
-    pub module: String,
-    pub name: String,
-}
-
-impl SymbolJson {
-    pub fn of(symbol: &Option<Symbol>) -> Option<Self> {
-        symbol.as_ref().map(|s| SymbolJson {
-            module: s.module.clone(),
-            name: s.name.clone(),
-        })
-    }
-
-    pub fn to_symbol(opt: &Option<SymbolJson>) -> Option<Symbol> {
-        opt.as_ref().map(|s| Symbol::new(&s.module, &s.name))
-    }
+pub struct ThrowFrameJson {
+    #[serde(rename = "callStackLen")]
+    pub call_stack_len: usize,
+    #[serde(rename = "stackLen")]
+    pub stack_len: usize,
+    #[serde(rename = "catchIp")]
+    pub catch_ip: usize,
 }
 
 /// The result of driving a resumable execution: either the program finished, or it suspended on an
@@ -113,12 +102,13 @@ pub enum Resumable {
     Suspended {
         function: String,
         args: Vec<JsonValue>,
-        state: VmSnapshot,
+        // Boxed: the snapshot is much larger than the `Finished` variant, so keep the enum small.
+        state: Box<VmSnapshot>,
     },
 }
 
 /// Interns `UpvalueCell`s by pointer identity so the shared `Rc<RefCell<Upvalue>>` graph serializes
-/// to stable ids (mirroring the reference's `HogUpValue.id`).
+/// to stable ids (mirroring the reference's `HogUpValue.id`). Ids are assigned in intern order.
 #[derive(Default)]
 pub struct CellRegistry {
     by_ptr: HashMap<usize, usize>,
@@ -142,11 +132,23 @@ impl CellRegistry {
     }
 }
 
-fn chunk_string(symbol: &Option<Symbol>) -> JsonValue {
+// ---- chunk <-> symbol -------------------------------------------------------------------------
+
+/// Render a module as a reference chunk name: `None` (the top-level program) is `"root"`; an STL or
+/// imported module symbol is `"module/name"`.
+pub fn chunk_str(symbol: &Option<Symbol>) -> String {
     match symbol {
-        Some(s) => json!(format!("{}/{}", s.module, s.name)),
-        None => json!("root"),
+        None => "root".to_string(),
+        Some(s) => format!("{}/{}", s.module, s.name),
     }
+}
+
+/// Inverse of [`chunk_str`].
+pub fn chunk_to_symbol(chunk: &str) -> Option<Symbol> {
+    if chunk == "root" {
+        return None;
+    }
+    chunk.split_once('/').map(|(m, n)| Symbol::new(m, n))
 }
 
 // ---- serialize: HogValue -> reference-shaped JSON --------------------------------------------
@@ -223,8 +225,8 @@ pub fn value_to_json(
             for item in items {
                 out.push(value_to_json(item, heap, registry)?);
             }
-            // Reference duck-types tuples as arrays with a marker; keep a marker so restore can
-            // distinguish them from plain arrays (tuple `typeof` and `(a, b)` printing depend on it).
+            // The reference duck-types tuples as arrays with a marker; keep one so restore can tell
+            // them apart (tuple `typeof` and `(a, b)` printing depend on it).
             json!({ "__hogTuple__": true, "items": out })
         }
         HogLiteral::Object(map) => {
@@ -235,18 +237,20 @@ pub fn value_to_json(
             JsonValue::Object(out)
         }
         HogLiteral::Callable(callable) => callable_to_json(callable),
-        HogLiteral::Closure(closure) => {
-            let ids: Vec<usize> = closure
-                .captures
-                .iter()
-                .map(|cell| registry.intern(cell))
-                .collect();
-            json!({
-                "__hogClosure__": true,
-                "callable": callable_to_json(&closure.callable),
-                "upvalues": ids,
-            })
-        }
+        HogLiteral::Closure(closure) => closure_to_json(closure, registry),
+    })
+}
+
+pub fn closure_to_json(closure: &Closure, registry: &mut CellRegistry) -> JsonValue {
+    let ids: Vec<usize> = closure
+        .captures
+        .iter()
+        .map(|cell| registry.intern(cell))
+        .collect();
+    json!({
+        "__hogClosure__": true,
+        "callable": callable_to_json(&closure.callable),
+        "upvalues": ids,
     })
 }
 
@@ -258,7 +262,7 @@ fn callable_to_json(callable: &Callable) -> JsonValue {
             "argCount": lc.stack_arg_count,
             "upvalueCount": lc.capture_count,
             "ip": lc.ip,
-            "chunk": chunk_string(&lc.symbol),
+            "chunk": chunk_str(&lc.symbol),
         }),
         Callable::Stl(name) => json!({
             "__hogCallable__": "stl",
@@ -271,14 +275,30 @@ fn callable_to_json(callable: &Callable) -> JsonValue {
     }
 }
 
+/// The reference's synthetic root-frame closure (an empty local callable in chunk `root`).
+pub fn root_closure_json() -> JsonValue {
+    json!({
+        "__hogClosure__": true,
+        "callable": {
+            "__hogCallable__": "local",
+            "name": "",
+            "argCount": 0,
+            "upvalueCount": 0,
+            "ip": 1,
+            "chunk": "root",
+        },
+        "upvalues": [],
+    })
+}
+
 // ---- deserialize: reference-shaped JSON -> HogValue ------------------------------------------
 
 /// Rebuild a value, re-emplacing containers into `heap` and resolving closure captures against the
-/// already-created `cells`.
+/// already-created `cells` (keyed by id).
 pub fn value_from_json(
     json: &JsonValue,
     heap: &mut VmHeap,
-    cells: &[UpvalueCell],
+    cells: &HashMap<usize, UpvalueCell>,
 ) -> Result<HogValue, VmError> {
     match json {
         JsonValue::Null => Ok(HogLiteral::Null.into()),
@@ -299,26 +319,12 @@ pub fn value_from_json(
 fn object_from_json(
     map: &serde_json::Map<String, JsonValue>,
     heap: &mut VmHeap,
-    cells: &[UpvalueCell],
+    cells: &HashMap<usize, UpvalueCell>,
 ) -> Result<HogValue, VmError> {
     if map.contains_key("__hogClosure__") {
-        let callable = callable_from_json(&map["callable"])?;
-        let ids = map
-            .get("upvalues")
-            .and_then(|v| v.as_array())
-            .ok_or_else(|| VmError::Other("closure missing upvalues".to_string()))?;
-        let mut captures = Vec::with_capacity(ids.len());
-        for id in ids {
-            let id = id
-                .as_u64()
-                .ok_or_else(|| VmError::Other("bad upvalue id".to_string()))?
-                as usize;
-            let cell = cells
-                .get(id)
-                .ok_or_else(|| VmError::Other(format!("upvalue id {id} out of range")))?;
-            captures.push(cell.clone());
-        }
-        return Ok(HogLiteral::Closure(Closure { captures, callable }).into());
+        return Ok(
+            HogLiteral::Closure(closure_from_json(&JsonValue::Object(map.clone()), cells)?).into(),
+        );
     }
     if map.contains_key("__hogCallable__") {
         return Ok(
@@ -345,6 +351,31 @@ fn object_from_json(
     Ok(heap.emplace(HogLiteral::Object(out))?.into())
 }
 
+pub fn closure_from_json(
+    json: &JsonValue,
+    cells: &HashMap<usize, UpvalueCell>,
+) -> Result<Closure, VmError> {
+    let callable = callable_from_json(
+        json.get("callable")
+            .ok_or_else(|| VmError::Other("closure missing callable".to_string()))?,
+    )?;
+    let ids = json
+        .get("upvalues")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| VmError::Other("closure missing upvalues".to_string()))?;
+    let mut captures = Vec::with_capacity(ids.len());
+    for id in ids {
+        let id = id
+            .as_u64()
+            .ok_or_else(|| VmError::Other("bad upvalue id".to_string()))? as usize;
+        let cell = cells
+            .get(&id)
+            .ok_or_else(|| VmError::Other(format!("upvalue id {id} not found")))?;
+        captures.push(cell.clone());
+    }
+    Ok(Closure { captures, callable })
+}
+
 fn callable_from_json(json: &JsonValue) -> Result<Callable, VmError> {
     let kind = json
         .get("__hogCallable__")
@@ -353,46 +384,39 @@ fn callable_from_json(json: &JsonValue) -> Result<Callable, VmError> {
     match kind {
         "stl" => Ok(Callable::Stl(str_field(json, "name")?)),
         _ => {
-            let chunk = json.get("chunk").and_then(|v| v.as_str());
-            let symbol = chunk.and_then(|c| {
-                if c == "root" {
-                    None
-                } else {
-                    c.split_once('/').map(|(m, n)| Symbol::new(m, n))
-                }
-            });
+            let chunk = json.get("chunk").and_then(|v| v.as_str()).unwrap_or("root");
             Ok(Callable::Local(LocalCallable {
                 name: str_field(json, "name")?,
                 stack_arg_count: usize_field(json, "argCount")?,
                 capture_count: usize_field(json, "upvalueCount")?,
                 ip: usize_field(json, "ip")?,
-                symbol,
+                symbol: chunk_to_symbol(chunk),
             }))
         }
     }
 }
 
-/// Build the flat upvalue cells from the snapshot in two passes: create empty cells first (so closure
-/// captures can resolve by id), then fill each closed cell's owned value.
+/// Build the flat upvalue cells from the snapshot, keyed by id, in two passes: create empty cells
+/// first (so closure captures resolve by id), then fill each closed cell's owned value.
 pub fn rebuild_cells(
     upvalues: &[UpvalueJson],
     heap: &mut VmHeap,
-) -> Result<Vec<UpvalueCell>, VmError> {
-    let cells: Vec<UpvalueCell> = upvalues
-        .iter()
-        .map(|uv| {
+) -> Result<HashMap<usize, UpvalueCell>, VmError> {
+    let mut cells: HashMap<usize, UpvalueCell> = HashMap::with_capacity(upvalues.len());
+    for uv in upvalues {
+        cells.insert(
+            uv.id,
             Rc::new(RefCell::new(Upvalue {
                 location: uv.location,
                 closed: uv.closed,
                 value: None,
-            }))
-        })
-        .collect();
-
-    for (uv, cell) in upvalues.iter().zip(cells.iter()) {
+            })),
+        );
+    }
+    for uv in upvalues {
         if uv.closed {
             let value = value_from_json(&uv.value, heap, &cells)?;
-            cell.borrow_mut().value = Some(value);
+            cells[&uv.id].borrow_mut().value = Some(value);
         }
     }
     Ok(cells)

@@ -4,7 +4,7 @@ use std::rc::Rc;
 
 use indexmap::IndexMap;
 use serde::de::DeserializeOwned;
-use serde_json::Value as JsonValue;
+use serde_json::{json, Value as JsonValue};
 
 use crate::{
     context::{ExecutionContext, Symbol},
@@ -12,8 +12,9 @@ use crate::{
     memory::{HeapReference, VmHeap},
     ops::Operation,
     state::{
-        close_over_cells, collect_cells, rebuild_cells, value_from_json, value_to_json,
-        CellRegistry, FrameJson, Resumable, SymbolJson, ThrowJson, UpvalueJson, VmSnapshot,
+        chunk_str, chunk_to_symbol, close_over_cells, closure_from_json, closure_to_json,
+        collect_cells, rebuild_cells, root_closure_json, value_from_json, value_to_json,
+        CallFrameJson, CellRegistry, Resumable, ThrowFrameJson, UpvalueJson, VmSnapshot,
     },
     util::{get_json_nested, like, regex_match},
     values::{
@@ -65,6 +66,9 @@ pub struct HogVM<'a> {
     // How many times this run has suspended on an async function call. Carried into snapshots and
     // restored on resume, so the per-run async budget survives the suspend/resume round-trip.
     async_steps: usize,
+    // Per-opcode execution trace, collected only when the context opts into telemetry. Each entry is
+    // the reference's `[time, chunk, ip, "op/NAME", debug]` tuple. Carried across suspend/resume.
+    telemetry: Vec<JsonValue>,
 
     context: &'a ExecutionContext,
     // The base program is None, but calling into e.g. hog standard library functions involves changing the "module"
@@ -77,7 +81,10 @@ struct CallFrame {
     ret_ptr: usize,             // Where to jump back to when we're done
     ret_symbol: Option<Symbol>, // The module to return to when we're done
     stack_start: usize,         // Point in the stack the frame values start
-    captures: Vec<UpvalueCell>, // Upvalues captured from the parent scope/frame
+    // The closure this frame is running (its callable + captured upvalues). Captures are read by
+    // `frame_capture`; the callable identity is what lets a snapshot reconstruct the reference VM's
+    // per-frame `closure`. Cross-module (STL) frames synthesize a callable for their symbol.
+    closure: Closure,
 }
 
 struct ThrowFrame {
@@ -96,6 +103,7 @@ impl<'a> HogVM<'a> {
             open_upvalues: Vec::new(),
             ip: 0,
             async_steps: 0,
+            telemetry: Vec::new(),
             current_symbol: None,
             context,
             heap: VmHeap::new(context.max_heap_size),
@@ -123,6 +131,7 @@ impl<'a> HogVM<'a> {
 
     /// Step the virtual machine one cycle.
     pub fn step(&mut self) -> Result<StepOutcome, VmError> {
+        let pre_ip = self.ip;
         let op: Operation = match self.next() {
             Ok(op) => op,
             // The reference VMs halt gracefully when the instruction pointer runs off the
@@ -141,6 +150,18 @@ impl<'a> HogVM<'a> {
             }
             Err(e) => return Err(e),
         };
+
+        if self.context.collect_telemetry {
+            // The reference's `[time, chunk, ip, "op/NAME", debug]`. Time is a placeholder (we don't
+            // expose a wall clock here) and debug is unused; the chunk/ip/op trace is the substance.
+            self.telemetry.push(json!([
+                0,
+                chunk_str(&self.current_symbol),
+                self.node_ip(pre_ip, &self.current_symbol),
+                op_telemetry_name(&op),
+                "",
+            ]));
+        }
 
         match op {
             Operation::GetGlobal => {
@@ -634,8 +655,14 @@ impl<'a> HogVM<'a> {
             Operation::CallLocal => {
                 let closure: Closure = self.pop_stack_as()?;
                 let arg_count: usize = self.next()?;
-                let callable = match &closure.callable {
-                    Callable::Local(callable) => callable,
+                // Extract the scalar callable fields up front so `closure` can be moved into the frame
+                // (which now retains it for snapshotting). A native-function value dispatches inline.
+                let (ip, symbol, stack_arg_count) = match &closure.callable {
+                    Callable::Local(callable) => (
+                        callable.ip,
+                        callable.symbol.clone(),
+                        callable.stack_arg_count,
+                    ),
                     // A first-class native function value (e.g. `let f := base64Encode; f(x)`):
                     // pop the args (push order, reversed for v>0 like CallGlobal) and dispatch natively.
                     Callable::Stl(name) => {
@@ -650,13 +677,12 @@ impl<'a> HogVM<'a> {
                         return Ok(self.prep_native_call(name, args));
                     }
                 };
-                if arg_count > callable.stack_arg_count {
+                if arg_count > stack_arg_count {
                     return Err(VmError::InvalidCall(format!(
-                        "Too many args - expected {}, got {}",
-                        callable.stack_arg_count, arg_count
+                        "Too many args - expected {stack_arg_count}, got {arg_count}"
                     )));
                 }
-                let null_args = callable.stack_arg_count.saturating_sub(arg_count);
+                let null_args = stack_arg_count.saturating_sub(arg_count);
                 // For pure-hog function calls (calls to "local" callables), we just push a null onto the stack for each missing argument,
                 // then construct the stack frame, and jump to the callable's frame ip. For other kinds of calls (which we don't support yet),
                 // we'll have to do something more complicated
@@ -666,12 +692,12 @@ impl<'a> HogVM<'a> {
                 let frame = CallFrame {
                     ret_ptr: self.ip,
                     ret_symbol: self.current_symbol.clone(),
-                    stack_start: self.stack.len().saturating_sub(callable.stack_arg_count),
-                    captures: closure.captures,
+                    stack_start: self.stack.len().saturating_sub(stack_arg_count),
+                    closure,
                 };
                 self.stack_frames.push(frame);
-                self.current_symbol = callable.symbol.clone(); // Prep to jump across the module boundary, if that's what we're doing
-                self.ip = callable.ip; // Do the jump
+                self.current_symbol = symbol; // Prep to jump across the module boundary, if that's what we're doing
+                self.ip = ip; // Do the jump
             }
             Operation::GetUpvalue => {
                 let index: usize = self.next()?;
@@ -731,6 +757,7 @@ impl<'a> HogVM<'a> {
             return Err(VmError::NoFrame);
         };
         frame
+            .closure
             .captures
             .get(index)
             .cloned()
@@ -965,15 +992,28 @@ impl<'a> HogVM<'a> {
                 arg_count
             )));
         }
-        let null_args = to_call.arg_count().saturating_sub(arg_count);
+        let callee_arg_count = to_call.arg_count();
+        let null_args = callee_arg_count.saturating_sub(arg_count);
         for _ in 0..null_args {
             self.push_stack(HogLiteral::Null)?;
         }
+        // Cross-module calls never involve captures, but the frame still carries a synthesized
+        // callable for its symbol so a snapshot can render the reference VM's per-frame closure
+        // (e.g. `fn<arrayMap>` in chunk `stl/arrayMap`).
         let frame = CallFrame {
             ret_ptr: self.ip,
             ret_symbol: self.current_symbol.clone(),
-            stack_start: self.stack.len().saturating_sub(to_call.arg_count()),
-            captures: Vec::new(), // Cross module calls never involve captures
+            stack_start: self.stack.len().saturating_sub(callee_arg_count),
+            closure: Closure {
+                callable: Callable::Local(LocalCallable {
+                    name: symbol.name.clone(),
+                    stack_arg_count: callee_arg_count,
+                    capture_count: 0,
+                    ip: 0,
+                    symbol: Some(symbol.clone()),
+                }),
+                captures: Vec::new(),
+            },
         };
 
         self.stack_frames.push(frame);
@@ -1085,7 +1125,7 @@ impl<'a> HogVM<'a> {
             collect_cells(value, &self.heap, &mut registry)?;
         }
         for frame in &self.stack_frames {
-            for cell in &frame.captures {
+            for cell in &frame.closure.captures {
                 registry.intern(cell);
             }
         }
@@ -1122,36 +1162,99 @@ impl<'a> HogVM<'a> {
             });
         }
 
-        let call_stack = self
-            .stack_frames
-            .iter()
-            .map(|f| FrameJson {
-                ret_ptr: f.ret_ptr,
-                ret_chunk: SymbolJson::of(&f.ret_symbol),
-                stack_start: f.stack_start,
-                captures: f.captures.iter().map(|c| registry.intern(c)).collect(),
-            })
-            .collect();
+        // The reference keeps upvalues sorted by location so its capture early-break stays valid on
+        // resume; each entry keeps its id so closure references still resolve.
+        upvalues.sort_by_key(|u| u.location);
+
+        let call_stack = self.build_call_stack(&mut registry)?;
 
         let throw_stack = self
             .throw_frames
             .iter()
-            .map(|t| ThrowJson {
-                catch_ptr: t.catch_ptr,
-                catch_chunk: SymbolJson::of(&t.catch_symbol),
-                stack_start: t.stack_start,
-                call_depth: t.call_depth,
+            .map(|t| ThrowFrameJson {
+                // The reference's callStackLen counts its frames — our depth plus the root frame.
+                call_stack_len: t.call_depth + 1,
+                stack_len: t.stack_start,
+                catch_ip: self.node_ip(t.catch_ptr, &t.catch_symbol),
             })
             .collect();
 
         Ok(VmSnapshot {
+            bytecodes: json!({
+                "root": { "bytecode": self.context.program_tokens(), "globals": self.context.globals }
+            }),
             stack,
             upvalues,
             call_stack,
             throw_stack,
-            ip: self.ip,
-            chunk: SymbolJson::of(&self.current_symbol),
+            declared_functions: json!({}),
+            ops: 0,
             async_steps: self.async_steps,
+            sync_duration: 0,
+            max_mem_used: self.heap.current_bytes,
+            telemetry: self
+                .context
+                .collect_telemetry
+                .then(|| self.telemetry.clone()),
+        })
+    }
+
+    /// Build the reference's `callStack` (root frame first, active frame last). Frame `d` < N draws
+    /// its ip/chunk from the frame pushed when depth `d` called `d+1` (which stored `d`'s resume
+    /// point) and its closure/stackStart from that same callee frame; depth N is the live position.
+    fn build_call_stack(&self, registry: &mut CellRegistry) -> Result<Vec<CallFrameJson>, VmError> {
+        let n = self.stack_frames.len();
+        let mut frames = Vec::with_capacity(n + 1);
+        for d in 0..=n {
+            let (rust_ip, symbol) = if d == n {
+                (self.ip, self.current_symbol.clone())
+            } else {
+                (
+                    self.stack_frames[d].ret_ptr,
+                    self.stack_frames[d].ret_symbol.clone(),
+                )
+            };
+            let (closure, stack_start, arg_count) = if d == 0 {
+                (root_closure_json(), 0, 0)
+            } else {
+                let frame = &self.stack_frames[d - 1];
+                let arg_count = match &frame.closure.callable {
+                    Callable::Local(lc) => lc.stack_arg_count,
+                    Callable::Stl(_) => 0,
+                };
+                (
+                    closure_to_json(&frame.closure, registry),
+                    frame.stack_start,
+                    arg_count,
+                )
+            };
+            frames.push(CallFrameJson {
+                closure,
+                ip: self.node_ip(rust_ip, &symbol),
+                chunk: chunk_str(&symbol),
+                stack_start,
+                arg_count,
+            });
+        }
+        Ok(frames)
+    }
+
+    /// Our `ip` is body-relative; the reference's per-frame `ip` indexes the full bytecode array
+    /// (header included) for the root chunk. Module chunks (STL bodies) carry no header.
+    fn node_ip(&self, rust_ip: usize, symbol: &Option<Symbol>) -> usize {
+        rust_ip
+            + if symbol.is_none() {
+                self.context.program_header_len()
+            } else {
+                0
+            }
+    }
+
+    fn rust_ip(node_ip: usize, chunk: &str, context: &ExecutionContext) -> usize {
+        node_ip.saturating_sub(if chunk == "root" {
+            context.program_header_len()
+        } else {
+            0
         })
     }
 
@@ -1167,40 +1270,50 @@ impl<'a> HogVM<'a> {
         let cells = rebuild_cells(&snapshot.upvalues, &mut vm.heap)?;
 
         let mut stack = Vec::with_capacity(snapshot.stack.len());
-        for json in &snapshot.stack {
-            stack.push(value_from_json(json, &mut vm.heap, &cells)?);
+        for value in &snapshot.stack {
+            stack.push(value_from_json(value, &mut vm.heap, &cells)?);
         }
 
-        let mut stack_frames = Vec::with_capacity(snapshot.call_stack.len());
-        for f in &snapshot.call_stack {
-            let mut captures = Vec::with_capacity(f.captures.len());
-            for id in &f.captures {
-                let cell = cells
-                    .get(*id)
-                    .ok_or_else(|| VmError::Other(format!("frame upvalue id {id} out of range")))?;
-                captures.push(cell.clone());
-            }
+        // Inverse of `build_call_stack`: the reference callStack has N+1 frames (root + N); we keep N
+        // frames plus the live ip/symbol. Frame i bundles depth-i's return point (callStack[i]'s
+        // ip/chunk) with depth-(i+1)'s closure and stack window.
+        let call_stack = &snapshot.call_stack;
+        let Some(active) = call_stack.last() else {
+            return Err(VmError::Other("snapshot callStack is empty".to_string()));
+        };
+        vm.ip = Self::rust_ip(active.ip, &active.chunk, context);
+        vm.current_symbol = chunk_to_symbol(&active.chunk);
+
+        let n = call_stack.len() - 1;
+        let mut stack_frames = Vec::with_capacity(n);
+        for i in 0..n {
             stack_frames.push(CallFrame {
-                ret_ptr: f.ret_ptr,
-                ret_symbol: SymbolJson::to_symbol(&f.ret_chunk),
-                stack_start: f.stack_start,
-                captures,
+                ret_ptr: Self::rust_ip(call_stack[i].ip, &call_stack[i].chunk, context),
+                ret_symbol: chunk_to_symbol(&call_stack[i].chunk),
+                stack_start: call_stack[i + 1].stack_start,
+                closure: closure_from_json(&call_stack[i + 1].closure, &cells)?,
             });
         }
 
-        let throw_frames = snapshot
-            .throw_stack
-            .iter()
-            .map(|t| ThrowFrame {
-                catch_ptr: t.catch_ptr,
-                catch_symbol: SymbolJson::to_symbol(&t.catch_chunk),
-                stack_start: t.stack_start,
-                call_depth: t.call_depth,
-            })
-            .collect();
+        let mut throw_frames = Vec::with_capacity(snapshot.throw_stack.len());
+        for t in &snapshot.throw_stack {
+            // callStackLen counts reference frames (root + our depth); recover our depth and the
+            // chunk that depth ran in so we can restore catch_symbol.
+            let call_depth = t.call_stack_len.saturating_sub(1);
+            let chunk = call_stack
+                .get(call_depth)
+                .map(|f| f.chunk.as_str())
+                .unwrap_or("root");
+            throw_frames.push(ThrowFrame {
+                catch_ptr: Self::rust_ip(t.catch_ip, chunk, context),
+                catch_symbol: chunk_to_symbol(chunk),
+                stack_start: t.stack_len,
+                call_depth,
+            });
+        }
 
         let open_upvalues = cells
-            .iter()
+            .values()
             .filter(|c| !c.borrow().closed)
             .cloned()
             .collect();
@@ -1209,9 +1322,9 @@ impl<'a> HogVM<'a> {
         vm.stack_frames = stack_frames;
         vm.throw_frames = throw_frames;
         vm.open_upvalues = open_upvalues;
-        vm.ip = snapshot.ip;
-        vm.current_symbol = SymbolJson::to_symbol(&snapshot.chunk);
         vm.async_steps = snapshot.async_steps;
+        // Carry the trace across resume so a multi-suspension run accumulates one continuous trace.
+        vm.telemetry = snapshot.telemetry.clone().unwrap_or_default();
         Ok(vm)
     }
 }
@@ -1311,7 +1424,7 @@ fn drive_resumable(mut vm: HogVM, context: &ExecutionContext) -> Result<Resumabl
                     return Ok(Resumable::Suspended {
                         function: name,
                         args: json_args,
-                        state,
+                        state: Box::new(state),
                     });
                 }
                 context
@@ -1335,6 +1448,19 @@ fn failure(error: VmError, vm: Option<&HogVM>, step: usize) -> VmFailure {
         stack: vm.map_or(Vec::new(), |vm| vm.stack.clone()),
         step,
     }
+}
+
+/// The reference's telemetry opcode label: `"<num>/<SCREAMING_SNAKE_NAME>"` (e.g. `2/CALL_GLOBAL`).
+fn op_telemetry_name(op: &Operation) -> String {
+    let pascal = format!("{op:?}");
+    let mut name = String::with_capacity(pascal.len() + 4);
+    for (i, c) in pascal.char_indices() {
+        if c.is_ascii_uppercase() && i != 0 {
+            name.push('_');
+        }
+        name.push(c.to_ascii_uppercase());
+    }
+    format!("{}/{}", op.clone() as u8, name)
 }
 
 fn next_type_name(next: &JsonValue) -> String {

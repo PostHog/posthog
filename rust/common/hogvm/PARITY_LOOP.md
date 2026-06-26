@@ -27,27 +27,32 @@ function (`fetch`, `email`, … via `options.asyncFunctions`, plus `sleep` in `A
 fully-serializable `VMState`; the host performs the side effect out-of-band (often across a queue —
 cyclotron/hogflow) and resumes by re-entering with that state. Driver loop: `while (!result.finished)`.
 
-**What now exists in Rust** (this milestone):
+**What now exists in Rust:**
 - `StepOutcome` dispatch stays as-is; the new `execute_resumable` / `resume` driver recognizes
-  registered async function names (`ExecutionContext::with_async_functions` + `with_max_async_steps`)
-  and suspends on them — **zero change to existing sync consumers** (`sync_execute`, cymbal, cohort).
-- `VmSnapshot` (`state.rs`): a JSON-serializable snapshot in the reference's value shapes — heap
-  flattened, closures as `__hogClosure__` with upvalue **ids**, upvalues as a flat `__hogUpValue__[]`
-  keyed by id. The `Rc<RefCell<Upvalue>>` open/close sharing graph round-trips through the ids.
+  registered async function names (`ExecutionContext::with_async_functions` + `with_max_async_steps`,
+  plus the built-in `sleep` mirroring `ASYNC_STL`) and suspends on them — **zero change to existing
+  sync consumers** (`sync_execute`, cymbal, cohort).
+- `VmSnapshot` (`state.rs`): a snapshot whose JSON is **byte-compatible with the reference's
+  `VMState`** — heap flattened, closures as `__hogClosure__` with upvalue **ids**, upvalues a flat
+  `__hogUpValue__[]` keyed by id and sorted by location, a per-frame `callStack`
+  (`{closure, ip, chunk, stackStart, argCount}`) with an explicit root frame and header-inclusive
+  root ips, plus `throwStack` / `bytecodes` / `ops` / `asyncSteps` / `maxMemUsed`. The
+  `Rc<RefCell<Upvalue>>` open/close graph round-trips through the ids; frames carry their `Closure`.
 - `HogVM::snapshot()` / `HogVM::restore()` + the `resume(ctx, state, result)` entry point.
-- Tests (`tests/async_resume.rs`): a scalar async round-trip and a **closure whose open upvalue
-  (a live stack reference) survives serialize → JSON text → deserialize → resume**.
+- Opt-in opcode **telemetry** (`with_telemetry`): the reference's `[time, chunk, ip, "op/NAME",
+  debug]` trace, carried across suspend/resume and surfaced in the snapshot.
+- Tests (`tests/async_resume.rs`): scalar round-trip, an **open upvalue** surviving
+  serialize → JSON → deserialize → resume, a **nested-call (N≥1) frame** round-trip, the `sleep`
+  built-in, and a telemetry trace.
 
 **Remaining for full Node-VM replacement** (ordered, roughly by leverage):
-1. **Call-stack wire-format**: frames are serialized Rust-native (`ret_ptr`/`captures`); mapping to
-   the reference's per-frame `{closure, ip, chunk}` (the active frame's `ip` is the live `ip`; each
-   parent's `ip` is the child's `ret_ptr`) is the step to byte-compatible `VMState` across the
-   migration boundary. See `FrameJson` doc.
-2. **Async STL + `sleep`**; host-registered async-fn arg/return marshalling parity.
-3. **Telemetry** (opcode tracing) for the playground/debugger.
-4. **Cross-module imports** (`import` op + dynamic module registration) — rare, advanced.
-5. **Error/exception-shape parity** (`HogVMException` messages, the `{result, finished, error, state}`
+1. **Live-Node cross-check**: verify a Rust-produced `VMState` resumes in the Node VM and vice versa
+   (the round-trip tests here are Rust↔Rust against Node-shaped JSON; a Node oracle would close it).
+2. **Cross-module imports** (`import` op + dynamic module registration) — rare, advanced.
+3. **Error/exception-shape parity** (`HogVMException` messages, the `{result, finished, error, state}`
    envelope), tuple wire-shape, and closures-as-program-result (`hog_to_json` placeholder).
+4. **Async marshalling edge cases**: hog↔JS conversion of dates/errors/closures passed to or from an
+   async function (today scalars/arrays/objects round-trip; exotic types need `convertHogToJS` parity).
 
 ---
 

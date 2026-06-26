@@ -109,6 +109,93 @@ fn open_upvalue_survives_suspend() {
 }
 
 #[test]
+fn nested_call_suspend_round_trips() {
+    // fun helper() { return asyncFetch(0) }   // suspend one frame deep (callStack = [root, helper])
+    // return helper() + 40
+    // injecting 2 => 42. Exercises the N>=1 call-stack mapping: the snapshot must reconstruct the
+    // helper frame's return point + stack window so it returns into root correctly.
+    let result = run_injecting(
+        vec![
+            json!("_H"),
+            json!(1),
+            json!(CALLABLE),
+            json!("helper"),
+            json!(0),
+            json!(0),
+            json!(6),
+            json!(INTEGER),
+            json!(0),
+            json!(CALL_GLOBAL),
+            json!("asyncFetch"),
+            json!(1),
+            json!(RETURN),
+            json!(CLOSURE),
+            json!(0), // helper -> local 0
+            json!(GET_LOCAL),
+            json!(0),
+            json!(CALL_LOCAL),
+            json!(0), // helper()
+            json!(INTEGER),
+            json!(40),
+            json!(PLUS),
+            json!(RETURN),
+        ],
+        json!(2),
+    );
+    assert_eq!(result, json!(42));
+}
+
+#[test]
+fn sleep_is_builtin_async() {
+    // sleep(1) suspends as async even with no host-registered async functions, mirroring the
+    // reference's ASYNC_STL (which sleep is the sole member of).
+    let program = Program::new(vec![
+        json!("_H"),
+        json!(1),
+        json!(INTEGER),
+        json!(1),
+        json!(CALL_GLOBAL),
+        json!("sleep"),
+        json!(1),
+        json!(RETURN),
+    ])
+    .expect("valid program");
+    let context = ExecutionContext::with_defaults(program).with_max_async_steps(1);
+    match execute_resumable(&context).expect("exec") {
+        Resumable::Suspended { function, .. } => assert_eq!(function, "sleep"),
+        Resumable::Finished(_) => panic!("expected suspension on sleep"),
+    }
+}
+
+#[test]
+fn telemetry_traces_opcodes() {
+    // With telemetry on, the suspend snapshot carries the reference's [time, chunk, ip, "op/NAME",
+    // debug] trace. The first opcode is INTEGER at header-inclusive ip 2, and a CALL_GLOBAL follows.
+    let program = Program::new(vec![
+        json!("_H"),
+        json!(1),
+        json!(INTEGER),
+        json!(2),
+        json!(CALL_GLOBAL),
+        json!("asyncFetch"),
+        json!(1),
+        json!(RETURN),
+    ])
+    .expect("valid program");
+    let context = ExecutionContext::with_defaults(program)
+        .with_async_functions(HashSet::from(["asyncFetch".to_string()]))
+        .with_max_async_steps(1)
+        .with_telemetry();
+    let Resumable::Suspended { state, .. } = execute_resumable(&context).expect("exec") else {
+        panic!("expected suspension");
+    };
+    let telemetry = state.telemetry.expect("telemetry collected");
+    assert_eq!(telemetry[0][3], json!("33/INTEGER"));
+    assert_eq!(telemetry[0][2], json!(2));
+    assert!(telemetry.iter().any(|e| e[3] == json!("2/CALL_GLOBAL")));
+}
+
+#[test]
 fn sync_execution_rejects_async() {
     // A registered async function under the sync driver can't suspend; with the default budget the
     // resumable driver also refuses. This guards that async never silently no-ops in a sync consumer.
