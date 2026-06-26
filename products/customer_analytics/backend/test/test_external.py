@@ -1,3 +1,5 @@
+from uuid import uuid4
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -8,8 +10,9 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, Team, User
 from posthog.models.utils import generate_random_token_secret
 
+from products.customer_analytics.backend.models import CustomPropertyValue, DisplayType
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 
 
 class TestExternalAccountAPI(APIBaseTest):
@@ -214,3 +217,60 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertEqual(self.account.external_id, "acme-1")
         self.assertEqual(self.account.name, "Acme Corp")
+
+
+class TestExternalAccountCustomPropertiesAPI(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save(update_fields=["secret_api_token"])
+        self.client = APIClient()
+        self.account = create_account(team_id=self.team.id, name="Acme Corp", external_id="acme-1")
+        self.plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        self.seats = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        self.url = "/api/customer_analytics/external/account/custom_property_values"
+        csp_enabled = patch(
+            "products.customer_analytics.backend.presentation.views.external.posthoganalytics.feature_enabled",
+            return_value=True,
+        )
+        csp_enabled.start()
+        self.addCleanup(csp_enabled.stop)
+
+    def _auth_headers(self, token=None):
+        return {"HTTP_AUTHORIZATION": f"Bearer {token or self.team.secret_api_token}"}
+
+    def _patch(self, payload, token=None):
+        return self.client.patch(self.url, data=payload, format="json", **self._auth_headers(token))
+
+    def test_requires_auth(self):
+        response = self.client.patch(self.url, data={"external_id": "acme-1", "properties": {}}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_sets_values_by_definition_id(self):
+        response = self._patch(
+            {"external_id": "acme-1", "properties": {str(self.plan.id): "enterprise", str(self.seats.id): 42}}
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        active = CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account, is_deleted=False)
+        self.assertEqual(
+            {(v.definition.name, v.value_str, v.value_num) for v in active},
+            {
+                ("Plan", "enterprise", None),
+                ("Seats", None, 42.0),
+            },
+        )
+
+    def test_unknown_external_id_returns_404(self):
+        response = self._patch({"external_id": "missing", "properties": {str(self.plan.id): "x"}})
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_unknown_definition_id_returns_400(self):
+        response = self._patch({"external_id": "acme-1", "properties": {str(uuid4()): "x"}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_rejects_non_scalar_value(self):
+        response = self._patch({"external_id": "acme-1", "properties": {str(self.plan.id): {"nested": "object"}}})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
