@@ -5,6 +5,7 @@ Both resolve the client harness to a customer label server-side via `mcp_harness
 the dashboard donut — the frontend only maps a resolved label to its logo.
 """
 
+import json
 from functools import cached_property
 from typing import TYPE_CHECKING
 
@@ -60,6 +61,11 @@ _EFFECTIVE_TOOL = (
 _HARNESS_LABELS_AGG = f"arraySort(arrayDistinct(groupArray({mcp_harness.harness_label_sql('h')})))"
 
 
+def _display_properties(*, email: str, name: str) -> str:
+    """JSON of only the person fields the Top-users cell renders, omitting blanks."""
+    return json.dumps({k: v for k, v in (("email", email), ("name", name)) if v})
+
+
 def _tool_call_where(tool: str, date_range: QueryDateRange, *, extra: list[ast.Expr] | None = None) -> ast.Expr:
     """WHERE for new-SDK $mcp_tool_call events scoped to one effective tool and window.
 
@@ -100,7 +106,8 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
             """
             SELECT
                 distinct_id,
-                argMax(person_properties, timestamp) AS person_properties,
+                argMax(person_email, timestamp) AS email,
+                argMax(person_name, timestamp) AS name,
                 count() AS calls,
                 countIf(is_error) AS errors,
                 round(countIf(is_error) * 100.0 / count(), 1) AS error_rate_pct,
@@ -111,7 +118,8 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
                     distinct_id,
                     timestamp,
                     toBool(properties.$mcp_is_error) AS is_error,
-                    toString(person.properties) AS person_properties,
+                    toString(person.properties.email) AS person_email,
+                    toString(person.properties.name) AS person_name,
                     {token} AS h
                 FROM events
                 WHERE {where}
@@ -146,12 +154,14 @@ class MCPToolTopUsersQueryRunner(AnalyticsQueryRunner[MCPToolTopUsersQueryRespon
         results = [
             MCPToolTopUserItem(
                 distinct_id=str(row[0]),
-                person_properties=str(row[1] or ""),
-                calls=int(row[2] or 0),
-                errors=int(row[3] or 0),
-                error_rate_pct=float(row[4] or 0),
-                harnesses=[str(h) for h in (row[5] or [])],
-                last_seen=str(row[6] or ""),
+                # Only the fields the Top-users cell renders (display name + email), not the
+                # whole person.properties blob — keeps the runner to least person-data exposure.
+                person_properties=_display_properties(email=str(row[1] or ""), name=str(row[2] or "")),
+                calls=int(row[3] or 0),
+                errors=int(row[4] or 0),
+                error_rate_pct=float(row[5] or 0),
+                harnesses=[str(h) for h in (row[6] or [])],
+                last_seen=str(row[7] or ""),
             )
             for row in (response.results or [])
         ]
