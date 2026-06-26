@@ -19,8 +19,11 @@ from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 
 from ee.tasks.subscriptions.slack_subscriptions import (
+    SlackGalleryData,
     _block_for_asset,
+    _prepare_slack_gallery,
     _prepare_slack_message,
+    deliver_slack_gallery,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
@@ -617,6 +620,58 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             assert mock_async_client.chat_postMessage.call_count == 1
             mock_sleep.assert_not_awaited()
 
+    def test_deliver_slack_gallery_uploads_files(self, MockSlackIntegration: MagicMock) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True, "files": [{"id": "F1"}]})
+        gallery = SlackGalleryData(
+            channel="C1",
+            initial_comment="hi",
+            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+        )
+        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+        mock_async.files_upload_v2.assert_awaited_once()
+        kwargs = mock_async.files_upload_v2.await_args.kwargs
+        assert kwargs["channel"] == "C1"
+        assert kwargs["initial_comment"] == "hi"
+        assert kwargs["file_uploads"] == gallery.file_uploads
+        assert result.main_message_sent is True
+
+    def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
+        """When all assets fail (file_uploads=[]), deliver_slack_gallery must send a plain chat message
+        via chat_postMessage and must NOT call files_upload_v2."""
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock()
+        mock_async.chat_postMessage.return_value = {"ts": "1.234"}
+
+        gallery = SlackGalleryData(channel="C1", initial_comment="hi", file_uploads=[])
+        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+
+        mock_async.files_upload_v2.assert_not_awaited()
+        mock_async.chat_postMessage.assert_awaited_once()
+        call_kwargs = mock_async.chat_postMessage.await_args.kwargs
+        assert call_kwargs["channel"] == "C1"
+        assert call_kwargs["text"] == "hi"
+        assert result.main_message_sent is True
+
+    def test_async_send_routes_to_gallery_when_flag_set(self, MockSlackIntegration: MagicMock) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
+        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
+        self.subscription.save()
+        # Use inline content so _asset_image_bytes doesn't hit object storage in the test.
+        asset_with_content = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content=b"PNGBYTES",
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset_with_content.id).select_related("insight"))
+        asyncio.run(
+            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
+        )
+        mock_async.files_upload_v2.assert_awaited_once()
+        mock_async.chat_postMessage.assert_not_called()
+
 
 class TestSlackErrorTruncation(APIBaseTest):
     def setUp(self) -> None:
@@ -715,7 +770,67 @@ class TestSlackSummaryNotice(APIBaseTest):
 class TestSlackPostAllInMainMessage(APIBaseTest):
     def setUp(self) -> None:
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
-        self.assets = [
+        self.insight2 = Insight.objects.create(team=self.team, short_id="654321", name="Second insight")
+
+    def _subscription(self, post_all_in_main: bool) -> Subscription:
+        return create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#test",
+            delivery_config={"post_all_insights_in_main_message": post_all_in_main},
+        )
+
+    def test_prepare_slack_gallery_builds_comment_and_uploads(self) -> None:
+        subscription = create_subscription(
+            team=self.team,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#test",
+            insight=self.insight,
+            delivery_config={"post_all_insights_in_main_message": True},
+        )
+        ok = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", content=b"PNGBYTES", insight_id=self.insight.id
+        )
+        failed = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", exception="boom", insight_id=self.insight2.id
+        )
+        gallery = _prepare_slack_gallery(subscription, [ok, failed], total_asset_count=2)
+        assert gallery.channel == "C123"
+        assert len(gallery.file_uploads) == 1  # failed asset excluded
+        assert gallery.file_uploads[0]["content"] == b"PNGBYTES"
+        assert "View in PostHog" in gallery.initial_comment
+        # Failed assets are listed by name with a "Could not generate" notice
+        assert "Could not generate" in gallery.initial_comment
+        assert "Second insight" in gallery.initial_comment
+
+    def test_prepare_slack_gallery_includes_overflow_note_in_comment(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                insight_id=self.insight.id,
+                export_format="image/png",
+                content=b"PNG",
+            )
+            for _ in range(3)
+        ]
+        gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=5)
+        assert "Showing 3 of 5 Insights" in gallery.initial_comment
+
+    def test_prepare_slack_gallery_no_uploads_when_all_failed(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        failed = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", exception="err", insight_id=self.insight.id
+        )
+        gallery = _prepare_slack_gallery(subscription, [failed], total_asset_count=1)
+        assert gallery.file_uploads == []
+        assert "Could not generate" in gallery.initial_comment
+
+    def test_default_threaded_keeps_only_first_image_in_main(self) -> None:
+        assets = [
             ExportedAsset.objects.create(
                 team=self.team,
                 insight_id=self.insight.id,
@@ -724,51 +839,12 @@ class TestSlackPostAllInMainMessage(APIBaseTest):
             )
             for i in range(3)
         ]
-
-    def _subscription(self, post_all_in_main: bool) -> Subscription:
-        return create_subscription(
-            team=self.team,
-            insight=self.insight,
-            created_by=self.user,
-            target_type="slack",
-            target_value="C12345|#test-channel",
-            delivery_config={"post_all_insights_in_main_message": post_all_in_main},
-        )
-
-    def _image_blocks(self, message: Any) -> list[dict]:
-        return [block for block in message.blocks if block.get("type") == "image"]
-
-    def _block_texts(self, message: Any) -> list[str]:
-        return [block.get("text", {}).get("text", "") for block in message.blocks]
-
-    def test_post_all_in_main_puts_every_image_in_main_message_and_nothing_in_thread(self) -> None:
         message = _prepare_slack_message(
-            self._subscription(post_all_in_main=True), self.assets, total_asset_count=len(self.assets)
+            self._subscription(post_all_in_main=False), assets, total_asset_count=len(assets)
         )
-        assert len(self._image_blocks(message)) == len(self.assets)
-        assert message.thread_messages == []
-        assert all("See 🧵 for more Insights" not in text for text in self._block_texts(message))
-
-    def test_default_threaded_keeps_only_first_image_in_main(self) -> None:
-        message = _prepare_slack_message(
-            self._subscription(post_all_in_main=False), self.assets, total_asset_count=len(self.assets)
-        )
-        assert len(self._image_blocks(message)) == 1
-        assert len(message.thread_messages) == len(self.assets) - 1
-
-    def test_post_all_in_main_keeps_overflow_note_in_main_message(self) -> None:
-        # total_asset_count exceeds the delivered assets, so an overflow note is appended.
-        message = _prepare_slack_message(
-            self._subscription(post_all_in_main=True), self.assets, total_asset_count=len(self.assets) + 2
-        )
-        assert any("Showing 3 of 5 Insights" in text for text in self._block_texts(message))
-        assert message.thread_messages == []
-
-    def test_post_all_in_main_with_no_assets_builds_message_without_image_blocks(self) -> None:
-        # Empty asset list must not raise and must not produce stray thread replies.
-        message = _prepare_slack_message(self._subscription(post_all_in_main=True), [], total_asset_count=0)
-        assert self._image_blocks(message) == []
-        assert message.thread_messages == []
+        image_blocks = [block for block in message.blocks if block.get("type") == "image"]
+        assert len(image_blocks) == 1
+        assert len(message.thread_messages) == len(assets) - 1
 
 
 class TestSlackExploreHint(APIBaseTest):
