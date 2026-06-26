@@ -102,6 +102,49 @@ class TestExperimentService(APIBaseTest):
         assert experiment.stats_config["method"] == "bayesian"
         assert experiment.exposure_criteria == {"filterTestAccounts": True}
 
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_defers_analytics_until_after_commit(self, mock_report_user_action):
+        # The "experiment created" capture must not run while create_experiment's transaction is
+        # still open, otherwise an external SDK call holds posthog_experiment / posthog_filesystem
+        # locks (and can leak them if the worker dies mid-request). Capture callbacks queued via
+        # transaction.on_commit (instead of running inline).
+        service = self._service()
+
+        registered_callbacks: list[Any] = []
+        with patch("django.db.transaction.on_commit", side_effect=registered_callbacks.append):
+            service.create_experiment(
+                name="Deferred Analytics",
+                feature_flag_key="deferred-flag",
+                serializer_context={"request": self._make_request()},
+            )
+
+        # Nothing captured yet — it's deferred, not run inside the transaction.
+        mock_report_user_action.assert_not_called()
+        assert registered_callbacks, "expected create_experiment to register an on_commit callback"
+
+        for callback in registered_callbacks:
+            callback()
+
+        mock_report_user_action.assert_called_once()
+        assert mock_report_user_action.call_args.args[1] == "experiment created"
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_create_experiment_survives_post_commit_analytics_failure(self, mock_report_user_action):
+        # The capture runs after the experiment is committed, so a failure in it must not surface as
+        # a request error or roll anything back — the experiment must still exist.
+        mock_report_user_action.side_effect = RuntimeError("analytics down")
+        service = self._service()
+
+        with patch("django.db.transaction.on_commit", side_effect=lambda func: func()):
+            experiment = service.create_experiment(
+                name="Resilient Analytics",
+                feature_flag_key="resilient-flag",
+                serializer_context={"request": self._make_request()},
+            )
+
+        mock_report_user_action.assert_called_once()
+        assert Experiment.objects.filter(pk=experiment.pk).exists()
+
     def test_create_experiment_creates_new_flag(self):
         service = self._service()
 
