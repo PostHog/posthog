@@ -84,9 +84,12 @@ Match the action to the user's intent, and **corroborate before you create work*
 
 - **Summarize a pattern.** Report the finding back with the numbers and a few representative `session_id`s
   (e.g. "12 of 40 succeeded observations flagged checkout confusion; sessions A, B, C"). Cite, don't assert.
-- **Turn a real issue into work.** When a finding is corroborated across several sessions (not one
-  low-confidence hit), file it: create a PostHog task or insight to track it, and link the supporting
-  `session_id`s so a human can watch the evidence. Prefer one task per distinct issue over one task per
+- **Make it trackable.** When a finding is corroborated across several sessions (not one low-confidence
+  hit), capture it durably with the tools that exist: create an `insight` or `notebook` to track its
+  frequency, bundle the supporting recordings into a session-recording playlist so a human can watch the
+  evidence, and add an `annotation` if it marks a regression. There is **no MCP tool to open a PostHog
+  task directly** — to route a finding into tracked work, use the Inbox path below (for signal-emitting
+  scanners) or hand the summary to a human or coding agent to act on. Group by distinct issue, not per
   observation.
 - **Work the Inbox.** If the scanner emits signals, its findings may already be clustered into signal reports —
   read and act on those with `inbox-reports-list` + `inbox-report-artefacts-list` (the report's work log is the
