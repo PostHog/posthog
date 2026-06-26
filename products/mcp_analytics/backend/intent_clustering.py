@@ -55,9 +55,8 @@ NO_INTENT_RECORDED_FALLBACK = "No agent intent was recorded for this session."
 # Embedding cache + concurrency
 # 1536-d float32 embedding = 6144 bytes. 500-intent corpus × 6144 ≈ 3 MB/team.
 # Cap concurrent embedding worker requests so we don't dogpile when a team's
-# corpus has hundreds of misses on first run. 20 matches the trace_clustering
-# precedent (SENTIMENT_MAX_CONCURRENT) and stays well under any per-team
-# rate limit on the embedding provider.
+# corpus has hundreds of misses on first run while staying well under any
+# per-team rate limit on the embedding provider.
 EMBED_CONCURRENCY = 20
 
 # How many tool-call steps to show in the per-cluster Sankey before the
