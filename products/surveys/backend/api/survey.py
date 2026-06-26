@@ -2310,7 +2310,10 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
     def _validate_and_parse_dates(
         self, date_from: str | None, date_to: str | None
     ) -> tuple[datetime | None, datetime | None]:
-        return validate_and_parse_dates(date_from, date_to)
+        try:
+            return validate_and_parse_dates(date_from, date_to)
+        except ValueError as exc:
+            raise exceptions.ValidationError(str(exc)) from exc
 
     def _process_survey_results(
         self, results: builtins.list[tuple[str, int, int, datetime | None, datetime | None]]
@@ -2334,13 +2337,17 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         Returns:
             Dictionary containing survey statistics and rates
         """
-        return get_survey_stats(
-            team_id=self.team_id,
-            date_from=date_from,
-            date_to=date_to,
-            survey_id=survey_id,
-            exclude_archived=exclude_archived,
-        )
+        # Shared helper raises ValueError for bad dates; surface it as a REST 400 here.
+        try:
+            return get_survey_stats(
+                team_id=self.team_id,
+                date_from=date_from,
+                date_to=date_to,
+                survey_id=survey_id,
+                exclude_archived=exclude_archived,
+            )
+        except ValueError as exc:
+            raise exceptions.ValidationError(str(exc)) from exc
 
     @extend_schema(
         parameters=[

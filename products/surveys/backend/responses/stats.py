@@ -11,8 +11,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
-from rest_framework import exceptions
-
 from posthog.schema import ProductKey
 
 from posthog.clickhouse.client import sync_execute
@@ -56,8 +54,17 @@ SurveyStats = TypedDict(
 )
 
 
+class _InvertedDateRangeError(ValueError):
+    """date_from is after date_to — kept distinct so its message survives the parse-error rewrite."""
+
+
 def validate_and_parse_dates(date_from: str | None, date_to: str | None) -> tuple[datetime | None, datetime | None]:
-    """Parse ISO timestamps to UTC datetimes, raising on malformed input or inverted range."""
+    """Parse ISO timestamps to UTC datetimes, raising on malformed input or inverted range.
+
+    Raises ``ValueError`` on parse failures and inverted ranges so callers in non-REST contexts
+    (e.g. the dashboard widget) receive a standard Python exception. The REST viewset re-raises
+    it as ``rest_framework.exceptions.ValidationError``.
+    """
     parsed_from = None
     parsed_to = None
 
@@ -69,14 +76,16 @@ def validate_and_parse_dates(date_from: str | None, date_to: str | None) -> tupl
             parsed_to = datetime.fromisoformat(date_to).astimezone(UTC)
 
         if parsed_from and parsed_to and parsed_from > parsed_to:
-            raise exceptions.ValidationError("date_from must be before date_to")
+            raise _InvertedDateRangeError("date_from must be before date_to")
 
         return parsed_from, parsed_to
 
-    except ValueError:
-        raise exceptions.ValidationError(
+    except _InvertedDateRangeError:
+        raise
+    except ValueError as exc:
+        raise ValueError(
             "Invalid date format. Please use ISO 8601 format with timezone info (e.g. 2024-01-01T00:00:00Z or 2024-01-01T00:00:00+00:00)"
-        )
+        ) from exc
 
 
 def partial_responses_filter(base_conditions_sql: list[str]) -> str:

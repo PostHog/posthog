@@ -66,6 +66,8 @@ def run_survey_results_widget(
     config: dict[str, Any],
     user: User | None = None,
     *,
+    # Part of the shared run_widgets runner signature (always passed by the dispatcher). This widget
+    # reports per-section counts inline rather than a single capped total, so it has nothing to gate.
     include_total_count: bool = True,
 ) -> dict[str, Any]:
     typed_config = validate_widget_config(SURVEY_RESULTS_WIDGET_TYPE, config)
