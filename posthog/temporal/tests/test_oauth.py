@@ -190,10 +190,10 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:
-        # The token must be minted under the wizard's own app (so the gateway authorizes it like a
-        # normal wizard run) and carry the app's scopes plus llm_gateway:read — separate from the
-        # agent's sandbox token.
-        app = self._create_wizard_app(scopes=["project:read", "insight:write"])
+        # The token must be minted under the wizard's own app (so the gateway authorizes it like a normal wizard run)
+        # separate from the agent's sandbox token.
+        scopes = ["project:read", "insight:write", "llm_gateway:read"]
+        app = self._create_wizard_app(scopes=scopes)
         user, team = self._create_user_and_team()
 
         token = create_wizard_oauth_access_token_for_user(user, team.id)
@@ -204,10 +204,11 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
         access_token = OAuthAccessToken.objects.get(token=token)
         assert access_token.application_id == app.id
         assert access_token.scoped_teams == [team.id]
-        assert set(access_token.scope.split()) == {"project:read", "insight:write", "llm_gateway:read"}
+        assert set(access_token.scope.split()) == set(scopes)
 
     @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
     def test_requires_existing_app(self) -> None:
         user, team = self._create_user_and_team()
 
-        assert create_wizard_oauth_access_token_for_user(user, team.id) is None
+        with self.assertRaisesRegex(RuntimeError, "Wizard app not found"):
+            create_wizard_oauth_access_token_for_user(user, team.id)
