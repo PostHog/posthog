@@ -78,6 +78,7 @@ class MessageAssetSerializer(serializers.Serializer):
 class MessageAssetsRequestSerializer(serializers.Serializer):
     parent_run_id = serializers.CharField(
         required=False,
+        allow_blank=True,
         help_text="Only return assets for this batch run (HogFlowBatchJob id). Pass an empty string to return only "
         "event-triggered (non-batch) assets; omit to return all.",
     )
