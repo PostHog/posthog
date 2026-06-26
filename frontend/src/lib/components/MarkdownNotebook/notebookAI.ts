@@ -356,12 +356,7 @@ function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
 
 function withDefaultAIComponentProps(nodes: NotebookBlockNode[]): NotebookBlockNode[] {
     return nodes.map((node) => {
-        if (
-            node.type === 'component' &&
-            node.tagName === 'Query' &&
-            typeof node.props.hideFilters !== 'boolean' &&
-            typeof node.props.edit !== 'boolean'
-        ) {
+        if (node.type === 'component' && node.tagName === 'Query' && typeof node.props.hideFilters !== 'boolean') {
             return {
                 ...node,
                 props: {

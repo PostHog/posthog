@@ -206,6 +206,20 @@ describe('notebookAI', () => {
         )
     })
 
+    it('defaults AI-inserted query components with edit props to results only', () => {
+        const markdown = '# Notebook\n\nThinking...'
+
+        expect(
+            replaceMarkdown(
+                markdown,
+                1,
+                '<Query edit={false} query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+            )
+        ).toEqual(
+            '# Notebook\n\n<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />'
+        )
+    })
+
     it('inserts a follow-up prompt after the AI response row', () => {
         const markdown = '# Notebook\n\nAnswer text'
 

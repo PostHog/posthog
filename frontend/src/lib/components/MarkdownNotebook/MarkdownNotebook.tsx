@@ -33,7 +33,6 @@ import {
     ComponentPanelCacheEntry,
     ComponentPanelVisibility,
     DEFAULT_COMPONENT_PANEL_VISIBILITY,
-    INSERTED_COMPONENT_PANEL_VISIBILITY,
     getComponentPanelVisibility,
     getInsertedComponentPanelVisibility,
     shouldPersistComponentPanelProps,
@@ -2597,7 +2596,7 @@ export function MarkdownNotebook({
             }
 
             const definition = getMarkdownNotebookComponentDefinition(mergedRegistry, node.tagName)
-            const insertedPanels = getComponentPanelVisibility(node, INSERTED_COMPONENT_PANEL_VISIBILITY)
+            const insertedPanels = getInsertedComponentPanelVisibility(node)
             return withPersistedComponentPanelProps(node, definition, insertedPanels)
         })
         if (areNotebookDocumentsEqual(document, { ...document, nodes: nextNodes })) {
