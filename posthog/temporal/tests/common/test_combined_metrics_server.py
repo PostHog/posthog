@@ -500,5 +500,3 @@ test_gauge 100.0
         # Should not raise any exception
         await server.stop()
         await server.stop()  # Multiple stops should also be safe
-
-
