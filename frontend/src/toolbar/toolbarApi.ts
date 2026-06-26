@@ -6,7 +6,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError } from '~/toolbar/toolbarPosthogJS'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour, Survey } from '~/types'
 
@@ -163,9 +163,16 @@ async function request<T>(
             isAuthError: false,
             isNetworkError: true,
         }
-        toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
-        if (captureOnError) {
-            captureToolbarException(e, context, { reason: 'network' })
+        // A benign network failure (offline, ad-blocker, CORS, aborted request) is expected, not a
+        // bug — log it but don't report it as an exception. Only genuinely unexpected failures
+        // (e.g. a customer page that replaced `window.fetch` and threw) are worth error tracking.
+        if (isBenignNetworkError(e)) {
+            toolbarLogger.warn('api', `Request failed (network): ${context}`, { context, method, pathname })
+        } else {
+            toolbarLogger.error('api', `Request failed (network): ${context}`, { context, method, pathname })
+            if (captureOnError) {
+                captureToolbarException(e, context, { reason: 'network' })
+            }
         }
         emitToast(toastOnError, error)
         return { ok: false, status: 0, data: null, error }

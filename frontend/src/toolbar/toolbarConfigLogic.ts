@@ -3,7 +3,7 @@ import { actions, afterMount, beforeUnmount, kea, listeners, path, props, reduce
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, isBenignNetworkError, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
@@ -657,9 +657,13 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            // The reachability probe failing on a network/CORS/timeout condition is expected and
+            // benign — the telemetry event below still records it, but it's not an app exception.
+            if (!isBenignNetworkError(error)) {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: classifyFetchError(error),
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',

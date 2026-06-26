@@ -46,6 +46,24 @@ if (runningOnPosthog && window.JS_POSTHOG_SELF_CAPTURE) {
     toolbarPosthogJS.debug()
 }
 
+/**
+ * "Failed to fetch", aborts and timeouts are expected, benign browser conditions — an offline
+ * tab, an ad-blocker, a CORS rejection, or a navigation aborting an in-flight request all produce
+ * them, and none is an app bug. Callers log these for visibility but must not report them to error
+ * tracking as exceptions, so genuine failures (malformed JSON, 5xx, auth) aren't buried in noise.
+ */
+export function isBenignNetworkError(error: unknown): boolean {
+    // `fetch` rejects with a TypeError for any network-level failure (offline, CORS, blocked).
+    if (error instanceof TypeError) {
+        return true
+    }
+    // An aborted or timed-out request (e.g. AbortSignal.timeout, navigation cancelling a fetch).
+    if (error instanceof DOMException && (error.name === 'AbortError' || error.name === 'TimeoutError')) {
+        return true
+    }
+    return false
+}
+
 /** Capture an exception with a required toolbar context tag for filtering. */
 export function captureToolbarException(
     error: unknown,
