@@ -342,6 +342,7 @@ class TaskWriteSerializer(serializers.Serializer):
         choices=[adapter.value for adapter in RuntimeAdapter],
         required=False,
         default=None,
+        allow_null=True,
         write_only=True,
         help_text=(
             "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: "
@@ -353,6 +354,7 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
+        allow_null=True,
         write_only=True,
         help_text="Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.",
     )
@@ -360,6 +362,7 @@ class TaskWriteSerializer(serializers.Serializer):
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
         required=False,
         default=None,
+        allow_null=True,
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
@@ -1230,6 +1233,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         choices=[adapter.value for adapter in RuntimeAdapter],
         required=False,
         default=None,
+        allow_null=True,
         help_text=(
             "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the "
             "agent on this runtime so a matching submit reuses it; a submit selecting a different runtime "
@@ -1240,12 +1244,14 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
+        allow_null=True,
         help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
     )
     reasoning_effort = serializers.ChoiceField(
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
         required=False,
         default=None,
+        allow_null=True,
         help_text="Reasoning effort to warm the sandbox on for models that expose an effort control.",
     )
 
