@@ -52,6 +52,30 @@ pub struct Config {
     // can't stall batch processing indefinitely.
     #[envconfig(default = "10")]
     pub embedding_request_timeout_seconds: u64,
+
+    // Recently-seen document store. Records every document this worker emits so callers
+    // can cheaply check whether (and when) a document was processed, without querying
+    // ClickHouse. "memory" keeps it process-local (local dev / tests); "dynamodb" uses
+    // the shared, durable backend in production.
+    #[envconfig(from = "RECENT_IDS_BACKEND", default = "memory")]
+    pub recent_ids_backend: String,
+
+    #[envconfig(from = "RECENT_IDS_DYNAMODB_TABLE", default = "embedding-recently-seen")]
+    pub recent_ids_dynamodb_table: String,
+
+    // How long a recorded document stays queryable. Defaults to 1 week, matching the
+    // DynamoDB table's TTL; the worker writes this as each item's `ttl` attribute.
+    #[envconfig(from = "RECENT_IDS_TTL_SECONDS", default = "604800")]
+    pub recent_ids_ttl_seconds: u64,
+
+    // Optional region/endpoint overrides for the DynamoDB client. Region falls back to
+    // the standard AWS provider chain when unset; endpoint is for pointing at a local
+    // DynamoDB / LocalStack in tests and is unset in production.
+    #[envconfig(from = "RECENT_IDS_AWS_REGION")]
+    pub recent_ids_aws_region: Option<String>,
+
+    #[envconfig(from = "RECENT_IDS_DYNAMODB_ENDPOINT")]
+    pub recent_ids_dynamodb_endpoint: Option<String>,
 }
 
 impl Config {
