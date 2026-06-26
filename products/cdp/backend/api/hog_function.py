@@ -231,9 +231,51 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 }
             )
 
+    def _reject_secret_redirect_on_code_change(self, attrs: dict) -> None:
+        # Secret inputs are write-only: once stored they are returned to clients only as a
+        # `{"secret": true}` marker, so someone who can configure a function cannot read its
+        # secrets back. That boundary only holds if a stored secret can't be silently redirected.
+        # Otherwise an editor could preserve a secret (submitting `{"secret": true}`) while
+        # changing `hog` or `inputs_schema` to ship it to a host they control — exfiltrating a
+        # credential they were never allowed to see. So require any stored secret to be re-supplied
+        # with a fresh value before the code or input schema can change.
+        instance = self.instance
+        if not isinstance(instance, HogFunction) or attrs.get("deleted") is True:
+            return
+
+        stored_secret_keys = {key for key, value in (instance.encrypted_inputs or {}).items() if value}
+        if not stored_secret_keys:
+            return
+
+        # Only consider fields the client explicitly sent — `to_internal_value` backfills omitted
+        # `inputs_schema`/`hog` from the instance, so presence here means an intentional change.
+        provided = getattr(self, "_client_provided_fields", None)
+        if provided is None:
+            provided = set(self.initial_data or {})
+        hog_changed = "hog" in provided and attrs.get("hog") != instance.hog
+        schema_changed = "inputs_schema" in provided and attrs.get("inputs_schema") != instance.inputs_schema
+        if not hog_changed and not schema_changed:
+            return
+
+        raw_inputs = self.initial_data.get("inputs") or {}
+
+        def _resupplied(key: str) -> bool:
+            value = raw_inputs.get(key)
+            return isinstance(value, dict) and not value.get("secret") and value.get("value") not in (None, "")
+
+        if any(not _resupplied(key) for key in stored_secret_keys):
+            raise serializers.ValidationError(
+                {
+                    "inputs": "Re-enter the secret values to change this function's code or input schema. "
+                    "Existing secrets can't be preserved while the code or schema changes."
+                }
+            )
+
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
         self.initial_data = data
+        # Snapshot which fields the client actually sent before we backfill defaults below.
+        self._client_provided_fields = set(data.keys())
         team = self.context["get_team"]()
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
@@ -311,6 +353,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
+        self._reject_secret_redirect_on_code_change(attrs)
 
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion

