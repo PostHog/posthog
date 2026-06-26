@@ -1427,10 +1427,13 @@ class TestFilterToQuery(BaseTest):
         ]
     )
     def test_legend_position_absent_when_not_set(self, insight: str, filter_key: str):
-        query = filter_to_query({"insight": insight})
+        # show_legend yields a non-empty filter section without setting a position, so the absence
+        # check is meaningful (the section must be present, else the assertion would pass vacuously).
+        query = filter_to_query({"insight": insight, "show_legend": True})
 
-        serialized_filter = query.model_dump(exclude_none=True).get(filter_key, {})
-        self.assertNotIn("legendPosition", serialized_filter)
+        serialized = query.model_dump(exclude_none=True)
+        self.assertIn(filter_key, serialized)
+        self.assertNotIn("legendPosition", serialized[filter_key])
 
     def test_funnels_filter(self):
         filter: dict[str, Any] = {
