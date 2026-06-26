@@ -13,11 +13,13 @@ from posthog.person_db_router import (
     unblock_persons_orm,
 )
 
-# Skip the autouse personhog fake so the block flag is controlled explicitly here, not by the fixture.
-pytestmark = pytest.mark.persons_db_direct
-
 
 class TestPersonDBRouterGuard:
+    """Unit tests for the router guard. Marked persons_db_direct to skip the autouse
+    personhog fake so the block flag is controlled explicitly here, not by the fixture."""
+
+    pytestmark = pytest.mark.persons_db_direct
+
     def setup_method(self):
         self.router = PersonDBRouter()
         unblock_persons_orm()
@@ -57,3 +59,24 @@ class TestPersonDBRouterGuard:
             assert self.router.db_for_read(Person) is None
         with pytest.raises(PersonsDBORMBlockedError):
             self.router.db_for_read(Person)
+
+
+@pytest.mark.django_db
+class TestPersonsORMBlockedEndToEnd:
+    """End-to-end: with the personhog fake active (the default autouse fixture), a real
+    persons-model ORM query must raise rather than silently fall through to the main DB.
+
+    This exercises the full wiring — fixture → block_persons_orm → router → is_persons_model
+    — that the unit tests above stub out. The query raises during database selection, before
+    any SQL runs.
+    """
+
+    @parameterized.expand(
+        [
+            ("person", lambda: Person.objects.filter(team_id=1).first()),
+            ("group_type_mapping", lambda: list(GroupTypeMapping.objects.filter(project_id=1))),
+        ]
+    )
+    def test_real_orm_query_raises_under_active_fake(self, _name, run_query):
+        with pytest.raises(PersonsDBORMBlockedError):
+            run_query()
