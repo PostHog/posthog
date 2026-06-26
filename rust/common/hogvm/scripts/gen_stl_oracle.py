@@ -10,9 +10,10 @@ output — so each STL function gets a focused, reference-checked parity test.
 Run (needs re2 + pytz; see PARITY_LOOP.md):
     PYTHONPATH=.:common <venv>/bin/python rust/common/hogvm/scripts/gen_stl_oracle.py
 """
-import json
+
 import os
 import sys
+import json
 
 # Opcodes we emit (subset of common/hogvm/typescript/src/operation.ts).
 CALL_GLOBAL = 2
@@ -88,7 +89,7 @@ CASES = {
     "substring": [(["hello world", 1, 5], "exact")],
     "replaceOne": [(["hello", "l", "L"], "exact")],
     "replaceAll": [(["hello", "l", "L"], "exact")],
-    "splitByString": [(["," , "a,b,c"], "exact")],
+    "splitByString": [([",", "a,b,c"], "exact")],
     "startsWith": [(["hello", "he"], "exact")],
     "position": [(["hello", "l"], "exact")],
     "positionCaseInsensitive": [(["heLLo", "l"], "exact")],
@@ -213,9 +214,7 @@ def main():
                 # Smoke cases (non-deterministic fns like now()/randomFloat()) only assert the Rust VM
                 # runs them; don't persist the volatile reference output, so regen stays idempotent.
                 expected = "" if match == "smoke" else "\n".join(res.stdout)
-                entries.append(
-                    {"fn": name, "label": label, "match": match, "bytecode": bytecode, "expected": expected}
-                )
+                entries.append({"fn": name, "label": label, "match": match, "bytecode": bytecode, "expected": expected})
             except Exception as e:  # a reference error means a bad case to fix, not a parity result
                 ref_errors.append((label, f"{type(e).__name__}: {e}"))
 

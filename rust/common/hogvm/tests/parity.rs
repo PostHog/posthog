@@ -27,8 +27,14 @@ use serde_json::Value;
 #[derive(Debug)]
 enum Outcome {
     Pass,
-    Mismatch { expected: String, actual: String },
-    Error { reason: String, capability: Option<String> },
+    Mismatch {
+        expected: String,
+        actual: String,
+    },
+    Error {
+        reason: String,
+        capability: Option<String>,
+    },
     Skipped(String),
 }
 
@@ -168,7 +174,9 @@ fn parity_report() {
 
         match run_one(&hoge, &oracle) {
             Outcome::Pass => pass.push(name.clone()),
-            Outcome::Mismatch { expected, actual } => mismatch.push((name.clone(), expected, actual)),
+            Outcome::Mismatch { expected, actual } => {
+                mismatch.push((name.clone(), expected, actual))
+            }
             Outcome::Error { reason, capability } => {
                 if let Some(cap) = capability {
                     backlog.entry(cap).or_default().push(name.clone());
@@ -193,13 +201,19 @@ fn parity_report() {
     println!("\n-- PASS ({}) --", pass.len());
     println!("  {}", pass.join(", "));
 
-    println!("\n-- MISMATCH ({}) — ran but diverged from Node (parity bugs) --", mismatch.len());
+    println!(
+        "\n-- MISMATCH ({}) — ran but diverged from Node (parity bugs) --",
+        mismatch.len()
+    );
     for (name, expected, actual) in &mismatch {
         let (line_no, exp, act) = first_diff(expected, actual);
         println!("  {name} (first diff at line {line_no})\n      node: {exp}\n      rust: {act}");
     }
 
-    println!("\n-- ERROR ({}) — VM bailed (usually unimplemented) --", errored.len());
+    println!(
+        "\n-- ERROR ({}) — VM bailed (usually unimplemented) --",
+        errored.len()
+    );
     for (name, reason) in &errored {
         println!("  {name}: {reason}");
     }

@@ -149,7 +149,11 @@ fn format_literal(
 fn print_callable(callable: &Callable) -> String {
     match callable {
         Callable::Local(local) => {
-            format!("fn<{}({})>", escape_identifier(&local.name), local.stack_arg_count)
+            format!(
+                "fn<{}({})>",
+                escape_identifier(&local.name),
+                local.stack_arg_count
+            )
         }
         // Native arity isn't tracked here; the reference prints maxArgs, but no corpus program
         // prints a bare native-function value, so the count is a placeholder.
@@ -200,7 +204,10 @@ fn format_error(
         }
         _ => String::new(),
     };
-    Ok(Some(format!("{type_str}({}{payload})", escape_string(&message))))
+    Ok(Some(format!(
+        "{type_str}({}{payload})",
+        escape_string(&message)
+    )))
 }
 
 fn marker(heap: &VmHeap, v: Option<&HogValue>) -> Result<bool, crate::VmError> {
@@ -356,7 +363,11 @@ impl<'a> HogQLPrinter<'a> {
                 clauses.push(format!("FROM {rendered}"));
             }
         }
-        for (key, kw) in [("prewhere", "PREWHERE"), ("where", "WHERE"), ("having", "HAVING")] {
+        for (key, kw) in [
+            ("prewhere", "PREWHERE"),
+            ("where", "WHERE"),
+            ("having", "HAVING"),
+        ] {
             if obj.contains_key(key) {
                 let rendered = self.visit_child(obj, key)?;
                 if !rendered.is_empty() {
@@ -463,7 +474,9 @@ impl<'a> HogQLPrinter<'a> {
                 None => String::new(),
             };
             let table_with_alias = match self.str_field(&jo, "alias")? {
-                Some(alias) if alias != table => format!("{table} AS {}", escape_identifier(&alias)),
+                Some(alias) if alias != table => {
+                    format!("{table} AS {}", escape_identifier(&alias))
+                }
                 _ => table,
             };
             parts.push(
@@ -478,7 +491,10 @@ impl<'a> HogQLPrinter<'a> {
 
     fn call(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {
         let name = self.str_field(obj, "name")?.unwrap_or_default();
-        Ok(format!("{name}({})", self.exprs_field(obj, "args")?.join(", ")))
+        Ok(format!(
+            "{name}({})",
+            self.exprs_field(obj, "args")?.join(", ")
+        ))
     }
 
     fn field(&mut self, obj: &IndexMap<String, HogValue>) -> Result<String, crate::VmError> {

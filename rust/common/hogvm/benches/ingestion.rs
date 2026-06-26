@@ -5,6 +5,7 @@
 //! batches of 2k. Measures two pure-Rust modes:
 //!   - single: one thread, one ExecutionContext reused across events (globals swapped per event)
 //!   - parallel: rayon across chunks, one ExecutionContext per worker chunk
+//!
 //! and reports throughput (events/s) + the parallel speedup. The Node and Rust-from-Node-FFI
 //! modes (the full three-way comparison) are driven by separate harnesses; this is the Rust floor
 //! and the parallelism signal.
@@ -42,8 +43,7 @@ fn run_chunk(program: &[Value], events: &[u64]) -> Vec<Value> {
         .iter()
         .map(|&e| {
             ctx.globals = make_event(e);
-            sync_execute(&ctx, false)
-                .unwrap_or_else(|f| panic!("event {e} failed: {}", f.error))
+            sync_execute(&ctx, false).unwrap_or_else(|f| panic!("event {e} failed: {}", f.error))
         })
         .collect()
 }
@@ -64,7 +64,10 @@ fn throughput(events: u64, dur: std::time::Duration) -> f64 {
 }
 
 fn env_u64(key: &str, default: u64) -> u64 {
-    std::env::var(key).ok().and_then(|s| s.parse().ok()).unwrap_or(default)
+    std::env::var(key)
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(default)
 }
 
 fn time_best<F: Fn() -> Vec<Value>>(reps: usize, f: F) -> std::time::Duration {
@@ -93,7 +96,10 @@ fn main() {
     let expected = oracle["results"].as_array().expect("oracle results");
     let sample: Vec<u64> = (0..expected.len() as u64).collect();
     let got = run_single(&program, &sample);
-    assert_eq!(&got, expected, "Rust VM diverged from reference on perf workload");
+    assert_eq!(
+        &got, expected,
+        "Rust VM diverged from reference on perf workload"
+    );
     println!(
         "correctness: first {} events match reference ✓",
         expected.len()
@@ -115,7 +121,11 @@ fn main() {
 
     let single = time_best(reps, || run_single(&program, &events));
     if single_only {
-        println!("single   : {:>8.2} ms  | {:>12.0} events/s", single.as_secs_f64() * 1e3, throughput(total_events, single));
+        println!(
+            "single   : {:>8.2} ms  | {:>12.0} events/s",
+            single.as_secs_f64() * 1e3,
+            throughput(total_events, single)
+        );
         return;
     }
     let parallel = time_best(reps, || run_parallel(&program, &events, par_chunk));
@@ -136,6 +146,10 @@ fn main() {
         parallel_tput / single_tput
     );
     println!("=========================================================");
-    println!("\nNote: pure-Node and Rust-from-Node (napi-rs FFI) modes are pending the Node harness;");
-    println!("they run this same perf_program.json + event formula for an apples-to-apples comparison.");
+    println!(
+        "\nNote: pure-Node and Rust-from-Node (napi-rs FFI) modes are pending the Node harness;"
+    );
+    println!(
+        "they run this same perf_program.json + event formula for an apples-to-apples comparison."
+    );
 }

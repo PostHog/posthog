@@ -370,6 +370,9 @@ select = [
 # Django settings aggregator: star imports are how settings modules merge into one namespace.
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
+# Standalone oracle/perf generators run manually outside the app: deferred imports need
+# sys.path set first (PLC0415) and console output is the script's purpose (T201).
+"rust/common/hogvm/scripts/**" = ["PLC0415", "T201"]
 
 # PLC0415 exemptions. products/ and services/llm-gateway/ have their own ruff configs.
 # Run `ruff check <path> --select PLC0415 --statistics` before removing an entry.

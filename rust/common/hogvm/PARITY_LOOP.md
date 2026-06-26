@@ -28,6 +28,7 @@ fully-serializable `VMState`; the host performs the side effect out-of-band (oft
 cyclotron/hogflow) and resumes by re-entering with that state. Driver loop: `while (!result.finished)`.
 
 **What now exists in Rust:**
+
 - `StepOutcome` dispatch stays as-is; the new `execute_resumable` / `resume` driver recognizes
   registered async function names (`ExecutionContext::with_async_functions` + `with_max_async_steps`,
   plus the built-in `sleep` mirroring `ASYNC_STL`) and suspends on them — **zero change to existing
@@ -46,6 +47,7 @@ cyclotron/hogflow) and resumes by re-entering with that state. Driver loop: `whi
   built-in, and a telemetry trace.
 
 **Remaining for full Node-VM replacement** (ordered, roughly by leverage):
+
 1. **Live-Node cross-check**: verify a Rust-produced `VMState` resumes in the Node VM and vice versa
    (the round-trip tests here are Rust↔Rust against Node-shaped JSON; a Node oracle would close it).
 2. **Cross-module imports** (`import` op + dynamic module registration) — rare, advanced.
@@ -59,6 +61,7 @@ cyclotron/hogflow) and resumes by re-entering with that state. Driver loop: `whi
 ## 1. Stock-taking — what exists today
 
 ### Architecture
+
 - **Hog** source (`.hog`) compiles to **Hog bytecode** (`.hoge`, a JSON array) via the
   Python compiler (`posthog.hogql.cli --compile`). Bytecode starts with a `["_H", <version>, …]`
   header.
@@ -72,13 +75,16 @@ cyclotron/hogflow) and resumes by re-entering with that state. Driver loop: `whi
   **The committed snapshots let us run parity without a live Node or the Python compiler.**
 
 ### Opcode coverage (the 57 ops in `ops.rs`)
+
 All 57 opcodes are defined and the interpreter implements nearly all of them. Gaps:
+
 - `InCohort` / `NotInCohort` — `NotImplemented`.
 - `DeclareFn` — intentionally unimplemented (the current compiler emits `Callable`/`Closure`
   instead).
 - Function **imports** (`get_fn_reference`) — `NotImplemented`.
 
 ### STL coverage (native `CALL_GLOBAL` functions)
+
 The reference exposes **~123** STL names; Rust implements **~29** (23 native + 6 hog-bytecode:
 `arrayCount/Exists/Filter/Map/Reduce`, `sortableSemver`). **~82 are missing.** By category:
 
@@ -95,6 +101,7 @@ The reference exposes **~123** STL names; Rust implements **~29** (23 native + 6
 | misc | `print` (consumer-provided), `sleep`, `extract` | ~3 |
 
 ### Value-model findings already confirmed by the harness
+
 1. ✅ ~~**Objects use `HashMap<String, HogValue>` → insertion order is lost.**~~ Fixed: `Object`
    now holds an `IndexMap`, so object literals, `keys()`/`values()`, JSON, and `print` preserve
    insertion order. Flipped `properties` (corpus) and `values` (per-STL) to passing.
@@ -117,6 +124,7 @@ The reference exposes **~123** STL names; Rust implements **~29** (23 native + 6
 ## 2. The harness
 
 ### 2a. Correctness (`tests/parity.rs`) — built, working
+
 For every corpus program it loads the committed `.hoge`, runs it through the Rust VM with a
 `print` that formats values via the canonical printer (`print.rs`), and diffs captured output
 against the Node oracle. Each program is **PASS** / **MISMATCH** (ran, diverged → parity bug) /
@@ -124,12 +132,15 @@ against the Node oracle. Each program is **PASS** / **MISMATCH** (ran, diverged 
 `Not implemented: Y` reasons are tallied into the **backlog** — the ordered worklist below.
 
 Run it (this environment — see §4 for why the isolated build is needed):
+
 ```bash
 # one-time: create an isolated crate that symlinks the live src/tests (avoids the
 # proxy-blocked github git deps the full workspace pulls in)
 bash rust/common/hogvm/scripts/run_parity.sh
 ```
+
 In an unrestricted environment, simply:
+
 ```bash
 HOGVM_CORPUS_DIR=$PWD/common/hogvm/__tests__ cargo test -p hogvm --test parity -- --nocapture
 ```
@@ -138,6 +149,7 @@ Current status: **35 PASS / 0 MISMATCH / 0 ERROR** of 35 programs — **full beh
 with the Node reference VM.
 
 The three formerly-hard residual programs are all resolved (step 2):
+
 - **`scope`** + **`recursion`** — fixed by implementing proper **open/close upvalues**
   (Lua-style): a captured local stays on the stack, the closure holds a shared `Upvalue` cell
   that views the live slot while *open* (`GetUpvalue`/`SetUpvalue` read/write `stack[location]`)
@@ -153,6 +165,7 @@ cohort data source), `DeclareFn` (legacy, the compiler never emits it), closure 
 `get_fn_reference` (only native-STL references are resolved today).
 
 ### 2a-bis. Per-STL parity (`tests/stl_parity.rs`) — built, working
+
 Whole-program tests cover the STL only incidentally. To give **each STL function its own
 reference-checked test**, `scripts/gen_stl_oracle.py` builds `print(fn(args))` bytecode for a
 representative case per function, runs it through the **reference Python VM** (the compliant
@@ -171,15 +184,19 @@ produces. So the Rust VM is Node-correct; regenerating the oracle from the Node 
 
 Regenerate the committed oracle fixtures after adding/altering cases (also rebuilds the perf
 oracle); it provisions the reference VM's `re2`+`pytz` venv first:
+
 ```bash
 rust/common/hogvm/scripts/regen_oracles.sh
 ```
+
 The committed `stl_oracle.json` means the Rust test (and the loop) run without the venv; you only
 need it to regenerate after editing cases.
 
 ### 2b. Performance — three modes, ingestion-shaped
+
 We measure the *same* compiled program (`tests/static/perf_program.json`) over the same event
 stream in three execution modes:
+
 1. **Pure Node** — the reference TS VM (`common/hogvm/typescript`). *(built)*
 2. **Pure Rust** — `sync_execute`, single-threaded floor + a **rayon** parallel batch. *(built)*
 3. **Rust-from-Node via FFI** — the realistic production shape (Node ingestion calls into Rust),
@@ -193,6 +210,7 @@ large fixture is shipped and the workload is identical across languages. The pro
 against the reference VM before timing (`scripts/gen_perf_workload.py` writes the oracle).
 
 Built (all three modes):
+
 - `benches/ingestion.rs` (`scripts/run_perf.sh`) — pure Rust, single + rayon parallel.
 - `benches/ingestion_node.js` — pure Node (reference TS VM), single-threaded.
 - `node/` (napi-rs binding) + `benches/ingestion_ffi.js` (`scripts/run_ffi.sh`) — Rust-from-Node.
@@ -234,10 +252,12 @@ workload-shaped — it knows the `{series, k}` schema — so a production versio
 product's fixed schema flat rather than as JS objects.)
 
 #### Perf investigation (why Rust started out *slower* than Node, and the fix)
+
 Initially Rust single-thread lost to V8 (0.76×) — suspicious for an interpreter. A `callgrind`
 profile of the single-threaded path was decisive: **the interpreter loop itself
 (`step`+`next`+`get_bytecode`) was ~1.5%** of cost. The time was in the value model / native-result
 handling:
+
 - **`walk_emplacing` — 25%**: every native result array was re-walked element-by-element and
   re-heap-allocated. Added a fast path that emplaces flat (non-nested) arrays as-is. (→ 6.4%.)
 - **`arraySort`/`arrayReverseSort`** partitioned into `(oks, errs)` Vecs even when nothing errored.
@@ -269,6 +289,7 @@ batch across the boundary is still ~40% — compact/columnar event encoding is t
 
 The existing `cyclotron-node` uses **neon**, which is now in a transition phase. For new work
 the current standard is **napi-rs** (Node-API via `#[napi]` macros):
+
 - Node-API → one prebuilt binary works across Node versions; mature cross-platform prebuild tooling.
 - First-class async: `AsyncTask` runs heavy work off the libuv main thread and returns a Promise,
   so a batch can be crunched on a Rust thread pool (`rayon`) without blocking Node's event loop.
@@ -305,6 +326,7 @@ fixtures — the loop itself runs against the committed ones.
 
 **Entrypoint:** `scripts/loop.sh` — runs both correctness harnesses and prints the pass/fail counts
 and backlog (the "where are we / what's next" dashboard). Per iteration:
+
 1. `scripts/loop.sh` — see the backlog.
 2. Implement the next STL fn / value-model fix in `src/` to match the reference.
 3. `scripts/loop.sh` — confirm the count climbed with no regressions.
@@ -317,6 +339,7 @@ re-run the harness → a program flips ERROR/MISMATCH → PASS. Repeat until the
 green, then move to performance.
 
 **Phase 0 — value-model & semantics fixes (unblock whole categories):**
+
 1. ✅ Graceful top-level termination (run-off-the-end → return top/null). *(done — +6 PASS)*
 2. ✅ Canonical printer incl. `fn<name(argCount)>` callables. *(done)*
 3. ✅ Insertion-ordered objects (`IndexMap`) — fixed `properties` (corpus) and `values` (per-STL);
@@ -328,6 +351,7 @@ green, then move to performance.
 7. Hog temporals in the printer + tuple type/marker (`tuples`, date prints).
 
 **Phase 1 — STL by category (each category is a loop step), ordered by corpus impact:**
+
 - strings: `concat` (3 programs), `trim`, `keys`, `empty`, `lower/upper/substring/…`
 - json: `jsonParse`, `jsonStringify`, `JSON*`
 - exceptions: `Error` / `HogError` constructors (+ `throw`/`try` parity)
@@ -342,7 +366,8 @@ establish the Node baseline, then optimize the Rust batch path with `rayon` unti
 on the ingestion scenario.
 
 ### Live backlog (regenerate with the harness)
-```
+
+```text
 [3] stl:concat            mandelbrot, printLoops, printLoops2
 [2] stl:Error             exceptions, typeof
 [2] stl:HogError          catch, catch2

@@ -74,13 +74,16 @@ fn stl_parity() {
     for e in &oracle.entries {
         let expected = e.expected.trim_end_matches('\n');
         match run_bytecode(e.bytecode.clone()) {
-            Ok(actual) if e.match_mode == "smoke" => {
-                let _ = actual; // smoke: ran without error
+            Ok(_) if e.match_mode == "smoke" => {
+                // smoke: ran without error
                 pass += 1;
             }
             Ok(actual) if actual == expected => pass += 1,
             Ok(actual) => {
-                failed.push((e.label.clone(), format!("node={expected:?} rust={actual:?}")));
+                failed.push((
+                    e.label.clone(),
+                    format!("node={expected:?} rust={actual:?}"),
+                ));
                 failing_fns.insert(e.fn_.clone());
             }
             Err(err) => {
@@ -99,7 +102,10 @@ fn stl_parity() {
         for (label, detail) in &failed {
             println!("  {label}: {detail}");
         }
-        println!("\n-- failing functions --\n  {}", itertools_join(&failing_fns));
+        println!(
+            "\n-- failing functions --\n  {}",
+            itertools_join(&failing_fns)
+        );
     }
     if !oracle.uncovered.is_empty() {
         println!(

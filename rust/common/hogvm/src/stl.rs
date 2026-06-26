@@ -1428,10 +1428,7 @@ fn to_string(heap: &VmHeap, val: &HogValue, _depth: usize) -> Result<String, VmE
 
 // Render a Hog datetime as Luxon's `DateTime.fromSeconds(dt, {zone}).toISO()` does: millisecond
 // precision, `Z` for UTC and a `+HH:MM` offset otherwise.
-fn hog_datetime_to_iso(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-) -> Result<String, VmError> {
+fn hog_datetime_to_iso(heap: &VmHeap, obj: &IndexMap<String, HogValue>) -> Result<String, VmError> {
     let dt = obj_number(heap, obj, "dt")?.unwrap_or(0.0);
     let zone = obj_string(heap, obj, "zone")?.unwrap_or_else(|| "UTC".to_string());
     // Luxon keeps millisecond precision; round to whole millis first to avoid float drift turning
@@ -1455,11 +1452,7 @@ fn hog_datetime_to_iso(
     Ok(formatted)
 }
 
-fn obj_marker(
-    heap: &VmHeap,
-    obj: &IndexMap<String, HogValue>,
-    key: &str,
-) -> Result<bool, VmError> {
+fn obj_marker(heap: &VmHeap, obj: &IndexMap<String, HogValue>, key: &str) -> Result<bool, VmError> {
     match obj.get(key) {
         Some(v) => Ok(matches!(v.deref(heap)?, HogLiteral::Boolean(true))),
         None => Ok(false),
@@ -1744,7 +1737,9 @@ fn json_stringify(
             Ok(format!("{{{}}}", parts.join(", ")))
         }
         // Callables/closures serialize as the quoted `fn<name(argCount)>` string, like the reference.
-        HogLiteral::Callable(_) | HogLiteral::Closure(_) => escape(&print_hog_string_output(heap, value)?),
+        HogLiteral::Callable(_) | HogLiteral::Closure(_) => {
+            escape(&print_hog_string_output(heap, value)?)
+        }
     })();
 
     if container_ptr.is_some() {
@@ -1795,8 +1790,8 @@ fn like_to_regex(pattern: &str) -> String {
     let mut out = String::with_capacity(pattern.len() * 2);
     for c in pattern.chars() {
         match c {
-            '-' | '/' | '\\' | '^' | '$' | '*' | '+' | '?' | '.' | '(' | ')' | '|' | '['
-            | ']' | '{' | '}' => {
+            '-' | '/' | '\\' | '^' | '$' | '*' | '+' | '?' | '.' | '(' | ')' | '|' | '[' | ']'
+            | '{' | '}' => {
                 out.push('\\');
                 out.push(c);
             }
@@ -1871,7 +1866,10 @@ fn trim_impl(vm: &HogVM, args: Vec<HogValue>, side: TrimSide) -> Result<HogValue
 }
 
 fn make_hog_datetime(dt: f64, zone: &str) -> Result<HogValue, VmError> {
-    construct_free_standing(json!({ "__hogDateTime__": true, "dt": dt, "zone": zone }), 0)
+    construct_free_standing(
+        json!({ "__hogDateTime__": true, "dt": dt, "zone": zone }),
+        0,
+    )
 }
 
 // Epoch seconds of a Hog Date/DateTime value (the `dt` field, or UTC midnight for a Date).
@@ -1900,7 +1898,12 @@ fn hog_datetime_parts(vm: &HogVM, value: &HogValue, name: &str) -> Result<(f64, 
 
 // The reference reads the UTC wall-clock of `dt` (its localize is a no-op re-label), so year/month
 // are the UTC fields of the instant.
-fn extract_utc_field(vm: &HogVM, value: &HogValue, field: &str, name: &str) -> Result<i64, VmError> {
+fn extract_utc_field(
+    vm: &HogVM,
+    value: &HogValue,
+    field: &str,
+    name: &str,
+) -> Result<i64, VmError> {
     let secs = temporal_seconds(vm, value, name)?;
     let utc = DateTime::from_timestamp(secs.floor() as i64, 0)
         .ok_or_else(|| VmError::NativeCallFailed(format!("{name}: timestamp out of range")))?;
@@ -1918,8 +1921,9 @@ fn extract_utc_field(vm: &HogVM, value: &HogValue, field: &str, name: &str) -> R
 // dateTrunc: truncate the UTC wall-clock to the unit, then re-interpret in the value's zone.
 fn date_trunc_impl(vm: &HogVM, unit: &str, value: &HogValue) -> Result<HogValue, VmError> {
     let (secs, zone) = hog_datetime_parts(vm, value, "dateTrunc")?;
-    let utc = DateTime::from_timestamp(secs.floor() as i64, 0)
-        .ok_or_else(|| VmError::NativeCallFailed("dateTrunc: timestamp out of range".to_string()))?;
+    let utc = DateTime::from_timestamp(secs.floor() as i64, 0).ok_or_else(|| {
+        VmError::NativeCallFailed("dateTrunc: timestamp out of range".to_string())
+    })?;
     let n = utc.naive_utc();
     let truncated = match unit {
         "year" => NaiveDate::from_ymd_opt(n.year(), 1, 1).and_then(|d| d.and_hms_opt(0, 0, 0)),
@@ -1969,15 +1973,26 @@ fn make_hog_interval(vm: &HogVM, args: &[HogValue], unit: &str) -> Result<HogVal
     assert_argc(args, 1, "toInterval")?;
     let n = args[0].deref(&vm.heap)?.try_as::<Num>()?.clone();
     let mut map = IndexMap::new();
-    map.insert("__hogInterval__".to_string(), HogLiteral::Boolean(true).into());
+    map.insert(
+        "__hogInterval__".to_string(),
+        HogLiteral::Boolean(true).into(),
+    );
     map.insert("value".to_string(), HogLiteral::Number(n).into());
-    map.insert("unit".to_string(), HogLiteral::String(unit.to_string()).into());
+    map.insert(
+        "unit".to_string(),
+        HogLiteral::String(unit.to_string()).into(),
+    );
     Ok(HogLiteral::Object(map).into())
 }
 
 // Add an interval to a DateTime. day/hour/minute/second are absolute durations; month is wall-clock
 // field math (clamping the day) re-interpreted in the value's zone.
-fn apply_interval(vm: &HogVM, dt_value: &HogValue, unit: &str, value: i64) -> Result<HogValue, VmError> {
+fn apply_interval(
+    vm: &HogVM,
+    dt_value: &HogValue,
+    unit: &str,
+    value: i64,
+) -> Result<HogValue, VmError> {
     // Adding an interval to a Date yields a Date; to a DateTime yields a DateTime (reference
     // applyIntervalToDateTime). We do the arithmetic in epoch seconds either way, then re-wrap.
     let is_date = match dt_value.deref(&vm.heap)? {
@@ -2006,13 +2021,19 @@ fn apply_interval(vm: &HogVM, dt_value: &HogValue, unit: &str, value: i64) -> Re
                     break d;
                 }
                 if day <= 1 {
-                    return Err(VmError::NativeCallFailed("dateAdd: invalid date".to_string()));
+                    return Err(VmError::NativeCallFailed(
+                        "dateAdd: invalid date".to_string(),
+                    ));
                 }
                 day -= 1;
             };
             zone_local_timestamp(&zone, &truncated)?
         }
-        _ => return Err(VmError::NativeCallFailed(format!("Unknown interval unit {unit}"))),
+        _ => {
+            return Err(VmError::NativeCallFailed(format!(
+                "Unknown interval unit {unit}"
+            )))
+        }
     };
     if is_date {
         let utc = DateTime::from_timestamp(new_secs.floor() as i64, 0).ok_or_else(|| {
@@ -2026,7 +2047,12 @@ fn apply_interval(vm: &HogVM, dt_value: &HogValue, unit: &str, value: i64) -> Re
     make_hog_datetime(new_secs, &zone)
 }
 
-fn date_add_impl(vm: &HogVM, unit: &str, amount: i64, dt_value: &HogValue) -> Result<HogValue, VmError> {
+fn date_add_impl(
+    vm: &HogVM,
+    unit: &str,
+    amount: i64,
+    dt_value: &HogValue,
+) -> Result<HogValue, VmError> {
     let (unit, amount) = match unit {
         "day" | "hour" | "minute" | "second" | "month" => (unit, amount),
         "week" => ("day", amount * 7),
@@ -2040,13 +2066,19 @@ fn date_add_impl(vm: &HogVM, unit: &str, amount: i64, dt_value: &HogValue) -> Re
     apply_interval(vm, dt_value, unit, amount)
 }
 
-fn date_diff_impl(vm: &HogVM, unit: &str, start_v: &HogValue, end_v: &HogValue) -> Result<HogValue, VmError> {
+fn date_diff_impl(
+    vm: &HogVM,
+    unit: &str,
+    start_v: &HogValue,
+    end_v: &HogValue,
+) -> Result<HogValue, VmError> {
     let start = temporal_seconds(vm, start_v, "dateDiff")?;
     let end = temporal_seconds(vm, end_v, "dateDiff")?;
     let diff = end - start;
     let utc_year_month = |secs: f64| -> Result<(i64, i64), VmError> {
-        let dt = DateTime::from_timestamp(secs.floor() as i64, 0)
-            .ok_or_else(|| VmError::NativeCallFailed("dateDiff: timestamp out of range".to_string()))?;
+        let dt = DateTime::from_timestamp(secs.floor() as i64, 0).ok_or_else(|| {
+            VmError::NativeCallFailed("dateDiff: timestamp out of range".to_string())
+        })?;
         Ok((dt.year() as i64, dt.month() as i64))
     };
     let result = match unit {
@@ -2079,9 +2111,9 @@ fn format_datetime_impl(vm: &HogVM, args: &[HogValue]) -> Result<HogValue, VmErr
         dt_zone
     };
     let translated = translate_clickhouse_format(&format);
-    let tz: chrono_tz::Tz = zone
-        .parse()
-        .map_err(|_| VmError::NativeCallFailed(format!("formatDateTime: unknown timezone {zone}")))?;
+    let tz: chrono_tz::Tz = zone.parse().map_err(|_| {
+        VmError::NativeCallFailed(format!("formatDateTime: unknown timezone {zone}"))
+    })?;
     let dt = match tz.timestamp_opt(secs.floor() as i64, 0) {
         LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => dt,
         LocalResult::None => {
@@ -2112,14 +2144,42 @@ fn translate_clickhouse_format(format: &str) -> String {
 
 fn translate_format_token(c: char) -> &'static str {
     match c {
-        'a' => "%a", 'b' => "%b", 'c' => "%m", 'C' => "%y", 'd' => "%d",
-        'D' => "%m/%d/%y", 'e' => "%d", 'f' => "%f", 'F' => "%Y-%m-%d",
-        'g' => "%y", 'G' => "%Y", 'h' => "%I", 'H' => "%H", 'i' => "%M",
-        'I' => "%I", 'j' => "%j", 'k' => "%H", 'l' => "%I", 'm' => "%m",
-        'M' => "%B", 'n' => "\n", 'p' => "%p", 'r' => "%I:%M %p", 'R' => "%H:%M",
-        's' => "%S", 'S' => "%S", 't' => "\t", 'T' => "%H:%M:%S", 'u' => "%u",
-        'V' => "%V", 'w' => "%w", 'W' => "%A", 'y' => "%y", 'Y' => "%Y",
-        'z' => "%z", '%' => "%%",
+        'a' => "%a",
+        'b' => "%b",
+        'c' => "%m",
+        'C' => "%y",
+        'd' => "%d",
+        'D' => "%m/%d/%y",
+        'e' => "%d",
+        'f' => "%f",
+        'F' => "%Y-%m-%d",
+        'g' => "%y",
+        'G' => "%Y",
+        'h' => "%I",
+        'H' => "%H",
+        'i' => "%M",
+        'I' => "%I",
+        'j' => "%j",
+        'k' => "%H",
+        'l' => "%I",
+        'm' => "%m",
+        'M' => "%B",
+        'n' => "\n",
+        'p' => "%p",
+        'r' => "%I:%M %p",
+        'R' => "%H:%M",
+        's' => "%S",
+        'S' => "%S",
+        't' => "\t",
+        'T' => "%H:%M:%S",
+        'u' => "%u",
+        'V' => "%V",
+        'w' => "%w",
+        'W' => "%A",
+        'y' => "%y",
+        'Y' => "%Y",
+        'z' => "%z",
+        '%' => "%%",
         _ => "",
     }
 }

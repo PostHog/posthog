@@ -14,9 +14,10 @@ Events are produced by a deterministic formula (below) so every harness/language
 Run (needs re2 + pytz):
   PYTHONPATH=.:common <venv>/bin/python rust/common/hogvm/scripts/gen_perf_workload.py
 """
-import json
+
 import os
 import sys
+import json
 
 CALL_GLOBAL = 2
 GET_GLOBAL = 1
