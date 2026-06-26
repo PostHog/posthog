@@ -80,12 +80,12 @@ export function DashboardItems(): JSX.Element {
         setTileOverride,
         setDashboardMode,
         setAddWidgetModalOpen,
-        setPendingInsertionY,
+        setPendingInsertion,
     } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     const { renameInsight } = useActions(insightsModel)
-    const { reportDashboardTileRepositioned } = useActions(eventUsageLogic)
+    const { reportDashboardTileRepositioned, reportDashboardAddTileOptionClicked } = useActions(eventUsageLogic)
     const { push } = useActions(router)
     const { data: surveyLinkedInsights, loading: surveyLinkedInsightsLoading } = useSurveyLinkedInsights({})
 
@@ -217,7 +217,9 @@ export function DashboardItems(): JSX.Element {
                       showAddInsightToDashboardModal,
                       push,
                       setAddWidgetModalOpen,
-                      onBeforeSelect: () => setPendingInsertionY(targetY, targetX, targetW),
+                      onBeforeSelect: () => setPendingInsertion({ x: targetX, y: targetY, w: targetW ?? null }),
+                      reportTileClick: (tileType) =>
+                          reportDashboardAddTileOptionClicked(tileType, 'control', 'inline', targetW != null),
                   })
                 : [],
         [
@@ -226,7 +228,8 @@ export function DashboardItems(): JSX.Element {
             showAddInsightToDashboardModal,
             push,
             setAddWidgetModalOpen,
-            setPendingInsertionY,
+            setPendingInsertion,
+            reportDashboardAddTileOptionClicked,
         ]
     )
 

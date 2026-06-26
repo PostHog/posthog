@@ -587,9 +587,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddTileOptionClicked: (tileType: DashboardAddTileType, variant: 'control' | 'test') => ({
+        reportDashboardAddTileOptionClicked: (
+            tileType: DashboardAddTileType,
+            variant: 'control' | 'test',
+            surface: 'header' | 'inline' = 'header',
+            fullWidth: boolean = false
+        ) => ({
             tileType,
             variant,
+            surface,
+            fullWidth,
         }),
         reportDashboardTileAdded: (tileType: DashboardAddTileType) => ({ tileType }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
@@ -1631,8 +1638,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportDashboardAddTileOptionClicked: async ({ tileType, variant }) => {
-            posthog.capture('dashboard add tile option clicked', { tile_type: tileType, variant })
+        reportDashboardAddTileOptionClicked: async ({ tileType, variant, surface, fullWidth }) => {
+            posthog.capture('dashboard add tile option clicked', {
+                tile_type: tileType,
+                variant,
+                surface,
+                full_width: fullWidth,
+            })
         },
         reportDashboardTileAdded: async ({ tileType }) => {
             posthog.capture('dashboard tile added', { tile_type: tileType })

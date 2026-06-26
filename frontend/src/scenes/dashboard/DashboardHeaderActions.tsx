@@ -87,7 +87,7 @@ export function getAddTileMenuItems({
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
-    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertionY } = useActions(dashboardLogic)
+    const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { showAddTilePickerModal } = useActions(addTilePickerModalLogic)
     const { reportDashboardAddTileOptionClicked } = useActions(eventUsageLogic)
@@ -148,9 +148,10 @@ export function DashboardAddTileButton(): JSX.Element | null {
                             showAddInsightToDashboardModal,
                             push,
                             setAddWidgetModalOpen,
-                            reportTileClick: (tileType) => reportDashboardAddTileOptionClicked(tileType, 'control'),
+                            reportTileClick: (tileType) =>
+                                reportDashboardAddTileOptionClicked(tileType, 'control', 'header'),
                             // Adding from the header appends at the bottom; drop any stale inline-insertion target.
-                            onBeforeSelect: () => setPendingInsertionY(null),
+                            onBeforeSelect: () => setPendingInsertion(null),
                         })}
                     >
                         {addButton}

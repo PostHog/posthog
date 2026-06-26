@@ -177,6 +177,14 @@ export enum RefreshDashboardItemsAction {
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
 
+/** Grid slot for the inline "+" insert: the row (`y`) and column (`x`), and an optional width override
+ * (`w`) for the full-width fallback when the hovered column can't anchor the tile at the line. */
+export interface PendingInsertion {
+    x: number
+    y: number
+    w: number | null
+}
+
 const tileLayoutsFromDashboard = (
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
 ): Record<number, DashboardTile['layouts']> => {
@@ -380,19 +388,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
          */
         updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         /**
-         * Record the grid slot (row + column) where the next added tile should be inserted (inline "+"
-         * affordance). `pendingInsertionW` overrides the tile's width — used for the full-width fallback
-         * when the hovered column can't anchor the tile at the line.
+         * Record the grid slot where the next added tile should be inserted (inline "+" affordance), or
+         * null to clear. `w` overrides the tile's width — used for the full-width fallback when the hovered
+         * column can't anchor the tile at the line.
          */
-        setPendingInsertionY: (
-            pendingInsertionY: number | null,
-            pendingInsertionX: number = 0,
-            pendingInsertionW: number | null = null
-        ) => ({
-            pendingInsertionY,
-            pendingInsertionX,
-            pendingInsertionW,
-        }),
+        setPendingInsertion: (pendingInsertion: PendingInsertion | null) => ({ pendingInsertion }),
         /** Reposition a freshly-added tile to the pending insertion row, pushing tiles below it down. */
         applyPendingInsertion: true,
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
@@ -1121,10 +1121,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 },
             },
         ],
-        pendingInsertionY: [
-            null as number | null,
+        pendingInsertion: [
+            null as PendingInsertion | null,
             {
-                setPendingInsertionY: (_, { pendingInsertionY }) => pendingInsertionY,
+                setPendingInsertion: (_, { pendingInsertion }) => pendingInsertion,
                 // Abandon a pending insert when the user switches into a real mode (Edit/Sharing/Fullscreen).
                 // Not on `mode === null`: the text/button add flow navigates through a route that sets the
                 // mode back to null, and clearing there would drop the target before the tile is created.
@@ -1132,21 +1132,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Don't clear on hideAddInsightToDashboardModal: closing the modal fires it right as the
                 // chosen insight is added, and clearing there dropped the target before applyPendingInsertion
                 // could place the tile (so insights appended at the bottom). A cancel leaves the target set,
-                // but the next header add clears it (setPendingInsertionY(null)) and entering a mode clears it.
-            },
-        ],
-        // Column for the pending insert; cleared alongside pendingInsertionY (which gates whether it's read).
-        pendingInsertionX: [
-            0 as number,
-            {
-                setPendingInsertionY: (_, { pendingInsertionX }) => pendingInsertionX,
-            },
-        ],
-        // Optional width override for the pending insert (full-width fallback); null means use the tile's own.
-        pendingInsertionW: [
-            null as number | null,
-            {
-                setPendingInsertionY: (_, { pendingInsertionW }) => pendingInsertionW,
+                // but the next header add clears it (setPendingInsertion(null)) and entering a mode clears it.
             },
         ],
         urlSearchParamsAtEditModeEntry: [
@@ -2154,18 +2140,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.loadDashboard({ action: DashboardLoadAction.Update })
             }
         },
-        setPendingInsertionY: ({ pendingInsertionY }) => {
+        setPendingInsertion: ({ pendingInsertion }) => {
             // Snapshot current tile ids so we can identify the tile the add flow appends afterwards.
-            cache.tileIdsBeforeInsertion =
-                pendingInsertionY != null ? new Set((values.tiles || []).map((t) => t.id)) : undefined
+            cache.tileIdsBeforeInsertion = pendingInsertion ? new Set((values.tiles || []).map((t) => t.id)) : undefined
         },
         applyPendingInsertion: async () => {
-            const targetY = values.pendingInsertionY
-            // Capture before setPendingInsertionY(null) below resets these to defaults.
-            const targetX = values.pendingInsertionX
-            const overrideW = values.pendingInsertionW
+            // Capture before setPendingInsertion(null) below clears it.
+            const slot = values.pendingInsertion
             const previousTileIds = cache.tileIdsBeforeInsertion as Set<number> | undefined
-            if (targetY == null || !previousTileIds) {
+            if (!slot || !previousTileIds) {
                 return
             }
 
@@ -2179,18 +2162,18 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             // Clear before persisting so the resulting updateDashboardSuccess doesn't re-enter this listener.
-            actions.setPendingInsertionY(null)
+            actions.setPendingInsertion(null)
 
             const smLayout = values.layouts?.sm
             const newTileLayoutEntry = smLayout?.find((l) => String(l.i) === String(newTile.id))
-            const w = overrideW ?? newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+            const w = slot.w ?? newTileLayoutEntry?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
             const h = newTileLayoutEntry?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
 
             const { newTileLayout, tilesToUpdate } = calculateInsertionLayout(
                 smLayout,
                 newTile.id,
-                targetY,
-                targetX,
+                slot.y,
+                slot.x,
                 w,
                 h
             )
@@ -2739,27 +2722,29 @@ export const dashboardLogic = kea<dashboardLogicType>([
             try {
                 const previousWidgetTileIds = new Set(values.widgetTiles.map((tile) => tile.id))
 
-                // Inline insertion: create the widget at the chosen row instead of the backend's
+                // Inline insertion: create the widget at the chosen slot instead of the backend's
                 // default bottom placement, and let applyPendingInsertion shift existing tiles down.
                 // Only single-widget adds insert positionally — applyPendingInsertion repositions one
-                // tile, so a multi-select add can't be cleanly inserted at a single row; it appends.
-                if (values.pendingInsertionY != null && widgets.length !== 1) {
-                    actions.setPendingInsertionY(null)
+                // tile, so a multi-select add can't be cleanly inserted at a single slot; it appends.
+                if (values.pendingInsertion && widgets.length !== 1) {
+                    actions.setPendingInsertion(null)
                 }
-                const insertAtY = widgets.length === 1 ? values.pendingInsertionY : null
-                const insertAtX = values.pendingInsertionX
-                const overrideW = values.pendingInsertionW
+                const insertSlot = widgets.length === 1 ? values.pendingInsertion : null
                 const widgetsPayload = widgets.map(({ widgetType, config }) => {
-                    if (insertAtY == null) {
+                    if (!insertSlot) {
                         return { widget_type: widgetType, config }
                     }
                     const defaultLayout =
                         widgetType in DASHBOARD_WIDGET_CATALOG
                             ? getDashboardWidgetCatalogEntry(widgetType).defaultLayout
                             : undefined
-                    const w = overrideW ?? defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
+                    const w = insertSlot.w ?? defaultLayout?.w ?? DEFAULT_INSERTED_TILE_SIZE.w
                     const h = defaultLayout?.h ?? DEFAULT_INSERTED_TILE_SIZE.h
-                    return { widget_type: widgetType, config, layouts: { sm: { x: insertAtX, y: insertAtY, w, h } } }
+                    return {
+                        widget_type: widgetType,
+                        config,
+                        layouts: { sm: { x: insertSlot.x, y: insertSlot.y, w, h } },
+                    }
                 })
 
                 const response = await api.create(
@@ -2776,7 +2761,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         dashboardsModel.actions.updateDashboardSuccess(dashboard)
 
                         // Only auto-scroll when the new tiles actually went to the bottom.
-                        if (insertAtY == null) {
+                        if (!insertSlot) {
                             actions.requestScrollToBottom()
                         }
                     }
