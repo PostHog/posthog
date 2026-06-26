@@ -92,7 +92,9 @@ async function addLabels(labels) {
 
         console.info('✅ Labels applied')
     } catch (error) {
-        console.warn(`⚠️  Skipping labels: ${error.message}`)
+        // A non-Error throw has no `.message`; fall back to the value itself so
+        // the real reason still surfaces in the log.
+        console.warn(`⚠️  Skipping labels: ${error?.message ?? error}`)
     }
 }
 
@@ -113,7 +115,7 @@ async function main() {
         console.info(`PR title: ${PR_TITLE || '(empty)'}`)
         await addLabels(labels)
     } catch (error) {
-        console.error('Error:', error.message)
+        console.error('Error:', error?.message ?? error)
         process.exit(1)
     }
 }

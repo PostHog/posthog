@@ -24,6 +24,12 @@ permissions:
     pull-requests: write
     issues: write
 
+# A PR being opened then quickly edited (title/base) queues redundant runs.
+# Labeling is idempotent, so drop any in-flight run for the same PR.
+concurrency:
+    group: auto-assign-labels-${{ github.event.pull_request.number }}
+    cancel-in-progress: true
+
 jobs:
     assign-labels:
         runs-on: 'ubuntu-22.04'

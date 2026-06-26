@@ -16,56 +16,55 @@ const RULES = [
     { scopes: ['cohort', 'cohorts'], labels: ['team/feature-flags', 'feature/cohorts'] },
 ]
 
+const PARSE_SCOPES_CASES = [
+    { title: 'feat(flags): add thing', expected: ['flags'], description: 'extracts a single scope' },
+    { title: 'chore(cohorts)!: drop column', expected: ['cohorts'], description: 'handles the breaking-change bang' },
+    {
+        title: 'feat(Flags, Cohorts): x',
+        expected: ['flags', 'cohorts'],
+        description: 'lowercases and splits comma-separated scopes',
+    },
+    { title: 'chore: bump deps', expected: [], description: 'no scope -> empty' },
+    { title: 'fix a bug (really)', expected: [], description: 'ignores parentheses that are not a CC scope' },
+    { title: '', expected: [], description: 'empty title -> empty' },
+]
+
 test('parseScopes', async (t) => {
-    await t.test('extracts a single scope', () => {
-        assert.deepEqual(parseScopes('feat(flags): add thing'), ['flags'])
-    })
-    await t.test('handles the breaking-change bang', () => {
-        assert.deepEqual(parseScopes('chore(cohorts)!: drop column'), ['cohorts'])
-    })
-    await t.test('lowercases and splits comma-separated scopes', () => {
-        assert.deepEqual(parseScopes('feat(Flags, Cohorts): x'), ['flags', 'cohorts'])
-    })
-    await t.test('no scope -> empty', () => {
-        assert.deepEqual(parseScopes('chore: bump deps'), [])
-    })
-    await t.test('ignores parentheses that are not a CC scope', () => {
-        assert.deepEqual(parseScopes('fix a bug (really)'), [])
-    })
-    await t.test('empty title -> empty', () => {
-        assert.deepEqual(parseScopes(''), [])
-    })
+    for (const { title, expected, description } of PARSE_SCOPES_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(parseScopes(title), expected)
+        })
+    }
 })
 
+const LABELS_FOR_TITLE_CASES = [
+    { title: 'feat(flags): x', expected: ['feature/feature-flags', 'team/feature-flags'], description: 'flags scope' },
+    {
+        title: 'fix(feature-flags): x',
+        expected: ['feature/feature-flags', 'team/feature-flags'],
+        description: 'feature-flags alias',
+    },
+    { title: 'fix(cohort): x', expected: ['team/feature-flags', 'feature/cohorts'], description: 'cohort scope' },
+    {
+        title: 'feat(cohorts)!: x',
+        expected: ['team/feature-flags', 'feature/cohorts'],
+        description: 'cohorts alias with bang',
+    },
+    { title: 'feat(insights): x', expected: [], description: 'unrelated scope -> no labels' },
+    { title: 'chore: bump', expected: [], description: 'no scope -> no labels' },
+    {
+        title: 'feat(flags,cohorts): x',
+        expected: ['feature/feature-flags', 'team/feature-flags', 'feature/cohorts'],
+        description: 'multi-scope de-dupes shared labels',
+    },
+]
+
 test('labelsForTitle', async (t) => {
-    await t.test('flags scope', () => {
-        assert.deepEqual(labelsForTitle('feat(flags): x', RULES), ['feature/feature-flags', 'team/feature-flags'])
-    })
-    await t.test('feature-flags alias', () => {
-        assert.deepEqual(labelsForTitle('fix(feature-flags): x', RULES), [
-            'feature/feature-flags',
-            'team/feature-flags',
-        ])
-    })
-    await t.test('cohort scope', () => {
-        assert.deepEqual(labelsForTitle('fix(cohort): x', RULES), ['team/feature-flags', 'feature/cohorts'])
-    })
-    await t.test('cohorts alias with bang', () => {
-        assert.deepEqual(labelsForTitle('feat(cohorts)!: x', RULES), ['team/feature-flags', 'feature/cohorts'])
-    })
-    await t.test('unrelated scope -> no labels', () => {
-        assert.deepEqual(labelsForTitle('feat(insights): x', RULES), [])
-    })
-    await t.test('no scope -> no labels', () => {
-        assert.deepEqual(labelsForTitle('chore: bump', RULES), [])
-    })
-    await t.test('multi-scope de-dupes shared labels', () => {
-        assert.deepEqual(labelsForTitle('feat(flags,cohorts): x', RULES), [
-            'feature/feature-flags',
-            'team/feature-flags',
-            'feature/cohorts',
-        ])
-    })
+    for (const { title, expected, description } of LABELS_FOR_TITLE_CASES) {
+        await t.test(description, () => {
+            assert.deepEqual(labelsForTitle(title, RULES), expected)
+        })
+    }
 })
 
 // Catches a malformed or empty .github/auto-assign-labels.json in this PR's
