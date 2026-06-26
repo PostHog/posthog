@@ -9,12 +9,16 @@ scorers depend on. The queryable needle requires object storage and degrades to
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
 from posthog.hogql.query import execute_hogql_query
 
 from ee.hogai.eval.sandboxed.data_warehouse.seeder import seed_warehouse_schema
+
+if TYPE_CHECKING:
+    from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
     DESC_NEEDLE_PHRASE,
     DESC_NEEDLE_TABLE,
@@ -29,7 +33,9 @@ from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
 class TestWarehouseSeeder(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
-        context = SimpleNamespace(team_id=self.team.id, user_id=self.user.id)
+        # The seeder only reads team_id/user_id; a namespace stands in for the real
+        # sandbox context here.
+        context = cast("CustomPromptSandboxContext", SimpleNamespace(team_id=self.team.id, user_id=self.user.id))
         self.seed = seed_warehouse_schema(context)
 
     def _query(self, sql: str) -> list:

@@ -42,6 +42,7 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
+    "products.data_tools",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",

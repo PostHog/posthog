@@ -16,8 +16,6 @@ from __future__ import annotations
 
 import csv
 import logging
-import tempfile
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
@@ -167,27 +165,71 @@ def seed_warehouse_schema(context: CustomPromptSandboxContext) -> dict[str, Any]
 def _create_queryable_needle(team: Team, table: SynthTable) -> dict[str, Any]:
     """Upload the needle's CSV to object storage and register a queryable table.
 
-    Returns ``queryable=False`` (and logs) on any failure — object storage may be
+    Inlines the minimal create-from-CSV path (it only needs ``warehouse_sources``
+    models) so the eval doesn't reach into another product's test helpers. Returns
+    ``queryable=False`` (and logs) on any failure — object storage may be
     unavailable in the harness, in which case the retrieval scorer self-skips and
     the other four needles (metadata-only) are unaffected.
     """
-    from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+    import s3fs
+
+    from posthog.settings import (
+        OBJECT_STORAGE_ACCESS_KEY_ID,
+        OBJECT_STORAGE_BUCKET,
+        OBJECT_STORAGE_ENDPOINT,
+        OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        XDIST_SUFFIX,
+    )
+
+    from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+    from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+    degraded = {"queryable": False, "answer": RETRIEVAL_NEEDLE_ANSWER, "event_id": RETRIEVAL_NEEDLE_EVENT_ID}
+    if not OBJECT_STORAGE_ACCESS_KEY_ID or not OBJECT_STORAGE_SECRET_ACCESS_KEY:
+        return degraded
 
     try:
-        with tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, newline="") as handle:
+        name = f"{RETRIEVAL_NEEDLE_PREFIX}{table.name}"
+        bucket = f"eval_warehouse{XDIST_SUFFIX}"
+        folder = f"{OBJECT_STORAGE_BUCKET}/{bucket}/{name}"
+        fs = s3fs.S3FileSystem(
+            client_kwargs={
+                "region_name": "us-east-1",
+                "endpoint_url": OBJECT_STORAGE_ENDPOINT,
+                "aws_access_key_id": OBJECT_STORAGE_ACCESS_KEY_ID,
+                "aws_secret_access_key": OBJECT_STORAGE_SECRET_ACCESS_KEY,
+            },
+        )
+        with fs.open(f"{folder}/data.csv", "w", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow([column.name for column in table.columns])
             for row in table.rows:
                 writer.writerow(row)
-            csv_path = Path(handle.name)
 
-        created, *_rest = create_data_warehouse_table_from_csv(
-            csv_path=csv_path,
-            table_name=table.name,
-            table_columns={column.name: column.clickhouse_base for column in table.columns},
-            test_bucket="eval_warehouse",
+        source = ExternalDataSource.objects.create(
             team=team,
-            source_prefix=RETRIEVAL_NEEDLE_PREFIX,
+            source_id="eval_source",
+            connection_id="eval_connection",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            prefix=RETRIEVAL_NEEDLE_PREFIX,
+        )
+        credential = DataWarehouseCredential.objects.create(
+            team=team,
+            access_key=OBJECT_STORAGE_ACCESS_KEY_ID,
+            access_secret=OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        )
+        created = DataWarehouseTable.objects.create(
+            name=name,
+            format=DataWarehouseTable.TableFormat.CSVWithNames,
+            team=team,
+            external_data_source=source,
+            credential=credential,
+            url_pattern=f"http://host.docker.internal:19000/{folder}/*.csv",
+            columns=table.columns_json(),
+            options={"csv_allow_double_quotes": True},
         )
         return {
             "queryable": True,
@@ -197,4 +239,4 @@ def _create_queryable_needle(team: Team, table: SynthTable) -> dict[str, Any]:
         }
     except Exception:
         logger.exception("Queryable needle creation failed; degrading retrieval needle to metadata-only")
-        return {"queryable": False, "answer": RETRIEVAL_NEEDLE_ANSWER, "event_id": RETRIEVAL_NEEDLE_EVENT_ID}
+        return degraded
