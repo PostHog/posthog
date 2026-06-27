@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { type ReactNode, useState } from 'react'
 
 import { IconArrowLeft, IconArrowRight, IconPullRequest, IconTerminal } from '@posthog/icons'
@@ -334,11 +335,26 @@ const STEPS: StepDef[] = [
 export function ContextOnboarding(): JSX.Element {
     const { completeContextOnboarding } = useActions(onboardingLogic)
     const { isCompleting } = useValues(onboardingLogic)
-    const [stepIndex, setStepIndex] = useState(0)
+    // Initialize from the URL so a refresh — or an OAuth callback that lands back on ?step=install
+    // (e.g. the GitHub connect flow) — resumes where it left off instead of restarting at welcome.
+    const [stepIndex, setStepIndex] = useState(() => {
+        const fromUrl = STEPS.findIndex((s) => s.id === router.values.searchParams['step'])
+        return fromUrl >= 0 ? fromUrl : 0
+    })
 
     const step = STEPS[stepIndex]
     const isFirst = stepIndex === 0
     const isLast = stepIndex === STEPS.length - 1
+
+    // Keep ?step= in sync as the user moves so the URL stays resumable, preserving any other params
+    // (like the integration ids the GitHub callback appends).
+    const goToStep = (index: number): void => {
+        setStepIndex(index)
+        router.actions.replace(router.values.location.pathname, {
+            ...router.values.searchParams,
+            step: STEPS[index].id,
+        })
+    }
 
     const goNext = (): void => {
         if (isLast) {
@@ -347,9 +363,9 @@ export function ContextOnboarding(): JSX.Element {
             completeContextOnboarding()
             return
         }
-        setStepIndex((i) => i + 1)
+        goToStep(stepIndex + 1)
     }
-    const goBack = (): void => setStepIndex((i) => Math.max(0, i - 1))
+    const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))
 
     return (
         // flex-1 + min-h-0 lets this fill the capped card (sm+) so the middle can scroll; on mobile the
