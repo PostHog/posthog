@@ -1011,6 +1011,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.InternalError_(
                 "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
             ),
+            # Supavisor also surfaces a transient pool-checkout failure as an XX000 InternalError_
+            # carrying the "(ECHECKOUTRETRIES)" code — it couldn't hand us a backend connection after
+            # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
+            # reconnect once a session returns a connection to the pool.
+            psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
