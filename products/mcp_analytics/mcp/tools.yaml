@@ -168,7 +168,8 @@ wrappers:
         description: >
             Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and
             unique sessions per day. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to
-            answer "how has tool X trended?" — spotting error spikes, latency regressions, or adoption changes over time.
+            answer "how has tool X trended?" — spotting error spikes, latency regressions, or adoption changes over
+            time.
         system_prompt_hint: One MCP tool's day-by-day series — calls, errors, p50/p95, users, sessions
         exclude_properties:
             - response
@@ -280,8 +281,8 @@ wrappers:
         title: Descriptions seen for one MCP tool
         description: >
             Return the distinct effective tool-description strings seen for a single MCP tool over the window. Pass
-            toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a tool
-            registered with more than one description across clients or versions.
+            toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a
+            tool registered with more than one description across clients or versions.
         system_prompt_hint: Distinct effective descriptions seen for one MCP tool
         exclude_properties:
             - response
