@@ -9,10 +9,7 @@ import {
 } from '@/lib/posthog/flags'
 import type { RequestProperties } from '@/lib/request-properties'
 import type { McpMode } from '@/lib/utils'
-import {
-    READ_DATA_WAREHOUSE_SCHEMA_TOOL_NAME,
-    SQL_SCHEMA_DISCOVERY_FEATURE_FLAG,
-} from '@/tools/posthogAiTools/readDataWarehouseSchema'
+import { SQL_SCHEMA_DISCOVERY_FEATURE_FLAG } from '@/tools/posthogAiTools/readDataWarehouseSchema'
 import { RENDER_UI_FEATURE_FLAG } from '@/tools/render-ui'
 import { getRequiredFeatureFlags, getScopeGatedTools, type ScopeGatedTool } from '@/tools/toolDefinitions'
 import type { Context, Tool, Env, State, ZodObjectAny } from '@/tools/types'
@@ -189,19 +186,10 @@ export class RequestStateResolver {
             scopedTeams: apiKeyScopedTeams,
             aiConsentGiven: aiConsentGiven ?? undefined,
         }
-        let allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
+        const allTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
-        let scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
-
-        // When SQL schema discovery is on, remove `read-data-warehouse-schema` so the
-        // agent can't fall back to it — discovery must go through `execute-sql` against
-        // `system.information_schema.*`. Gating here covers both surfaces: tools-mode
-        // advertisement and the single-exec `exec`/`search` tool catalog.
-        if (toolFeatureFlags?.[SQL_SCHEMA_DISCOVERY_FEATURE_FLAG] === true) {
-            allTools = allTools.filter((t) => t.name !== READ_DATA_WAREHOUSE_SCHEMA_TOOL_NAME)
-            scopeGatedTools = scopeGatedTools.filter((t) => t.name !== READ_DATA_WAREHOUSE_SCHEMA_TOOL_NAME)
-        }
+        const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions) : []
 
         return {
             reqCtx,

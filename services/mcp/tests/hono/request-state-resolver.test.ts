@@ -327,25 +327,18 @@ describe('RequestStateResolver MCP client contexts', () => {
     })
 })
 
-describe('RequestStateResolver SQL schema-discovery tool gating', () => {
+describe('RequestStateResolver SQL schema-discovery flag', () => {
     beforeEach(() => {
         mockSessionStore.clear()
         mockTokenStore.clear()
         vi.mocked(evaluateFeatureFlags).mockResolvedValue({})
     })
 
-    it('removes read-data-warehouse-schema from the tool set when the flag is on', async () => {
-        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': true })
-        const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
-
-        const result = await resolver.resolve(makeProps())
-
-        const names = result.allTools.map((t) => t.name)
-        expect(names).toContain('execute-sql')
-        expect(names).not.toContain('read-data-warehouse-schema')
-    })
-
-    it('keeps read-data-warehouse-schema available when the flag is off', async () => {
+    // The flag steers discovery instructions toward SQL but is prompt-only — it must NOT
+    // remove read-data-warehouse-schema from the tool set. Guards against re-introducing
+    // tool gating here; the tool stays advertised/callable whether the flag is on or off.
+    it.each([true, false])('keeps read-data-warehouse-schema available when the flag is %s', async (flagOn) => {
+        vi.mocked(evaluateFeatureFlags).mockResolvedValueOnce({ 'mcp-sql-schema-discovery': flagOn })
         const resolver = makeResolverWithTools(['read-data-warehouse-schema', 'execute-sql'])
 
         const result = await resolver.resolve(makeProps())
