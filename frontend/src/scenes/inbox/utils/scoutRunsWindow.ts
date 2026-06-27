@@ -248,7 +248,10 @@ export function scoutRunOutcomeLabel(run: SignalScoutRunSummary, now: Date): str
             return `${pluralize(count, 'signal')} emitted`
         }
         case 'reported':
-            return scoutReportActivityLabel(run) ?? '0 signals emitted'
+            // `reported` is only produced when the run touched a report, so the label is always present.
+            // The `?? ''` is an unreachable type guard (the helper is `string | null`) — keeps the string
+            // return without an unsafe `as` cast; never rendered.
+            return scoutReportActivityLabel(run) ?? ''
         case 'quiet':
             return '0 signals emitted'
         case 'error':
