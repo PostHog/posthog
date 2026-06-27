@@ -1,4 +1,4 @@
-import { DetectiveHog } from 'lib/components/hedgehogs'
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 
 import {
     WIDGET_LIST_COUNT_EVENTS,
@@ -46,7 +46,7 @@ export function ActivityEventsWidget({ result, loading }: DashboardWidgetCompone
                         className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                         data-attr="activity-events-widget-empty-state"
                     >
-                        <DetectiveHog className="size-20 shrink-0" />
+                        <HedgehogMagnifyingGlass className="size-20 shrink-0" />
                         <p className="m-0 text-base font-semibold text-primary">No events yet</p>
                         <p className="m-0 text-sm text-muted">No events matched your filters for this date range.</p>
                     </div>

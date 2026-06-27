@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogChartHog } from '@posthog/brand/hoggies'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -115,7 +115,7 @@ export function Dashboards(): JSX.Element {
                         description="Keep analytics, session replay, logs, and the rest of your PostHog stack in one place. Below are customer-favorite dashboards to get you started quickly. Or skip them and start blank, up to you."
                         isEmpty={true}
                         docsURL={DASHBOARD_DOCS_URL}
-                        customHog={GraphsHog}
+                        customHog={HedgehogChartHog}
                         hogLayout="responsive"
                         useMainContentContainerQueries={true}
                         contentClassName="max-w-[1000px]"

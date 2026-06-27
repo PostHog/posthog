@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
+import { HedgehogGreek } from '@posthog/brand/hoggies'
 import { LemonCollapse, LemonSelect, ProfilePicture, Spinner } from '@posthog/lemon-ui'
 
 import { getColorVar } from 'lib/colors'
@@ -9,7 +10,6 @@ import { AppMetricsFilters } from 'lib/components/AppMetrics/AppMetricsFilters'
 import { appMetricsLogic } from 'lib/components/AppMetrics/appMetricsLogic'
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { AppMetricSummary } from 'lib/components/AppMetrics/AppMetricSummary'
-import { ListHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
@@ -303,7 +303,7 @@ function WorkflowBatchMetrics(props: WorkflowLogicProps): JSX.Element {
     if (!jobs.length) {
         return (
             <div className="flex flex-col bg-surface-primary rounded px-4 py-8 items-center text-center mx-auto">
-                <ListHog width="100" height="100" className="mb-4" />
+                <HedgehogGreek width="100" height="100" className="mb-4" />
                 <h2 className="text-xl leading-tight">No batch workflow jobs have been run yet</h2>
                 <p className="text-sm text-balance text-tertiary">
                     Once a batch workflow job is triggered, metrics will appear here.

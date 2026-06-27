@@ -1,11 +1,12 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
+import { HedgehogHogpatch } from '@posthog/brand/hoggies'
 import { IconArrowRight, IconCheck, IconUpload, IconX } from '@posthog/icons'
 import { LemonButton, LemonFileInput, LemonInput, LemonSelect, Link, Spinner, lemonToast } from '@posthog/lemon-ui'
 
 import { BillingUpgradeCTA } from 'lib/components/BillingUpgradeCTA'
-import { ClimberHog1, ClimberHog2, YCHog } from 'lib/components/hedgehogs'
+import { ClimberHog1, ClimberHog2 } from 'lib/components/hedgehogs'
 import { useUploadFiles } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalendarSelect'
@@ -167,7 +168,7 @@ export function StartupProgram(): JSX.Element {
                     <div className="flex flex-col items-center mt-8">
                         <div className="px-4 w-full max-w-100 mb-4">
                             <div className="relative">
-                                <YCHog className="h-auto w-full" />
+                                <HedgehogHogpatch className="h-auto w-full" />
                             </div>
                         </div>
                         <div className="text-center">

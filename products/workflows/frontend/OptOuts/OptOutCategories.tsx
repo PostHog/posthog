@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useState } from 'react'
 
+import { HedgehogConstruction2 } from '@posthog/brand/hoggies'
 import { IconDownload, IconPlus } from '@posthog/icons'
 import { LemonButton, LemonCollapse, LemonDialog, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
-import { BuilderHog3 } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
@@ -151,7 +151,7 @@ export function OptOutCategories(): JSX.Element {
                                     </LemonButton>
                                 </>
                             }
-                            customHog={BuilderHog3}
+                            customHog={HedgehogConstruction2}
                             isEmpty
                         />
                     )}

@@ -366,7 +366,7 @@ importers:
         version: 0.25.12
       jest:
         specifier: ^29.7.0
-        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@6.0.3))
+        version: 29.7.0(@types/node@25.8.0)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@25.8.0)(typescript@6.0.3))
       puppeteer:
         specifier: 19.0.0
         version: 19.0.0(encoding@0.1.13)
@@ -2553,6 +2553,9 @@ importers:
 
   products/ai_gateway:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2590,6 +2593,9 @@ importers:
 
   products/ai_observability:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2873,6 +2879,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: '*'
         version: 3.2.1(react@18.3.1)
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -2921,6 +2930,9 @@ importers:
 
   products/dashboards:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3005,6 +3017,9 @@ importers:
 
   products/data_warehouse:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3501,6 +3516,9 @@ importers:
       '@dnd-kit/utilities':
         specifier: '*'
         version: 3.2.1(react@18.3.1)
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3618,6 +3636,9 @@ importers:
 
   products/mcp_analytics:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/quill-charts':
         specifier: workspace:*
         version: link:../../packages/quill/packages/charts
@@ -3678,6 +3699,9 @@ importers:
 
   products/metrics:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -3920,6 +3944,9 @@ importers:
 
   products/replay_vision:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4150,6 +4177,9 @@ importers:
 
   products/tracing:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4190,6 +4220,9 @@ importers:
 
   products/user_interviews:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4226,6 +4259,9 @@ importers:
 
   products/visual_review:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -4303,6 +4339,9 @@ importers:
 
   products/workflows:
     dependencies:
+      '@posthog/brand':
+        specifier: 'catalog:'
+        version: 0.3.0(react@18.3.1)
       '@posthog/icons':
         specifier: 'catalog:'
         version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)

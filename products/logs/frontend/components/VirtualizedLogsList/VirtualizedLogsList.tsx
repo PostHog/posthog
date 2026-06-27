@@ -4,11 +4,11 @@ import { useActions, useValues } from 'kea'
 import { CSSProperties, useCallback, useEffect, useMemo, useRef } from 'react'
 import { List, getScrollbarSize, useDynamicRowHeight, useListRef } from 'react-window'
 
+import { HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AutoSizer } from 'lib/components/AutoSizer'
 import { SizeProps } from 'lib/components/AutoSizer/AutoSizer'
-import { DetectiveHog } from 'lib/components/hedgehogs'
 import { TZLabelProps } from 'lib/components/TZLabel'
 
 import { logDetailsModalLogic } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/logDetailsModalLogic'
@@ -329,7 +329,7 @@ export function VirtualizedLogsList({
     if (dataSource.length === 0 && !loading) {
         return (
             <div className="flex flex-col items-center gap-3 p-8 text-center h-full min-h-40">
-                <DetectiveHog className="w-32 h-32" />
+                <HedgehogMagnifyingGlass className="w-32 h-32" />
                 <div>
                     <h4 className="font-semibold m-0">No logs found</h4>
                     <p className="text-muted text-sm mt-1 mb-0 max-w-80">

@@ -1,9 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { HedgehogPhoneCall } from '@posthog/brand/hoggies'
 import { LemonSkeleton } from '@posthog/lemon-ui'
-
-import { PhonePairHogs } from 'lib/components/hedgehogs'
 
 import { CommentWithReplies } from './Comment'
 import { CommentsLogicProps, commentsLogic } from './commentsLogic'
@@ -31,7 +30,7 @@ export const CommentsList = ({ noun = 'page', ...props }: CommentsListProps): JS
                 ) : !commentsWithReplies?.length ? (
                     <div className="mx-auto p-8 max-w-160 mt-8 deprecated-space-y-4">
                         <div className="max-w-120 mx-auto">
-                            <PhonePairHogs className="w-full h-full" />
+                            <HedgehogPhoneCall className="w-full h-full" />
                         </div>
                         <h2>Start the discussion!</h2>
                         <p>

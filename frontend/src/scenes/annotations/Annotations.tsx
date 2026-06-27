@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogReporter } from '@posthog/brand/hoggies'
 import { IconPencil } from '@posthog/icons'
 import { LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
-import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
@@ -195,7 +195,7 @@ export function Annotations(): JSX.Element {
                         docsURL="https://posthog.com/docs/data/annotations"
                         action={() => openModalToCreateAnnotation()}
                         isEmpty={shouldShowEmptyState}
-                        customHog={MicrophoneHog}
+                        customHog={HedgehogReporter}
                         mcpSurfaceKey="annotations.create"
                     />
                 </div>

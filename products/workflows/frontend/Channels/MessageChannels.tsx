@@ -1,8 +1,8 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogReporter } from '@posthog/brand/hoggies'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
-import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { SetupTaskId } from 'lib/components/ProductSetup'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
@@ -52,7 +52,7 @@ export function MessageChannels(): JSX.Element {
                         description="Set up messaging channels to automatically send emails, SMS, or Slack notifications triggered by user actions and events."
                         docsURL="https://posthog.com/docs/workflows/configure-channels"
                         action={() => openSetupModal(undefined, 'email')}
-                        customHog={MicrophoneHog}
+                        customHog={HedgehogReporter}
                         isEmpty
                     />
                 )}

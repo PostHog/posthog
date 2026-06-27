@@ -1,16 +1,12 @@
 import './BridgePage.scss'
 
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { useState } from 'react'
+
+import { HedgehogHahaBizzniss } from '@posthog/brand/hoggies'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { WelcomeLogo } from 'scenes/authentication/shared/WelcomeLogo'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
-
-import { Region } from '~/types'
-
-import { LaptopHog4, LaptopHogEU } from '../hedgehogs'
 
 export type BridgePageCommonProps = {
     children?: React.ReactNode
@@ -51,7 +47,6 @@ export function BridgePage({
     style,
 }: BridgePageProps): JSX.Element {
     const [messageShowing, setMessageShowing] = useState(false)
-    const { preflight } = useValues(preflightLogic)
 
     useOnMountEffect(() => {
         const t = setTimeout(() => {
@@ -75,11 +70,7 @@ export function BridgePage({
                             {leftContainerContent}
                             {hedgehog && (
                                 <div className="BridgePage__left__art">
-                                    {preflight?.region === Region.EU ? (
-                                        <LaptopHogEU alt="" draggable="false" />
-                                    ) : (
-                                        <LaptopHog4 alt="" draggable="false" />
-                                    )}
+                                    <HedgehogHahaBizzniss />
                                     {message ? (
                                         <div
                                             className={clsx(

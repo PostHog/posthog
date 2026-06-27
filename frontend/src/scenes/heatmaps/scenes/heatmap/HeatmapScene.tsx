@@ -1,12 +1,12 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
+import { HedgehogDirector } from '@posthog/brand/hoggies'
 import { IconBrowser, IconDownload } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
@@ -157,7 +157,7 @@ export function HeatmapScene({ id }: { id: string }): JSX.Element {
                                     <div className="flex-1 flex items-center justify-center min-h-96">
                                         <style>{`@keyframes hog-wobble{from{transform:rotate(0deg)}to{transform:rotate(5deg)}}`}</style>
                                         <div className="text-sm text-center font-semibold">
-                                            <FilmCameraHog
+                                            <HedgehogDirector
                                                 className="w-32 h-32 mx-auto mb-2"
                                                 style={{
                                                     animation: 'hog-wobble 1.2s ease-in-out infinite alternate',

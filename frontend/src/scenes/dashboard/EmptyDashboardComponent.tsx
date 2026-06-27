@@ -1,11 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
+import { HedgehogChartHog } from '@posthog/brand/hoggies'
 import { IconPlus } from '@posthog/icons'
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { GraphsHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -165,7 +165,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
             titleOverride="So empty. So much potential."
             description={BASE_TEXT}
             isEmpty={true}
-            customHog={GraphsHog}
+            customHog={HedgehogChartHog}
             hogLayout="responsive"
             useMainContentContainerQueries={true}
             docsURL={DASHBOARD_DOCS_URL}

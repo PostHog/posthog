@@ -2,10 +2,10 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { HedgehogReporter } from '@posthog/brand/hoggies'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui'
 
-import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -238,7 +238,7 @@ export function Comments(): JSX.Element {
                         thingName="comment"
                         description="Comments allow you to provide context and discussions on various elements in PostHog."
                         isEmpty={shouldShowEmptyState}
-                        customHog={MicrophoneHog}
+                        customHog={HedgehogReporter}
                     />
                 </div>
                 {!shouldShowEmptyState && (
