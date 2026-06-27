@@ -131,9 +131,10 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             }
         },
         startCloudRunSuccess: () => {
-            // Non-blocking by design: the user keeps moving through onboarding and the
-            // global FAB tells them when the PR lands.
-            lemonToast.success("On it – we'll open your pull request and let you know when it's ready.")
+            // The POST only queues the run — it isn't done. The real outcome (running → completed/error)
+            // is reported by the wizard sync surfaces (inline tracker + FAB) when enabled, so keep this a
+            // neutral acknowledgement rather than claiming the PR is on its way.
+            lemonToast.info('Cloud run queued')
         },
     })),
 ])

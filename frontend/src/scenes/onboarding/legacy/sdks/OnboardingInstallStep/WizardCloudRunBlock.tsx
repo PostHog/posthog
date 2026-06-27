@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 import { IconCheckCircle, IconGithub, IconPullRequest } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 
@@ -29,6 +30,7 @@ export function WizardCloudRunBlock({
     hideHog?: boolean
 }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
+    const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
     const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
 
@@ -47,16 +49,31 @@ export function WizardCloudRunBlock({
     }
 
     if (cloudRunStatus === 'queued') {
+        const repoLabel = selectedRepository ? <span className="font-mono">{selectedRepository}</span> : 'your repo'
+        // A queued run isn't a finished one. With sync on, the install step swaps this block for the
+        // live WizardProgressTracker the moment the run's session appears (and the FAB carries it once
+        // the user moves on), so we only bridge the brief gap here. Without sync we can't observe the
+        // run, so set honest expectations rather than implying the PR is already on its way.
         return (
-            <LemonBanner type="success">
+            <LemonBanner type="info">
                 <div className="space-y-1" data-attr="wizard-cloud-run-queued">
-                    <div className="font-semibold">On it – your pull request is on the way.</div>
-                    <div className="text-sm text-muted">
-                        We're instrumenting{' '}
-                        {selectedRepository ? <span className="font-mono">{selectedRepository}</span> : 'your repo'} and
-                        will open a PR with PostHog wired up. Keep going – we'll let you know the moment it's ready to
-                        review.
-                    </div>
+                    {syncEnabled ? (
+                        <>
+                            <div className="font-semibold">Starting your cloud run…</div>
+                            <div className="text-sm text-muted">
+                                Kicking off the wizard on {repoLabel}. Progress will appear here in a moment and stays in
+                                the corner as you keep going.
+                            </div>
+                        </>
+                    ) : (
+                        <>
+                            <div className="font-semibold">Cloud run queued for {repoLabel}.</div>
+                            <div className="text-sm text-muted">
+                                If it succeeds we'll open a pull request in your repo to review. We can't show live
+                                progress here, so keep an eye on your repository.
+                            </div>
+                        </>
+                    )}
                 </div>
             </LemonBanner>
         )
