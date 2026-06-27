@@ -14,7 +14,6 @@ from drf_spectacular.utils import (
     extend_schema_serializer,
     extend_schema_view,
 )
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from rest_framework import request, response, serializers, viewsets
@@ -40,6 +39,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
 from posthog.event_usage import get_request_analytics_properties
+from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -896,7 +896,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=person.id,
             scope="Person",
             activity="split_person",
@@ -1013,7 +1013,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.organization.id,
             team_id=self.team.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=person.id,
             scope="Person",
             activity="delete_property",
@@ -1160,7 +1160,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=user,
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=instance.pk,
                 scope="Person",
                 activity="updated",
