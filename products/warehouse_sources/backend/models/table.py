@@ -197,7 +197,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         self,
         column_key: str,
         *,
-        user: "User | None" = None,
+        user: Optional["User"] = None,
         bypass_warehouse_access_control: bool = False,
     ) -> bool:
         from posthog.hogql.query import execute_hogql_query
