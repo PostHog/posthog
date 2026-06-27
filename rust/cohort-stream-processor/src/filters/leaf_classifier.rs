@@ -316,6 +316,79 @@ mod tests {
     }
 
     #[test]
+    fn performed_event_multiple_explicit_relative_lower_window_is_kept() {
+        use crate::stage1::state::StateVariant;
+        // The cohort UI stores "in the last N days" as `explicit_datetime: "-Nd"` with no
+        // time_interval/time_value; the multiple path must resolve it like the single path does.
+        for (explicit_datetime, expected_variant, why) in [
+            (
+                "-7d",
+                StateVariant::BehavioralDailyBuckets,
+                "-7d → 7 days → daily",
+            ),
+            (
+                "-1y",
+                StateVariant::BehavioralCompressedHistory,
+                "-1y → 365 days → compressed",
+            ),
+        ] {
+            let node = json!({
+                "type": "behavioral",
+                "value": "performed_event_multiple",
+                "key": "$pageview",
+                "explicit_datetime": explicit_datetime,
+                "operator": "gte",
+                "operator_value": 3,
+                "conditionHash": HASH,
+                "bytecode": bytecode(),
+            });
+            let LeafClass::Keep(CohortLeaf::Behavioral(leaf)) = classify_leaf(&node) else {
+                panic!("an explicit relative-lower multiple is kept: {why}");
+            };
+            assert_eq!(leaf.value, BehavioralValue::PerformedEventMultiple);
+            assert_eq!(leaf.explicit_datetime.as_deref(), Some(explicit_datetime));
+            assert_eq!(leaf.state_variant, Some(expected_variant), "{why}");
+        }
+    }
+
+    #[test]
+    fn performed_event_multiple_explicit_unrepresentable_window_is_dropped() {
+        // Sub-day and absolute-range explicit windows have no whole-day sliding form, so the leaf
+        // drops exactly as it did before explicit_datetime was consulted (which dropped all of them).
+        for (from, to, why) in [
+            (
+                "-2h",
+                Value::Null,
+                "sub-day relative window → unsupported variant",
+            ),
+            (
+                "2026-01-01",
+                json!("2026-12-31"),
+                "absolute range → unsupported variant",
+            ),
+        ] {
+            let node = json!({
+                "type": "behavioral",
+                "value": "performed_event_multiple",
+                "key": "$pageview",
+                "explicit_datetime": from,
+                "explicit_datetime_to": to,
+                "operator": "gte",
+                "operator_value": 3,
+                "conditionHash": HASH,
+                "bytecode": bytecode(),
+            });
+            assert!(
+                matches!(
+                    classify_leaf(&node),
+                    LeafClass::Drop(LeafDropReason::UnsupportedStateVariant)
+                ),
+                "{why}",
+            );
+        }
+    }
+
+    #[test]
     fn performed_event_without_window_is_dropped_as_unsupported_variant() {
         let node = json!({
             "type": "behavioral",
