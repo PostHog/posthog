@@ -36,6 +36,8 @@ __all__ = [
     "NeedleTableIdentified",
     "NeedleValueRetrieved",
     "RelationshipDiscovery",
+    "StaleTableAvoided",
+    "JoinPathTraversed",
     "AnswerQueryRanWhenExpected",
     "WarehouseAnswerCorrectness",
 ]
@@ -364,6 +366,127 @@ class RelationshipDiscovery(Scorer):
                 "joined_in_sql": joined_in_sql,
                 "named_in_message": named_in_message,
                 "degraded": ok and not joined_in_sql,
+            },
+        )
+
+
+class StaleTableAvoided(Scorer):
+    """Binary: did the agent pick the live table over the superseded decoy?
+
+    Two near-identical tables share a topic; only the annotation says which is
+    current. Reads the pair from ``seed["relevancy_needle"]`` (``current`` /
+    ``stale``). Passes when the final answer surfaces the current table AND does not
+    leave the stale table standing as a usable option — naming the stale table is
+    fine only when the answer flags it as deprecated/superseded. Fails when the
+    agent recommends the stale table or never finds the current one.
+    """
+
+    _DEPRECATION_CUES = (
+        "deprecat",
+        "supersed",
+        "no longer",
+        "frozen",
+        "stale",
+        "outdated",
+        "do not use",
+        "don't use",
+        "legacy",
+        "replaced",
+        "not refreshed",
+        "instead of",
+    )
+
+    def _name(self) -> str:
+        return "stale_table_avoided"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        rel = _seed(output).get("relevancy_needle")
+        if not isinstance(rel, dict) or not rel.get("current") or not rel.get("stale"):
+            return Score(name=self._name(), score=None, metadata={"reason": "no relevancy needle configured"})
+
+        current, stale = rel["current"].lower(), rel["stale"].lower()
+        final = _final_message(output).lower()
+        current_named = current in final
+        stale_named = stale in final
+        # Only count the stale name as "deprecation-flagged" when a cue word actually
+        # appears in the answer — otherwise a bare mention reads as recommending it.
+        stale_flagged = stale_named and any(cue in final for cue in self._DEPRECATION_CUES)
+
+        ok = current_named and (not stale_named or stale_flagged)
+        return Score(
+            name=self._name(),
+            score=1.0 if ok else 0.0,
+            metadata={
+                "current_named": current_named,
+                "stale_named": stale_named,
+                "stale_flagged": stale_flagged,
+            },
+        )
+
+
+class JoinPathTraversed(Scorer):
+    """Binary: did the agent assemble the full multi-hop join path?
+
+    Reads the ordered path from ``seed["chain_needle"]`` (``tables``: source-first;
+    ``keys``: per hop). Passes when the agent queried
+    ``information_schema.relationships`` AND every table on the path appears in a
+    query or the final answer — i.e. it followed the relationships out across more
+    than one hop rather than stopping at the first. Join keys named are tracked in
+    metadata but not required (table coverage is the load-bearing signal).
+    """
+
+    def _name(self) -> str:
+        return "join_path_traversed"
+
+    async def _run_eval_async(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _run_eval_sync(self, output, expected=None, **kwargs):
+        return self._evaluate(output, expected)
+
+    def _evaluate(self, output: dict | None, expected: dict | None = None) -> Score:
+        if not output:
+            return Score(name=self._name(), score=None, metadata={"reason": "No output"})
+        if not _requested(expected, self._name()):
+            return Score(name=self._name(), score=None, metadata={"reason": "not requested"})
+        chain = _seed(output).get("chain_needle")
+        tables = chain.get("tables") if isinstance(chain, dict) else None
+        if not isinstance(tables, list) or len(tables) < 3:
+            return Score(name=self._name(), score=None, metadata={"reason": "no chain needle configured"})
+        parser = parser_for(output)
+        if parser is None:
+            return Score(name=self._name(), score=None, metadata={"reason": "No raw log"})
+
+        calls = _successful_sql(parser)
+        rel_queried = any("information_schema.relationships" in _query_text(c) for c in calls)
+        final = _final_message(output).lower()
+        sql_blob = " ".join(_query_text(c) for c in calls)
+        named = [t for t in tables if t.lower() in final or t.lower() in sql_blob]
+        all_named = len(named) == len(tables)
+
+        keys = chain.get("keys") if isinstance(chain, dict) else []
+        keys = keys if isinstance(keys, list) else []
+        keys_named = [k for k in keys if k.lower() in final]
+
+        ok = rel_queried and all_named
+        return Score(
+            name=self._name(),
+            score=1.0 if ok else 0.0,
+            metadata={
+                "relationships_queried": rel_queried,
+                "tables_named": named,
+                "all_tables_named": all_named,
+                "keys_named": keys_named,
             },
         )
 

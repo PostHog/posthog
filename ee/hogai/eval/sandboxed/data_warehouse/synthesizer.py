@@ -10,7 +10,7 @@ that the seeder (``seeder.py``) translates into ORM rows + an optional CSV uploa
 That split keeps generation unit-testable and byte-for-byte reproducible — all
 randomness flows from the seeded mimesis bundle in ``seeders/common.py``.
 
-The five needles each target a distinct discovery skill:
+The needles each target a distinct discovery skill:
 
 * **description** — a table found only by its annotation text (opaque name).
 * **column_type** — the one table with a column typed ``UUID`` (rare on purpose).
@@ -20,6 +20,12 @@ The five needles each target a distinct discovery skill:
 * **retrieval** — a queryable, S3-backed table whose columns are all declared
   ``String`` but whose row content is numeric/JSON (duck typing): the answer can
   only be had by selecting and parsing a value, not by trusting the declared type.
+* **relevancy** — two near-identical tables on the same topic where only the
+  annotation distinguishes the live canonical table from a frozen, superseded one:
+  the agent must read metadata to pick the current table, not the stale decoy.
+* **chain** — a two-hop join path (orders → account xref → account owners) the
+  agent can only assemble by querying ``relationships`` iteratively, one hop at a
+  time, then combining the discovered tables.
 """
 
 from __future__ import annotations
@@ -52,6 +58,12 @@ __all__ = [
     "RETRIEVAL_NEEDLE_ANSWER",
     "RETRIEVAL_NEEDLE_PREFIX",
     "RETRIEVAL_NEEDLE_EVENT_ID",
+    "RELEVANCY_NEEDLE_CURRENT",
+    "RELEVANCY_NEEDLE_STALE",
+    "RELEVANCY_NEEDLE_TOPIC",
+    "CHAIN_NEEDLE_HOP3",
+    "CHAIN_NEEDLE_KEY",
+    "CHAIN_NEEDLE_FIELD",
 ]
 
 
@@ -110,6 +122,18 @@ RETRIEVAL_NEEDLE_TABLE = "stripe_raw_events"
 RETRIEVAL_NEEDLE_ANSWER = "HEDGE-7731"
 RETRIEVAL_NEEDLE_PREFIX = "evalwh_"
 RETRIEVAL_NEEDLE_EVENT_ID = "evt_target"
+# Relevancy needle — two near-identical accounts-dimension tables, identical schema;
+# only the annotation says which is live (canonical) vs frozen (superseded). The
+# stale table's name carries no "old"/"deprecated" tell, so the agent has to read
+# the description to pick the current one rather than shortcut on the name.
+RELEVANCY_NEEDLE_CURRENT = "dim_accounts_snapshot"
+RELEVANCY_NEEDLE_STALE = "dim_accounts_snapshot_2023"
+RELEVANCY_NEEDLE_TOPIC = "accounts dimension"
+# Chain needle — the second join hop past the relationship needle, so the path is
+# pg_orders_2023 -> salesforce_acct_xref -> salesforce_acct_owners.
+CHAIN_NEEDLE_HOP3 = "salesforce_acct_owners"
+CHAIN_NEEDLE_KEY = "owner_id"
+CHAIN_NEEDLE_FIELD = "owner"
 
 
 @dataclass(frozen=True)
@@ -169,13 +193,15 @@ class SynthJoin:
 
 @dataclass(frozen=True)
 class NeedleSpec:
-    kind: Literal["description", "column_type", "relationship", "view", "retrieval"]
+    kind: Literal["description", "column_type", "relationship", "view", "retrieval", "relevancy", "chain"]
     answer: Any  # what the scorer checks for in the final answer / result
     target_table: str | None = None
     target_view: str | None = None
     relationship: tuple[str, str] | None = None  # (source_table, joining_table)
     distinguishing_phrase: str | None = None
     queryable: bool = False
+    secondary_table: str | None = None  # the stale decoy (relevancy needle)
+    chain: tuple[str, ...] = ()  # ordered join path, source-first (chain needle)
 
 
 @dataclass(frozen=True)
@@ -384,6 +410,9 @@ class WarehouseSchemaSynthesizer:
             REL_NEEDLE_SOURCE,
             REL_NEEDLE_TARGET,
             RETRIEVAL_NEEDLE_TABLE,
+            RELEVANCY_NEEDLE_CURRENT,
+            RELEVANCY_NEEDLE_STALE,
+            CHAIN_NEEDLE_HOP3,
         }
         noise_tables = self._generate_noise_tables(reserved)
         needles, needle_tables, needle_views, needle_joins = self._generate_needles()
@@ -538,6 +567,7 @@ class WarehouseSchemaSynthesizer:
                     _col(REL_NEEDLE_KEY, "StringDatabaseField"),
                     _col("company_name", "StringDatabaseField"),
                     _col("industry", "StringDatabaseField"),
+                    _col(CHAIN_NEEDLE_KEY, "StringDatabaseField"),  # FK to the owners table (second hop)
                 ),
                 description="Cross-reference mapping order account_ref to Salesforce company records.",
                 row_count=self._rnd.randint(1_000, 50_000),
@@ -550,6 +580,67 @@ class WarehouseSchemaSynthesizer:
                 joining_table=REL_NEEDLE_TARGET,
                 joining_key=REL_NEEDLE_KEY,
                 field_name=REL_NEEDLE_FIELD,
+            )
+        )
+
+        # C2 — second join hop, so the agent must traverse relationships twice:
+        # pg_orders_2023 -> salesforce_acct_xref -> salesforce_acct_owners.
+        tables.append(
+            SynthTable(
+                name=CHAIN_NEEDLE_HOP3,
+                domain="salesforce",
+                columns=(
+                    _col(CHAIN_NEEDLE_KEY, "StringDatabaseField"),
+                    _col("owner_name", "StringDatabaseField"),
+                    _col("region", "StringDatabaseField"),
+                ),
+                description="Salesforce account owners, keyed by owner_id; the account xref links here on owner_id.",
+                row_count=self._rnd.randint(100, 5_000),
+            )
+        )
+        joins.append(
+            SynthJoin(
+                source_table=REL_NEEDLE_TARGET,
+                source_key=CHAIN_NEEDLE_KEY,
+                joining_table=CHAIN_NEEDLE_HOP3,
+                joining_key=CHAIN_NEEDLE_KEY,
+                field_name=CHAIN_NEEDLE_FIELD,
+            )
+        )
+
+        # F — relevancy: two identical-schema accounts dimensions; only the annotation
+        # says which is live vs frozen. A naive name/schema scan can't disambiguate.
+        relevancy_columns = (
+            _col("account_id", "StringDatabaseField"),
+            _col("company_name", "StringDatabaseField"),
+            _col("industry", "StringDatabaseField"),
+            _col("plan", "StringDatabaseField"),
+            _col("seats", "IntegerDatabaseField"),
+            _col("signed_up_at", "DateTimeDatabaseField"),
+            _col("is_active", "BooleanDatabaseField"),
+        )
+        tables.append(
+            SynthTable(
+                name=RELEVANCY_NEEDLE_CURRENT,
+                domain="postgres_replica",
+                columns=relevancy_columns,
+                description=(
+                    "Live accounts dimension, refreshed daily — the canonical accounts source for "
+                    f"current reporting. Replaced the frozen {RELEVANCY_NEEDLE_STALE}."
+                ),
+                row_count=self._rnd.randint(10_000, 80_000),
+            )
+        )
+        tables.append(
+            SynthTable(
+                name=RELEVANCY_NEEDLE_STALE,
+                domain="postgres_replica",
+                columns=relevancy_columns,
+                description=(
+                    "DEPRECATED point-in-time accounts snapshot frozen at the end of 2023; no longer "
+                    f"refreshed. Superseded by {RELEVANCY_NEEDLE_CURRENT} — do not use for current reporting."
+                ),
+                row_count=self._rnd.randint(10_000, 80_000),
             )
         )
 
@@ -628,6 +719,17 @@ class WarehouseSchemaSynthesizer:
                 target_table=RETRIEVAL_NEEDLE_TABLE,
                 queryable=True,
             ),
+            "relevancy": NeedleSpec(
+                kind="relevancy",
+                answer=RELEVANCY_NEEDLE_CURRENT,
+                target_table=RELEVANCY_NEEDLE_CURRENT,
+                secondary_table=RELEVANCY_NEEDLE_STALE,
+            ),
+            "chain": NeedleSpec(
+                kind="chain",
+                answer=CHAIN_NEEDLE_HOP3,
+                chain=(REL_NEEDLE_SOURCE, REL_NEEDLE_TARGET, CHAIN_NEEDLE_HOP3),
+            ),
         }
         return needles, tables, views, joins
 
@@ -647,6 +749,21 @@ class WarehouseSchemaSynthesizer:
         for join in warehouse.joins:
             assert join.source_table in table_names, f"join source {join.source_table} missing"
             assert join.joining_table in table_names, f"join target {join.joining_table} missing"
+
+        # Relevancy decoys: both accounts dimensions exist with identical schema, so
+        # only the annotation distinguishes them.
+        relevancy = {
+            t.name: t for t in warehouse.tables if t.name in (RELEVANCY_NEEDLE_CURRENT, RELEVANCY_NEEDLE_STALE)
+        }
+        assert set(relevancy) == {RELEVANCY_NEEDLE_CURRENT, RELEVANCY_NEEDLE_STALE}, "relevancy pair missing"
+        assert relevancy[RELEVANCY_NEEDLE_CURRENT].columns == relevancy[RELEVANCY_NEEDLE_STALE].columns, (
+            "relevancy decoys must share an identical schema"
+        )
+
+        # Chain: the two-hop join path must be fully wired (orders -> xref -> owners).
+        chain_edges = {(j.source_table, j.joining_table) for j in warehouse.joins}
+        assert (REL_NEEDLE_SOURCE, REL_NEEDLE_TARGET) in chain_edges, "chain hop 1 missing"
+        assert (REL_NEEDLE_TARGET, CHAIN_NEEDLE_HOP3) in chain_edges, "chain hop 2 missing"
 
         # Exactly one queryable table (the retrieval needle).
         queryable = [t.name for t in warehouse.tables if t.queryable]

@@ -5,10 +5,13 @@ from __future__ import annotations
 from dataclasses import astuple
 
 from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
+    CHAIN_NEEDLE_HOP3,
     DESC_NEEDLE_PHRASE,
     DESC_NEEDLE_TABLE,
     REL_NEEDLE_SOURCE,
     REL_NEEDLE_TARGET,
+    RELEVANCY_NEEDLE_CURRENT,
+    RELEVANCY_NEEDLE_STALE,
     RETRIEVAL_NEEDLE_ANSWER,
     RETRIEVAL_NEEDLE_TABLE,
     TYPE_NEEDLE_COLUMN,
@@ -75,6 +78,35 @@ def test_retrieval_needle_is_queryable_with_duck_typed_content():
     assert max(row[1] for row in needle.rows) == "9990"  # lexical max differs from numeric max
 
 
+def test_relevancy_decoys_share_schema_and_differ_only_by_annotation():
+    warehouse = WarehouseSchemaSynthesizer().generate()
+    by_name = {t.name: t for t in warehouse.tables}
+    current = by_name[RELEVANCY_NEEDLE_CURRENT]
+    stale = by_name[RELEVANCY_NEEDLE_STALE]
+    # Identical schema → only the annotation can disambiguate which is live.
+    assert current.columns == stale.columns
+    assert "canonical" in (current.description or "").lower()
+    assert "deprecated" in (stale.description or "").lower()
+    assert RELEVANCY_NEEDLE_CURRENT in (stale.description or "")  # stale points at its successor
+
+
+def test_chain_needle_wires_a_two_hop_join_path():
+    warehouse = WarehouseSchemaSynthesizer().generate()
+    names = {t.name for t in warehouse.tables}
+    assert {REL_NEEDLE_SOURCE, REL_NEEDLE_TARGET, CHAIN_NEEDLE_HOP3}.issubset(names)
+    edges = {(j.source_table, j.joining_table) for j in warehouse.joins}
+    assert (REL_NEEDLE_SOURCE, REL_NEEDLE_TARGET) in edges
+    assert (REL_NEEDLE_TARGET, CHAIN_NEEDLE_HOP3) in edges
+
+
 def test_needles_map_covers_all_kinds():
     warehouse = WarehouseSchemaSynthesizer().generate()
-    assert set(warehouse.needles) == {"description", "column_type", "relationship", "view", "retrieval"}
+    assert set(warehouse.needles) == {
+        "description",
+        "column_type",
+        "relationship",
+        "view",
+        "retrieval",
+        "relevancy",
+        "chain",
+    }

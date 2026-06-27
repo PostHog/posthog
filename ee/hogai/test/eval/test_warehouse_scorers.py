@@ -17,9 +17,11 @@ from ee.hogai.eval.sandboxed.data_warehouse.scorers import (
     AnswerQueryRanWhenExpected,
     InformationSchemaBeforeAnswer,
     InformationSchemaQueried,
+    JoinPathTraversed,
     NeedleTableIdentified,
     NeedleValueRetrieved,
     RelationshipDiscovery,
+    StaleTableAvoided,
     WarehouseAnswerCorrectness,
 )
 
@@ -280,6 +282,105 @@ def test_relationship_discovery_fails_without_discovery():
     )
     score = RelationshipDiscovery()._evaluate(out, {"relationship_discovery": {}})
     assert score.score == 0.0
+
+
+# -- StaleTableAvoided --------------------------------------------------------
+
+_RELEVANCY_SEED = {"relevancy_needle": {"current": "dim_accounts_snapshot", "stale": "dim_accounts_snapshot_2023"}}
+
+
+def test_stale_table_avoided_passes_when_current_recommended_and_stale_flagged():
+    out = _make_output(
+        final_text=(
+            "Use dim_accounts_snapshot — it's the live canonical table. "
+            "dim_accounts_snapshot_2023 is deprecated and no longer refreshed."
+        ),
+        seed=_RELEVANCY_SEED,
+    )
+    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    assert score.score == 1.0
+
+
+def test_stale_table_avoided_passes_when_only_current_named():
+    out = _make_output(final_text="You should use dim_accounts_snapshot for current reporting.", seed=_RELEVANCY_SEED)
+    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    assert score.score == 1.0
+
+
+def test_stale_table_avoided_fails_when_stale_recommended():
+    out = _make_output(final_text="Use dim_accounts_snapshot_2023 for your accounts reporting.", seed=_RELEVANCY_SEED)
+    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    assert score.score == 0.0
+
+
+def test_stale_table_avoided_fails_when_stale_named_without_deprecation_cue():
+    # Both named but no cue flags the stale one — reads as offering it as usable.
+    out = _make_output(
+        final_text="There's dim_accounts_snapshot and dim_accounts_snapshot_2023; either has accounts.",
+        seed=_RELEVANCY_SEED,
+    )
+    score = StaleTableAvoided()._evaluate(out, {"stale_table_avoided": {}})
+    assert score.score == 0.0
+
+
+def test_stale_table_avoided_skips_when_not_requested():
+    out = _make_output(final_text="anything", seed=_RELEVANCY_SEED)
+    score = StaleTableAvoided()._evaluate(out, {})
+    assert score.score is None
+
+
+# -- JoinPathTraversed --------------------------------------------------------
+
+_CHAIN_SEED = {
+    "chain_needle": {
+        "tables": ["pg_orders_2023", "salesforce_acct_xref", "salesforce_acct_owners"],
+        "keys": ["account_ref", "owner_id"],
+    }
+}
+
+
+def test_join_path_traversed_passes_with_relationships_query_and_all_tables_named():
+    out = _make_output(
+        sql_calls=[
+            ("SELECT * FROM system.information_schema.relationships WHERE source_table = 'pg_orders_2023'", "r"),
+            ("SELECT * FROM system.information_schema.relationships WHERE source_table = 'salesforce_acct_xref'", "r"),
+        ],
+        final_text=(
+            "Join pg_orders_2023 to salesforce_acct_xref on account_ref, then "
+            "salesforce_acct_xref to salesforce_acct_owners on owner_id."
+        ),
+        seed=_CHAIN_SEED,
+    )
+    score = JoinPathTraversed()._evaluate(out, {"join_path_traversed": {}})
+    assert score.score == 1.0
+    assert score.metadata["keys_named"] == ["account_ref", "owner_id"]
+
+
+def test_join_path_traversed_fails_when_only_first_hop_found():
+    out = _make_output(
+        sql_calls=[
+            ("SELECT * FROM system.information_schema.relationships WHERE source_table = 'pg_orders_2023'", "r"),
+        ],
+        final_text="pg_orders_2023 joins salesforce_acct_xref on account_ref.",
+        seed=_CHAIN_SEED,
+    )
+    score = JoinPathTraversed()._evaluate(out, {"join_path_traversed": {}})
+    assert score.score == 0.0
+
+
+def test_join_path_traversed_fails_without_relationships_query():
+    out = _make_output(
+        final_text="pg_orders_2023, salesforce_acct_xref and salesforce_acct_owners are probably related.",
+        seed=_CHAIN_SEED,
+    )
+    score = JoinPathTraversed()._evaluate(out, {"join_path_traversed": {}})
+    assert score.score == 0.0
+
+
+def test_join_path_traversed_skips_when_not_requested():
+    out = _make_output(final_text="anything", seed=_CHAIN_SEED)
+    score = JoinPathTraversed()._evaluate(out, {})
+    assert score.score is None
 
 
 # -- AnswerQueryRanWhenExpected -----------------------------------------------

@@ -33,15 +33,21 @@ from ee.hogai.eval.sandboxed.data_warehouse.scorers import (
     AnswerQueryRanWhenExpected,
     InformationSchemaBeforeAnswer,
     InformationSchemaQueried,
+    JoinPathTraversed,
     NeedleTableIdentified,
     NeedleValueRetrieved,
     RelationshipDiscovery,
+    StaleTableAvoided,
     WarehouseAnswerCorrectness,
 )
 from ee.hogai.eval.sandboxed.data_warehouse.seeder import seed_warehouse_schema
 from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
+    CHAIN_NEEDLE_HOP3,
     DESC_NEEDLE_TABLE,
     REL_NEEDLE_SOURCE,
+    REL_NEEDLE_TARGET,
+    RELEVANCY_NEEDLE_CURRENT,
+    RELEVANCY_NEEDLE_STALE,
     RETRIEVAL_NEEDLE_ANSWER,
     RETRIEVAL_NEEDLE_EVENT_ID,
     RETRIEVAL_NEEDLE_TABLE,
@@ -155,6 +161,53 @@ async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_cli
             },
             setup=seed_warehouse_schema,
         ),
+        # 7 — table relevancy: two near-identical accounts dimensions, one live and
+        #     one frozen/superseded. Only the annotation distinguishes them, so the
+        #     agent must read metadata (not shortcut on the name) and recommend the
+        #     current table while flagging the stale one — not pick the decoy.
+        SandboxedEvalCase(
+            name="dw_table_relevancy_stale",
+            prompt=(
+                "We have more than one accounts dimension table in the warehouse. Which one should I "
+                "use for current customer reporting, and what's wrong with the other one?"
+            ),
+            expected={
+                "information_schema_queried": {},
+                "agentic_search_used": {},
+                "needle_table_identified": {"table": RELEVANCY_NEEDLE_CURRENT},
+                "stale_table_avoided": {},
+                "warehouse_answer_correctness": {
+                    "expected_answer": (
+                        f"Use {RELEVANCY_NEEDLE_CURRENT} — it is the live, daily-refreshed canonical "
+                        f"accounts dimension. {RELEVANCY_NEEDLE_STALE} is deprecated/superseded: a frozen "
+                        "2023 snapshot that is no longer refreshed, so it must not be used for current reporting."
+                    ),
+                },
+            },
+            setup=seed_warehouse_schema,
+        ),
+        # 8 — multi-hop / multi-table: assemble a two-hop join path by querying
+        #     relationships iteratively (orders -> account xref -> account owners).
+        #     Tests combining several discovered tables, not a single needle.
+        SandboxedEvalCase(
+            name="dw_multi_hop_join_path",
+            prompt=(
+                f"Starting from our orders table '{REL_NEEDLE_SOURCE}', I need to reach account-owner "
+                "information. Which tables do I join through, in order, and on what keys? Trace the full path."
+            ),
+            expected={
+                "information_schema_queried": {},
+                "join_path_traversed": {},
+                "warehouse_answer_correctness": {
+                    "expected_answer": (
+                        f"The path is two hops: {REL_NEEDLE_SOURCE} joins {REL_NEEDLE_TARGET} on account_ref, "
+                        f"and {REL_NEEDLE_TARGET} joins {CHAIN_NEEDLE_HOP3} on owner_id. So orders -> account "
+                        "xref -> account owners."
+                    ),
+                },
+            },
+            setup=seed_warehouse_schema,
+        ),
     ]
 
     await SandboxedPublicEval(
@@ -168,6 +221,8 @@ async def eval_information_schema(sandboxed_demo_data, pytestconfig, posthog_cli
             NeedleTableIdentified(),
             NeedleValueRetrieved(),
             RelationshipDiscovery(),
+            StaleTableAvoided(),
+            JoinPathTraversed(),
             AnswerQueryRanWhenExpected(name="answer_query_ran"),
             WarehouseAnswerCorrectness(),
         ],

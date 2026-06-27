@@ -19,12 +19,16 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from ee.hogai.eval.sandboxed.data_warehouse.synthesizer import (
+    CHAIN_NEEDLE_HOP3,
+    CHAIN_NEEDLE_KEY,
     DESC_NEEDLE_PHRASE,
     DESC_NEEDLE_TABLE,
     REL_NEEDLE_FIELD,
     REL_NEEDLE_KEY,
     REL_NEEDLE_SOURCE,
     REL_NEEDLE_TARGET,
+    RELEVANCY_NEEDLE_CURRENT,
+    RELEVANCY_NEEDLE_STALE,
     RETRIEVAL_NEEDLE_ANSWER,
     RETRIEVAL_NEEDLE_EVENT_ID,
     RETRIEVAL_NEEDLE_PREFIX,
@@ -147,6 +151,11 @@ def seed_warehouse_schema(context: CustomPromptSandboxContext) -> dict[str, Any]
             "target": REL_NEEDLE_TARGET,
             "key": REL_NEEDLE_KEY,
             "field_name": REL_NEEDLE_FIELD,
+        },
+        "relevancy_needle": {"current": RELEVANCY_NEEDLE_CURRENT, "stale": RELEVANCY_NEEDLE_STALE},
+        "chain_needle": {
+            "tables": [REL_NEEDLE_SOURCE, REL_NEEDLE_TARGET, CHAIN_NEEDLE_HOP3],
+            "keys": [REL_NEEDLE_KEY, CHAIN_NEEDLE_KEY],
         },
         "view_needle": {"name": VIEW_NEEDLE_NAME},
         "retrieval_needle": retrieval_meta,
