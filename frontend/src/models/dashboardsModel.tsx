@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
-import { isProjectNotFoundError } from 'lib/api-error'
+import { isProjectNotFoundError } from 'lib/api-error-guards'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
