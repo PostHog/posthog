@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
@@ -886,14 +887,18 @@ class TestRecalculationAnalytics(BaseTest):
 
     @parameterized.expand(
         [
-            ("out_of_memory", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
-            ("timeout", ClickHouseQueryTimeOut(), "timeout"),
+            ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
+            ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout"),
+            ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
+            ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout"),
+            ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory"),
             ("other", RuntimeError("kaboom"), "server_error"),
         ]
     )
     def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type):
         # On the terminal attempt (retries exhausted) an infra failure emits 'experiment metric error'
         # with the client-side error_type taxonomy, so recalc failures land on the same dashboards.
+        # Covers both the wrapped exception classes and the raw ServerException code-lookup arm.
         exp = self._experiment(flag_key=f"an-terminal-{name}", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -902,7 +907,7 @@ class TestRecalculationAnalytics(BaseTest):
                 "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
             ) as mock_runner:
                 mock_runner.return_value.run.side_effect = exc
-                with pytest.raises((ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut, RuntimeError)):
+                with pytest.raises(type(exc)):
                     _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
 
         assert len(captured) == 1
