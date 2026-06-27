@@ -105,6 +105,16 @@ WHERE table_type = 'system'
 ORDER BY table_name
 ```
 
+**Find a table by what its docs say** — names are often opaque (especially data-warehouse tables), so search the `description` text instead of guessing names. The documentation lives in `system.information_schema.tables.description` (the catalog) — not on the `system.data_warehouse_tables` entity, which only holds connection metadata:
+
+```sql
+SELECT table_name, description
+FROM system.information_schema.tables
+WHERE table_type = 'data_warehouse' AND description ILIKE '%canonical mrr%'
+```
+
+Column docs are searchable the same way via `information_schema.columns.description`. Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
+
 **Inspect a table's columns:**
 
 ```sql
