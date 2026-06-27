@@ -38,11 +38,15 @@ export const MAX_FLEET_EMITTED_RUNS = 120
 
 /** The most recent emitted runs across the fleet, newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
 export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScoutRunSummary[] {
-    return runs
-        .filter((run) => (run.emitted_count ?? 0) > 0)
-        .slice()
-        .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-        .slice(0, MAX_FLEET_EMITTED_RUNS)
+    return (
+        runs
+            .filter((run) => (run.emitted_count ?? 0) > 0)
+            .slice()
+            // "Most recently emitted" — a run can complete (and emit) later than one created after it, so
+            // order by completion, falling back to creation. Matches `emittedFindingsSummary`'s `latestAt`.
+            .sort((a, b) => (b.completed_at ?? b.created_at ?? '').localeCompare(a.completed_at ?? a.created_at ?? ''))
+            .slice(0, MAX_FLEET_EMITTED_RUNS)
+    )
 }
 
 // ── Origin classification ────────────────────────────────────────────────────

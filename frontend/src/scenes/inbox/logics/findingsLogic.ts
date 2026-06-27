@@ -53,9 +53,12 @@ export const findingsLogic = kea<findingsLogicType>([
         setScoutFilter: (scoutFilter: string) => ({ scoutFilter }),
         setSeverityFilter: (severityFilter: string) => ({ severityFilter }),
         setSortKey: (sortKey: FindingsSortKey) => ({ sortKey }),
+        // Some (but not all) per-run emission fetches failed — the list is incomplete. Carries the
+        // failed-run count so the page can warn that findings are missing rather than hiding it.
+        setEmissionsPartialFailure: (failedRuns: number) => ({ failedRuns }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         emissions: [
             [] as SignalScoutEmission[],
             {
@@ -78,6 +81,9 @@ export const findingsLogic = kea<findingsLogicType>([
                     if (fulfilled.length === 0) {
                         throw new Error('Failed to load scout findings')
                     }
+                    // A partial failure returns the findings that loaded, but flag the gap so the page
+                    // can warn — silently dropping a scout's findings would mislead a triage decision.
+                    actions.setEmissionsPartialFailure(settled.length - fulfilled.length)
                     return fulfilled.flatMap((result) => result.value)
                 },
             },
@@ -124,6 +130,16 @@ export const findingsLogic = kea<findingsLogicType>([
                 loadEmissions: () => false,
                 loadEmissionsSuccess: () => false,
                 loadEmissionsFailure: () => true,
+            },
+        ],
+        // Count of runs whose emission fetch failed while others succeeded — the list is incomplete.
+        // Reset when a fresh load starts; a clean success sets it to 0 via the partial-failure action.
+        emissionsPartialFailedRuns: [
+            0,
+            {
+                loadEmissions: () => 0,
+                loadEmissionsFailure: () => 0,
+                setEmissionsPartialFailure: (_, { failedRuns }) => failedRuns,
             },
         ],
     }),
