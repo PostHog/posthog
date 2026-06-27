@@ -226,6 +226,31 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
         ],
         runsWindowComplete: [(s) => [s.runsWindow], (runsWindow): boolean => runsWindow.complete],
+        // Cheap fleet-wide findings tally straight off the runs window — sums each run's `emitted_count`
+        // without fetching any emission bodies. Powers the "Scout findings" callout (count + scouts +
+        // recency) so the fleet section can advertise the page without the per-run emission fan-out the
+        // page itself does on open. `latestAt` uses each emitted run's completion (or creation) time.
+        emittedFindingsSummary: [
+            (s) => [s.runsWindow],
+            (runsWindow): { count: number; scoutCount: number; latestAt: string | null } => {
+                let count = 0
+                const scouts = new Set<string>()
+                let latestAt: string | null = null
+                for (const run of runsWindow.runs) {
+                    const emitted = run.emitted_count ?? 0
+                    if (emitted <= 0) {
+                        continue
+                    }
+                    count += emitted
+                    scouts.add(run.skill_name)
+                    const at = run.completed_at ?? run.created_at
+                    if (at && (!latestAt || at > latestAt)) {
+                        latestAt = at
+                    }
+                }
+                return { count, scoutCount: scouts.size, latestAt }
+            },
+        ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
             (scoutConfigs): number =>
