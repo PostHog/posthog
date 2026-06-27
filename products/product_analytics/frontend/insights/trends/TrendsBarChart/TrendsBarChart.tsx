@@ -31,6 +31,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -57,7 +58,7 @@ interface TrendsBarChartProps {
 }
 
 const EMPTY_LABELS: string[] = []
-const TIME_SERIES_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
+const TIME_SERIES_TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
