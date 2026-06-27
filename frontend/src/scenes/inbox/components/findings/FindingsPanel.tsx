@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonInput, LemonSelect, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { pluralize } from 'lib/utils/strings'
@@ -43,6 +43,7 @@ export function FindingsPanel(): JSX.Element {
         hasLoadedOnce,
         emissionsLoadFailed,
         emissionsLoading,
+        emissionsPartialFailedRuns,
     } = useValues(findingsLogic)
     const { setSearchText, setScoutFilter, setSeverityFilter, setSortKey, loadEmissions } = useActions(findingsLogic)
 
@@ -94,6 +95,14 @@ export function FindingsPanel(): JSX.Element {
                     renderButtonContent={(label) => `Sort: ${label ?? ''}`}
                 />
             </div>
+
+            {hasLoadedOnce && emissionsPartialFailedRuns > 0 && (
+                // Partial fetch: some runs' findings loaded, others failed. Warn rather than silently
+                // show an incomplete "all findings" view a user might triage against.
+                <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadEmissions() }}>
+                    Some findings couldn't be loaded, so this list may be incomplete.
+                </LemonBanner>
+            )}
 
             {!hasLoadedOnce ? (
                 <div className="flex flex-col gap-2">

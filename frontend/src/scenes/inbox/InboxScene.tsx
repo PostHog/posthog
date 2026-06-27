@@ -139,12 +139,10 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 }
 
 /**
- * Fleet-memory (scratchpad) detail surface: the browse/search panel under a back link, rendered
- * full-width over the list like the scout detail. Reached from the fleet-memory callout.
+ * Shared chrome for the full-width scout panels (scratchpad, findings): a "Scouts" back link over the
+ * panel body, rendered full-width over the list like the scout detail. Reached from their callouts.
  */
-function InboxScratchpadView(): JSX.Element {
-    const { setScratchpadOpen } = useActions(inboxSceneLogic)
-
+function InboxPanelView({ onBack, children }: { onBack: () => void; children: JSX.Element }): JSX.Element {
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto">
             <div className="px-4 pt-3">
@@ -152,38 +150,13 @@ function InboxScratchpadView(): JSX.Element {
                     type="tertiary"
                     size="small"
                     icon={<IconArrowLeft />}
-                    onClick={() => setScratchpadOpen(false)}
+                    onClick={onBack}
                     className="self-start"
                 >
                     Scouts
                 </LemonButton>
             </div>
-            <ScratchpadPanel />
-        </div>
-    )
-}
-
-/**
- * Cross-fleet findings detail surface: the findings browse/search panel under a back link, rendered
- * full-width over the list like the scratchpad. Reached from the scout-findings callout.
- */
-function InboxFindingsView(): JSX.Element {
-    const { setFindingsOpen } = useActions(inboxSceneLogic)
-
-    return (
-        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-            <div className="px-4 pt-3">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    icon={<IconArrowLeft />}
-                    onClick={() => setFindingsOpen(false)}
-                    className="self-start"
-                >
-                    Scouts
-                </LemonButton>
-            </div>
-            <FindingsPanel />
+            {children}
         </div>
     )
 }
@@ -198,7 +171,7 @@ export function InboxScene(): JSX.Element {
         isScratchpadOpen,
         isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
@@ -248,9 +221,13 @@ export function InboxScene(): JSX.Element {
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
                     {isFindingsOpen ? (
-                        <InboxFindingsView />
+                        <InboxPanelView onBack={() => setFindingsOpen(false)}>
+                            <FindingsPanel />
+                        </InboxPanelView>
                     ) : isScratchpadOpen ? (
-                        <InboxScratchpadView />
+                        <InboxPanelView onBack={() => setScratchpadOpen(false)}>
+                            <ScratchpadPanel />
+                        </InboxPanelView>
                     ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
                     ) : selectedReport ? (
