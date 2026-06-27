@@ -51,13 +51,13 @@
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);
 
-        @include screen($md) {
-            padding: 2rem;
-        }
-
         h2 {
             font-weight: bold;
             text-align: center;
+        }
+
+        @include screen($md) {
+            padding: 2rem;
         }
     }
 
