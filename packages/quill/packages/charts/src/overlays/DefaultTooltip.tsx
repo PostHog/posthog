@@ -164,15 +164,11 @@ export function DefaultTooltip<Meta = unknown>({
                             <TooltipSwatch color={s.color} />
                             {/* Grid-stack the label so an invisible semibold ghost always reserves
                                 the bold width — the visible span toggles weight without reflowing. */}
-                            <span
-                                data-attr="hog-chart-tooltip-series"
-                                className="flex-1 min-w-0 overflow-hidden"
-                                style={{ display: 'grid' }}
-                            >
-                                <span className="font-semibold invisible truncate" style={{ gridArea: '1/1' }} aria-hidden="true">
+                            <span className="flex-1 min-w-0 overflow-hidden grid">
+                                <span className="font-semibold invisible truncate [grid-area:1/1]" aria-hidden="true">
                                     {labelContent}
                                 </span>
-                                <span className="truncate" style={{ gridArea: '1/1' }}>
+                                <span data-attr="hog-chart-tooltip-series" className="truncate [grid-area:1/1]">
                                     {labelContent}
                                 </span>
                             </span>
