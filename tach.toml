@@ -248,6 +248,7 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.notifications",
     "products.posthog_ai",
     "products.warehouse_sources_queue",
     "products.workflows",
@@ -263,13 +264,6 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.desktop_recordings"
-depends_on = [
-    "posthog",
 ]
 layer = "modules"
 

@@ -566,11 +566,11 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-            # from posthog.models.insight_caching_state import InsightCachingState
+            from posthog.personhog_client.fake_client import get_active_fake
             from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
             from products.cohorts.backend.models.cohort import Cohort
-            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+            from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
             person = create_person(
@@ -584,12 +584,6 @@ def team_api_test_factory():
                 name="test",
                 key="test",
                 created_by=self.user,
-            )
-            FeatureFlagHashKeyOverride.objects.create(
-                team_id=team.pk,
-                person_id=person.id,
-                feature_flag_key=flag.key,
-                hash_key="test",
             )
             add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
@@ -606,6 +600,17 @@ def team_api_test_factory():
             ):
                 response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
+
+            # Verify personhog RPCs were called for persons-DB cleanup
+            fake = get_active_fake()
+            for rpc in [
+                "delete_hash_key_overrides_by_teams",
+                "delete_personless_distinct_ids_batch_for_team",
+                "delete_persons_batch_for_team",
+                "delete_groups_batch_for_team",
+                "delete_group_type_mappings_batch_for_team",
+            ]:
+                fake.assert_called(rpc)
 
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN

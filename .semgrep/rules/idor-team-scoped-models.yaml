@@ -111,7 +111,6 @@ rules:
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -378,7 +377,6 @@ rules:
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext

@@ -40,6 +40,7 @@ _LAZY = {
     "is_cdc_enabled_for_team": "logic.data_load.service",
     "is_custom_source_ai_builder_enabled_for_team": "logic.data_load.service",
     "is_xmin_enabled_for_team": "logic.data_load.service",
+    "pause_cdc_extraction_schedule": "logic.data_load.service",
     "pause_external_data_schedule": "logic.data_load.service",
     "sync_cdc_extraction_schedule": "logic.data_load.service",
     "sync_discover_schemas_schedule": "logic.data_load.service",

@@ -1341,9 +1341,26 @@ class FeatureFlagSerializer(
                         initial_cohort: Cohort = Cohort.objects.get(
                             pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
-                        dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
+                        # Static cohorts (including one-time snapshots) hold a
+                        # materialised person list.  The populating criteria may
+                        # still be stored on the record, but they are inert – the
+                        # cohort no longer re-evaluates them, and the Rust engine's
+                        # extract_dependencies returns an empty set for them.  Skip
+                        # both the behavioural property check and the dependency walk
+                        # so snapshot cohorts can be used in flags without an extra
+                        # export step, even when their inert criteria reference
+                        # another cohort.  See #65270.
+                        dependency_cohorts = (
+                            []
+                            if initial_cohort.is_static
+                            else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                        )
                         for cohort in [initial_cohort, *dependency_cohorts]:
-                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            # Static cohorts have materialized membership, any preserved behavioral
+                            # filters are display-only and never evaluated, so skip them.
+                            if cohort.is_static:
+                                continue
+                            if any(cohort_prop.type == "behavioral" for cohort_prop in cohort.properties.flat):
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )

@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING, Any, Optional
 import pytz
 
 from ..objects import is_hog_callable, is_hog_closure, is_hog_error, new_hog_error, to_hog_interval
-from ..utils import get_nested_value, like
+from ..utils import HogVMException, get_nested_value, like
 from .crypto import md5, sha256, sha256HmacChain
 from .date import (
     formatDateTime,
@@ -107,6 +107,12 @@ def empty(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
     if isinstance(args[0], bool) or isinstance(args[0], int) or isinstance(args[0], float):
         return False
     return not bool(args[0])
+
+
+def length(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
+    if args[0] is None:
+        raise HogVMException("Can not call length on null")
+    return len(args[0])
 
 
 def sleep(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float):
@@ -988,7 +994,7 @@ STL: dict[str, STLFunction] = {
     "ifNull": STLFunction(fn=ifNull, minArgs=2, maxArgs=2),
     "isNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is None, minArgs=1, maxArgs=1),
     "isNotNull": STLFunction(fn=lambda args, team, stdout, timeout: args[0] is not None, minArgs=1, maxArgs=1),
-    "length": STLFunction(fn=lambda args, team, stdout, timeout: len(args[0]), minArgs=1, maxArgs=1),
+    "length": STLFunction(fn=length, minArgs=1, maxArgs=1),
     "empty": STLFunction(fn=empty, minArgs=1, maxArgs=1),
     "notEmpty": STLFunction(
         fn=lambda args, team, stdout, timeout: not empty(args, team, stdout, timeout), minArgs=1, maxArgs=1
