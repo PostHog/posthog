@@ -8,6 +8,7 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { GitHubRepositoryPicker } from 'lib/integrations/GitHubIntegrationHelpers'
 import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 
+import { InstallationProgressView } from './InstallationProgressView'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
 import { WizardModeShell } from './WizardModeShell'
 
@@ -17,10 +18,9 @@ import { WizardModeShell } from './WizardModeShell'
  * request you review and merge. Shares WizardModeShell (hog + framework badges)
  * with the local command tab so both read as one wizard.
  *
- * Deliberately non-blocking: kicking off a run flips to a queued acknowledgement
- * and the user can hit Continue right away. Live progress and the "your PR is
- * ready" payoff are carried by the shared session-sync surfaces (the global FAB),
- * not by this block — see wizardCloudRunLogic.
+ * Deliberately non-blocking: kicking off a run flips to live progress — the
+ * Installation layer (installationProgressLogic / InstallationProgressView)
+ * streams the run's pipeline — and the user can hit Continue right away.
  */
 export function WizardCloudRunBlock({
     onQueued,
@@ -31,7 +31,8 @@ export function WizardCloudRunBlock({
 }): JSX.Element {
     const { isCloudOrDev } = useWizardCommand()
     const syncEnabled = useFeatureFlag('ONBOARDING_WIZARD_SYNC', 'test')
-    const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl } = useValues(wizardCloudRunLogic)
+    const { githubIntegration, selectedRepository, cloudRunStatus, connectGitHubUrl, cloudRunRunId, cloudRunTaskId } =
+        useValues(wizardCloudRunLogic)
     const { setSelectedRepository, startCloudRun } = useActions(wizardCloudRunLogic)
 
     // Let the install step unblock Continue / hide Skip the moment the run is handed
@@ -49,6 +50,11 @@ export function WizardCloudRunBlock({
     }
 
     if (cloudRunStatus === 'queued') {
+        // Once the kickoff returns a run handle, the Installation layer streams the real pipeline
+        // (provision → clone → wizard → agent → PR) merged with the wizard session detail.
+        if (cloudRunRunId && cloudRunTaskId) {
+            return <InstallationProgressView runId={cloudRunRunId} taskId={cloudRunTaskId} />
+        }
         const repoLabel = selectedRepository ? <span className="font-mono">{selectedRepository}</span> : 'your repo'
         // A queued run isn't a finished one. With sync on, the install step swaps this block for the
         // live WizardProgressTracker the moment the run's session appears (and the FAB carries it once

@@ -1,0 +1,177 @@
+import { actions, connect, kea, key, listeners, path, props, reducers } from 'kea'
+
+import { projectLogic } from 'scenes/projectLogic'
+
+import { getTasksRunsStreamRetrieveUrl } from 'products/tasks/frontend/generated/api'
+
+import type { taskRunStreamLogicType } from './taskRunStreamLogicType'
+
+export type TaskRunConnectionStatus = 'idle' | 'connecting' | 'open' | 'closed' | 'error'
+
+/**
+ * Shapes of the SSE payloads the task-run stream pushes (see the tasks stream view). These are stream
+ * messages, not REST serializers, so they're typed here rather than imported from the generated client.
+ */
+export interface TaskRunStreamState {
+    status: string // queued | in_progress | completed | failed | cancelled
+    stage: string | null
+    output: { pr_url?: string | null } | null
+    branch: string | null
+    error_message: string | null
+    updated_at: string
+    completed_at: string | null
+}
+
+export interface TaskRunProgressStep {
+    step: string
+    status: string // in_progress | completed | failed | ...
+    label: string
+    group: string
+    detail: string | null
+}
+
+export interface TaskRunStreamLogicProps {
+    taskId: string
+    runId: string
+}
+
+/**
+ * Raw SSE consumer for a single TaskRun (the cloud-run pipeline: provision → clone → wizard → agent →
+ * PR). A private source for the Installation layer — `installationProgressLogic` merges this with the
+ * wizard session stream and exposes a single `InstallationProgress`. Keyed per run so multiple coexist.
+ *
+ * Data events (`task_run_state`, `_posthog/progress` notifications) arrive unnamed via `onmessage`;
+ * `stream-end` closes the stream; rotation (`end`) and transient drops are handled by EventSource's
+ * native reconnect (it replays the `Last-Event-ID` cursor the server stamps on every event).
+ */
+export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
+    props({} as TaskRunStreamLogicProps),
+    key((props) => props.runId),
+    path((key) => ['scenes', 'onboarding', 'taskRunStreamLogic', key]),
+    connect(() => ({
+        values: [projectLogic, ['currentProjectId']],
+    })),
+    actions({
+        connect: true,
+        disconnect: true,
+        taskRunStateUpdated: (state: TaskRunStreamState) => ({ state }),
+        progressStepUpdated: (step: TaskRunProgressStep) => ({ step }),
+        connectionOpened: true,
+        connectionErrored: (error: string) => ({ error }),
+        streamCompleted: true,
+    }),
+    reducers({
+        taskRunState: [
+            null as TaskRunStreamState | null,
+            {
+                taskRunStateUpdated: (_, { state }) => state,
+            },
+        ],
+        // Last-write-wins per (group, step), kept in arrival order so the UI renders a stable timeline.
+        progressSteps: [
+            [] as TaskRunProgressStep[],
+            {
+                progressStepUpdated: (state, { step }) => {
+                    const idx = state.findIndex((s) => s.step === step.step && s.group === step.group)
+                    if (idx === -1) {
+                        return [...state, step]
+                    }
+                    const next = [...state]
+                    next[idx] = step
+                    return next
+                },
+            },
+        ],
+        connectionStatus: [
+            'idle' as TaskRunConnectionStatus,
+            {
+                connect: () => 'connecting',
+                connectionOpened: () => 'open',
+                connectionErrored: () => 'error',
+                disconnect: () => 'closed',
+                streamCompleted: () => 'closed',
+            },
+        ],
+        isComplete: [
+            false,
+            {
+                streamCompleted: () => true,
+            },
+        ],
+        lastError: [
+            null as string | null,
+            {
+                connect: () => null,
+                taskRunStateUpdated: () => null,
+                connectionErrored: (_, { error }) => error,
+            },
+        ],
+    }),
+    listeners(({ values, actions, props, cache }) => ({
+        connect: () => {
+            const projectId = values.currentProjectId
+            if (projectId === null) {
+                actions.connectionErrored('No current project — cannot open task run stream.')
+                return
+            }
+
+            cache.disposables.add((): (() => void) => {
+                const url = getTasksRunsStreamRetrieveUrl(String(projectId), props.taskId, props.runId)
+                const eventSource = new EventSource(url, { withCredentials: true })
+
+                eventSource.onopen = actions.connectionOpened
+                eventSource.onmessage = (event: MessageEvent<string>): void => {
+                    try {
+                        const payload = JSON.parse(event.data) as TaskRunStreamState & {
+                            type?: string
+                            notification?: { params?: TaskRunProgressStep }
+                        }
+                        if (payload.type === 'notification') {
+                            const params = payload.notification?.params
+                            if (params) {
+                                actions.progressStepUpdated({
+                                    step: params.step,
+                                    status: params.status,
+                                    label: params.label,
+                                    group: params.group,
+                                    detail: params.detail ?? null,
+                                })
+                            }
+                        } else if (payload.type === 'task_run_state') {
+                            actions.taskRunStateUpdated({
+                                status: payload.status,
+                                stage: payload.stage ?? null,
+                                output: payload.output ?? null,
+                                branch: payload.branch ?? null,
+                                error_message: payload.error_message ?? null,
+                                updated_at: payload.updated_at,
+                                completed_at: payload.completed_at ?? null,
+                            })
+                        }
+                    } catch (err) {
+                        actions.connectionErrored(`Failed to parse SSE payload: ${String(err)}`)
+                    }
+                }
+                // Completion sentinel — close so EventSource doesn't auto-reconnect to a finished run.
+                eventSource.addEventListener('stream-end', () => {
+                    actions.streamCompleted()
+                    eventSource.close()
+                })
+                eventSource.onerror = (): void => {
+                    // CLOSED → browser gave up (won't auto-reconnect); anything else → it's already
+                    // retrying (rides the Last-Event-ID cursor), so just surface "reconnecting".
+                    if (eventSource.readyState === EventSource.CLOSED) {
+                        actions.connectionErrored('EventSource connection closed by server — call connect() to retry')
+                    } else {
+                        actions.connectionErrored('EventSource transport error — reconnecting')
+                    }
+                }
+
+                return () => eventSource.close()
+            }, 'event-source')
+        },
+        disconnect: () => {
+            cache.disposables.dispose('event-source')
+        },
+    })),
+])

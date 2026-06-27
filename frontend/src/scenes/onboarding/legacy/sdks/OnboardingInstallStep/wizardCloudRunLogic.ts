@@ -57,6 +57,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
         startCloudRun: true,
         startCloudRunSuccess: true,
         startCloudRunFailure: true,
+        setCloudRunHandle: (taskId: string, runId: string) => ({ taskId, runId }),
     }),
     reducers({
         selectedRepository: [
@@ -74,6 +75,19 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 // Picking a different repo after a failure clears the error so the
                 // primary button is actionable again.
                 setSelectedRepository: (state) => (state === 'error' ? 'idle' : state),
+            },
+        ],
+        // The run handle returned by the kickoff POST. The Installation layer streams progress by run id.
+        cloudRunTaskId: [
+            null as string | null,
+            {
+                setCloudRunHandle: (_, { taskId }) => taskId,
+            },
+        ],
+        cloudRunRunId: [
+            null as string | null,
+            {
+                setCloudRunHandle: (_, { runId }) => runId,
             },
         ],
     }),
@@ -116,13 +130,17 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                 selectedRepository.includes('/') || !owner ? selectedRepository : `${owner}/${selectedRepository}`
             try {
                 // Kicks off the cloud run (clone repo → run the wizard → open a PR via a Temporal
-                // workflow). Live progress and the "your PR is ready" payoff ride the existing wizard
-                // session-sync surfaces — the run posts sessions under WIZARD_CLOUD_RUN_WORKFLOW_ID,
-                // so wizardProgressTrackerLogic + the global FAB render them with no extra wiring.
-                await api.create('api/wizard/cloud_run', {
-                    project_id: currentProjectId,
-                    repository,
-                })
+                // workflow) and returns the run handle. Live progress is surfaced by the Installation
+                // layer (installationProgressLogic), which streams this run's TaskRun pipeline merged
+                // with the wizard session detail.
+                const { task_id, run_id } = await api.create<{ task_id: string; run_id: string; status: string }>(
+                    'api/wizard/cloud_run',
+                    {
+                        project_id: currentProjectId,
+                        repository,
+                    }
+                )
+                actions.setCloudRunHandle(task_id, run_id)
                 actions.startCloudRunSuccess()
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null
