@@ -7,6 +7,7 @@ import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.callbacks.posthog import (
+    _MAX_CAPTURE_SIZE,
     PostHogCallback,
     _normalize_trace_id,
     _replace_binary_content,
@@ -943,7 +944,7 @@ class TestReplaceBinaryContent:
         assert _replace_binary_content(input_data) == expected
 
 
-_MAX_SIZE = 15 * 1024 * 1024
+_MAX_SIZE = _MAX_CAPTURE_SIZE
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 
 
@@ -973,6 +974,11 @@ class TestTruncateForCapture:
     def test_small_events_not_truncated(self, description: str, properties: dict) -> None:
         result = _truncate_for_capture(properties)
         assert result == properties
+
+    def test_threshold_below_kafka_message_limit(self) -> None:
+        # Capture rejects events over Kafka's message.max.bytes (~1 MB) with a 413,
+        # so the truncation threshold must stay under it with headroom for the envelope.
+        assert _MAX_CAPTURE_SIZE < 1_000_000
 
     def test_large_output_truncated(self) -> None:
         large_output = "x" * (_MAX_SIZE + 1)

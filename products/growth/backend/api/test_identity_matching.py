@@ -11,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.test.persons import create_person
 
 from products.growth.backend.constants import (
     IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET,
@@ -221,3 +222,48 @@ class TestIdentityMatchingLinksAPI(APIBaseTest):
         assert run_a_rules["high_confidence"] == 1
         assert run_a_rules["medium_confidence"] == 1
         assert run_a_rules["low_confidence"] == 0
+
+    def test_links_are_enriched_with_resolved_persons(self) -> None:
+        create_person(
+            team=self.team,
+            distinct_ids=["phone-1"],
+            properties={
+                "$geoip_city_name": "Lisbon",
+                "$browser": "Mobile Safari",
+                "$initial_utm_source": "google",
+                "$initial_gclid": "Cj0KexampleABC",
+            },
+            last_seen_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+        )
+        create_person(
+            team=self.team,
+            distinct_ids=["anna@x.com"],
+            properties={"email": "anna@x.com", "name": "Anna", "$geoip_city_name": "Lisbon"},
+        )
+        self._insert_link(self.team.pk, RUN_A, "phone-1", "anna@x.com", score=7.0, tier="high", orphan_paid_touch=1)
+        # An orphan with no person profile must resolve to null, not error.
+        self._insert_link(self.team.pk, RUN_A, "ghost-2", "anna@x.com", score=4.0, tier="medium")
+
+        response = self.client.get(f"/api/projects/{self.team.pk}/identity_matching_links/")
+        assert response.status_code == status.HTTP_200_OK
+        by_orphan = {row["orphan_distinct_id"]: row for row in response.json()["results"]}
+
+        # Curated properties are surfaced under clean keys ($geoip_city_name -> city, etc.).
+        orphan = by_orphan["phone-1"]["orphan_person"]
+        assert orphan["city"] == "Lisbon"
+        assert orphan["browser"] == "Mobile Safari"
+        assert orphan["utm_source"] == "google"
+        assert orphan["gclid"] == "Cj0KexampleABC"
+        assert orphan["email"] is None
+        # Timestamps: created_at always present; last_seen_at surfaced when set.
+        assert orphan["first_seen"] is not None
+        assert orphan["last_seen"].startswith("2026-06-01")
+        anchor = by_orphan["phone-1"]["anchor_person"]
+        assert anchor["email"] == "anna@x.com"
+        assert anchor["name"] == "Anna"
+        assert anchor["first_seen"] is not None
+        assert anchor["last_seen"] is None  # last_seen_at unset on this person
+
+        # Unresolved orphan -> null person; its anchor still resolves.
+        assert by_orphan["ghost-2"]["orphan_person"] is None
+        assert by_orphan["ghost-2"]["anchor_person"]["email"] == "anna@x.com"

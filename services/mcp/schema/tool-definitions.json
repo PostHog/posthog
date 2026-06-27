@@ -30,7 +30,7 @@
         }
     },
     "agent-resolve-resource": {
-        "description": "Fetch an operator playbook — a markdown guide for doing a class of agent-platform operations well. These are the same skills the agent concierge loads; resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown.",
+        "description": "Fetch a builder playbook — a markdown guide for using the agent-platform authoring tools well, returned with the live, scope-aware tool surface for the operation. Resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown plus the tool surface.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Fetch an agent-platform operator playbook (markdown).",
@@ -546,6 +546,20 @@
             "idempotentHint": true,
             "openWorldHint": false,
             "readOnlyHint": true
+        }
+    },
+    "external-data-sources-preview-resource": {
+        "description": "Read a small live sample of rows for one resource (table) of a Custom REST source, so you can verify the manifest's data_selector, primary_key, and incremental cursor_path against real data BEFORE creating the source. Only source_type 'Custom' is supported. Pass source_type, a payload object ({manifest_json, plus the credential for the manifest's auth type — auth_token | auth_api_key | auth_password}), the resource_name to sample, and an optional limit (1–50, default 10). Returns {rows, row_count, columns (name + inferred JSON type), error}. Manifest, validation, and SSRF problems return 400; a live fetch failure returns 200 with `error` set and empty rows. Use external-data-sources-db-schema first to list the resource names and detected cursors.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Preview sample rows for a Custom REST source resource",
+        "title": "Preview rows for a Custom REST source resource",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "external-data-sync-logs": {

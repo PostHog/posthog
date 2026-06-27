@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { KeyboardEvent, MutableRefObject, useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconSend, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { getNotebookStringProp, isPromptComponentNode } from './documentModel'
 import { RestoreSelectionRequest } from './editorTypes'
@@ -118,6 +118,14 @@ export function EditablePromptComponent({
     }
 
     const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
+        event.stopPropagation()
+
+        if (event.key === 'Enter' && !event.nativeEvent.isComposing && !event.shiftKey) {
+            event.preventDefault()
+            submitPrompt(event.currentTarget.value)
+            return
+        }
+
         if (event.key === 'Backspace' || event.key === 'Delete') {
             const selectionStart = event.currentTarget.selectionStart ?? 0
             const selectionEnd = event.currentTarget.selectionEnd ?? selectionStart
@@ -181,21 +189,20 @@ export function EditablePromptComponent({
                 </div>
                 {isCollapsed ? null : (
                     <div className="MarkdownNotebook__ai-prompt-form">
-                        <LemonTextArea
+                        <textarea
                             ref={setElementRef}
                             className="MarkdownNotebook__ai-prompt-input MarkdownNotebook__text-block--ai-prompt"
                             data-attr="markdown-notebook-ai-prompt"
                             value={question}
-                            onChange={updateQuestion}
-                            onPressEnter={submitPrompt}
+                            onChange={(event) => {
+                                event.stopPropagation()
+                                updateQuestion(event.currentTarget.value)
+                            }}
                             onKeyDown={handleKeyDown}
                             placeholder=""
-                            minRows={1}
-                            maxRows={6}
                             autoFocus={isActive}
-                            stopPropagation
-                            hideFocus
                             disabled={mode !== 'edit'}
+                            rows={1}
                         />
                         <LemonButton
                             type="primary"

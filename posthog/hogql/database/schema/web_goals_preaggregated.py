@@ -14,6 +14,10 @@ from posthog.clickhouse.preaggregation.web_goals_preaggregated_sql import DISTRI
 
 
 class WebGoalsPreaggregatedTable(Table):
+    description: str = (
+        "Pre-aggregated web analytics goal/action conversion metrics, broken down by action, computed per precompute "
+        "job and used internally by the web analytics product. Metric columns are AggregateFunction states that must be merged."
+    )
     # Mirrors `WebStatsPathsPreaggregatedTable`: deterministic replica
     # selection via `load_balancing="in_order"` (read-your-writes) and shard
     # pruning via `optimize_skip_unused_shards=1` (sharded by
@@ -24,11 +28,22 @@ class WebGoalsPreaggregatedTable(Table):
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id"),
-        "job_id": StringDatabaseField(name="job_id"),
-        "time_window_start": DateTimeDatabaseField(name="time_window_start"),
-        "action_id": IntegerDatabaseField(name="action_id"),
-        "count_state": UnknownDatabaseField(name="count_state"),
-        "unique_persons_state": UnknownDatabaseField(name="unique_persons_state"),
+        "job_id": StringDatabaseField(
+            name="job_id", description="Identifier of the precompute job that produced this row; reads filter by it."
+        ),
+        "time_window_start": DateTimeDatabaseField(
+            name="time_window_start", description="Start of the time window this aggregated row covers."
+        ),
+        "action_id": IntegerDatabaseField(
+            name="action_id", description="Action this goal row aggregates; references posthog_action.id."
+        ),
+        "count_state": UnknownDatabaseField(
+            name="count_state", description="AggregateFunction(sum) state for goal conversion count; merge to read."
+        ),
+        "unique_persons_state": UnknownDatabaseField(
+            name="unique_persons_state",
+            description="AggregateFunction(uniq) state for unique converting persons; merge to read.",
+        ),
     }
 
     def to_printed_clickhouse(self, context):

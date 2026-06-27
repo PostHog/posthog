@@ -4,7 +4,7 @@ import { LemonTag, LemonTagProps, Tooltip } from '@posthog/lemon-ui'
 
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 
-import type { MessageSentiment } from '../llmSentimentLazyLoaderLogic'
+import type { MessageSentiment } from '../sentimentResults'
 import type { SentimentLabel } from '../sentimentUtils'
 import { buildSentimentBarTooltip, buildTagTooltip, capitalize, computeExtremes, formatScore } from '../sentimentUtils'
 

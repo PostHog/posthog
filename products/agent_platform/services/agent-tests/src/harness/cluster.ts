@@ -63,6 +63,7 @@ import {
     SecretBroker,
     SecretResolver,
     TEST_S3_BUCKET,
+    type WebSearchProvider,
     wipeTestPrefix as wipeMemoryTestPrefix,
 } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
@@ -261,6 +262,13 @@ export interface BuildClusterOpts {
      * Defaults to a real `HttpClient` with no proxy (direct fetch).
      */
     http?: import('@posthog/agent-shared').HttpFetcher
+    /**
+     * Provider chain for `@posthog/web-search`. Forwarded onto the Worker
+     * so cases that declare the tool in their spec actually see it. Empty
+     * / absent (default) → the tool is gated out, matching the prod path
+     * for an unconfigured deployment.
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
 }
 
 let _pool: Pool | null = null
@@ -430,6 +438,7 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         // (see `buildQueryEchoHttp`).
         http: harnessHttp,
         posthogApiBaseUrl: 'http://localhost:8010',
+        webSearchProviders: opts.webSearchProviders,
     })
 
     // Real-flow Slack secret resolver: decrypts the agent's `encrypted_env`
@@ -532,8 +541,8 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
                 description: input.description ?? '',
             })
             const rawSpec: Record<string, unknown> = {
-                // Default model is "faux/<name>"; tests can override via spec.model.
-                model: 'faux/faux',
+                // Default model is "faux/<name>"; tests can override via spec.models.
+                models: { mode: 'manual', models: [{ model: 'faux/faux' }] },
                 triggers: [
                     { type: 'chat', config: {} },
                     // Default to "*" for tests — individual cases override

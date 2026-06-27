@@ -20,10 +20,17 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.team_services import (
     build_team_oauth_authorize_url,
     create_team_github_integration_from_oauth_code,
     link_existing_team_github_integration,
+)
+from posthog.api.github_callback.types import (
+    FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
+    is_valid_github_installation_id,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -34,7 +41,6 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
 from posthog.models import OrganizationMembership, User
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.integration import (
     ANTHROPIC_DEFAULT_INTEGRATION_ID_PREFIX,
     ANTHROPIC_MANAGED_AGENT_LIST_PAGE_LIMIT,
@@ -81,6 +87,7 @@ from posthog.permissions import (
 from posthog.rate_limit import GitHubRepositoryRefreshThrottle
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.tasks.email import send_integration_access_request
+from posthog.utils import is_relative_url
 
 from products.cdp.backend.services.integration_usage import get_enabled_hog_functions_using_integration
 from products.workflows.backend.services.integration_usage import get_active_hog_flows_using_integration
@@ -203,6 +210,25 @@ class GitHubReposResponseSerializer(serializers.Serializer):
 
 class GitHubReposRefreshResponseSerializer(serializers.Serializer):
     repositories = GitHubRepoSerializer(many=True, help_text="The refreshed repository cache.")
+
+
+class JiraProjectSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Jira project ID.")
+    key = serializers.CharField(help_text="Jira project key to pass as error tracking config.project_key.")
+    name = serializers.CharField(help_text="Jira project display name.")
+
+
+class JiraProjectsResponseSerializer(serializers.Serializer):
+    projects = JiraProjectSerializer(many=True, help_text="Jira projects available to this integration.")
+
+
+class LinearTeamSerializer(serializers.Serializer):
+    id = serializers.CharField(help_text="Linear team ID to pass as error tracking config.team_id.")
+    name = serializers.CharField(help_text="Linear team display name.")
+
+
+class LinearTeamsResponseSerializer(serializers.Serializer):
+    teams = LinearTeamSerializer(many=True, help_text="Linear teams available to this integration.")
 
 
 class GitHubTeamSerializer(serializers.Serializer):
@@ -408,6 +434,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         elif validated_data["kind"] == "github":
             config = validated_data.get("config", {})
             return create_team_github_integration_from_oauth_code(
+                request=request,
                 user=request.user,
                 team_id=team_id,
                 installation_id=config.get("installation_id"),
@@ -727,6 +754,54 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         raise ValidationError("Kind not supported")
 
 
+class GitHubPrepareCallbackRequestSerializer(serializers.Serializer):
+    next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Relative URL to redirect to after GitHub setup completes (e.g. account-connected for PostHog Code).",
+    )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="GitHub installation ID being managed; binds the seeded update state so a callback can't swap in a different installation.",
+    )
+
+
+class GitHubLinkExistingRequestSerializer(serializers.Serializer):
+    source_team_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Sibling team in the same organization whose GitHub installation should be reused.",
+    )
+    installation_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="GitHub installation ID to link; resolved within the organization when source_team_id is omitted.",
+    )
+
+
+class GitHubOAuthAuthorizeRequestSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="GitHub installation ID to carry through the User OAuth flow.",
+    )
+    next = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Relative URL to redirect to after the OAuth flow completes.",
+    )
+    connect_from = serializers.ChoiceField(
+        required=False,
+        choices=["posthog_code"],
+        help_text="Originating surface for the connect flow; only 'posthog_code' is recognized.",
+    )
+
+
+class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
+    oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -744,6 +819,8 @@ class IntegrationViewSet(
         "github_repos",
         "github_branches",
         "github_teams",
+        "jira_projects",
+        "linear_teams",
         "anthropic_managed_agents",
         "anthropic_managed_agent_environments",
         "anthropic_managed_agent_vaults",
@@ -755,6 +832,7 @@ class IntegrationViewSet(
         "patch",
         "destroy",
         "refresh_github_repos",
+        "github_prepare_callback",
         "github_link_existing",
         "github_oauth_authorize",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
@@ -872,17 +950,20 @@ class IntegrationViewSet(
             except NotImplementedError:
                 raise ValidationError("Kind not configured")
         elif kind == "github":
-            query_params = urlencode({"state": urlencode({"next": next, "token": token})})
-            app_slug = get_instance_setting("GITHUB_APP_SLUG")
-            installation_url = f"https://github.com/apps/{app_slug}/installations/new?{query_params}"
-            response = redirect(installation_url)
-            # nosemgrep: python.django.security.audit.secure-cookies.django-secure-set-cookie (OAuth state, short-lived, needed for cross-site redirect)
-            response.set_cookie("ph_github_state", token, max_age=60 * 5)
-            # Store server-side so the backend can enforce that the same user who
-            # initiated the flow is the one completing it (not just cookie-validated).
-            cache.set(f"github_state:{request.user.id}", token, timeout=60 * 5)
-
-            return response
+            if next and not is_relative_url(next):
+                raise ValidationError("next must be a relative path starting with /")
+            state_param = urlencode({"next": next, "token": token})
+            installation_url = github_app_install_url(state_param)
+            github_callback_state.store_unified_authorize_state(
+                GitHubAuthorizeState(
+                    token=token,
+                    flow=FlowKind.TEAM_INSTALL,
+                    user_id=github_callback_state.authenticated_user_id(request),
+                    team_id=self.team_id,
+                    next_url=next or None,
+                ),
+            )
+            return redirect(installation_url)
 
         raise ValidationError("Kind not supported")
 
@@ -1050,7 +1131,7 @@ class IntegrationViewSet(
         """List the Search Console properties the connected Google account has access to."""
         # Lazy import — keeps the Google data-imports SDK dependency off the api/ module
         # import path, mirroring how other ad-platform endpoints stay self-contained.
-        from posthog.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_search_console.google_search_console import (  # noqa: PLC0415 — keeps the heavy dep off the import path
             google_search_console_session,
             list_sites,
         )
@@ -1185,9 +1266,12 @@ class IntegrationViewSet(
 
         return Response({"workspaces": workspaces})
 
+    @extend_schema(responses={200: LinearTeamsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="linear_teams")
     def linear_teams(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "linear":
+            raise ValidationError("linear_teams endpoint is only supported for Linear integrations")
         _ensure_oauth_token_valid(instance)
         linear = LinearIntegration(instance)
         return Response({"teams": linear.list_teams()})
@@ -1324,6 +1408,39 @@ class IntegrationViewSet(
 
         return Response({"repositories": repositories, "has_more": has_more})
 
+    @extend_schema(request=GitHubPrepareCallbackRequestSerializer, responses={204: None})
+    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
+    def github_prepare_callback(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Seed GitHub setup callback state without redirecting to GitHub.
+
+        Used when the user opens an existing installation's settings on github.com (e.g. PostHog
+        Code "Update in GitHub") so the subsequent Setup URL redirect can be validated.
+        """
+        serializer = GitHubPrepareCallbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        next_url = str(serializer.validated_data.get("next") or "")
+        if next_url and not is_relative_url(next_url):
+            raise ValidationError("next must be a relative path starting with /")
+        installation_id = str(serializer.validated_data.get("installation_id") or "") or None
+        if installation_id is not None and not is_valid_github_installation_id(installation_id):
+            raise ValidationError("Invalid installation_id")
+        token = os.urandom(33).hex()
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.TEAM_UPDATE,
+                user_id=github_callback_state.authenticated_user_id(request),
+                team_id=self.team_id,
+                installation_id=installation_id,
+                next_url=next_url or None,
+            ),
+        )
+        return Response(status=204)
+
+    @extend_schema(
+        request=GitHubLinkExistingRequestSerializer,
+        responses={200: IntegrationSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="github/link_existing")
     def github_link_existing(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Reuse a GitHub installation already linked to a sibling team in the same organization."""
@@ -1336,13 +1453,17 @@ class IntegrationViewSet(
         )
         return Response(self.get_serializer(instance).data)
 
+    @extend_schema(
+        request=GitHubOAuthAuthorizeRequestSerializer,
+        responses={200: GitHubOAuthAuthorizeResponseSerializer},
+    )
     @action(methods=["POST"], detail=False, url_path="github/oauth_authorize")
     def github_oauth_authorize(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Mint a User OAuth URL to bootstrap a fresh `code` when the install flow returns without one."""
         oauth_url = build_team_oauth_authorize_url(
             user_id=cast(User, request.user).id,
             team_id=self.team_id,
-            installation_id=request.data.get("installation_id"),
+            installation_id=str(request.data.get("installation_id") or ""),
             next_url=str(request.data.get("next") or ""),
             connect_from=request.data.get("connect_from")
             if request.data.get("connect_from") == "posthog_code"
@@ -1448,9 +1569,12 @@ class IntegrationViewSet(
 
         return Response({"branches": branches, "default_branch": default_branch, "has_more": has_more})
 
+    @extend_schema(responses={200: JiraProjectsResponseSerializer})
     @action(methods=["GET"], detail=True, url_path="jira_projects")
     def jira_projects(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = self.get_object()
+        if instance.kind != "jira":
+            raise ValidationError("jira_projects endpoint is only supported for Jira integrations")
         _ensure_oauth_token_valid(instance)
         jira = JiraIntegration(instance)
         return Response({"projects": jira.list_projects()})
