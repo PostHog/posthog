@@ -212,6 +212,12 @@ class ClickHousePrinter(BasePrinter):
                         relevant_clickhouse_name = overload_clickhouse_name
                         break  # Found an overload matching the first function org
 
+        if node.name in ("toDate", "to_date") and len(node.args) == 2:
+            # toDate's default mapping (toDateOrNull) doesn't accept a timezone argument,
+            # but plain toDate does. Route the 2-arg toDate(value, timezone) form to toDate so
+            # the user-supplied timezone is passed through as valid ClickHouse.
+            relevant_clickhouse_name = "toDate"
+
         if func_meta.tz_aware:
             has_tz_override = len(node.args) == func_meta.max_args
 

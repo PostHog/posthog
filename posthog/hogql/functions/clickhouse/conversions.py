@@ -125,10 +125,15 @@ DATE_CONVERSION_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
         name: HogQLFunctionMeta(
             "toDateOrNull",
             1,
-            1,
+            # ClickHouse's toDate accepts an optional timezone as a second argument.
+            # The 2-arg form is routed to plain toDate in the printer, since the default
+            # toDateOrNull mapping doesn't take a timezone.
+            2,
             signatures=[
                 ((StringType(),), DateType()),
                 ((DateTimeType(),), DateType()),
+                ((StringType(), StringType()), DateType()),
+                ((DateTimeType(), StringType()), DateType()),
             ],
             overloads=[((ast.DateTimeType, ast.DateType), "toDate")],
         )

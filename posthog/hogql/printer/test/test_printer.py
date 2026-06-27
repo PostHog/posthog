@@ -2253,6 +2253,19 @@ class TestPrinter(BaseTest):
             )
         self.assertEqual(str(error_context.exception), "Unknown timezone: 'Europe/PostHogLandia'")
 
+    def test_to_date_with_timezone_argument(self):
+        # toDate accepts an optional timezone in ClickHouse. The 2-arg form must route to
+        # plain toDate (not toDateOrNull, which doesn't take a timezone) and pass the
+        # user-supplied timezone straight through, while the 1-arg form is unchanged.
+        self.assertEqual(
+            self._expr("toDate('2020-02-02')"),
+            "toDateOrNull(%(hogql_val_0)s)",
+        )
+        self.assertEqual(
+            self._expr("toDate('2020-02-02', 'Europe/London')"),
+            "toDate(%(hogql_val_0)s, %(hogql_val_1)s)",
+        )
+
     def test_to_datetime_does_not_double_parse_datetime_property(self):
         PropertyDefinition.objects.create(
             team=self.team, name="dt_prop", property_type="DateTime", type=PropertyDefinition.Type.EVENT
