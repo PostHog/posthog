@@ -18,9 +18,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     BigQueryImplementation,
     BigQueryTokenRefreshError,
     _bq_select_clause,
+    _get_primary_keys_for_table,
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
+    _is_transient_job_not_found,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
@@ -937,6 +939,85 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "404 Not found: Job my-project:US.job_abc123",
+        "Not found: Job my-project:EU.job_xyz",
+        "Job not found: job_xyz",
+    ],
+)
+def test_is_transient_job_not_found_matches_job_race(message):
+    """The post-insert `get_job` race surfaces as a `Job ... not found` 404 that clears on retry."""
+    assert _is_transient_job_not_found(NotFound(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # A genuinely missing dataset — non-retryable, must not be mistaken for the job race even
+        # though the raw message carries a trailing "Job ID:".
+        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7",
+        "404 Not found: Table prj:ds.tbl",
+    ],
+)
+def test_is_transient_job_not_found_ignores_other_not_found(message):
+    assert _is_transient_job_not_found(NotFound(message)) is False
+
+
+def _make_pk_table():
+    table = mock.MagicMock()
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+    table.schema = [SimpleNamespace(name="id")]
+    return table
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_get_primary_keys_retries_transient_job_not_found(mock_sleep):
+    """A transient `Job ... not found` from BigQuery's job-metadata race must be retried instead
+    of bubbling up to abort the whole import_data_activity_sync."""
+    table = _make_pk_table()
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    # First lookup hits the eventual-consistency race; the retry succeeds with no constraint rows.
+    job.result.side_effect = [NotFound("404 Not found: Job prj:US.job_abc123"), iter([])]
+    client.query.return_value = job
+
+    # No PK constraints + an "id" column => default to ["id"].
+    assert _get_primary_keys_for_table(table, client) == ["id"]
+    assert job.result.call_count == 2
+    mock_sleep.assert_called_once()
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_get_primary_keys_does_not_retry_genuine_not_found(mock_sleep):
+    """A genuine `NotFound` (e.g. a missing dataset) is not the job race, so it is surfaced
+    immediately rather than retried."""
+    table = _make_pk_table()
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = NotFound("404 Not found: Dataset prj:ds was not found in location US")
+    client.query.return_value = job
+
+    with pytest.raises(NotFound):
+        _get_primary_keys_for_table(table, client)
+    assert job.result.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_has_duplicate_primary_keys_retries_transient_job_not_found(mock_sleep):
+    """A transient job-not-found during the best-effort duplicate-key probe is retried, so it
+    neither flips the result nor gets captured as non-actionable error-tracking noise."""
+    result, mock_capture = _run_has_duplicate_primary_keys([NotFound("404 Not found: Job prj:US.job_abc123"), iter([])])
+
+    assert result is False
+    mock_capture.assert_not_called()
+    mock_sleep.assert_called_once()
 
 
 @pytest.mark.parametrize(

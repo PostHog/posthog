@@ -11,6 +11,7 @@ credentials.
 from __future__ import annotations
 
 import math
+import time
 import typing
 import contextlib
 import collections
@@ -28,6 +29,7 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
+from google.cloud.bigquery.table import RowIterator
 from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
@@ -448,6 +450,53 @@ def _get_partition_settings(
     return PartitionSettings(partition_count=partition_count, partition_size=partition_size)
 
 
+# BigQuery's job-metadata store is eventually consistent: `client.query()` inserts a job and
+# then reads it straight back (`get_job`, on submit or when results are awaited), and that read
+# can momentarily 404 for the job it just created. The race clears within moments, so retry a
+# few times before surfacing the error.
+_JOB_NOT_FOUND_MAX_ATTEMPTS = 4
+_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS = 0.5
+
+
+def _is_transient_job_not_found(error: NotFound) -> bool:
+    """True for BigQuery's transient `Job ... not found` lookup race.
+
+    `client.query()` inserts a job and reads its metadata back; BigQuery's eventual consistency
+    can make that read 404 for the job it just created. It clears on retry, so it must be
+    distinguished from a genuine `NotFound` (e.g. a missing dataset) that no retry can fix.
+    """
+    message = str(error)
+    return "Not found: Job" in message or "Job not found" in message
+
+
+def _query_and_result_with_job_retry(
+    client: bigquery.Client, query: str, *, job_config: QueryJobConfig, project: str
+) -> RowIterator:
+    """Submit a query and obtain its `RowIterator`, retrying the transient job-metadata race.
+
+    The 404 can come either from the `jobs.insert` in `client.query()` or from the `get_job`
+    reload that `job.result()` does while waiting for completion, so both are inside the retry.
+    Re-running the read-only query just inserts a fresh job, so this is safe to retry; row
+    fetching on the returned iterator stays lazy.
+    """
+    attempt = 0
+    while True:
+        try:
+            job = client.query(query, job_config=job_config, project=project)
+            return job.result()
+        except NotFound as e:
+            attempt += 1
+            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
+                raise
+            structlog.get_logger().warning(
+                "Retrying BigQuery query after transient job-not-found (attempt %s/%s): %s",
+                attempt,
+                _JOB_NOT_FOUND_MAX_ATTEMPTS,
+                e,
+            )
+            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
+
+
 def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) -> list[str] | None:
     """Attempt to fetch primary keys for a BigQuery table.
 
@@ -466,10 +515,10 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     """
 
     job_config = QueryJobConfig()
-    job = client.query(query, job_config=job_config, project=table.project)
+    result = _query_and_result_with_job_retry(client, query, job_config=job_config, project=table.project)
 
     primary_keys = []
-    for row in job.result():
+    for row in result:
         field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:
@@ -510,9 +559,9 @@ def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, 
         """
 
         job_config = QueryJobConfig()
-        job = client.query(query, job_config=job_config, project=table.project)
+        result = _query_and_result_with_job_retry(client, query, job_config=job_config, project=table.project)
 
-        for _ in job.result():
+        for _ in result:
             return True
     except BadRequest as e:
         if _is_bigquery_resource_exceeded(e):
