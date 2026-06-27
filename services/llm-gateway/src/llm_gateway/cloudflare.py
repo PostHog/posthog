@@ -17,6 +17,16 @@ from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 # CF has no native litellm provider; we route through its OpenAI-compatible endpoint.
 _CF_LITELLM_PREFIX = "openai/"
 
+# CF Workers AI model ids are namespaced under `@cf/` (e.g. `@cf/zai-org/glm-5.2`). The id alone is
+# what marks a request for CF routing across every gateway path — chat/completions, responses, and
+# anthropic-messages all branch on this, independent of the provider header.
+_CF_MODEL_PREFIX = "@cf/"
+
+
+def is_cloudflare_model(model: str) -> bool:
+    """Whether `model` is a Cloudflare Workers AI model id (`@cf/...`)."""
+    return model.startswith(_CF_MODEL_PREFIX)
+
 
 def cloudflare_litellm_model(model: str) -> str:
     """The litellm model id CF requests route under (its OpenAI-compatible prefix)."""

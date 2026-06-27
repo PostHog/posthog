@@ -16,6 +16,7 @@ from llm_gateway.api.handler import (
 from llm_gateway.cloudflare import (
     ensure_cloudflare_configured,
     ensure_cloudflare_model_allowed,
+    is_cloudflare_model,
     make_cloudflare_completion_call,
     make_cloudflare_responses_call,
 )
@@ -28,10 +29,6 @@ from llm_gateway.request_context import apply_posthog_context_from_headers
 openai_router = APIRouter()
 
 
-def _is_cloudflare_model(model: str) -> bool:
-    return model.startswith("@cf/")
-
-
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
@@ -39,7 +36,7 @@ async def _handle_chat_completions(
 ) -> dict[str, Any] | StreamingResponse:
     data = body.model_dump(exclude_none=True)
 
-    if _is_cloudflare_model(body.model):
+    if is_cloudflare_model(body.model):
         ensure_cloudflare_model_allowed(body.model)
         settings = get_settings()
         api_base, api_key = ensure_cloudflare_configured(settings)
@@ -76,7 +73,7 @@ async def _handle_responses(
     """
     data = body.model_dump(exclude_none=True)
 
-    if _is_cloudflare_model(body.model):
+    if is_cloudflare_model(body.model):
         # CF-served models (`@cf/...`) can't use the native OpenAI Responses path below: it would
         # prefix `openai/` and call the real OpenAI Responses API. Route through CF's endpoint via
         # litellm's Responses->chat/completions bridge instead (see make_cloudflare_responses_call).
