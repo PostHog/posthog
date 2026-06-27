@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 
+import { monotonicNow } from '../../core/time'
+
 /** When `target` changes mid-animation, animation restarts from the currently-displayed value (no snap). */
 export function useAnimatedNumber(target: number, duration = 350): number {
     const [value, setValue] = useState(target)
@@ -16,7 +18,7 @@ export function useAnimatedNumber(target: number, duration = 350): number {
         if (from === target) {
             return
         }
-        const start = performance.now()
+        const start = monotonicNow()
         let raf = 0
         const tick = (now: number): void => {
             const t = Math.min(1, (now - start) / duration)
