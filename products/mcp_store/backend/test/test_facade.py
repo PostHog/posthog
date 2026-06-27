@@ -1,5 +1,9 @@
-from posthog.test.base import BaseTest
+from collections.abc import Iterator
 
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db.utils import OperationalError
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -7,6 +11,17 @@ from parameterized import parameterized
 from products.mcp_store.backend.facade.api import get_active_installation_tools, get_active_installations
 from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo, ActiveInstallationToolInfo
 from products.mcp_store.backend.models import MCPServerInstallation, MCPServerInstallationTool, MCPServerTemplate
+
+
+class _FailingInstallationQuerySet:
+    def select_related(self, *_fields: str) -> "_FailingInstallationQuerySet":
+        return self
+
+    def prefetch_related(self, *_lookups: object) -> "_FailingInstallationQuerySet":
+        return self
+
+    def __iter__(self) -> Iterator[MCPServerInstallation]:
+        raise OperationalError("database unavailable")
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -34,6 +49,10 @@ class TestGetActiveInstallations(BaseTest):
                 proxy_path=f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/proxy/",
             )
         ]
+
+    def test_returns_empty_list_when_installation_query_evaluation_fails(self) -> None:
+        with patch.object(MCPServerInstallation.objects, "filter", return_value=_FailingInstallationQuerySet()):
+            assert get_active_installations(self.team.id, self.user.id) == []
 
     def test_skips_disabled_installations(self) -> None:
         self._create_installation(is_enabled=False)
@@ -180,6 +199,10 @@ class TestGetActiveInstallationTools(BaseTest):
                 approval_state="needs_approval",
             ),
         ]
+
+    def test_returns_empty_list_when_tool_query_evaluation_fails(self) -> None:
+        with patch.object(MCPServerInstallation.objects, "filter", return_value=_FailingInstallationQuerySet()):
+            assert get_active_installation_tools(self.team.id, self.user.id) == []
 
     def test_skips_removed_tools_and_inactive_installations(self) -> None:
         active = self._create_installation(display_name="Active")
