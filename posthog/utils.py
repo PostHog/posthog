@@ -1150,7 +1150,19 @@ def load_data_from_request(request):
             or request.headers.get("content-encoding", "")
         ).lower()
 
-        return decompress(data, compression)
+        try:
+            return decompress(data, compression)
+        except (RequestParsingError, UnspecifiedCompressionFallbackParsingError) as error:
+            # Malformed-payload parse failures (empty/non-JSON bodies from bots, ad blockers,
+            # truncated client payloads) are handled gracefully by callers, which return a clean
+            # `invalid_payload` 4xx — no user is broken. They are not actionable defects, so we keep
+            # them out of error tracking by stashing the error and re-raising it outside this context:
+            # `new_context` auto-captures any exception that propagates through it, and we don't want
+            # that here. We still count them so we know how often they happen.
+            KLUDGES_COUNTER.labels(kludge="request_parsing_error").inc()
+            parsing_error = error
+
+    raise parsing_error
 
 
 class SingletonDecorator:

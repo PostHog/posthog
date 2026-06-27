@@ -681,6 +681,39 @@ class TestLoadDataFromRequest(TestCase):
         data = load_data_from_request(post_request)
         self.assertEqual({"what is it": "the decompressed value"}, data)
 
+    @parameterized.expand(
+        [
+            # (url, body, expected_exception) — both malformed-payload branches must stay out of capture
+            ("/s/", "undefined", UnspecifiedCompressionFallbackParsingError),
+            ("/s/?compression=gzip-js", "undefined", RequestParsingError),
+        ]
+    )
+    def test_malformed_payload_parse_errors_do_not_propagate_through_capture_context(
+        self, url, body, expected_exception
+    ):
+        # `new_context` auto-captures any exception that propagates through it. These malformed-payload
+        # parse failures are not actionable defects, so they must be raised *outside* that context.
+        # We assert the exception never reaches the context's __exit__ (where capture happens).
+        captured_through_context = []
+
+        class _RecordingContext:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                if exc_val is not None:
+                    captured_through_context.append(exc_val)
+                return False
+
+        rf = RequestFactory()
+        post_request = rf.post(url, body, "text/plain")
+
+        with patch("posthoganalytics.new_context", return_value=_RecordingContext()):
+            with self.assertRaises(expected_exception):
+                load_data_from_request(post_request)
+
+        self.assertEqual(captured_through_context, [])
+
 
 class TestShouldRefresh(TestCase):
     def test_refresh_requested_by_client_with_refresh_true(self):
