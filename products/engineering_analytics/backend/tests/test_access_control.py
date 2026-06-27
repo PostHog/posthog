@@ -15,9 +15,12 @@ the bug under test, independent of object-storage availability for the real ware
 from types import SimpleNamespace
 
 import pytest
+from posthog.test.base import BaseTest
 from unittest import mock
 
 from rest_framework import status
+
+from posthog.hogql.database.database import Database
 
 from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
@@ -96,3 +99,37 @@ class TestEngineeringAnalyticsAccessControl(WarehouseAccessControlTestMixin):
 
         assert response.status_code == status.HTTP_200_OK
         assert str(self.source_b.id) in {source["id"] for source in response.json()}
+
+
+@mock.patch("posthoganalytics.feature_enabled", new=mock.Mock(return_value=True))
+class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
+    """Regression guard for the userless warehouse read path (HogQL warehouse access control, #61686).
+
+    The curated queries run through ``CuratedGitHubSource.run`` ->
+    ``execute_hogql_query(team=..., query_type=...)`` with no request user and no
+    ``bypass_warehouse_access_control``. With the ``hogql-warehouse-access-control`` flag on, a
+    userless ``Database`` fails closed: every warehouse table is stripped from the schema, so the
+    curated GitHub tables become unqueryable and every read endpoint raises
+    ``You don't have access to table`` -> 500.
+
+    The rest of this product's suite missed this because it stubs ``CuratedGitHubSource.run`` and
+    never enables the flag, so the real userless build is never exercised. This builds the database
+    exactly as the product does -- team-scoped, no user -- with the flag on and asserts the resolved
+    GitHub warehouse tables stay in the schema. Deterministic: the deny decision happens at
+    schema-build time, before any object-storage read, so no warehouse data is needed.
+    """
+
+    @pytest.mark.xfail(
+        strict=True,
+        reason="Curated reads run userless without bypass_warehouse_access_control, so the flag-on "
+        "build strips the GitHub tables. Remove this marker once engineering_analytics passes a "
+        "principal (request user or bypass_warehouse_access_control) into execute_hogql_query.",
+    )
+    def test_userless_curated_build_keeps_github_warehouse_tables(self) -> None:
+        tables = connect_github_source_without_data(self.team)
+
+        # Mirrors execute_hogql_query(team=..., query_type=...): team-scoped, no user, no bypass.
+        database = Database.create_for(team=self.team, user=None)
+
+        assert database.has_table(tables.pull_requests)
+        assert database.has_table(tables.workflow_runs)
