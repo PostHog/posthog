@@ -272,6 +272,9 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         kwargs = mock_impl.call_args.kwargs
         assert kwargs["repository"] == "acme/repo"
         assert {r["github_login"] for r in kwargs["reviewers_content"]} == {"alice", "bob"}
+        # The edit must auto-start as the *editing* user (the API caller), never a named reviewer,
+        # so one user can't run the agent under another's identity (reviewer impersonation).
+        assert kwargs["triggering_user_id"] == self.user.id
 
     def test_put_empty_list_clears_content(self):
         report = self._create_report()
