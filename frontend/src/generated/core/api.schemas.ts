@@ -1762,6 +1762,10 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2610,6 +2614,10 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months?: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced?: boolean
 }
 
 export interface SharePasswordApi {

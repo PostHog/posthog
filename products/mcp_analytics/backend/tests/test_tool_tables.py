@@ -5,10 +5,20 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MCPToolFailuresQuery, MCPToolTopUsersQuery
+from posthog.schema import (
+    DateRange,
+    MCPToolDailyStatsQuery,
+    MCPToolDescriptionsQuery,
+    MCPToolFailuresQuery,
+    MCPToolStatsQuery,
+    MCPToolTopUsersQuery,
+)
 
 from products.mcp_analytics.backend.hogql_queries.tool_tables import (
+    MCPToolDailyStatsQueryRunner,
+    MCPToolDescriptionsQueryRunner,
     MCPToolFailuresQueryRunner,
+    MCPToolStatsQueryRunner,
     MCPToolTopUsersQueryRunner,
 )
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
@@ -185,3 +195,130 @@ class TestMCPToolFailuresQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         rows = self._run()
 
         assert {r.message for r in rows} == {"recent"}
+
+
+def _emit_tool_call(
+    team: Any,
+    *,
+    tool_name: str = "query_run",
+    distinct_id: str = "d1",
+    source: str | None = NEW_SDK_SOURCE,
+    is_error: bool = False,
+    duration_ms: float | None = None,
+    intent: str | None = None,
+    description: str | None = None,
+    session_id: str | None = None,
+    exec_tool: str | None = None,
+    timestamp: datetime | None = None,
+) -> None:
+    properties: dict[str, Any] = {"$mcp_tool_name": tool_name, "$mcp_is_error": is_error}
+    if source is not None:
+        properties["$mcp_source"] = source
+    if duration_ms is not None:
+        properties["$mcp_duration_ms"] = duration_ms
+    if intent is not None:
+        properties["$mcp_intent"] = intent
+    if description is not None:
+        properties["$mcp_tool_description"] = description
+    if session_id is not None:
+        properties["$mcp_session_id"] = session_id
+    if exec_tool is not None:
+        properties["$mcp_exec_tool_call_name"] = exec_tool
+    _create_event(
+        team=team,
+        event="$mcp_tool_call",
+        distinct_id=distinct_id,
+        timestamp=timestamp or datetime.now(tz=UTC),
+        properties=properties,
+    )
+
+
+class TestMCPToolStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _run(self, tool_name: str = "query_run") -> list[Any]:
+        runner = MCPToolStatsQueryRunner(
+            query=MCPToolStatsQuery(toolName=tool_name, dateRange=DateRange(date_from="-7d")),
+            team=self.team,
+        )
+        return runner.calculate().results
+
+    def test_empty_when_no_calls(self) -> None:
+        assert self._run() == []
+
+    def test_aggregates_scalars_and_intent_coverage(self) -> None:
+        _emit_tool_call(self.team, distinct_id="d1", duration_ms=100, intent='{"goal":"x"}', session_id="s1")
+        _emit_tool_call(self.team, distinct_id="d1", duration_ms=300, is_error=True, session_id="s1")
+        _emit_tool_call(self.team, distinct_id="d2", duration_ms=200, intent="{}", session_id="s2")
+        # Off-tool event must not leak into the aggregation (shared tool filter wiring).
+        _emit_tool_call(self.team, distinct_id="d3", tool_name="other", duration_ms=999)
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.calls == 3
+        assert row.errors == 1
+        assert row.users == 2
+        assert row.conversations == 2
+        # Only the '{"goal":"x"}' call counts; '{}' and missing do not.
+        assert row.with_intent == 1
+        assert row.p50_ms is not None and row.p95_ms is not None
+
+    def test_excludes_events_without_new_sdk_source(self) -> None:
+        _emit_tool_call(self.team, source=None, duration_ms=100)
+        flush_persons_and_events()
+
+        assert self._run() == []
+
+
+class TestMCPToolDailyStatsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _run(self, tool_name: str = "query_run") -> list[Any]:
+        runner = MCPToolDailyStatsQueryRunner(
+            query=MCPToolDailyStatsQuery(toolName=tool_name, dateRange=DateRange(date_from="-30d")),
+            team=self.team,
+        )
+        return runner.calculate().results
+
+    def test_groups_by_day_in_order(self) -> None:
+        now = datetime.now(tz=UTC)
+        _emit_tool_call(self.team, distinct_id="d1", session_id="s1", timestamp=now - timedelta(days=2))
+        _emit_tool_call(self.team, distinct_id="d2", session_id="s2", timestamp=now)
+        _emit_tool_call(self.team, distinct_id="d3", session_id="s3", timestamp=now)
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert len(rows) == 2
+        assert rows[0].day < rows[1].day
+        assert rows[0].calls == 1
+        assert rows[1].calls == 2
+        assert rows[1].sessions == 2
+
+
+class TestMCPToolDescriptionsQueryRunner(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    def _run(self, tool_name: str = "query_run") -> list[Any]:
+        runner = MCPToolDescriptionsQueryRunner(
+            query=MCPToolDescriptionsQuery(toolName=tool_name, dateRange=DateRange(date_from="-30d")),
+            team=self.team,
+        )
+        return runner.calculate().results
+
+    def test_distinct_descriptions_most_recent_first(self) -> None:
+        now = datetime.now(tz=UTC)
+        _emit_tool_call(self.team, description="old desc", timestamp=now - timedelta(days=3))
+        _emit_tool_call(self.team, description="old desc", timestamp=now - timedelta(days=2))
+        _emit_tool_call(self.team, description="new desc", timestamp=now)
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert [r.description for r in rows] == ["new desc", "old desc"]
+
+    def test_excludes_empty_descriptions(self) -> None:
+        _emit_tool_call(self.team, description="")
+        _emit_tool_call(self.team, description="real")
+        flush_persons_and_events()
+
+        rows = self._run()
+
+        assert [r.description for r in rows] == ["real"]
