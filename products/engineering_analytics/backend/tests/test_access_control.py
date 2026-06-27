@@ -28,6 +28,7 @@ from rest_framework import status
 from posthog.hogql.database.database import Database
 
 from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
     WORKFLOW_JOBS_SCHEMA,
@@ -130,22 +131,25 @@ class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
     ``You don't have access to table`` -> 500.
 
     The rest of this product's suite missed this because it stubs ``CuratedGitHubSource.run`` and
-    never enables the flag, so the real userless build is never exercised. This builds the database
-    exactly as the product does -- team-scoped, no user -- with the flag on and asserts all three
-    resolved GitHub warehouse tables (pull_requests, workflow_runs, and the optional workflow_jobs)
-    stay in the schema. Covering workflow_jobs too means a fix that bypasses only the PR/runs query
-    paths and forgets the jobs path can't pass once the xfail marker is removed. Deterministic: the
-    deny decision happens at schema-build time, before any object-storage read, so no warehouse data
-    is needed.
+    never enables the flag, so the real userless build is never exercised. This drives the real
+    ``CuratedGitHubSource.run``, captures whatever principal it hands to ``execute_hogql_query``, and
+    rebuilds the schema with exactly that principal -- so the assertion follows the actual curated
+    call site rather than a hand-built database. Today ``run`` passes no principal, so the flag-on
+    build fails closed and strips the tables; the moment the fix makes ``run`` pass a request user or
+    ``bypass_warehouse_access_control``, the captured principal keeps the tables and the test turns
+    green (remove the xfail then). All three resolved GitHub tables (pull_requests, workflow_runs,
+    and the optional workflow_jobs) are asserted, so a fix that covers only the PR/runs paths and
+    forgets jobs still fails. Deterministic: ``execute_hogql_query`` is mocked and the schema build
+    reads ORM rows only, so no object storage or warehouse data is needed.
     """
 
     @pytest.mark.xfail(
         strict=True,
-        reason="Curated reads run userless without bypass_warehouse_access_control, so the flag-on "
-        "build strips the GitHub tables. Remove this marker once engineering_analytics passes a "
-        "principal (request user or bypass_warehouse_access_control) into execute_hogql_query.",
+        reason="CuratedGitHubSource.run calls execute_hogql_query with no principal, so the flag-on "
+        "build strips the GitHub tables. Remove this marker once run passes a principal (request "
+        "user or bypass_warehouse_access_control) into execute_hogql_query.",
     )
-    def test_userless_curated_build_keeps_github_warehouse_tables(self) -> None:
+    def test_curated_run_keeps_github_warehouse_tables_queryable(self) -> None:
         # All three GitHub endpoints synced, including the optional workflow_jobs the bare helper omits.
         source = create_github_source(self.team)
         for schema in (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA):
@@ -154,8 +158,27 @@ class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
         tables = resolve_github_tables(team=self.team)
         assert tables.workflow_jobs is not None  # jobs really resolved, so the assertion below bites
 
-        # Mirrors execute_hogql_query(team=..., query_type=...): team-scoped, no user, no bypass.
-        database = Database.create_for(team=self.team, user=None)
+        # Capture the principal the real curated runner hands to HogQL, rather than hard-coding
+        # user=None here -- so when the fix makes run() pass a principal, this test follows it.
+        captured: dict = {}
+
+        def _capture(*args, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(results=[])
+
+        with mock.patch(
+            "products.engineering_analytics.backend.logic.queries._curated.execute_hogql_query",
+            side_effect=_capture,
+        ):
+            CuratedGitHubSource.for_team(self.team).run("SELECT 1", query_type="engineering_analytics.test")
+
+        # Rebuild the schema with whatever principal run() supplied. Today it supplies none -> userless
+        # -> flag-on build fails closed -> the GitHub tables are stripped.
+        database = Database.create_for(
+            team=self.team,
+            user=captured.get("user"),
+            bypass_warehouse_access_control=captured.get("bypass_warehouse_access_control", False),
+        )
 
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
