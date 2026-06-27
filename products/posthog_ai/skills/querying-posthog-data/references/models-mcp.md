@@ -4,19 +4,19 @@ Any MCP server instrumented with the `@posthog/mcp` SDK — and PostHog's own MC
 
 Query the canonical `$`-prefixed event name. Servers instrumented with the `@posthog/mcp` SDK emit only `$mcp_tool_call` / `$mcp_initialize`; PostHog's own hosted server additionally dual-emits legacy un-prefixed `mcp_tool_call` / `mcp_initialize` aliases through a transition shim. Match the canonical name only — an `event IN ('mcp_tool_call', '$mcp_tool_call')` would double-count PostHog's own server.
 
-**For a single tool, prefer the typed tools.** Each of these takes a `toolName` (the effective name — resolved server-side) plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below:
+**For a single tool, prefer the typed tools.** Each takes a `toolName` plus a `dateRange`, runs the same query runner the tool-detail UI uses, and is gated behind the `mcp-analytics` flag, so results match the UI exactly and you don't re-derive the SQL below. For all of them **except `posthog:query-mcp-tool-failures`**, `toolName` is the effective name (resolved server-side — the inner tool of a single-exec wrapper call). `posthog:query-mcp-tool-failures` is the exception: it matches `$exception` events, which don't carry the new-SDK effective-tool markers, so it takes the **raw** `$mcp_tool_name` (the registered tool name):
 
-| question about one tool                                             | tool                            |
-| ------------------------------------------------------------------- | ------------------------------- |
-| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `query-mcp-tool-stats`          |
-| day-by-day trend                                                    | `query-mcp-tool-daily-stats`    |
-| top error messages, by harness                                      | `query-mcp-tool-failures`       |
-| top callers (incl. person email/name)                               | `query-mcp-tool-top-users`      |
-| tools called before/after it (`neighborDirection: before`/`after`)  | `query-mcp-tool-neighbors`      |
-| recent agent intents                                                | `query-mcp-tool-sample-intents` |
-| distinct descriptions seen                                          | `query-mcp-tool-descriptions`   |
+| question about one tool                                             | tool                                                     |
+| ------------------------------------------------------------------- | -------------------------------------------------------- |
+| headline numbers (calls, errors, p50/p95, users, sessions, intents) | `posthog:query-mcp-tool-stats`                           |
+| day-by-day trend                                                    | `posthog:query-mcp-tool-daily-stats`                     |
+| top error messages, by harness                                      | `posthog:query-mcp-tool-failures` (raw `$mcp_tool_name`) |
+| top callers (incl. person email/name)                               | `posthog:query-mcp-tool-top-users`                       |
+| tools called before/after it (`neighborDirection: before`/`after`)  | `posthog:query-mcp-tool-neighbors`                       |
+| recent agent intents                                                | `posthog:query-mcp-tool-sample-intents`                  |
+| distinct descriptions seen                                          | `posthog:query-mcp-tool-descriptions`                    |
 
-And `query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
+And `posthog:query-mcp-harness-breakdown` for the cross-tool harness cut (see below).
 
 **HogQL is the path for everything else** — cross-tool rankings (the tool-quality matrix), custom breakdowns, session listing, per-session tool calls — query them with `execute-sql`. Two more typed tools cover what SQL can't express: `posthog:mcp-analytics-intent-clusters-retrieve` / `...-recompute` (embedding-based intent clustering) and `posthog:mcp-analytics-sessions-generate-intent` (LLM session summary).
 
@@ -47,7 +47,7 @@ coalesce(nullIf(toString(properties.$mcp_exec_tool_call_name), ''), toString(pro
 
 The SQL below is the fallback for cross-tool rankings and custom cuts. For a single tool's numbers, call the typed tool from the table above instead of re-deriving these.
 
-**Error rate of one tool** (single-tool headline numbers are `query-mcp-tool-stats`; use this for a custom predicate):
+**Error rate of one tool** (single-tool headline numbers are `posthog:query-mcp-tool-stats`; use this for a custom predicate):
 
 ```sql
 SELECT
@@ -61,7 +61,7 @@ WHERE event = '$mcp_tool_call'
     AND timestamp >= now() - INTERVAL 7 DAY
 ```
 
-**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool) — this cross-tool ranking has no typed tool; once you've picked a tool, drill into it with `query-mcp-tool-stats` / `-failures` / `-daily-stats`:
+**Tool-quality matrix** (error rate + latency percentiles + reach, one row per tool) — this cross-tool ranking has no typed tool; once you've picked a tool, drill into it with `posthog:query-mcp-tool-stats` / `-failures` / `-daily-stats`:
 
 ```sql
 SELECT
@@ -82,7 +82,7 @@ GROUP BY tool
 ORDER BY total_calls DESC
 ```
 
-**Daily activity** (success/error split for a time series) — for one tool's daily series prefer `query-mcp-tool-daily-stats`; this all-tools version is the custom cut:
+**Daily activity** (success/error split for a time series) — for one tool's daily series prefer `posthog:query-mcp-tool-daily-stats`; this all-tools version is the custom cut:
 
 ```sql
 SELECT toDate(timestamp) AS day,
@@ -97,7 +97,7 @@ GROUP BY day ORDER BY day
 
 A "harness" is the friendly product label for the MCP client that made a call — "Claude Agent SDK", "OpenAI Codex", "Cursor", … It is resolved **server-side** by `MCPHarnessBreakdownQueryRunner`, the single source of truth (`products/mcp_analytics/backend/mcp_harness.py`).
 
-**Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `query-mcp-harness-breakdown` tool (gated behind the `mcp-analytics` flag). It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. (The session/feedback REST tools — `mcp-analytics-sessions-list` etc. — are disabled, so anything the typed tool doesn't express drops to `execute-sql` below.)
+**Prefer the typed tool.** For "which harnesses use our MCP, and how reliably?", call the `posthog:query-mcp-harness-breakdown` tool (gated behind the `mcp-analytics` flag). It returns calls / errors / error-rate / sessions per harness and accepts the same `dateRange` / `properties` / `filterTestAccounts` filters as the dashboard, so results match the UI exactly — no hand-written bucketing needed. (The session/feedback REST tools — `mcp-analytics-sessions-list` etc. — are disabled, so anything the typed tool doesn't express drops to `execute-sql` below.)
 
 **Use `execute-sql` for custom cuts** the typed tool doesn't cover (share-of-users, latency percentiles, per-tool, a trends breakdown). Resolution is two steps: resolve a normalized token from the strongest signal available, then bucket it. An event carries only raw signals — the `x-anthropic-client` header (`mcp_vendor_client`) is the only thing separating Anthropic's pooled surfaces (Cowork / Claude.ai / Claude Design); Claude Code's build (cli / sdk / vscode / desktop) rides in the User-Agent; the posthog-node MCP analytics SDK reports its `clientInfo.name` as `$mcp_client_name`, and the hosted server's session-pinned `mcp_session_client_name` covers everyone else; `$mcp_client_user_agent` and `$mcp_oauth_client_name` are last fallbacks. The SQL below mirrors `harness_label_sql` / `HARNESS_TOKEN_SQL` in `mcp_harness.py`; keep them in step until a materialized `$mcp_harness` property exists. (HogQL has no `WITH <expr> AS alias`, so the normalized name `h` is computed in a subquery, not a CTE.)
 
@@ -182,7 +182,7 @@ ORDER BY users DESC
 
 The `multiIf` above is the canonical bucket list. The denominator is total distinct users, so per-harness shares can sum past 100% (one user may use several harnesses). Swap the outer aggregate for other harness cuts — `count()` for call volume, `quantile(0.95)(toFloat(properties.$mcp_duration_ms))` for latency. For `query-trends`, pass the inner `multiIf(...)` over the normalized client name as a **HogQL breakdown** to get the same buckets in a trends series.
 
-**Tool co-occurrence** (which tool tends to run right before a given tool, within a session) — prefer `query-mcp-tool-neighbors` (`neighborDirection: before`/`after`); this SQL is the recipe behind it, for custom window logic:
+**Tool co-occurrence** (which tool tends to run right before a given tool, within a session) — prefer `posthog:query-mcp-tool-neighbors` (`neighborDirection: before`/`after`); this SQL is the recipe behind it, for custom window logic:
 
 ```sql
 SELECT prev_tool AS tool, count() AS co_occurrences
