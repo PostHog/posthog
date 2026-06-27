@@ -14,6 +14,7 @@ import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
@@ -162,6 +163,31 @@ function InboxScratchpadView(): JSX.Element {
     )
 }
 
+/**
+ * Cross-fleet findings detail surface: the findings browse/search panel under a back link, rendered
+ * full-width over the list like the scratchpad. Reached from the scout-findings callout.
+ */
+function InboxFindingsView(): JSX.Element {
+    const { setFindingsOpen } = useActions(inboxSceneLogic)
+
+    return (
+        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+            <div className="px-4 pt-3">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={() => setFindingsOpen(false)}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            </div>
+            <FindingsPanel />
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
     const {
         isRunningSessionAnalysis,
@@ -170,6 +196,7 @@ export function InboxScene(): JSX.Element {
         selectedReportLoading,
         selectedScoutSkillName,
         isScratchpadOpen,
+        isFindingsOpen,
     } = useValues(inboxSceneLogic)
     const { runSessionAnalysis } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
@@ -179,7 +206,7 @@ export function InboxScene(): JSX.Element {
     // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
     // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
     // instead of remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen || isFindingsOpen
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
@@ -220,7 +247,9 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {isScratchpadOpen ? (
+                    {isFindingsOpen ? (
+                        <InboxFindingsView />
+                    ) : isScratchpadOpen ? (
                         <InboxScratchpadView />
                     ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
