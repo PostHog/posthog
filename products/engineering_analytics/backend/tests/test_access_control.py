@@ -1,15 +1,20 @@
-"""Per-user warehouse RBAC on the engineering_analytics read endpoints.
+"""Warehouse RBAC on the engineering_analytics read endpoints, at two layers.
 
-The curated queries run via execute_hogql_query(team=...) with no request user, and HogQL does
-not enforce per-user ACL on DataWarehouseTables. So the GitHub-source resolver is the only place
-that can honor a user's per-source warehouse access. These tests assert a non-admin user denied a
-specific GitHub source cannot read its PR/CI data through the endpoint -- neither by naming it via
-source_id nor by it being the default-oldest source -- while an allowed user still can.
+The curated queries run via execute_hogql_query(team=...) with no request user. Two independent
+access-control layers apply, and each test class below pins one of them:
 
-The curated HogQL run is stubbed to empty results so the test isolates the resolver's
-access-control decision: a resolved source yields 200, a blocked source raises
-GitHubSourceNotConnectedError -> 400. Whether the resolver lets a denied source through is exactly
-the bug under test, independent of object-storage availability for the real warehouse read.
+- The GitHub-source resolver honors the request user's per-source warehouse access, filtering out
+  sources the user can't reach before any query runs. TestEngineeringAnalyticsAccessControl asserts
+  a non-admin denied a specific source cannot read its PR/CI data -- neither by naming it via
+  source_id nor by it being the default-oldest source -- while an allowed user still can. The
+  curated HogQL run is stubbed to empty results so a resolved source yields 200 and a blocked source
+  raises GitHubSourceNotConnectedError -> 400, isolating the resolver decision from object-storage
+  availability.
+
+- HogQL itself enforces per-object warehouse ACL once hogql-warehouse-access-control is on (#61686),
+  and a userless schema build fails closed -- every warehouse table is stripped. Since the curated
+  reads run with no user, that fail-closed path silently breaks the product unless a principal is
+  passed. TestEngineeringAnalyticsWarehouseAclRegression guards that layer.
 """
 
 from types import SimpleNamespace
@@ -23,7 +28,19 @@ from rest_framework import status
 from posthog.hogql.database.database import Database
 
 from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
-from products.engineering_analytics.backend.tests.test_views import connect_github_source_without_data
+from products.engineering_analytics.backend.logic.sources import (
+    PULL_REQUESTS_SCHEMA,
+    WORKFLOW_JOBS_SCHEMA,
+    WORKFLOW_RUNS_SCHEMA,
+    resolve_github_tables,
+)
+from products.engineering_analytics.backend.tests.test_views import (
+    GITHUB_SOURCE_PREFIX,
+    connect_github_source_without_data,
+    create_github_source,
+    create_warehouse_table_row,
+    link_schema,
+)
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 # Every curated query runs HogQL through this method; stub it to empty so a resolved source
@@ -114,9 +131,12 @@ class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
 
     The rest of this product's suite missed this because it stubs ``CuratedGitHubSource.run`` and
     never enables the flag, so the real userless build is never exercised. This builds the database
-    exactly as the product does -- team-scoped, no user -- with the flag on and asserts the resolved
-    GitHub warehouse tables stay in the schema. Deterministic: the deny decision happens at
-    schema-build time, before any object-storage read, so no warehouse data is needed.
+    exactly as the product does -- team-scoped, no user -- with the flag on and asserts all three
+    resolved GitHub warehouse tables (pull_requests, workflow_runs, and the optional workflow_jobs)
+    stay in the schema. Covering workflow_jobs too means a fix that bypasses only the PR/runs query
+    paths and forgets the jobs path can't pass once the xfail marker is removed. Deterministic: the
+    deny decision happens at schema-build time, before any object-storage read, so no warehouse data
+    is needed.
     """
 
     @pytest.mark.xfail(
@@ -126,10 +146,17 @@ class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
         "principal (request user or bypass_warehouse_access_control) into execute_hogql_query.",
     )
     def test_userless_curated_build_keeps_github_warehouse_tables(self) -> None:
-        tables = connect_github_source_without_data(self.team)
+        # All three GitHub endpoints synced, including the optional workflow_jobs the bare helper omits.
+        source = create_github_source(self.team)
+        for schema in (PULL_REQUESTS_SCHEMA, WORKFLOW_RUNS_SCHEMA, WORKFLOW_JOBS_SCHEMA):
+            table = create_warehouse_table_row(self.team, name=f"{GITHUB_SOURCE_PREFIX}github_{schema}", source=source)
+            link_schema(self.team, source, name=schema, table=table)
+        tables = resolve_github_tables(team=self.team)
+        assert tables.workflow_jobs is not None  # jobs really resolved, so the assertion below bites
 
         # Mirrors execute_hogql_query(team=..., query_type=...): team-scoped, no user, no bypass.
         database = Database.create_for(team=self.team, user=None)
 
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
+        assert database.has_table(tables.workflow_jobs)
