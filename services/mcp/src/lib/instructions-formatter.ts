@@ -113,7 +113,7 @@ export class InstructionsFormatter {
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext
-            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools }
+            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools, featureFlags: ctx.featureFlags }
             : ctx
         return this.compose(sections, renderCtx, { compact: false })
     }
