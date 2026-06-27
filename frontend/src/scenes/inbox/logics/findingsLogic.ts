@@ -254,11 +254,14 @@ export const findingsLogic = kea<findingsLogicType>([
             },
         ],
         // "Loaded once" so the page tells "not loaded yet" from "loaded, genuinely empty" without
-        // flickering a skeleton on the 60s poll.
+        // flickering a skeleton on the 60s poll. When the window loaded but no run emitted anything
+        // there's nothing to fetch, so we're done immediately — otherwise the no-op `loadEmissions([])`
+        // would flash skeletons for a tick before the empty state. The `!emissionsLoading` guard then
+        // only governs the has-emissions case (suppressing poll flicker once findings are in hand).
         hasLoadedOnce: [
-            (s) => [s.runsWindowLoadedOnce, s.emissionsLoading, s.emissions],
-            (runsWindowLoadedOnce, emissionsLoading, emissions): boolean =>
-                runsWindowLoadedOnce && (!emissionsLoading || emissions.length > 0),
+            (s) => [s.runsWindowLoadedOnce, s.emittedRuns, s.emissionsLoading, s.emissions],
+            (runsWindowLoadedOnce, emittedRuns: SignalScoutRunSummary[], emissionsLoading, emissions): boolean =>
+                runsWindowLoadedOnce && (emittedRuns.length === 0 || !emissionsLoading || emissions.length > 0),
         ],
     }),
 
