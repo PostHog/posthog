@@ -19,7 +19,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import QueryError, SyntaxError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
@@ -89,6 +89,18 @@ class TestProperty(BaseTest):
             self._property_to_expr(HogQLPropertyFilter(type="hogql", key="1")),
             ast.Constant(value=1),
         )
+
+    def test_property_to_expr_hogql_invalid_expression(self):
+        # A full SELECT statement pasted into a hogql filter doesn't parse as an expression.
+        invalid_key = "SELECT user_id, session_id, COUNT(*) FROM events GROUP BY user_id, session_id HAVING COUNT(*) > 1;"
+        # Non-strict (query execution) degrades gracefully instead of crashing the whole query.
+        self.assertEqual(
+            self._property_to_expr({"type": "hogql", "key": invalid_key}, strict=False),
+            ast.Constant(value=1),
+        )
+        # Strict (editing/validation) still surfaces the parse error.
+        with self.assertRaises(SyntaxError):
+            self._property_to_expr({"type": "hogql", "key": invalid_key}, strict=True)
 
     def test_property_to_expr_group(self):
         self.assertEqual(

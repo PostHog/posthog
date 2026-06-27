@@ -42,7 +42,7 @@ from posthog.hogql import ast
 from posthog.hogql.base import AST
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
-from posthog.hogql.errors import NotImplementedError, QueryError
+from posthog.hogql.errors import ExposedHogQLError, NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import CacheOrigin, parse_expr
 from posthog.hogql.utils import map_virtual_properties
@@ -813,7 +813,14 @@ def property_to_expr(
         return ast.Constant(value=1)
     elif property.type == "hogql":
         tag_contains_user_hogql()
-        return parse_expr(property.key, cache_origin=CacheOrigin.USER)
+        try:
+            return parse_expr(property.key, cache_origin=CacheOrigin.USER)
+        except ExposedHogQLError:
+            if strict:
+                raise
+            # The HogQL expression doesn't parse (e.g. a full SELECT pasted into a filter).
+            # Instead of crashing the entire query, pretend the filter isn't there.
+            return ast.Constant(value=1)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:
         group_type_index = property.key.split("_")[1]
         operator = cast(Optional[PropertyOperator], property.operator) or PropertyOperator.EXACT
