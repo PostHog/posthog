@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 import posthog from 'posthog-js'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonMenu, LemonTable, LemonTableColumns, LemonTag, type LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -10,6 +11,47 @@ import { urls } from 'scenes/urls'
 
 import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from './sdkConstants'
 import { AugmentedTeamSdkVersionsInfoRelease, type SdkType, sdkHealthLogic } from './sdkHealthLogic'
+
+// The status badge is informational, not an action — it surfaces the version's age and upgrade
+// suggestion. The tip shows on hover, but hover doesn't exist on touch and people tap the badge
+// expecting a response, so a tap/click pins the same tip open (outside-click or Escape closes it).
+function SdkStatusBadge({ type, label, reason }: { type: LemonTagType; label: string; reason: string }): JSX.Element {
+    const [pinned, setPinned] = useState(false)
+    const containerRef = useRef<HTMLSpanElement>(null)
+
+    useEffect(() => {
+        if (!pinned) {
+            return
+        }
+        const onPointerDown = (event: MouseEvent): void => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setPinned(false)
+            }
+        }
+        const onKeyDown = (event: KeyboardEvent): void => {
+            if (event.key === 'Escape') {
+                setPinned(false)
+            }
+        }
+        document.addEventListener('mousedown', onPointerDown)
+        document.addEventListener('keydown', onKeyDown)
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown)
+            document.removeEventListener('keydown', onKeyDown)
+        }
+    }, [pinned])
+
+    return (
+        <span ref={containerRef} className="shrink-0">
+            {/* `pinned || undefined` keeps native hover/focus when not pinned, and forces open on tap. */}
+            <Tooltip placement="right" title={reason} visible={pinned || undefined}>
+                <LemonTag type={type} className="cursor-help" onClick={() => setPinned((prev) => !prev)}>
+                    {label}
+                </LemonTag>
+            </Tooltip>
+        </span>
+    )
+}
 
 // The version drill-in SQL and Activity page URL are computed by the backend (sql_query /
 // activity_page_url on each release) so the UI and the SDK Health MCP tool stay in lockstep.
@@ -66,23 +108,11 @@ const COLUMNS: LemonTableColumns<AugmentedTeamSdkVersionsInfoRelease> = [
                         </code>
                     </LemonMenu>
                     {record.isOutdated ? (
-                        <Tooltip placement="right" title={record.statusReason}>
-                            <LemonTag type="danger" className="shrink-0 cursor-help">
-                                Outdated
-                            </LemonTag>
-                        </Tooltip>
+                        <SdkStatusBadge type="danger" label="Outdated" reason={record.statusReason} />
                     ) : record.isCurrentOrNewer ? (
-                        <Tooltip placement="right" title={record.statusReason}>
-                            <LemonTag type="success" className="shrink-0 cursor-help">
-                                Current
-                            </LemonTag>
-                        </Tooltip>
+                        <SdkStatusBadge type="success" label="Current" reason={record.statusReason} />
                     ) : (
-                        <Tooltip placement="right" title={record.statusReason}>
-                            <LemonTag type="warning" className="shrink-0 cursor-help">
-                                Recent
-                            </LemonTag>
-                        </Tooltip>
+                        <SdkStatusBadge type="warning" label="Recent" reason={record.statusReason} />
                     )}
                 </div>
             )
