@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -12,15 +12,10 @@ import {
     SignalScoutEmissionReportLink,
     SignalScoutRunSummary,
 } from '../types'
-import { prettifyScoutSkillName } from '../utils/scoutRunsWindow'
+import { mostRecentEmittedRuns, prettifyScoutSkillName } from '../utils/scoutRunsWindow'
 import type { findingsLogicType } from './findingsLogicType'
 import { ScoutEmissionRow } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
-
-// Fleet-wide the fan-out is larger than a single scout's page, so bound the fetched window harder:
-// the most recent emitted runs across the whole troop. Older findings live on in the inbox reports
-// they produced. Sized to keep the concurrent emission fetches (and rendered cards) reasonable.
-const MAX_FLEET_EMITTED_RUNS = 120
 
 // Report linkage is eventually consistent (a finding's signal groups into a report asynchronously),
 // so keep retrying the reverse lookup on the fleet's runs-window poll, but only while a *recent*
@@ -135,15 +130,12 @@ export const findingsLogic = kea<findingsLogicType>([
     }),
 
     selectors({
-        // Every scout's runs that emitted at least one finding, newest first, capped fleet-wide.
+        // Every scout's runs that emitted at least one finding, newest first, capped fleet-wide. Shares
+        // `mostRecentEmittedRuns` with the callout's summary so the two count the exact same run set.
         emittedRuns: [
             (s) => [s.runsWindow],
             (runsWindow: { runs: SignalScoutRunSummary[]; complete: boolean }): SignalScoutRunSummary[] =>
-                runsWindow.runs
-                    .filter((run) => (run.emitted_count ?? 0) > 0)
-                    .slice()
-                    .sort((a, b) => (b.created_at ?? '').localeCompare(a.created_at ?? ''))
-                    .slice(0, MAX_FLEET_EMITTED_RUNS),
+                mostRecentEmittedRuns(runsWindow.runs),
         ],
         // Stable string key over the emitted runs — refetch only when the set actually changes, not on
         // every 60s runs-window poll. Includes `emitted_count` so an in-progress run that emits more
@@ -286,6 +278,18 @@ export const findingsLogic = kea<findingsLogicType>([
             if (hasRecentUnlinked) {
                 actions.loadEmissionReports()
             }
+        },
+    })),
+
+    events(() => ({
+        afterMount: () => {
+            // The fleet section's `startRunsPolling` normally loads the runs window, but this page can be
+            // reached cold (a shared `/inbox/scouts/findings` URL, or a narrow viewport with no setup
+            // rail) when that section isn't mounted — which would leave the page stuck on a skeleton.
+            // Trigger one load so it resolves. We deliberately don't mirror the section's start/stop
+            // polling: it shares a single keyed `runsPoll` disposable, so a stop on this panel's unmount
+            // would also kill the section's poll. Live refresh still comes from the section when mounted.
+            scoutFleetLogic.actions.loadRunsWindow()
         },
     })),
 ])

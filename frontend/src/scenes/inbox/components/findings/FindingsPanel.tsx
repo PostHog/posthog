@@ -110,7 +110,9 @@ export function FindingsPanel(): JSX.Element {
                 <div className="flex flex-col gap-2">
                     {filteredRows.map((row) => (
                         <ScoutEmissionCard
-                            key={row.emission.source_id}
+                            // emission.id (unique per row), not source_id — a run can emit the same
+                            // finding_id twice, and those siblings share a source_id.
+                            key={row.emission.id}
                             skillName={row.run.skill_name}
                             emission={row.emission}
                             run={row.run}

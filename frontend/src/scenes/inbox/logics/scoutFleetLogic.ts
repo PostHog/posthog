@@ -19,6 +19,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
+    mostRecentEmittedRuns,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -229,19 +230,17 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // Cheap fleet-wide findings tally straight off the runs window — sums each run's `emitted_count`
         // without fetching any emission bodies. Powers the "Scout findings" callout (count + scouts +
         // recency) so the fleet section can advertise the page without the per-run emission fan-out the
-        // page itself does on open. `latestAt` uses each emitted run's completion (or creation) time.
+        // page itself does on open. Tallied over the SAME capped emitted-run set the page fetches
+        // (`mostRecentEmittedRuns`), so the callout can't advertise more than the page can show.
+        // `latestAt` uses each emitted run's completion (or creation) time.
         emittedFindingsSummary: [
             (s) => [s.runsWindow],
             (runsWindow): { count: number; scoutCount: number; latestAt: string | null } => {
                 let count = 0
                 const scouts = new Set<string>()
                 let latestAt: string | null = null
-                for (const run of runsWindow.runs) {
-                    const emitted = run.emitted_count ?? 0
-                    if (emitted <= 0) {
-                        continue
-                    }
-                    count += emitted
+                for (const run of mostRecentEmittedRuns(runsWindow.runs)) {
+                    count += run.emitted_count ?? 0
                     scouts.add(run.skill_name)
                     const at = run.completed_at ?? run.created_at
                     if (at && (!latestAt || at > latestAt)) {
