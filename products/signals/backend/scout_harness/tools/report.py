@@ -52,10 +52,10 @@ from products.signals.backend.scout_report import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    record_report_edit,
     update_scout_report,
 )
 from products.signals.backend.scout_report.judge import ScoutReportJudgement, judge_scout_report
-from products.signals.backend.scout_report.persistence import _record_report_edit
 
 logger = logging.getLogger(__name__)
 
@@ -580,7 +580,7 @@ def _do_edit_report(
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value) must not claim the run touched the report.
     if updated_fields or note_appended:
-        _record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
+        record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
     _capture_report_edited(team=team, run=run, result=result)
     return result
 

@@ -206,7 +206,7 @@ one sandbox session → zero or more emitted signals.
   pipeline directly. See `../scout_report/persistence.py` and the `scouts-emit-reports` spec.
   Both report-channel actions are tracked on the run as queryable columns: `emit_report` appends to
   `SignalScoutRun.emitted_report_ids` (via `_record_report_emit`), and `edit_report` appends — deduped —
-  to `edited_report_ids` (via `_record_report_edit`), so "which reports did this run author vs. edit?"
+  to `edited_report_ids` (via `record_report_edit`), so "which reports did this run author vs. edit?"
   is a column lookup, not an event-stream or artefact-log join. Both writes are best-effort and
   post-commit (an edit/emit never fails because its tally write did).
 - **If you add or rename a workflow/activity in `temporal/agentic/`, update

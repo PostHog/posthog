@@ -403,10 +403,14 @@ def _record_report_emit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> N
         logger.exception("signals_scout.emit_report: failed to record report emit for run %s", run_id)
 
 
-def _record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:
+def record_report_edit(*, team_id: int, run_id: uuid.UUID, report_id: str) -> None:
     """Append `report_id` to the run's `edited_report_ids` tally so "which reports did this run edit?" is a
-    column lookup — the edit-channel counterpart to `_record_report_emit`. Deduped: a run that edits the
-    same report twice records it once (the per-edit detail lives in the report's artefact log). Best-effort
+    column lookup — the edit-channel counterpart to `_record_report_emit`. Public (unlike its emit
+    counterpart) because the edit channel records from the tool layer: one `edit_report` call is one
+    logical "run edited this report" event, so `_do_edit_report` calls this across the module boundary
+    rather than threading a run through `update_scout_report` / `append_report_note`. Deduped: a run that
+    edits the same report twice records it once (the per-edit detail lives in the report's artefact log).
+    Best-effort
     and observability only: the edit has already committed by the time this runs, so any failure here is
     swallowed rather than surfaced as a false edit failure. Runs under `select_for_update` so the
     read-modify-write on the JSON list is safe, and scopes the lookup to `team_id` via the fail-closed
