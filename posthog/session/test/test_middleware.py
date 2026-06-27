@@ -16,7 +16,7 @@ class TestUserAuthSessionActivityMiddleware(BaseTest):
         request.user = self.user
         session = MagicMock()
         session.__contains__ = MagicMock(return_value=True)
-        request.session = session  # type: ignore[assignment]
+        request.session = session
         return request
 
     def test_syncs_metadata_for_normal_responses(self):
