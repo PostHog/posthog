@@ -115,9 +115,10 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
             eventUsageLogic.actions.reportPropertyGroupFilterDuplicated()
         },
         update: () => {
-            // Don't persist empty PropertyGroupFilter structures — they cause ghost
-            // empty filter groups when merged with dashboard filters on the backend.
-            const properties = hasAnyPropertyFilters(values.filters) ? values.filters : undefined
+            // Don't persist empty filter groups — they cause ghost empty groups when merged
+            // with dashboard filters on the backend, and can silently break insights.
+            // Prune individual empty groups too, not just the all empty structure.
+            const properties = pruneEmptyPropertyGroups(values.filters)
             props.setQuery({ ...props.query, properties })
         },
     })),
@@ -127,8 +128,9 @@ export const propertyGroupFilterLogic = kea<propertyGroupFilterLogicType>([
     }),
 ])
 
-function hasAnyPropertyFilters(filter: PropertyGroupFilter): boolean {
-    return filter.values.some((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))
+function pruneEmptyPropertyGroups(filter: PropertyGroupFilter): PropertyGroupFilter | undefined {
+    const values = filter.values.filter((group: PropertyGroupFilterValue) => hasAnyFiltersInGroup(group))
+    return values.length ? { ...filter, values } : undefined
 }
 
 function hasAnyFiltersInGroup(group: PropertyGroupFilterValue): boolean {
