@@ -21,6 +21,9 @@ import { scoutFleetLogic } from './scoutFleetLogic'
 // poll, but only while a recently-emitted finding is still unlinked (past this it never will be).
 const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
 
+// Cadence of the page's own runs-window poll (matches the fleet section's); retries cold/failed loads.
+const RUNS_REFETCH_INTERVAL_MS = 60_000
+
 export type FindingsSortKey = 'newest' | 'oldest' | 'severity' | 'confidence'
 export const FINDINGS_SCOUT_FILTER_ALL = 'all'
 export const FINDINGS_SEVERITY_FILTER_ALL = 'all'
@@ -270,13 +273,19 @@ export const findingsLogic = kea<findingsLogicType>([
         },
     })),
 
-    events(() => ({
+    events(({ cache }) => ({
         afterMount: () => {
             // The page can be reached cold (shared URL, or narrow viewport with no rail) when the fleet
-            // section that normally polls isn't mounted, leaving it stuck on a skeleton — so load once.
-            // We don't mirror the section's start/stop polling: it shares one keyed `runsPoll`
-            // disposable, so stopping on this panel's unmount would kill the section's poll too.
+            // section that normally polls the runs window isn't mounted. Own a poll here so the page
+            // loads, *retries* a failed initial load (else `hasLoadedOnce` would never flip), and gives
+            // the report-link retry listener a poll to ride. It lives on this logic's own disposables
+            // under its own key, so it never disposes the section's `runsPoll` — when both are mounted
+            // the overlap just costs one extra capped request, since `loadRunsWindow` is idempotent.
             scoutFleetLogic.actions.loadRunsWindow()
+            cache.disposables.add(() => {
+                const interval = setInterval(() => scoutFleetLogic.actions.loadRunsWindow(), RUNS_REFETCH_INTERVAL_MS)
+                return () => clearInterval(interval)
+            }, 'findingsRunsPoll')
         },
     })),
 ])
