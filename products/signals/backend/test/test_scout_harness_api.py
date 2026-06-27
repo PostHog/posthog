@@ -16,6 +16,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
 
@@ -37,12 +38,16 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
-def _authenticate_as_scout(test: APIBaseTest) -> None:
+def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout") -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
     reaches these endpoints in production. The emit / scratchpad write actions require
     `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
     default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
     a session. `logout()` first so the token is the sole credential on every request.
+
+    `scopes` selects the posture: the default `signals_scout` covers emit-signal / scratchpad;
+    pass `signals_scout_reports` (the report-channel posture, which adds `signal_scout_report:write`)
+    to exercise the emit-report / edit-report surface.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -59,9 +64,7 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(
-        test.user, test.team.id, scopes="signals_scout", include_internal_scopes=True
-    )
+    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=scopes, include_internal_scopes=True)
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -863,7 +866,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 5}, format="json")
+        # 20 is below the 30-minute floor (the tightest cadence the UI offers) but above the old
+        # 10-minute floor, so this also guards against the floor being reverted.
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 20}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_partial_update_cannot_change_skill_name(self) -> None:
@@ -1158,7 +1163,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def test_create_rejects_interval_below_min(self) -> None:
         self._make_skill("signals-scout-fresh")
         response = self.client.post(
-            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 5}, format="json"
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 20}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 

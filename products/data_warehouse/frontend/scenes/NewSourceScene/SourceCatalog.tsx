@@ -11,6 +11,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { SourceIcon } from '../../shared/components/SourceIcon'
 import { SourceReleaseTag } from '../../shared/components/SourceReleaseTag'
+import { WarehouseWizardHint } from '../../shared/components/WarehouseWizardHint'
 import { CatalogItem, sourceCatalogLogic } from './sourceCatalogLogic'
 
 // Horizontal card: logo on the left, name/status/action stacked on the right. `min-h` (not a fixed
@@ -140,6 +141,7 @@ export function SourceCatalog({ allowedSources }: SourceCatalogProps): JSX.Eleme
             </div>
 
             <div className="flex flex-col gap-4 flex-1">
+                <WarehouseWizardHint />
                 <LemonInput type="search" placeholder="Search sources..." value={search} onChange={setSearch} />
 
                 {filteredItems.length === 0 && (

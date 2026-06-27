@@ -12,9 +12,8 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 import pydantic
-import posthoganalytics
 
-from posthog.constants import ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY, AvailableFeature
+from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, UUIDTModel
 from posthog.schema_enums import AlertCalculationInterval, AlertState
@@ -194,6 +193,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def __str__(self) -> str:
         return f"{self.name} (Team: {self.team})"
 
+    @property
+    def is_high_frequency_interval(self) -> bool:
+        return self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES
+
     def get_subscribed_users_emails(self) -> list[str]:
         return list(
             self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
@@ -264,7 +267,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
-            "is_high_frequency_interval": self.calculation_interval == AlertCalculationInterval.EVERY_15_MINUTES,
+            "is_high_frequency_interval": self.is_high_frequency_interval,
             "enabled": self.enabled,
             "skip_weekend": bool(self.skip_weekend),
             "has_schedule_restriction": has_schedule_restriction,
@@ -322,19 +325,10 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         cls,
         *,
         calculation_interval: str | AlertCalculationInterval | None,
-        user_distinct_id: str,
         organization: Organization,
     ) -> str | None:
         if calculation_interval != AlertCalculationInterval.EVERY_15_MINUTES:
             return None
-        if not posthoganalytics.feature_enabled(
-            ALERTS_15_MINUTE_INTERVAL_FEATURE_FLAG_KEY,
-            user_distinct_id,
-            groups={"organization": str(organization.id)},
-            group_properties={"organization": {"id": str(organization.id)}},
-            only_evaluate_locally=False,
-        ):
-            return "15-minute alert intervals are not available for your organization yet."
         if not cls.supports_high_frequency_intervals(organization):
             return "15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on."
         return None

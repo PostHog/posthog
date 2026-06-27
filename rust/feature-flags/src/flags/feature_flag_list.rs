@@ -2,8 +2,8 @@ use crate::api::errors::FlagError;
 use crate::cohorts::cohort_models::Cohort;
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    default_has_experiment, EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow,
-    FlagPropertyGroup, HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, FlagPropertyGroup,
+    HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -150,7 +150,14 @@ impl FeatureFlagList {
                       ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
-                  bucketing_identifier
+                  bucketing_identifier,
+                  -- Mirror the canonical Django predicate (live_experiment_exists in
+                  -- products/experiments/backend/models/experiment.py,
+                  -- Experiment.objects.filter(feature_flag_id=..., deleted=False)). Keep this in lockstep with it.
+                  EXISTS (
+                      SELECT 1 FROM posthog_experiment e
+                      WHERE e.feature_flag_id = f.id AND e.deleted = false
+                  ) AS has_experiment
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
               LEFT JOIN posthog_featureflagevaluationcontext AS ec ON (f.id = ec.feature_flag_id)
@@ -194,9 +201,7 @@ impl FeatureFlagList {
                         evaluation_runtime: row.evaluation_runtime,
                         evaluation_tags: row.evaluation_tags,
                         bucketing_identifier: row.bucketing_identifier,
-                        // The PG fallback query doesn't compute experiment linkage, so fall back
-                        // to the shared default (true) for this rare, transient cache-miss path.
-                        has_experiment: default_has_experiment(),
+                        has_experiment: row.has_experiment,
                     }),
                     Err(e) => {
                         // This is highly unlikely to happen, but if it does, we skip the flag.
@@ -315,6 +320,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_from_pg_computes_has_experiment() {
+        let context = TestContext::new(None).await;
+        let team = context
+            .insert_new_team(None)
+            .await
+            .expect("Failed to insert team");
+
+        let make_row = |key: &str| FeatureFlagRow {
+            team_id: team.id,
+            name: Some(key.to_string()),
+            key: key.to_string(),
+            filters: serde_json::json!({"groups": [{"properties": [], "rollout_percentage": 100}]}),
+            active: true,
+            ..Default::default()
+        };
+
+        let live = context
+            .insert_flag(team.id, Some(make_row("flag_with_live_experiment")))
+            .await
+            .expect("Failed to insert flag");
+        let deleted_only = context
+            .insert_flag(team.id, Some(make_row("flag_with_deleted_experiment")))
+            .await
+            .expect("Failed to insert flag");
+        context
+            .insert_flag(team.id, Some(make_row("flag_without_experiment")))
+            .await
+            .expect("Failed to insert flag");
+
+        context
+            .insert_experiment(live.id, team.id, false)
+            .await
+            .expect("Failed to insert live experiment");
+        // A deleted experiment must not count as linkage.
+        context
+            .insert_experiment(deleted_only.id, team.id, true)
+            .await
+            .expect("Failed to insert deleted experiment");
+
+        let flags = FeatureFlagList::from_pg(context.non_persons_reader.clone(), team.id)
+            .await
+            .expect("Failed to fetch flags from pg");
+
+        let by_key = |key: &str| {
+            flags
+                .iter()
+                .find(|f| f.key == key)
+                .unwrap_or_else(|| panic!("missing flag {key}"))
+                .has_experiment
+        };
+
+        assert!(by_key("flag_with_live_experiment"));
+        assert!(!by_key("flag_with_deleted_experiment"));
+        assert!(!by_key("flag_without_experiment"));
+    }
+
+    #[tokio::test]
     async fn test_fetch_empty_team_from_pg() {
         let context = TestContext::new(None).await;
 
@@ -369,6 +431,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         let flag2 = FeatureFlagRow {
@@ -384,6 +447,7 @@ mod tests {
             evaluation_runtime: Some("all".to_string()),
             evaluation_tags: None,
             bucketing_identifier: None,
+            has_experiment: false,
         };
 
         // Insert multiple flags for the team

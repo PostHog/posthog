@@ -1,11 +1,11 @@
 import { createHash } from 'crypto'
 import { Redis } from 'ioredis'
 
-import { IngestionConsumerConfig, IngestionLane } from '~/ingestion/config'
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { parseTeamsList } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
+import { IngestionConsumerConfig, IngestionLane, REALTIME_INGESTION_LANES } from '~/ingestion/config'
 import { RedisPool } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { parseTeamsList } from '~/utils/env-utils'
-import { logger } from '~/utils/logger'
 
 import { featureFlagCalledDedupRedisLatency, featureFlagCalledDedupRedisOpsTotal } from './metrics'
 
@@ -82,7 +82,8 @@ export function featureFlagCalledDedupKey(
     distinctId: string,
     flagKey: string,
     response: unknown,
-    groups: unknown
+    groups: unknown,
+    hasExperiment: unknown
 ): string {
     const normalizedGroups =
         groups && typeof groups === 'object' && !Array.isArray(groups)
@@ -92,7 +93,16 @@ export function featureFlagCalledDedupKey(
     // a future code path assembles a key without the prefix. The plaintext
     // teamId stays in the key so operators can SCAN or purge one team's claims.
     const hash = createHash('sha256')
-        .update(JSON.stringify([teamId, distinctId, flagKey, response ?? null, normalizedGroups]))
+        .update(
+            JSON.stringify([
+                teamId,
+                distinctId,
+                flagKey,
+                response ?? null,
+                normalizedGroups,
+                hasExperiment === true ? true : null,
+            ])
+        )
         .digest('base64url')
         .slice(0, HASH_LENGTH)
     return `${REDIS_KEY_PREFIX}${teamId}:${hash}`
@@ -140,8 +150,14 @@ export type FeatureFlagCalledDedupEnvConfig = Pick<
     | 'INGESTION_FEATURE_FLAG_CALLED_DEDUP_TTL_SECONDS'
 >
 
-/** Lanes that may dedup. `null` covers local dev, where no lane is set. */
-const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = ['main', 'overflow', null]
+/**
+ * Lanes that may dedup: the real-time lanes plus `null` for local dev, where
+ * no lane is set. Derived from REALTIME_INGESTION_LANES so a new real-time
+ * lane is covered automatically; delayed lanes are excluded by construction.
+ * See `createFeatureFlagCalledDedupService` for why delayed lanes must never
+ * dedup.
+ */
+const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = [...REALTIME_INGESTION_LANES, null]
 
 /**
  * Builds the dedup service from ingestion config, or undefined when the dedup
@@ -150,7 +166,9 @@ const DEDUP_ALLOWED_LANES: readonly (IngestionLane | null)[] = ['main', 'overflo
  * The dedup window is processing-time, not event-time, so lanes that process
  * delayed events (historical, async) must never dedup: a backfilled event is
  * not a duplicate of the live event that claimed its tuple an hour ago. The
- * lane gate holds even if the dedup env vars leak into a shared config.
+ * real-time lanes in DEDUP_ALLOWED_LANES all share that processing-time
+ * window, so they may dedup. The lane gate holds even if the dedup env vars
+ * leak into a shared config.
  */
 export function createFeatureFlagCalledDedupService(
     redisPool: RedisPool,

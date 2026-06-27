@@ -243,7 +243,7 @@ describe('InsightDisplayConfig', () => {
                         'Stack bars',
                         'Show values on series',
                         'Show percentages on series',
-                        'Show legendBottom',
+                        'Show legendRight',
                     ],
                 },
             ],
@@ -378,6 +378,7 @@ describe('InsightDisplayConfig', () => {
 
             const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
             expect(legendItem).toBeTruthy()
+            // legend is off, no saved position → shows 'Bottom' as the prospective default
             expect(legendItem).toContain('Bottom')
         })
 
@@ -393,7 +394,8 @@ describe('InsightDisplayConfig', () => {
 
             const legendItem = getDisplaySectionItems().find((item) => item.includes('Show legend'))
             expect(legendItem).toBeTruthy()
-            expect(legendItem).toContain('Bottom')
+            // Lifecycle sets showLegend:true (no saved position → 'Right'); others have legend off (→ 'Bottom').
+            expect(legendItem).toMatch(/Bottom|Right/)
         })
 
         it('keeps the plain "Show legend" checkbox for the aggregated bar-value chart', async () => {

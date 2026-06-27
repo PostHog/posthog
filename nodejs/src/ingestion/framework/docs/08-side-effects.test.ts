@@ -25,11 +25,11 @@
  * - **Decoupling**: Main processing doesn't depend on side effect success
  * - **Batching**: Side effects can be batched for efficiency
  */
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { newBatchPipelineBuilder, newPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { PipelineResult, isOkResult, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 type BatchProcessingStep<T, U> = (values: T[]) => Promise<PipelineResult<U>[]>
 

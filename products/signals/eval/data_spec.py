@@ -2,13 +2,8 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
-from posthog.temporal.data_imports.signals.registry import (
-    SignalEmitterOutput,
-    SignalSourceTableConfig,
-    get_signal_config,
-)
-
-from products.data_warehouse.backend.types import ExternalDataSourceType
+from products.signals.backend.emission.registry import SignalEmitterOutput, SignalSourceTableConfig, get_signal_config
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 # Sentinel for error tracking signals (not a real ExternalDataSourceType)
 ERROR_TRACKING = "error_tracking"

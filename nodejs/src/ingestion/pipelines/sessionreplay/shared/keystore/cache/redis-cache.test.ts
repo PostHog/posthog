@@ -2,6 +2,12 @@ import { KeyStore, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared
 
 import { RedisCachedKeyStore } from './redis-cache'
 
+jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
+    SessionBatchMetrics: {
+        observeKeystoreRedisLatency: jest.fn(),
+    },
+}))
+
 describe('RedisCachedKeyStore', () => {
     let mockDelegate: jest.Mocked<KeyStore>
     let mockRedisClient: any
