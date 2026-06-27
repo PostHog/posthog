@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
+import { isProjectNotFoundError } from 'lib/api-error'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -129,7 +130,18 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                         doNotUpdateCurrentThread?: boolean
                     }
                 ) => {
-                    const response = await api.conversations.list()
+                    let response: Awaited<ReturnType<typeof api.conversations.list>>
+                    try {
+                        response = await api.conversations.list()
+                    } catch (error) {
+                        // A stale `currentTeamId` (deleted team / revoked access / org switch) 404s here. This
+                        // loader mounts with the app shell, so degrade to an empty history rather than letting
+                        // it reject into React render — `teamLogic` self-heals the team.
+                        if (isProjectNotFoundError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                     return response.results.map((conversation) =>
                         mergeConversations(
                             conversation,

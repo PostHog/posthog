@@ -110,3 +110,26 @@ describe('maxGlobalLogic', () => {
         })
     })
 })
+
+describe('maxGlobalLogic when the current environment is gone', () => {
+    // A stale `currentTeamId` (deleted team / revoked access / org switch) makes the conversations request
+    // 404 with "Project not found." This loader mounts with the app shell, so it must degrade to an empty
+    // history rather than reject into React render.
+    it('treats the "Project not found." 404 as an empty history instead of failing', async () => {
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/conversations/': () => [404, { detail: 'Project not found.' }],
+            },
+        })
+        const logic = maxGlobalLogic()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadConversationHistory', 'loadConversationHistorySuccess'])
+            .toNotHaveDispatchedActions(['loadConversationHistoryFailure'])
+            .toMatchValues({ conversationHistory: [] })
+
+        logic.unmount()
+    })
+})

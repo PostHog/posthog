@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api, { PaginatedResponse } from 'lib/api'
+import { isProjectNotFoundError } from 'lib/api-error'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { GENERATED_DASHBOARD_PREFIX } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -158,7 +159,18 @@ export const dashboardsModel = kea<dashboardsModelType>([
                         url ||
                         `api/environments/${teamLogic.values.currentTeamId}/dashboards/?limit=2000&exclude_generated=true`
 
-                    const dashboards: PaginatedResponse<DashboardType> = await api.get(apiUrl)
+                    let dashboards: PaginatedResponse<DashboardType>
+                    try {
+                        dashboards = await api.get(apiUrl)
+                    } catch (error) {
+                        // A stale `currentTeamId` (deleted team / revoked access / org switch) 404s here. This
+                        // loader mounts with the app shell, so swallow it like the `!currentTeam` guard above
+                        // rather than letting it reject into React render — `teamLogic` self-heals the team.
+                        if (isProjectNotFoundError(error)) {
+                            return { count: 0, next: null, previous: null, results: [] }
+                        }
+                        throw error
+                    }
 
                     return {
                         ...dashboards,

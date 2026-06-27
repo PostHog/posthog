@@ -1,6 +1,22 @@
 import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
+/**
+ * The exact `detail` the backend returns (with a 404) when an environment-scoped request targets a
+ * team the user can no longer reach — a deleted team, revoked access, or a `currentTeamId` left stale
+ * after an org/team switch. See `posthog/api/routing.py`.
+ */
+export const PROJECT_NOT_FOUND_DETAIL = 'Project not found.'
+
+/**
+ * True when `error` is the backend's "current environment is gone" 404. Loaders that fire on app-shell
+ * mount (e.g. dashboards, conversation history) use this to degrade to an empty result instead of letting
+ * the stale-team 404 reject into React render.
+ */
+export function isProjectNotFoundError(error: unknown): boolean {
+    return error instanceof ApiError && error.isProjectNotFound
+}
+
 export class ApiError extends Error {
     /** Django REST Framework `detail` - used in downstream error handling. */
     detail: string | null
@@ -27,6 +43,11 @@ export class ApiError extends Error {
         this.code = data?.code || null
         this.link = data?.link || null
         this.attr = data?.attr || null
+    }
+
+    /** Whether this is the backend's "current environment is gone" 404 — see `isProjectNotFoundError`. */
+    get isProjectNotFound(): boolean {
+        return this.status === 404 && this.detail === PROJECT_NOT_FOUND_DETAIL
     }
 
     /**

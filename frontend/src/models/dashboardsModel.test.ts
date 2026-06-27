@@ -245,6 +245,27 @@ describe('the dashboards model', () => {
     })
 })
 
+describe('the dashboards model when the current environment is gone', () => {
+    // A stale `currentTeamId` (deleted team / revoked access / org switch) makes the dashboards request
+    // 404 with "Project not found." This loader mounts with the app shell, so it must degrade to an empty
+    // result rather than reject into React render — mirroring the existing `!currentTeam` guard.
+    it('treats the "Project not found." 404 as an empty result instead of failing', async () => {
+        initKeaTests()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': () => [404, { detail: 'Project not found.' }],
+            },
+        })
+        const logic = dashboardsModel()
+        logic.mount()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadDashboards', 'loadDashboardsSuccess'])
+            .toNotHaveDispatchedActions(['loadDashboardsFailure'])
+            .toMatchValues({ nameSortedDashboards: [] })
+    })
+})
+
 describe('mergeTileTextUpdatesIntoDashboard', () => {
     it('updates only text body and preserves server metadata', () => {
         const dashboard = {
