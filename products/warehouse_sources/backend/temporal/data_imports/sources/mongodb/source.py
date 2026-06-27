@@ -68,6 +68,12 @@ _MONGO_CONNECT_FAILED_MESSAGE = (
     "Could not connect to your MongoDB database. Check your connection string and credentials, then try again."
 )
 
+_MONGO_INVALID_DATABASE_NAME_MESSAGE = (
+    "Your MongoDB database name contains an invalid character. MongoDB database names can't contain "
+    'spaces or any of these characters: . $ / \\ " — check the Database name field and the database '
+    "in your connection string, then try again."
+)
+
 # Substrings pymongo embeds in ServerSelectionTimeoutError when the OS can't resolve the host.
 _DNS_RESOLUTION_FAILURE_MARKERS = (
     "No address associated with hostname",
@@ -115,6 +121,10 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # reach the user — match the stable 'not authorized' fragment. Granting permission is a
             # config change the user must make, so this never recovers on retry.
             "not authorized": _MONGO_NOT_AUTHORIZED_MESSAGE,
+            # pymongo's Database._check_name raises InvalidName("database names cannot contain the
+            # character %r") when the database name holds a forbidden character (e.g. a space). This
+            # is a malformed-input mistake the user must fix, so it never recovers on retry.
+            "cannot contain the character": _MONGO_INVALID_DATABASE_NAME_MESSAGE,
             "SSL handshake failed": None,
             # Atlas SQL / Data Federation endpoints live under *.query.mongodb.net and are served by
             # a query proxy the standard MongoDB driver can't drive: the handshake is closed, the
@@ -186,7 +196,7 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
     def validate_credentials(
         self, config: MongoDBSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        from pymongo.errors import OperationFailure, ServerSelectionTimeoutError
+        from pymongo.errors import InvalidName, OperationFailure, ServerSelectionTimeoutError
 
         try:
             connection_params = _parse_connection_string(config.connection_string, config.database_name)
@@ -210,6 +220,12 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             collection_names = get_collection_names(config, team_id=team_id)
             if len(collection_names) == 0:
                 return False, "No collections found in database"
+        except InvalidName:
+            # pymongo's Database._check_name raises InvalidName synchronously (before any network
+            # call) when the database name contains a character MongoDB forbids — most often a stray
+            # space typed into the "Database name" field, which only gets .strip()ed. This is a user
+            # input mistake with a clean, actionable fix, so don't capture it as error-tracking noise.
+            return False, _MONGO_INVALID_DATABASE_NAME_MESSAGE
         except OperationFailure as e:
             # pymongo's OperationFailure stringifies the full server response — clusterTime,
             # signature hashes, BSON ids — so str(e) must never be surfaced. Map the stable error

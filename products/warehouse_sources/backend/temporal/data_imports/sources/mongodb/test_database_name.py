@@ -13,6 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.so
     _MONGO_AUTHENTICATION_FAILED_MESSAGE,
     _MONGO_CONNECT_FAILED_MESSAGE,
     _MONGO_HOST_UNRESOLVED_MESSAGE,
+    _MONGO_INVALID_DATABASE_NAME_MESSAGE,
     _MONGO_NOT_AUTHORIZED_MESSAGE,
     _MONGO_UNESCAPED_CREDENTIALS_MESSAGE,
     _MONGO_UNREACHABLE_MESSAGE,
@@ -93,6 +94,27 @@ class TestMongoValidateCredentialsServerSelection:
 
         assert ok is False
         assert err == _MONGO_UNREACHABLE_MESSAGE
+
+
+class TestMongoValidateCredentialsInvalidDatabaseName:
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_invalid_database_name_returns_actionable_message_without_capturing(
+        self, mock_get_collections, mock_capture
+    ):
+        from pymongo.errors import InvalidName
+
+        # pymongo's Database._check_name raises this synchronously when the name has a space —
+        # the most likely typo in the separate "Database name" field, which is only .strip()ed.
+        mock_get_collections.side_effect = InvalidName("database names cannot contain the character ' '")
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_NO_DB, "database_name": "my db"})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_INVALID_DATABASE_NAME_MESSAGE
+        # An input typo is non-actionable noise — it must not pollute error tracking.
+        mock_capture.assert_not_called()
 
 
 class TestMongoValidateCredentialsOperationFailure:
