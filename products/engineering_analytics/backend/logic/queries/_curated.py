@@ -166,13 +166,16 @@ class CuratedGitHubSource:
     ) -> HogQLQueryResponse:
         """Parse + execute a curated HogQL query for this team.
 
-        Runs with ``bypass_warehouse_access_control=True``. This is a trusted, first-party read whose
-        access is already enforced upstream: ``for_team`` resolves only the sources the requesting user
-        may read (``user_access_control``), and the query reads only those resolved tables. Without the
-        bypass, this userless execution fails closed once the ``hogql-warehouse-access-control`` flag is
-        on — HogQL denies every warehouse table to a no-user query, 500-ing every read surface — and the
-        userless system / Temporal / CLI read paths break too. The bypass keeps access enforced at the
-        resolver (the product's model) instead of at the HogQL table ACL, which can't see a user here.
+        Runs with ``bypass_warehouse_access_control=True``. Access is enforced one layer up: the API
+        requires engineering-analytics product access, and the resolver (``for_team``) filters the source
+        to what the requesting user may read (``user_access_control``) — so by execution time the only
+        tables in play are this team's GitHub source tables the user is already authorized for. The
+        backing ``DataWarehouseTable``s are a private implementation detail of the product, not
+        independently access-controlled, so the per-table HogQL ACL is the wrong layer here: passing the
+        request user through instead would deny every non-admin product user once the
+        ``hogql-warehouse-access-control`` flag is on (they hold no explicit per-table grant, and the
+        check fails closed), re-breaking the page. The bypass also keeps the userless system / Temporal /
+        CLI read paths working.
         """
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
