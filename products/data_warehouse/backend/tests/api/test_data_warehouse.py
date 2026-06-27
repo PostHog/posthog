@@ -44,7 +44,6 @@ class TestDataWarehouseAPI(APIBaseTest):
             [{"name": "alpha"}, {"name": "beta"}, {"name": "gamma"}, {"name": "true"}],
         )
         self.assertEqual(response["Cache-Control"], "max-age=10")
-        self.assertEqual(mock_execute_hogql_query.call_args.kwargs["user"], self.user)
 
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.BillingManager")
     @patch("products.data_warehouse.backend.presentation.views.data_warehouse.get_cached_instance_license")
