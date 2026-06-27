@@ -244,6 +244,39 @@ export interface SkillRefApi {
     version?: number
 }
 
+/**
+ * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
+ */
+export type AgentRevisionApiSpecModels =
+    | {
+          mode: 'auto'
+          /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
+          level?: 'low' | 'medium' | 'high'
+          /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
+          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
+          optimize_for?: 'cost' | 'availability'
+      }
+    | {
+          mode: 'manual'
+          /**
+           * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
+           * @minItems 1
+           */
+          models: {
+              /**
+               * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
+               * @minLength 1
+               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+               */
+              model: string
+              /** Per-model reasoning effort override (else the spec default). */
+              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          }[]
+          /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
+          optimize_for?: 'cost' | 'availability'
+      }
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -567,11 +600,8 @@ export type AgentRevisionApiSpecResume = {
 }
 
 export type AgentRevisionApiSpec = {
-    /**
-     * @minLength 1
-     * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-     */
-    model: string
+    /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
+    models: AgentRevisionApiSpecModels
     triggers: AgentRevisionApiSpecTriggersItem[]
     tools: AgentRevisionApiSpecToolsItem[]
     mcps: AgentRevisionApiSpecMcpsItem[]
@@ -579,7 +609,6 @@ export type AgentRevisionApiSpec = {
     identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
     secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
-    entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
     framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
     resume?: AgentRevisionApiSpecResume
@@ -627,6 +656,39 @@ export interface PaginatedAgentRevisionListApi {
     previous?: string | null
     results: AgentRevisionApi[]
 }
+
+/**
+ * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
+ */
+export type PatchedAgentRevisionApiSpecModels =
+    | {
+          mode: 'auto'
+          /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
+          level?: 'low' | 'medium' | 'high'
+          /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
+          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
+          optimize_for?: 'cost' | 'availability'
+      }
+    | {
+          mode: 'manual'
+          /**
+           * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
+           * @minItems 1
+           */
+          models: {
+              /**
+               * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
+               * @minLength 1
+               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+               */
+              model: string
+              /** Per-model reasoning effort override (else the spec default). */
+              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          }[]
+          /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
+          optimize_for?: 'cost' | 'availability'
+      }
 
 export type PatchedAgentRevisionApiSpecTriggersItem =
     | {
@@ -973,11 +1035,8 @@ export type PatchedAgentRevisionApiSpecResume = {
 }
 
 export type PatchedAgentRevisionApiSpec = {
-    /**
-     * @minLength 1
-     * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-     */
-    model: string
+    /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
+    models: PatchedAgentRevisionApiSpecModels
     triggers: PatchedAgentRevisionApiSpecTriggersItem[]
     tools: PatchedAgentRevisionApiSpecToolsItem[]
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
@@ -985,7 +1044,6 @@ export type PatchedAgentRevisionApiSpec = {
     identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
     secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
-    entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning
     framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
     resume?: PatchedAgentRevisionApiSpecResume
@@ -1161,7 +1219,7 @@ export interface AgentRevisionSystemPromptResponseApi {
     revision_id: string
     /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
     framework_prompt_version: number
-    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
 }
 

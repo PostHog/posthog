@@ -163,6 +163,7 @@ class GoogleAdsSource(
         return SourceConfig(
             name=SchemaExternalDataSourceType.GOOGLE_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
+            featured=True,
             keywords=["adwords"],
             label="Google Ads",
             caption="Ensure you have granted PostHog access to your Google Ads account, learn how to do this in [the docs](https://posthog.com/docs/cdp/sources/google-ads).",

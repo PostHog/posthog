@@ -194,4 +194,80 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.deniedScopeObjects).toEqual([])
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
     })
+
+    const HINT_TEAMS = [
+        { id: 11, organization: 'org-a', name: 'A project' },
+        { id: 22, organization: 'org-b', name: 'B project' },
+    ]
+    const CURRENT_TEAM = {
+        id: MOCK_DEFAULT_USER.team?.id,
+        organization: MOCK_DEFAULT_USER.organization?.id,
+        name: 'Current project',
+    }
+
+    // Once teams load, a team_id hint resolves to that project + its org; an
+    // inaccessible hint falls back to the user's current org/team.
+    const hintResolutionCases: {
+        name: string
+        hint: number
+        teams: any[]
+        expectedOrg: string | undefined
+        expectedTeams: (number | undefined)[]
+    }[] = [
+        {
+            name: 'resolves the hinted project and its org from the team_id param',
+            hint: 22,
+            teams: HINT_TEAMS,
+            expectedOrg: 'org-b',
+            expectedTeams: [22],
+        },
+        {
+            name: 'falls back to the current org/team when the hinted team is inaccessible',
+            hint: 999,
+            teams: [...HINT_TEAMS, CURRENT_TEAM],
+            expectedOrg: MOCK_DEFAULT_USER.organization?.id,
+            expectedTeams: [MOCK_DEFAULT_USER.team?.id],
+        },
+    ]
+
+    it.each(hintResolutionCases)('team_id hint $name', ({ hint, teams, expectedOrg, expectedTeams }) => {
+        logic.actions.setTeamHint(hint)
+        logic.actions.setRequiredAccessLevel('team')
+        logic.actions.loadAllTeamsSuccess(teams as any)
+        expect(logic.values.teamHint).toBeNull()
+        expect(logic.values.selectedOrganization).toBe(expectedOrg)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
+
+    // Before teams load, a pending hint suppresses the eager current-org selection
+    // (so a fast CTA click can't authorize the wrong project), while the no-hint
+    // path keeps pre-selecting the current org/team.
+    const eagerSelectionCases: {
+        name: string
+        hint: number | null
+        expectedOrg: string | null | undefined
+        expectedTeams: (number | undefined)[]
+    }[] = [
+        {
+            name: 'leaves the selection empty while a team_id hint is pending',
+            hint: 22,
+            expectedOrg: null,
+            expectedTeams: [],
+        },
+        {
+            name: 'pre-selects the current org/team when no team_id hint is given',
+            hint: null,
+            expectedOrg: MOCK_DEFAULT_USER.organization?.id,
+            expectedTeams: [MOCK_DEFAULT_USER.team?.id],
+        },
+    ]
+
+    it.each(eagerSelectionCases)('before teams load, $name', ({ hint, expectedOrg, expectedTeams }) => {
+        if (hint !== null) {
+            logic.actions.setTeamHint(hint)
+        }
+        logic.actions.setRequiredAccessLevel('team')
+        expect(logic.values.selectedOrganization).toBe(expectedOrg)
+        expect(logic.values.oauthAuthorization.scoped_teams).toEqual(expectedTeams)
+    })
 })

@@ -52,12 +52,10 @@ from products.product_analytics.backend.models.insight import Insight
 def _validate_every_15_minutes_interval(
     *,
     calculation_interval: str | AlertCalculationInterval | None,
-    request,
     organization,
 ) -> None:
     if error := AlertConfiguration.every_15_minutes_interval_validation_error(
         calculation_interval=calculation_interval,
-        user_distinct_id=str(request.user.distinct_id),
         organization=organization,
     ):
         raise ValidationError({"calculation_interval": [error]})
@@ -640,7 +638,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         organization = self.context["get_organization"]()
         _validate_every_15_minutes_interval(
             calculation_interval=calculation_interval,
-            request=self.context["request"],
             organization=organization,
         )
 

@@ -36,12 +36,21 @@ from ..models.evaluation_configs import (
     validate_evaluation_configs,
 )
 from ..models.evaluation_reports import EvaluationReport
-from ..models.evaluations import Evaluation
+from ..models.evaluations import Evaluation, EvaluationStatusReason
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
 from .metrics import llma_track_latency
 
 logger = structlog.get_logger(__name__)
+
+
+PROVIDER_KEY_ERROR_STATUS_REASONS = {
+    EvaluationStatusReason.PROVIDER_KEY_DELETED,
+    EvaluationStatusReason.PROVIDER_KEY_INVALID,
+    EvaluationStatusReason.PROVIDER_KEY_PERMISSION_DENIED,
+    EvaluationStatusReason.PROVIDER_KEY_QUOTA_EXCEEDED,
+    EvaluationStatusReason.PROVIDER_KEY_RATE_LIMITED,
+}
 
 
 @extend_schema_field(
@@ -115,7 +124,11 @@ class ModelConfigurationSerializer(serializers.Serializer):
 
     provider = serializers.ChoiceField(choices=LLMProvider.choices)
     model = serializers.CharField(max_length=100)
-    provider_key_id = serializers.UUIDField(required=False, allow_null=True)
+    provider_key_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it.",
+    )
     provider_key_name = serializers.SerializerMethodField(read_only=True)
 
     def get_provider_key_name(self, obj: LLMModelConfiguration) -> str | None:
@@ -152,6 +165,14 @@ class EvaluationConditionSerializer(serializers.Serializer):
 class EvaluationSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     model_configuration = ModelConfigurationSerializer(required=False, allow_null=True)
+    status_reason_detail = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Additional detail for the current system-disabled status. This is only populated when the detail is "
+            "safe to show in the evaluation UI."
+        ),
+    )
     evaluation_config = _EvaluationConfigField(
         required=False,
         help_text=(
@@ -182,6 +203,7 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "enabled",
             "status",
             "status_reason",
+            "status_reason_detail",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -194,8 +216,16 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "deleted",
         ]
         # status / status_reason are server-managed (coerced from enabled on user writes, set directly by
-        # system transitions). Clients toggle `enabled`; the model's save() keeps the trio consistent.
-        read_only_fields = ["id", "status", "status_reason", "created_at", "updated_at", "created_by"]
+        # system transitions). Clients toggle `enabled`; the model's save() keeps the status fields consistent.
+        read_only_fields = [
+            "id",
+            "status",
+            "status_reason",
+            "status_reason_detail",
+            "created_at",
+            "updated_at",
+            "created_by",
+        ]
         extra_kwargs = {
             "name": {"help_text": "Name of the evaluation."},
             "description": {"help_text": "Optional description of what this evaluation checks."},
@@ -293,7 +323,9 @@ class EvaluationSerializer(serializers.ModelSerializer):
         )
 
     def _validate_re_enable(self, data: dict) -> None:
-        has_byok = self._has_byok_key(data)
+        provider_key = self._effective_provider_key(data)
+        has_byok = provider_key is not None
+        has_usable_byok = provider_key is not None and provider_key.state == LLMProviderKey.State.OK
         status_reason = getattr(self.instance, "status_reason", None)
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
         # Non-model evals never call an LLM provider, consume trial quota, or need a BYOK key.
@@ -302,18 +334,23 @@ class EvaluationSerializer(serializers.ModelSerializer):
         if not evaluation_uses_model_configuration(evaluation_type):
             return
 
+        if has_byok and not has_usable_byok:
+            raise serializers.ValidationError(
+                {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
+            )
+
         # Trial limit: can only re-enable if they've attached a BYOK key (which bypasses trial quota).
         if status_reason == "trial_limit_reached" or not status_reason:
             team = self.context["get_team"]()
             config = EvaluationConfig.objects.filter(team=team).first()
-            if config and config.trial_limit_reached and not has_byok:
+            if config and config.trial_limit_reached and not has_usable_byok:
                 raise serializers.ValidationError(
                     {"enabled": "Trial evaluation limit reached. Add a provider API key to re-enable this evaluation."}
                 )
 
         # Model-not-allowed: the eval's current model must now be on the trial allowlist, or they
         # must have attached a BYOK key (BYOK bypasses the allowlist entirely).
-        if status_reason == "model_not_allowed" and not has_byok:
+        if status_reason == "model_not_allowed" and not has_usable_byok:
             from products.ai_observability.backend.llm import TRIAL_MODEL_IDS
 
             model_config_data = data.get("model_configuration")
@@ -333,35 +370,45 @@ class EvaluationSerializer(serializers.ModelSerializer):
                     }
                 )
 
-        # Provider key deleted: the eval must now point at a real provider key.
-        if status_reason == "provider_key_deleted" and not has_byok:
+        # Provider key failures: the eval must now point at a usable provider key.
+        if status_reason in PROVIDER_KEY_ERROR_STATUS_REASONS:
+            if not has_usable_byok:
+                raise serializers.ValidationError(
+                    {"enabled": "Attach a working provider API key before re-enabling this evaluation."}
+                )
+
+        if status_reason == "model_not_found" and not self._has_model_configuration_after_update(data):
             raise serializers.ValidationError(
-                {
-                    "enabled": "The provider API key for this evaluation was deleted. Attach a provider API key before re-enabling."
-                }
+                {"enabled": "Choose an available model before re-enabling this evaluation."}
             )
 
         # No default model: the team's active key is for a provider we have no default model for, and
         # the eval left its model unset. Require an explicit model so it can't immediately re-disable.
         if status_reason == "no_default_model":
-            has_model_configuration = bool(data.get("model_configuration")) or bool(
-                self.instance and self.instance.model_configuration_id
-            )
-            if not has_model_configuration:
+            if not self._has_model_configuration_after_update(data):
                 raise serializers.ValidationError(
                     {
                         "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before re-enabling."
                     }
                 )
 
-    def _has_byok_key(self, data: dict) -> bool:
-        """Check if the evaluation will have a BYOK key after this update."""
+    def _has_model_configuration_after_update(self, data: dict) -> bool:
+        return bool(data.get("model_configuration")) or bool(self.instance and self.instance.model_configuration_id)
+
+    def _effective_provider_key(self, data: dict) -> LLMProviderKey | None:
+        """Return the provider key the evaluation will use after this update."""
         model_config_data = data.get("model_configuration")
         if model_config_data is not None:
-            return bool(model_config_data.get("provider_key_id"))
+            provider_key_id = model_config_data.get("provider_key_id")
+            if not provider_key_id:
+                return None
+            return LLMProviderKey.objects.filter(
+                id=provider_key_id,
+                team=self.context["get_team"](),
+            ).first()
         if self.instance and self.instance.model_configuration:
-            return self.instance.model_configuration.provider_key_id is not None
-        return False
+            return self.instance.model_configuration.provider_key
+        return None
 
     def _create_or_update_model_configuration(
         self, model_config_data: dict[str, Any] | None, team_id: int

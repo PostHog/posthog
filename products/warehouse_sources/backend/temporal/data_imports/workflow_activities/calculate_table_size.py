@@ -8,7 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.logger import get_logger
 
-from products.data_warehouse.backend.s3 import get_size_of_folder
+from products.data_warehouse.backend.facade.api import get_size_of_folder
 from products.warehouse_sources.backend.models import DataWarehouseTable
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema

@@ -146,6 +146,8 @@ export type DashboardWidgetCatalogEntry = {
     groupId: keyof typeof DASHBOARD_WIDGET_GROUP_LABELS | (string & {})
     /** Widget variant label within the group (also used as fallback card title). */
     label: string
+    /** Short promo badge shown next to the label in the Add widget picker (e.g. "Most popular"). */
+    badge?: string
     description: string
     defaultConfig: Record<string, unknown>
     defaultLayout: { w: number; h: number; minW: number; minH?: number }
@@ -172,6 +174,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     error_tracking_list: {
         groupId: 'error_tracking',
         label: 'Top issues',
+        badge: 'Crowd favorite',
         description: 'Ranked list of the most impactful error tracking issues.',
         headerTitle: 'Top issues',
         defaultConfig: errorTrackingWidgetConfigSchema.parse({
@@ -199,6 +202,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     session_replay_list: {
         groupId: 'session_replay',
         label: 'Recent recordings',
+        badge: 'Crowd favorite',
         description: 'Recent session recordings you can open in the replay player.',
         headerTitle: 'Recent recordings',
         defaultConfig: sessionReplayWidgetConfigSchema.parse({
@@ -375,7 +379,13 @@ function getDashboardWidgetCatalogGroups(): DashboardWidgetCatalogGroup[] {
         group.widgets.push({ widgetType: widgetType as DashboardWidgetCatalogKey, entry })
     }
 
-    return [...groupsById.values()].sort((a, b) => a.groupLabel.localeCompare(b.groupLabel))
+    const groupDisplayOrder = ['session_replay', 'error_tracking', 'activity', 'logs', 'experiments']
+
+    return [...groupsById.values()].sort((a, b) => {
+        const aIndex = groupDisplayOrder.indexOf(a.groupId)
+        const bIndex = groupDisplayOrder.indexOf(b.groupId)
+        return (aIndex === -1 ? Infinity : aIndex) - (bIndex === -1 ? Infinity : bIndex)
+    })
 }
 
 export const DASHBOARD_WIDGET_CATALOG_GROUPS = getDashboardWidgetCatalogGroups()
