@@ -151,8 +151,9 @@ impl FeatureFlagList {
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier,
-                  -- Mirror the canonical Django cache writer (products/feature_flags/backend/flags_cache.py,
-                  -- Experiment.objects.filter(deleted=False)). Keep this predicate in lockstep with it.
+                  -- Mirror the canonical Django predicate (live_experiment_exists in
+                  -- products/experiments/backend/models/experiment.py,
+                  -- Experiment.objects.filter(feature_flag_id=..., deleted=False)). Keep this in lockstep with it.
                   EXISTS (
                       SELECT 1 FROM posthog_experiment e
                       WHERE e.feature_flag_id = f.id AND e.deleted = false
