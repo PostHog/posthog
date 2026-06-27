@@ -408,6 +408,10 @@ const MCPHarnessBreakdownQuery = z.object({
     filterTestAccounts: z.coerce.boolean().optional(),
     kind: z.literal('MCPHarnessBreakdownQuery').default('MCPHarnessBreakdownQuery'),
     properties: z.array(AnyPropertyFilter).optional(),
+    toolName: z
+        .string()
+        .describe('When set, scope to a single effective tool\'s new-SDK calls (the per-tool "By harness" table).')
+        .optional(),
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
