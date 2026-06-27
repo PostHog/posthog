@@ -245,6 +245,48 @@ class TestSlackMessageRouting(BaseTest):
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_EMOJI_REACTION
 
+    @patch(f"{MODULE}.resolve_posthog_user_for_slack")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_internal_user_can_open_ticket_via_mention(self, mock_create_or_update, mock_resolve_user):
+        mock_resolve_user.return_value = self.user
+
+        handle_support_mention(
+            {
+                "type": "app_mention",
+                "channel": "C_ANY",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "<@U_BOT> help me",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_called_once()
+        assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_BOT_MENTION
+
+    @patch(f"{MODULE}.resolve_posthog_user_for_slack")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_internal_user_can_open_ticket_via_emoji(self, mock_create_or_update, mock_get_client, mock_resolve_user):
+        mock_resolve_user.return_value = self.user
+        mock_get_client.return_value.conversations_history.return_value = {
+            "messages": [{"user": "U123", "text": "Original message"}]
+        }
+
+        handle_support_reaction(
+            {
+                "type": "reaction_added",
+                "reaction": "ticket",
+                "item": {"channel": "C_CONFIG", "ts": "1700000000.000100"},
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_called_once()
+        assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_EMOJI_REACTION
+
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_top_level_bot_message_does_not_create_ticket(self, mock_create_or_update):
         handle_support_message(
@@ -397,6 +439,7 @@ class TestSlackMessageRouting(BaseTest):
 class TestSlackConfirmBeforeTicket(BaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()  # nudge suppression + bot user id are cached per team
         self.team.conversations_settings = {
             "slack_enabled": True,
             "slack_channel_id": "C_CONFIG",
@@ -413,18 +456,19 @@ class TestSlackConfirmBeforeTicket(BaseTest):
                 "channel": "C_CONFIG",
                 "ts": "1700000000.000100",
                 "user": "U123",
-                "text": "New support request",
+                "text": "my data export keeps failing",
             },
             self.team,
             "T123",
         )
 
         mock_create_or_update.assert_not_called()
-        mock_get_client.return_value.chat_postEphemeral.assert_called_once()
-        kwargs = mock_get_client.return_value.chat_postEphemeral.call_args.kwargs
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
+        kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
         assert kwargs["channel"] == "C_CONFIG"
-        assert kwargs["user"] == "U123"
         assert kwargs["thread_ts"] == "1700000000.000100"
+        # Mentions the author so they actually get notified (a plain ephemeral is silent).
+        assert "<@U123>" in kwargs["text"]
         action_ids = {
             element["action_id"]
             for block in kwargs["blocks"]
@@ -458,9 +502,84 @@ class TestSlackConfirmBeforeTicket(BaseTest):
             "T123",
         )
 
-        mock_get_client.return_value.chat_postEphemeral.assert_not_called()
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
         mock_create_or_update.assert_called_once()
         assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is True
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_bot_mention_in_top_level_message_skips_prompt(self, mock_create_or_update, mock_get_client):
+        mock_get_client.return_value.auth_test.return_value = {"user_id": "UBOT123"}
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "<@UBOT123> can you please take a look",
+            },
+            self.team,
+            "T123",
+        )
+
+        # The app_mention event opens the ticket; no nudge prompt and no auto-create here.
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_trivial_message_skips_prompt(self, mock_create_or_update, mock_get_client):
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "thanks :+1:",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.resolve_posthog_user_for_slack")
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_internal_user_skips_prompt(self, mock_create_or_update, mock_get_client, mock_resolve_user):
+        mock_resolve_user.return_value = self.user  # author resolves to an org member
+
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "my data export keeps failing",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+        mock_create_or_update.assert_not_called()
+
+    @patch(f"{MODULE}.get_slack_client")
+    @patch(f"{MODULE}.create_or_update_slack_ticket")
+    def test_does_not_renudge_same_user_within_cooldown(self, mock_create_or_update, mock_get_client):
+        event = {
+            "type": "message",
+            "channel": "C_CONFIG",
+            "user": "U123",
+            "text": "my data export keeps failing",
+        }
+        handle_support_message({**event, "ts": "1700000000.000100"}, self.team, "T123")
+        handle_support_message({**event, "ts": "1700000000.000200"}, self.team, "T123")
+
+        # First message nudges and sets a cooldown; the second is suppressed.
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
 
     @patch(f"{MODULE}._backfill_thread_replies")
     @patch(f"{MODULE}.get_slack_client")

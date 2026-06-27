@@ -29,6 +29,7 @@ from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.storage import object_storage
 
+from products.conversations.backend.cache import NUDGE_DISMISS_TTL, suppress_nudge
 from products.conversations.backend.events import capture_ticket_status_changed
 from products.conversations.backend.formatting import (
     extract_images_from_rich_content,
@@ -55,9 +56,11 @@ from products.conversations.backend.models.constants import Channel, ChannelDeta
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
+    DEFAULT_TICKET_EMOJI,
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
     create_ticket_from_confirmation,
+    get_bot_user_id,
     get_slack_client,
     handle_member_joined_channel,
     handle_member_left_channel,
@@ -65,6 +68,7 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
     resolve_slack_avatar_by_email,
+    ticket_created_text,
 )
 from products.conversations.backend.support_teams import (
     get_bot_framework_token,
@@ -163,23 +167,65 @@ def process_supporthog_event(event: dict[str, Any], slack_team_id: str, event_id
         raise cast(Any, process_supporthog_event).retry(exc=e)
 
 
-def _delete_supporthog_ephemeral(response_url: str) -> None:
-    """Remove the ephemeral "open a ticket?" prompt once the author has clicked.
+def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None:
+    """Delete the "open a ticket?" prompt message after a "No thanks" click.
+
+    Best-effort: a failure here never blocks anything else.
+    """
+    if not channel or not message_ts:
+        return
+    try:
+        get_slack_client(team).chat_delete(channel=channel, ts=message_ts)
+    except Exception:
+        logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
+
+
+def _update_supporthog_prompt_to_confirmation(team: Team, channel: str, message_ts: str, ticket: Ticket | None) -> None:
+    """Replace the "open a ticket?" prompt in place with the ticket confirmation.
 
     Best-effort: a failure here never blocks the ticket creation that already ran.
     """
-    if not response_url:
+    if not channel or not message_ts:
         return
+    text = ticket_created_text(ticket)
     try:
-        requests.post(response_url, json={"delete_original": True}, timeout=3)
+        get_slack_client(team).chat_update(
+            channel=channel,
+            ts=message_ts,
+            text=text,
+            blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": text}}],
+        )
     except Exception:
-        logger.warning("supporthog_interactivity_response_url_failed", exc_info=True)
+        logger.warning("supporthog_interactivity_prompt_update_failed", exc_info=True)
+
+
+def _post_dismiss_acknowledgment(team: Team, channel: str, user: str, thread_ts: str) -> None:
+    """Privately acknowledge a "No thanks" click, pointing the author at the other ways in.
+
+    Ephemeral so only the person who clicked sees it; best-effort.
+    """
+    if not channel or not user:
+        return
+    settings_dict = team.conversations_settings or {}
+    emoji = settings_dict.get("slack_ticket_emoji", DEFAULT_TICKET_EMOJI)
+    try:
+        client = get_slack_client(team)
+        bot_id = get_bot_user_id(client)
+        mention = f"<@{bot_id}>" if bot_id else "the SupportHog bot"
+        client.chat_postEphemeral(
+            channel=channel,
+            user=user,
+            thread_ts=thread_ts or None,
+            text=f"Got it — if you change your mind, react with :{emoji}: or tag {mention}.",
+        )
+    except Exception:
+        logger.warning("supporthog_interactivity_dismiss_ack_failed", exc_info=True)
 
 
 @shared_task(ignore_result=True, max_retries=3, default_retry_delay=5)
 @skip_team_scope_audit
 def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str) -> None:
-    """Handle a button click from the opt-in "open a ticket?" ephemeral prompt."""
+    """Handle a button click from the opt-in "open a ticket?" confirmation prompt."""
     config = (
         TeamConversationsSlackConfig.objects.filter(slack_team_id=slack_team_id, slack_bot_token__isnull=False)
         .select_related("team")
@@ -197,31 +243,45 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
     if payload.get("type") != "block_actions":
         return
 
-    response_url = payload.get("response_url", "")
+    # The prompt message to delete: where the button was clicked.
+    container = payload.get("container") or {}
+    prompt_channel = (payload.get("channel") or {}).get("id") or container.get("channel_id") or ""
+    prompt_ts = (payload.get("message") or {}).get("ts") or container.get("message_ts") or ""
+
+    clicker = (payload.get("user") or {}).get("id", "")
+
     for action in payload.get("actions") or []:
         action_id = action.get("action_id")
+        try:
+            value = json.loads(action.get("value") or "{}")
+        except (json.JSONDecodeError, TypeError):
+            value = {}
+        source_channel = value.get("channel", "")
+        source_message_ts = value.get("message_ts", "")
+
         if action_id == TICKET_CONFIRM_ACTION_DISMISS:
-            _delete_supporthog_ephemeral(response_url)
+            _delete_supporthog_prompt(team, prompt_channel, prompt_ts)
+            _post_dismiss_acknowledgment(team, prompt_channel, clicker, source_message_ts)
+            # Don't pester them again in this channel for a while.
+            if clicker:
+                suppress_nudge(team.pk, prompt_channel, clicker, NUDGE_DISMISS_TTL)
             return
         if action_id == TICKET_CONFIRM_ACTION_OPEN:
-            try:
-                value = json.loads(action.get("value") or "{}")
-            except (json.JSONDecodeError, TypeError):
-                value = {}
-            channel = value.get("channel", "")
-            message_ts = value.get("message_ts", "")
-            if channel and message_ts:
+            ticket = None
+            if source_channel and source_message_ts:
                 try:
-                    create_ticket_from_confirmation(
+                    ticket = create_ticket_from_confirmation(
                         team=team,
                         slack_team_id=slack_team_id,
-                        slack_channel_id=channel,
-                        message_ts=message_ts,
+                        slack_channel_id=source_channel,
+                        message_ts=source_message_ts,
                     )
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
                     raise cast(Any, process_supporthog_interactivity).retry(exc=e)
-            _delete_supporthog_ephemeral(response_url)
+            # Replace the prompt in place with the confirmation (post_confirmation=False above
+            # means create_ticket_from_confirmation didn't post a separate one).
+            _update_supporthog_prompt_to_confirmation(team, prompt_channel, prompt_ts, ticket)
             return
 
 

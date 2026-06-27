@@ -1,6 +1,6 @@
 """Slack interactivity endpoint for the SupportHog app.
 
-Receives button clicks from the opt-in "open a ticket?" ephemeral prompt
+Receives button clicks from the opt-in "open a ticket?" confirmation prompt
 (``slack_confirm_before_ticket``). The events endpoint posts the prompt; this
 endpoint handles the click and creates — or skips — the ticket.
 """

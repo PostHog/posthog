@@ -135,7 +135,7 @@ function SlackChannelSection(): JSX.Element {
                             bordered
                         />
                         <p className="text-xs text-muted-alt mt-1">
-                            When enabled, the SupportHog bot sends the author an ephemeral message asking whether to
+                            When enabled, the SupportHog bot replies in-thread mentioning the author to ask whether to
                             open a ticket, instead of creating one automatically. Only affects channel messages —
                             @mentions and emoji reactions still create tickets immediately.
                         </p>
