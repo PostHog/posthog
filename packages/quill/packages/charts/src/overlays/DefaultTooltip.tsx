@@ -36,6 +36,8 @@ export interface DefaultTooltipProps<Meta = unknown> extends TooltipContext<Meta
     totalFormatter?: (value: number) => React.ReactNode
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Hide rows whose value is exactly 0 — useful when a zero means the series is absent rather than measured. */
+    hideZeroRows?: boolean
     /** Make each series row clickable, firing with the row's `seriesData` entry. The tooltip must
      *  be pinned for clicks to land (an unpinned tooltip has `pointer-events: none`). Used to open a
      *  drill-down (e.g. the persons modal) for a specific series. */
@@ -56,11 +58,17 @@ export function DefaultTooltip<Meta = unknown>({
     totalLabel = 'Total',
     totalFormatter,
     sortedByValue,
+    hideZeroRows,
     onRowClick,
     footer,
 }: DefaultTooltipProps<Meta>): React.ReactElement {
     const format = valueFormatter ?? ((value: number): React.ReactNode => value.toLocaleString())
-    const rows = sortedByValue ? [...seriesData].sort((a, b) => b.value - a.value) : seriesData
+    const visible = hideZeroRows ? seriesData.filter((s) => s.value !== 0) : seriesData
+    const rows = sortedByValue
+        ? [...visible].sort((a, b) => b.value - a.value)
+        : visible[0]?.yPixel != null
+          ? [...visible].sort((a, b) => (a.yPixel ?? Infinity) - (b.yPixel ?? Infinity))
+          : visible
     const summable = rows.filter((s) => !s.series.overlay)
     const closestKey =
         hoverPosition != null && rows.length > 1 ? findClosestSeriesKey(rows, hoverPosition.y) : null
@@ -136,6 +144,7 @@ export function DefaultTooltip<Meta = unknown>({
                     maxHeight: ROWS_MAX_HEIGHT,
                     overflowY: 'auto',
                     scrollbarWidth: 'none',
+                    scrollBehavior: 'smooth',
                     maskImage,
                     WebkitMaskImage: maskImage,
                 }}
@@ -143,17 +152,29 @@ export function DefaultTooltip<Meta = unknown>({
                 {rows.map((s) => {
                     const isClosest = s.series.key === closestKey
                     const clickable = onRowClick ? ' cursor-pointer hover:bg-current/10' : ''
+                    const labelContent = labelRenderer ? labelRenderer(s) : s.series.label
                     return (
                         <div
                             key={s.series.key}
                             data-attr="hog-chart-tooltip-row"
                             data-closest={isClosest ? 'true' : undefined}
-                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5${isClosest ? ' font-semibold bg-current/[.1] rounded' : ''}${clickable}`}
+                            className={`flex items-center gap-2 min-w-0 py-0.5 px-1.5 rounded transition-colors duration-150${isClosest ? ' font-semibold bg-current/[.1]' : ''}${clickable}`}
                             onClick={onRowClick ? () => onRowClick(s) : undefined}
                         >
                             <TooltipSwatch color={s.color} />
-                            <span data-attr="hog-chart-tooltip-series" className="flex-1 min-w-0 truncate">
-                                {labelRenderer ? labelRenderer(s) : s.series.label}
+                            {/* Grid-stack the label so an invisible semibold ghost always reserves
+                                the bold width — the visible span toggles weight without reflowing. */}
+                            <span
+                                data-attr="hog-chart-tooltip-series"
+                                className="flex-1 min-w-0 overflow-hidden"
+                                style={{ display: 'grid' }}
+                            >
+                                <span className="font-semibold invisible truncate" style={{ gridArea: '1/1' }} aria-hidden="true">
+                                    {labelContent}
+                                </span>
+                                <span className="truncate" style={{ gridArea: '1/1' }}>
+                                    {labelContent}
+                                </span>
                             </span>
                             <strong data-attr="hog-chart-tooltip-value">{format(s.value, s)}</strong>
                         </div>

@@ -201,14 +201,35 @@ function LineChartInner<Meta = unknown>({
     )
 
     const drawHover = useCallback(
-        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, theme }: ChartDrawArgs): boolean => {
+        ({ ctx, scales, series: coloredSeries, labels: drawLabels, hoverIndex, hoverPosition, theme }: ChartDrawArgs): boolean => {
             if (hoverIndex < 0) {
                 return false
+            }
+            // Find the series whose y-pixel at the hovered index is closest to the cursor so only
+            // that series gets a dot — avoids a column of rings on dense multi-series charts.
+            let closestKey: string | null = null
+            if (hoverPosition != null) {
+                let minDist = Infinity
+                for (const s of coloredSeries) {
+                    if (s.visibility?.excluded || s.fill?.lowerData || s.overlay) {
+                        continue
+                    }
+                    const data = stackedData?.get(s.key)?.top ?? s.data
+                    const y = resolveYScaleForSeries(scales, s)(data[hoverIndex])
+                    if (isFinite(y)) {
+                        const dist = Math.abs(y - hoverPosition.y)
+                        if (dist < minDist) {
+                            minDist = dist
+                            closestKey = s.key
+                        }
+                    }
+                }
             }
             // Overlays (moving averages, trend lines) and fill-between lower bounds opt out — in
             // percent-stack mode the y-domain is [0, 1], so their raw values would ring far off-plot.
             // `drawLineHoverPoints` handles those skips; we supply the stacked-top y per series.
-            return drawLineHoverPoints(ctx, coloredSeries, theme.backgroundColor ?? '#ffffff', (s) => {
+            const dotSeries = closestKey != null ? coloredSeries.filter((s) => s.key === closestKey) : coloredSeries
+            return drawLineHoverPoints(ctx, dotSeries, theme.backgroundColor ?? '#ffffff', (s) => {
                 const data = stackedData?.get(s.key)?.top ?? s.data
                 const x = scales.x(drawLabels[hoverIndex])
                 if (x == null) {

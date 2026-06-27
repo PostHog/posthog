@@ -54,6 +54,10 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     /** Overrides the default row label — used by lifecycle, where the label is the lifecycle
      *  status (e.g. "New") rather than the entity name. */
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
+    /** Sort rows by value descending. Defaults true; pass false to use visual top-to-bottom order (e.g. lifecycle). */
+    sortedByValue?: boolean
+    /** Hide rows with value 0 — useful when zero means the series is absent (e.g. lifecycle statuses). */
+    hideZeroRows?: boolean
 }
 
 /** Renders hog-charts' DefaultTooltip for insight series charts so they share the same tooltip
@@ -76,6 +80,8 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     altTitle,
     renderCount: renderCountOverride,
     renderSeriesOverride,
+    sortedByValue = true,
+    hideZeroRows,
 }: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { weekStartDay } = useValues(teamLogic)
@@ -195,7 +201,8 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     return (
         <DefaultTooltip<Meta>
             {...context}
-            sortedByValue
+            sortedByValue={sortedByValue}
+            hideZeroRows={hideZeroRows}
             showHeader={showHeader !== false}
             labelFormatter={labelFormatter}
             labelRenderer={labelRenderer}
