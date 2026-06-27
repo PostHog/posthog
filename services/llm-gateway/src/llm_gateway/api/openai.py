@@ -29,6 +29,14 @@ from llm_gateway.request_context import apply_posthog_context_from_headers
 openai_router = APIRouter()
 
 
+def _invalid_request_error(message: str) -> HTTPException:
+    """A 400 in the OpenAI error envelope (mirrors anthropic.py's `_invalid_header_exception`)."""
+    return HTTPException(
+        status_code=400,
+        detail={"error": {"message": message, "type": "invalid_request_error", "code": None}},
+    )
+
+
 async def _handle_chat_completions(
     body: ChatCompletionRequest,
     user: RateLimitedUser,
@@ -81,15 +89,8 @@ async def _handle_responses(
             # The bridge rebuilds prior turns from litellm proxy spend logs; we run litellm as an
             # SDK (no proxy DB), so it would silently resolve to empty history and drop the
             # conversation. Reject explicitly rather than answer with lost context.
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": {
-                        "message": "previous_response_id is not supported for Cloudflare models on the Responses API",
-                        "type": "invalid_request_error",
-                        "code": None,
-                    }
-                },
+            raise _invalid_request_error(
+                "previous_response_id is not supported for Cloudflare models on the Responses API"
             )
         if data.get("tools"):
             # `tools` arrives as an extra field (ResponsesRequest allows extras). The
@@ -98,16 +99,7 @@ async def _handle_responses(
             # chat-completions-shaped function tools lose their name, so CF's chat/completions
             # endpoint rejects the payload. Reject up front rather than hand CF a request that
             # will fail once tools are advertised.
-            raise HTTPException(
-                status_code=400,
-                detail={
-                    "error": {
-                        "message": "tools are not yet supported for Cloudflare models on the Responses API",
-                        "type": "invalid_request_error",
-                        "code": None,
-                    }
-                },
-            )
+            raise _invalid_request_error("tools are not yet supported for Cloudflare models on the Responses API")
         ensure_cloudflare_model_allowed(body.model)
         settings = get_settings()
         api_base, api_key = ensure_cloudflare_configured(settings)
