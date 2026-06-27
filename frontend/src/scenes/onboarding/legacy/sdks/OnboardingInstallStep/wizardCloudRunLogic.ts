@@ -104,23 +104,24 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
     }),
     listeners(({ values, actions }) => ({
         startCloudRun: async () => {
-            const { githubIntegration, selectedRepository, currentProjectId, skillId } = values
+            const { githubIntegration, selectedRepository, currentProjectId } = values
             if (!githubIntegration || !selectedRepository || !currentProjectId) {
                 actions.startCloudRunFailure()
                 return
             }
+            // The picker holds the bare repo name; the endpoint wants "owner/repo", where the owner
+            // is the GitHub integration's account.
+            const owner = githubIntegration.config?.account?.name
+            const repository =
+                selectedRepository.includes('/') || !owner ? selectedRepository : `${owner}/${selectedRepository}`
             try {
-                // SCAFFOLD: the cloud-run service (clone repo → run the wizard → open a PR
-                // via a Temporal workflow) is the follow-up backend piece. It will post
-                // progress to the existing wizard/sessions endpoint under
-                // WIZARD_CLOUD_RUN_WORKFLOW_ID and stash the opened PR URL in the terminal
-                // session's event_plan. Swap this hand-built call for the generated client
-                // once that endpoint's serializer lands (see /adopting-generated-api-types).
-                await api.create(`api/projects/${currentProjectId}/wizard/cloud_runs`, {
-                    integration_id: githubIntegration.id,
-                    repository: selectedRepository,
-                    workflow_id: WIZARD_CLOUD_RUN_WORKFLOW_ID,
-                    skill_id: skillId,
+                // Kicks off the cloud run (clone repo → run the wizard → open a PR via a Temporal
+                // workflow). Live progress and the "your PR is ready" payoff ride the existing wizard
+                // session-sync surfaces — the run posts sessions under WIZARD_CLOUD_RUN_WORKFLOW_ID,
+                // so wizardProgressTrackerLogic + the global FAB render them with no extra wiring.
+                await api.create('api/wizard/cloud_run', {
+                    project_id: currentProjectId,
+                    repository,
                 })
                 actions.startCloudRunSuccess()
             } catch (e) {

@@ -63,9 +63,9 @@ const meta: Meta = {
                 '/api/environments/:team_id/integrations/:id/github_repos': githubReposResponse,
             },
             post: {
-                // Scaffold endpoint — accepting the kickoff lets the live (non-snapshot)
-                // story walk all the way to the queued state by clicking the button.
-                '/api/projects/:team_id/wizard/cloud_runs': () => [201, { id: 'cloud-run-1' }],
+                // Accepting the kickoff lets the live (non-snapshot) story walk all the way to the
+                // queued state by clicking the button.
+                '/api/wizard/cloud_run': () => [201, { task_id: 'task-1', run_id: 'run-1', status: 'queued' }],
             },
             patch: {
                 '/api/environments/:team_id/add_product_intent/': {},
