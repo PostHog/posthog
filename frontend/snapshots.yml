@@ -2625,13 +2625,13 @@ snapshots:
     insights-trendslifecyclechart--stacked-with-legend--light:
         hash: v1.k794b7964.4270d6defbb370ea52d45fc9485bb625970c9b6b5181b6289132070392d2b807.Xk8absK51TdOh0ipMUZWdNQUvEzaF-pPGMDgKJvgZLU
     insights-trendslifecyclechart--stacked-with-percentages-on-series--dark:
-        hash: v1.k794b7964.a07939aacffaca561bf32b6d94c8c1fe24b401a097633e3ddc830dee3dd01564.jaqXSLUJl_Sv4mJP-_CUEyd1xXeNRTxmh7f4ueVidqM
+        hash: v1.k794b7964.59cf0eab0c3beaae947e06f2990dd08f721da9ebd8cc9a6708f14c8bbd62c7c3.UquKOuojddZncTZbu7VtCMjZhNToO3806iWtoO5jW3Q
     insights-trendslifecyclechart--stacked-with-percentages-on-series--light:
-        hash: v1.k794b7964.95dbfe49e07359ad08092c9aea300fa39f431d42db0ce4d83bfad96920c33a68.af5298viZpgYvU0-zUDX1a9-n4u_81whHApLAKruA0o
+        hash: v1.k794b7964.42966031c8a2c5530fff80b23350c3c4152f89ae65486debe465e0e22a20a311.ax_FlXBRiNFBJmhuuO4XZ5Mf3plxuYdN6CKkLI2WBkg
     insights-trendslifecyclechart--stacked-with-percentages-only-on-series--dark:
-        hash: v1.k794b7964.3d32eaa1ed6138f2753d6a5fb25ee121412a269c1578e6e6c348126d3d0a6428.g6Ml5o7sXaFcX1mQ1KzES5tljY1juyMh_XsFb6aY_xU
+        hash: v1.k794b7964.7d8f4c6fa924cb6128d7c24e186beb17ee0cbd6ef4a7614cbcd6f5d93c4a699d.7iIKWltoBs5_Wvf0q-sgrr5K7JxtWtW81nSuAK5qaYU
     insights-trendslifecyclechart--stacked-with-percentages-only-on-series--light:
-        hash: v1.k794b7964.dff5234fd86fa7563c36c5cca274f9784ad6f78bc32868a996516426390db4d1.ZjjuIwPFFfrC_pkxcd0MqAaD-eP1saEB0omdCJfaO70
+        hash: v1.k794b7964.beb4b557b7717d0cd5530dbd23116fa472f35f5c272633fbfd43c71274bfeec0.Rw3UWxZGdqJ-e_blvA4gG2ye4u3kc0Z8NuEb-Ii3Mq8
     insights-trendslifecyclechart--stacked-with-values-on-series--dark:
         hash: v1.k794b7964.b19dec9224b226b8ac7a42ec1d73afa18c2f3366779c568589d7fd3c08cd5ef9.4_lO71FM0ds0HH19knoAl9E9wmOngD1gDaO7z32RJ6c
     insights-trendslifecyclechart--stacked-with-values-on-series--light:
@@ -2645,9 +2645,9 @@ snapshots:
     insights-trendslifecyclechart--unstacked-with-legend--light:
         hash: v1.k794b7964.2256dd4ae7dd4b50df9adfe0dbdd1af2fe7a337a69d75cfa0fea2763dd00fae7.Bhs-r2irJrYC5LDouGsRe8NsjM0hzcDdPvnNtOhPOhw
     insights-trendslifecyclechart--unstacked-with-percentages-on-series--dark:
-        hash: v1.k794b7964.e89fef8b35437fb4e4dc345c809e7e8a8d84df5f4114e59e9eb7d773b310fb23.9GII3E9SZ9-KPi_lgA6rjSV23tfGVlVUXArAaYkdW-Q
+        hash: v1.k794b7964.7538b02b001a4eee4da641d2e7446599a1798e9431363a60737ceff76d815bf3.GPXUv6gResKOPi4h3DUv-P4K4GwQE2IYzYcBgzzBZ4U
     insights-trendslifecyclechart--unstacked-with-percentages-on-series--light:
-        hash: v1.k794b7964.4f5e9b4411156cf351f81e433bdc96a5010bf3f3f2b7fb6c44cd64c018583e2e.ddMvEBYqWpy8J48Gj_fK_LUT5iPp2DJCb0EDPXjCK2k
+        hash: v1.k794b7964.246d4c6cc2004051b0cc9f25902777432baf005fa7d3b956af36bb0d3235a7ff.KvJ0yLvh1-ooj6Ymrerhx_i9pNJmpUMWF0AXKG1QPMw
     insights-trendslifecyclechart--unstacked-with-values-on-series--dark:
         hash: v1.k794b7964.ec2fb36742db8a2378cedea7929d2f0c1a8bfe1ca5cc37ddded1cfbc2946d5b3.Gf0bkG7fY_WV5m5xJ51dF7XsFJTgq4bOTymKY6BENU4
     insights-trendslifecyclechart--unstacked-with-values-on-series--light:
