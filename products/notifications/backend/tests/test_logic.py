@@ -68,6 +68,24 @@ class TestCreateNotification(BaseTest):
         assert event is not None
         assert set(event.resolved_user_ids) == {self.user.id, user2.id}
 
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic._publish_to_kafka")
+    def test_create_notification_for_team(self, mock_publish, mock_ff):
+        user2 = User.objects.create_and_join(self.organization, "team_test@test.com", "password")
+
+        data = NotificationData(
+            team_id=self.team.id,
+            notification_type=NotificationType.COMMENT_MENTION,
+            title="Team alert",
+            body="Something happened",
+            target_type=TargetType.TEAM,
+            target_id=str(self.team.id),
+        )
+        event = create_notification(data)
+
+        assert event is not None
+        assert set(event.resolved_user_ids) == {self.user.id, user2.id}
+
     def test_resolve_unknown_target_type_raises(self):
         resolver = RecipientsResolver()
         with pytest.raises(ValueError, match="Unknown target type"):
