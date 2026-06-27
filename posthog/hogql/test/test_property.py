@@ -92,7 +92,9 @@ class TestProperty(BaseTest):
 
     def test_property_to_expr_hogql_invalid_expression(self):
         # A full SELECT statement pasted into a hogql filter doesn't parse as an expression.
-        invalid_key = "SELECT user_id, session_id, COUNT(*) FROM events GROUP BY user_id, session_id HAVING COUNT(*) > 1;"
+        invalid_key = (
+            "SELECT user_id, session_id, COUNT(*) FROM events GROUP BY user_id, session_id HAVING COUNT(*) > 1;"
+        )
         # Non-strict (query execution) degrades gracefully instead of crashing the whole query.
         self.assertEqual(
             self._property_to_expr({"type": "hogql", "key": invalid_key}, strict=False),
