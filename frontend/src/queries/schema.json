@@ -27340,6 +27340,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "toolName": {
+                    "description": "When set, scope to a single effective tool's new-SDK calls (the per-tool \"By harness\" table).",
+                    "type": "string"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
