@@ -47,8 +47,7 @@ export function ScoutEmissionCard({
     report: LinkedSignalReport | null
     /** True when this finding is the one the current URL deep-links to. */
     isDeepLinked?: boolean
-    /** Cross-fleet listings set this to surface which scout emitted the finding (name in the header,
-     * "View scout" link in the footer). The per-scout page leaves it off — the scout is implied. */
+    /** Cross-fleet listings set this to surface the scout (name in the header, "View scout" footer link). */
     showScout?: boolean
 }): JSX.Element {
     const [expanded, setExpanded] = useState(isDeepLinked)

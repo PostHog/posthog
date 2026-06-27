@@ -98,9 +98,8 @@ function findReportRank(
 }
 
 /**
- * The URL for whichever full-width inbox surface is currently open, or the list otherwise. The four
- * surfaces (report, scout detail, scratchpad, findings) are mutually exclusive — opening one closes
- * the others via reducers/listeners — so a fixed priority order resolves them unambiguously.
+ * The URL for whichever full-width inbox surface is open, or the list otherwise. The four (report,
+ * scout detail, scratchpad, findings) are mutually exclusive, so a fixed priority order resolves them.
  */
 function inboxSurfaceUrl(values: {
     selectedReportId: string | null
@@ -164,9 +163,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         // Scout fleet-memory (scratchpad) surface: a full-width browse/search view over the list,
         // mutually exclusive with the report and scout-detail views. Reached from the fleet-memory callout.
         setScratchpadOpen: (open: boolean) => ({ open }),
-        // Cross-fleet findings surface: a full-width browse/search/filter view of every finding the
-        // troop emitted recently, mutually exclusive with the other full-width views. Reached from the
-        // scout-findings callout.
+        // Cross-fleet findings surface: full-width browse/search/filter of every finding the troop
+        // emitted recently, mutually exclusive with the other full-width views.
         setFindingsOpen: (open: boolean) => ({ open }),
         runSessionAnalysis: true,
         runSessionAnalysisSuccess: true,
@@ -374,9 +372,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
         setFindingsOpen: ({ open }) => {
             if (open) {
-                // Same dwell-tracking-preserving close as the scratchpad path. The scratchpad itself is
-                // closed by its reducer; clear its transient search so the memory callout isn't left
-                // hidden behind a stale no-match filter when the user heads back.
+                // Same dwell-tracking-preserving close as the scratchpad path; clear its transient
+                // search so the memory callout isn't left hidden behind a stale filter on the way back.
                 clearScratchpadSearch()
                 if (values.selectedReportId !== null) {
                     actions.setSelectedReportId(null)
@@ -437,9 +434,8 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             router.values.hashParams,
             { replace: false },
         ],
-        // Each surface toggle resolves to whichever full-width view is left open (or the list). When a
-        // report is cleared because a scout / memory / findings view was just opened (mutually
-        // exclusive), this honors that surface's URL rather than bouncing to the list.
+        // Each toggle resolves to whichever full-width view is left open (or the list), so clearing one
+        // because another opened honors that surface's URL rather than bouncing to the list.
         setSelectedReportId: () => [
             inboxSurfaceUrl(values),
             router.values.searchParams,

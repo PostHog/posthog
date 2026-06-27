@@ -227,12 +227,9 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
         ],
         runsWindowComplete: [(s) => [s.runsWindow], (runsWindow): boolean => runsWindow.complete],
-        // Cheap fleet-wide findings tally straight off the runs window — sums each run's `emitted_count`
-        // without fetching any emission bodies. Powers the "Scout findings" callout (count + scouts +
-        // recency) so the fleet section can advertise the page without the per-run emission fan-out the
-        // page itself does on open. Tallied over the SAME capped emitted-run set the page fetches
-        // (`mostRecentEmittedRuns`), so the callout can't advertise more than the page can show.
-        // `latestAt` uses each emitted run's completion (or creation) time.
+        // Cheap fleet-wide findings tally off the runs window — sums each run's `emitted_count` without
+        // fetching emission bodies, to power the "Scout findings" callout. Tallied over the SAME capped
+        // set the page fetches (`mostRecentEmittedRuns`) so the callout can't over-advertise.
         emittedFindingsSummary: [
             (s) => [s.runsWindow],
             (runsWindow): { count: number; scoutCount: number; latestAt: string | null } => {

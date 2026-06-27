@@ -17,9 +17,8 @@ import type { findingsLogicType } from './findingsLogicType'
 import { ScoutEmissionRow } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
 
-// Report linkage is eventually consistent (a finding's signal groups into a report asynchronously),
-// so keep retrying the reverse lookup on the fleet's runs-window poll, but only while a *recent*
-// finding is still unlinked — past this it'll never group (deduped, deleted, below threshold).
+// Report linkage is eventually consistent, so keep retrying the reverse lookup on the runs-window
+// poll, but only while a recently-emitted finding is still unlinked (past this it never will be).
 const REPORT_LINK_RETRY_WINDOW_MINUTES = 30
 
 export type FindingsSortKey = 'newest' | 'oldest' | 'severity' | 'confidence'
@@ -34,11 +33,10 @@ function severityRank(severity: SignalReportPriority | null): number {
 
 /**
  * Fleet-wide findings logic — the cross-troop counterpart of the per-scout `scoutDetailLogic`. Reuses
- * the singleton `scoutFleetLogic`'s already-polled runs window to find every scout's recent emitted
- * runs, fetches each run's emissions + report links, and flattens them into one searchable,
- * filterable, sortable list. Singleton (not keyed): mounted only by the findings page, so the per-run
- * emission fan-out stays lazy — the fleet section's callout reads the cheap
- * `scoutFleetLogic.emittedFindingsSummary` instead.
+ * `scoutFleetLogic`'s polled runs window to find every scout's recent emitted runs, fetches each run's
+ * emissions + report links, and flattens them into one searchable/filterable/sortable list. Singleton,
+ * mounted only by the findings page, so the per-run fan-out stays lazy (the callout reads the cheap
+ * `scoutFleetLogic.emittedFindingsSummary` instead).
  */
 export const findingsLogic = kea<findingsLogicType>([
     path(['scenes', 'inbox', 'logics', 'findingsLogic']),
@@ -63,8 +61,8 @@ export const findingsLogic = kea<findingsLogicType>([
                     if (runs.length === 0) {
                         return []
                     }
-                    // allSettled, not all: one failed run's fetch (transient 500, deleted run) shouldn't
-                    // discard every other run's findings — surface the partial set.
+                    // allSettled, not all: one failed run's fetch shouldn't discard every other run's
+                    // findings — surface the partial set.
                     const settled = await Promise.allSettled(
                         runs.map((run) => api.signalScout.runs.emissions(run.run_id))
                     )
@@ -72,9 +70,8 @@ export const findingsLogic = kea<findingsLogicType>([
                         (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
                             result.status === 'fulfilled'
                     )
-                    // Every fetch failed (outage / auth / scope) while the runs say these emitted —
-                    // throw so the page shows an error, not a false "no findings". A partial failure
-                    // still returns the findings that did load.
+                    // All fetches failed while the runs say these emitted — throw so the page shows an
+                    // error, not a false "no findings".
                     if (fulfilled.length === 0) {
                         throw new Error('Failed to load scout findings')
                     }
@@ -90,9 +87,8 @@ export const findingsLogic = kea<findingsLogicType>([
                     if (runs.length === 0) {
                         return []
                     }
-                    // Retain the prior round's links per run on failure (this loader re-runs on the poll):
-                    // source_id is `run:<run_id>:finding:<id>`, so a failed run's already-resolved chips
-                    // are the ones prefixed with its run_id.
+                    // Retain the prior round's links for a failed run (this re-runs on the poll); its
+                    // links are the ones whose source_id is prefixed `run:<run_id>:`.
                     const previous = values.emissionReports
                     const settled = await Promise.allSettled(
                         runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
@@ -130,16 +126,15 @@ export const findingsLogic = kea<findingsLogicType>([
     }),
 
     selectors({
-        // Every scout's runs that emitted at least one finding, newest first, capped fleet-wide. Shares
-        // `mostRecentEmittedRuns` with the callout's summary so the two count the exact same run set.
+        // Emitted runs newest-first, capped fleet-wide. Shares `mostRecentEmittedRuns` with the callout
+        // summary so the two count the exact same run set.
         emittedRuns: [
             (s) => [s.runsWindow],
             (runsWindow: { runs: SignalScoutRunSummary[]; complete: boolean }): SignalScoutRunSummary[] =>
                 mostRecentEmittedRuns(runsWindow.runs),
         ],
-        // Stable string key over the emitted runs — refetch only when the set actually changes, not on
-        // every 60s runs-window poll. Includes `emitted_count` so an in-progress run that emits more
-        // findings retriggers.
+        // Stable key over the emitted runs — refetch only when the set changes, not on every poll.
+        // Includes `emitted_count` so an in-progress run that emits more findings retriggers.
         emittedRunsKey: [
             (s) => [s.emittedRuns],
             (emittedRuns: SignalScoutRunSummary[]): string =>
@@ -157,8 +152,7 @@ export const findingsLogic = kea<findingsLogicType>([
                         .map((link) => [link.source_id, link.report as LinkedSignalReport])
                 ),
         ],
-        // Join fetched emissions back to their run (carries skill_name + the task-run link) and to the
-        // inbox report they grouped into.
+        // Join emissions back to their run (for skill_name + task-run link) and the report they grouped into.
         rows: [
             (s) => [s.emissions, s.emittedRuns, s.reportBySourceId],
             (
@@ -188,8 +182,7 @@ export const findingsLogic = kea<findingsLogicType>([
                     .sort((a, b) => a.label.localeCompare(b.label))
             },
         ],
-        // The visible set: search + scout + severity filters, then the chosen sort. Search matches the
-        // finding text and the (prettified) scout name, so typing a scout name narrows too.
+        // Visible set: search (over finding text + prettified scout name) + scout + severity, then sort.
         filteredRows: [
             (s) => [s.rows, s.searchText, s.scoutFilter, s.severityFilter, s.sortKey],
             (rows, searchText, scoutFilter, severityFilter, sortKey): ScoutEmissionRow[] => {
@@ -245,11 +238,9 @@ export const findingsLogic = kea<findingsLogicType>([
                 return latest
             },
         ],
-        // "Loaded once" so the page tells "not loaded yet" from "loaded, genuinely empty" without
-        // flickering a skeleton on the 60s poll. When the window loaded but no run emitted anything
-        // there's nothing to fetch, so we're done immediately — otherwise the no-op `loadEmissions([])`
-        // would flash skeletons for a tick before the empty state. The `!emissionsLoading` guard then
-        // only governs the has-emissions case (suppressing poll flicker once findings are in hand).
+        // "Loaded once" — distinguishes "not loaded yet" from "loaded, empty" without a skeleton flash.
+        // With no emitted runs there's nothing to fetch, so resolve immediately; otherwise the
+        // `!emissionsLoading` guard suppresses poll flicker once findings are in hand.
         hasLoadedOnce: [
             (s) => [s.runsWindowLoadedOnce, s.emittedRuns, s.emissionsLoading, s.emissions],
             (runsWindowLoadedOnce, emittedRuns: SignalScoutRunSummary[], emissionsLoading, emissions): boolean =>
@@ -258,8 +249,7 @@ export const findingsLogic = kea<findingsLogicType>([
     }),
 
     subscriptions(({ actions }) => ({
-        // Fires on mount (empty → real ids once the runs window loads) and whenever the emitted-run set
-        // changes; the string key holds equal across no-op polls so we don't refetch.
+        // Fires on mount and whenever the emitted-run set changes; the key holds equal across no-op polls.
         emittedRunsKey: () => {
             actions.loadEmissions()
             actions.loadEmissionReports()
@@ -267,8 +257,7 @@ export const findingsLogic = kea<findingsLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
-        // Report grouping resolves asynchronously, so ride the fleet's 60s runs-window poll to keep
-        // refetching the links — but only while a recently-emitted finding is still unlinked.
+        // Ride the fleet's runs-window poll to refetch report links while a recent finding is unlinked.
         [scoutFleetLogic.actionTypes.loadRunsWindowSuccess]: () => {
             const cutoff = dayjs().subtract(REPORT_LINK_RETRY_WINDOW_MINUTES, 'minute')
             const hasRecentUnlinked = values.rows.some(
@@ -283,12 +272,10 @@ export const findingsLogic = kea<findingsLogicType>([
 
     events(() => ({
         afterMount: () => {
-            // The fleet section's `startRunsPolling` normally loads the runs window, but this page can be
-            // reached cold (a shared `/inbox/scouts/findings` URL, or a narrow viewport with no setup
-            // rail) when that section isn't mounted — which would leave the page stuck on a skeleton.
-            // Trigger one load so it resolves. We deliberately don't mirror the section's start/stop
-            // polling: it shares a single keyed `runsPoll` disposable, so a stop on this panel's unmount
-            // would also kill the section's poll. Live refresh still comes from the section when mounted.
+            // The page can be reached cold (shared URL, or narrow viewport with no rail) when the fleet
+            // section that normally polls isn't mounted, leaving it stuck on a skeleton — so load once.
+            // We don't mirror the section's start/stop polling: it shares one keyed `runsPoll`
+            // disposable, so stopping on this panel's unmount would kill the section's poll too.
             scoutFleetLogic.actions.loadRunsWindow()
         },
     })),

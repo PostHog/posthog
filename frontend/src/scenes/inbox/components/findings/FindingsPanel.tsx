@@ -25,10 +25,9 @@ const SORT_OPTIONS: { value: FindingsSortKey; label: string }[] = [
 ]
 
 /**
- * Cross-fleet findings browser. Surfaces every finding the troop has emitted recently in one place —
- * newest first by default, searchable, and filterable by scout/severity with a sort toggle. Reuses
- * the per-scout `ScoutEmissionCard` (with `showScout` on, so each card names + links its scout).
- * Read-only: the page reflects what scouts emitted; acting on a finding happens in its inbox report.
+ * Cross-fleet findings browser — every finding the troop emitted recently in one place, newest first,
+ * searchable and filterable by scout/severity with a sort toggle. Reuses the per-scout
+ * `ScoutEmissionCard` with `showScout` on. Read-only; acting on a finding happens in its inbox report.
  */
 export function FindingsPanel(): JSX.Element {
     const {
@@ -110,8 +109,7 @@ export function FindingsPanel(): JSX.Element {
                 <div className="flex flex-col gap-2">
                     {filteredRows.map((row) => (
                         <ScoutEmissionCard
-                            // emission.id (unique per row), not source_id — a run can emit the same
-                            // finding_id twice, and those siblings share a source_id.
+                            // emission.id, not source_id — a run can re-emit a finding_id, sharing source_id.
                             key={row.emission.id}
                             skillName={row.run.skill_name}
                             emission={row.emission}

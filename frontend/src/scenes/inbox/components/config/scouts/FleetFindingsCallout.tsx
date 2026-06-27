@@ -8,11 +8,10 @@ import { pluralize } from 'lib/utils/strings'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 
 /**
- * Findings stat card for the scout troop list, sitting above the scratchpad callout. Advertises how
- * many findings the troop has emitted recently (count · scouts · recency) and links into the full
- * cross-fleet findings page. Reads the cheap `emittedFindingsSummary` (summed off the runs window) so
- * it never triggers the per-run emission fetch the page does on open. Renders nothing until there's
- * at least one finding, so a fresh project isn't nudged toward an empty page.
+ * Findings stat card for the scout troop list, above the scratchpad callout. Advertises the troop's
+ * recent findings (count · scouts · recency) and links into the cross-fleet findings page. Reads the
+ * cheap `emittedFindingsSummary` so it never triggers the per-run fetch the page does on open. Renders
+ * nothing until there's at least one finding.
  */
 export function FleetFindingsCallout({ onOpen }: { onOpen: () => void }): JSX.Element | null {
     const { emittedFindingsSummary, runsWindowLoadedOnce } = useValues(scoutFleetLogic)

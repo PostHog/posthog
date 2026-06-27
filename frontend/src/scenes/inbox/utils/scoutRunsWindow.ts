@@ -32,12 +32,8 @@ export function scoutRunsWindowLabel(complete: boolean): string {
     return complete ? base : `${base} · truncated`
 }
 
-/**
- * Fleet-wide findings views fetch (and tally) only the most recent N emitted runs across the whole
- * troop, to bound the per-run emission fan-out. Shared so the findings page (`findingsLogic`) and the
- * teaser summary (`scoutFleetLogic.emittedFindingsSummary`) agree on exactly which runs count — else
- * the callout could advertise more findings than the page can show.
- */
+// Fleet-wide findings views fetch/tally only the most recent N emitted runs, to bound the per-run
+// fan-out. Shared so the page (`findingsLogic`) and the callout summary count the exact same set.
 export const MAX_FLEET_EMITTED_RUNS = 120
 
 /** The most recent emitted runs across the fleet, newest first, capped at `MAX_FLEET_EMITTED_RUNS`. */
