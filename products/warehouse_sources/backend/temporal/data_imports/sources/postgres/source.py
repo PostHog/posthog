@@ -518,6 +518,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # Raised (FeatureNotSupported, SQLSTATE 0A000) when a view or expression column we're
+            # reading evaluates something Postgres doesn't support for the given type — most often
+            # date_trunc()/date_part() with a unit that isn't valid for that type, e.g.
+            # `date_trunc('week', <interval>)` ("unit \"week\" not supported for type interval").
+            # We only run `SELECT ... FROM <relation>`; the unsupported expression lives in the
+            # customer's view/column definition and only fails lazily at fetch time. It's
+            # deterministic against the source, so every retry re-evaluates the same expression and
+            # hits the same wall. The volatile unit and type are excluded from the match.
+            "not supported for type": "A view or column you're syncing uses an expression Postgres can't evaluate for that column's type (for example date_trunc('week', <interval>), which Postgres reports as \"not supported for type\"). PostHog only runs SELECT against your source, so this comes from the view or expression definition. Fix the unsupported expression in your view (for example cast the value to a supported type), or remove that view or column from the sync.",
         }
 
     def reconcile_schema_metadata(
