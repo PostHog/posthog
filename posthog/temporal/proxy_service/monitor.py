@@ -8,6 +8,7 @@ import datetime as dt
 import ipaddress
 from dataclasses import dataclass
 
+import certifi
 import grpc.aio
 import requests
 import dns.resolver
@@ -264,7 +265,8 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
         response.raise_for_status()
 
         # fetch the cert info to see how far away the expiry is - if less than 2 weeks we have a problem
-        ctx = ssl.create_default_context()
+        # use certifi's CA bundle so the raw socket trusts the same CAs `requests` already validated against
+        ctx = ssl.create_default_context(cafile=certifi.where())
         ctx.minimum_version = ssl.TLSVersion.TLSv1_2
         with ctx.wrap_socket(socket.socket(), server_hostname=proxy_record.domain) as s:
             s.connect((proxy_record.domain, 443))
@@ -281,7 +283,10 @@ async def check_proxy_is_live(inputs: CheckActivityInput) -> CheckActivityOutput
                     errors=["Live proxy certificate is expiring soon"],
                     warnings=[],
                 )
-    except requests.exceptions.SSLError:
+    except (requests.exceptions.SSLError, ssl.SSLError):
+        # `requests` raises requests.exceptions.SSLError; the raw socket handshake above raises
+        # the stdlib ssl.SSLError (e.g. SSLCertVerificationError), which is not a subclass of the
+        # requests variant. Both mean the same thing for monitoring: the cert can't be verified.
         return CheckActivityOutput(
             errors=["Failed to connect to proxy: invalid SSL certificate"],
             warnings=[],

@@ -1,3 +1,4 @@
+import ssl
 import json
 
 import pytest
@@ -77,6 +78,35 @@ class TestCheckProxyIsLive(TestCase):
         """Test SSL error handling"""
         mock_get_record.return_value = self.proxy_record
         mock_post.side_effect = requests.exceptions.SSLError("SSL certificate problem")
+
+        result = await check_proxy_is_live(self.input)
+
+        self.assertEqual(result.errors, ["Failed to connect to proxy: invalid SSL certificate"])
+        self.assertEqual(result.warnings, [])
+
+    @pytest.mark.asyncio
+    @patch("posthog.temporal.proxy_service.monitor.ssl.create_default_context")
+    @patch("posthog.temporal.proxy_service.monitor.requests.post")
+    @patch("posthog.temporal.proxy_service.monitor.get_record")
+    async def test_check_proxy_is_live_raw_socket_ssl_error(self, mock_get_record, mock_post, mock_ssl_context):
+        """A raw-socket handshake raising stdlib ssl.SSLError (after requests.post succeeds) is a clean
+        monitoring error, not an uncaught exception."""
+        mock_get_record.return_value = self.proxy_record
+
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_post.return_value = mock_response
+
+        mock_socket = Mock()
+        mock_socket.connect.side_effect = ssl.SSLCertVerificationError(
+            "[SSL: CERTIFICATE_VERIFY_FAILED] unable to get local issuer certificate"
+        )
+        mock_context = Mock()
+        mock_wrapped_socket = Mock()
+        mock_wrapped_socket.__enter__ = Mock(return_value=mock_socket)
+        mock_wrapped_socket.__exit__ = Mock(return_value=None)
+        mock_context.wrap_socket.return_value = mock_wrapped_socket
+        mock_ssl_context.return_value = mock_context
 
         result = await check_proxy_is_live(self.input)
 
