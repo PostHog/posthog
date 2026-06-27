@@ -30,6 +30,7 @@ from zxcvbn import zxcvbn
 
 from posthog.clickhouse.query_tagging import AccessMethod, tag_authentication
 from posthog.constants import AvailableFeature
+from posthog.exceptions import ServiceUnavailable, is_transient_db_error
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.internal_api_secret import usable_internal_api_secrets
 from posthog.jwt import PosthogJwtAudience, decode_jwt, get_oidc_verification_keys
@@ -876,7 +877,7 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
 
                 return access_token.user, None
 
-            except AuthenticationFailed:
+            except (AuthenticationFailed, ServiceUnavailable):
                 raise
             except Exception:
                 raise AuthenticationFailed(detail="Invalid access token.")
@@ -914,7 +915,16 @@ class OAuthAccessTokenAuthentication(authentication.BaseAuthentication):
             return None
         except AuthenticationFailed:
             raise
-        except Exception:
+        except Exception as e:
+            # A transient DB blip (PgBouncer `query_wait_timeout`, dropped/reset backend
+            # connection) must not masquerade as a permanent auth failure: a 403 is never
+            # retried, so a single short-lived sandbox/agent token request dies for good. Surface
+            # it as a retryable 503 instead, mirroring the OAuth token-issuance path. Either way,
+            # log the underlying error — the previous catch-all swallowed it silently.
+            if is_transient_db_error(e):
+                structlog_logger.warning("oauth_access_token_validation_db_unavailable", exc_info=True)
+                raise ServiceUnavailable()
+            structlog_logger.warning("oauth_access_token_validation_failed", exc_info=True)
             raise AuthenticationFailed(detail="Failed to validate access token.")
 
     def authenticate_header(self, request):

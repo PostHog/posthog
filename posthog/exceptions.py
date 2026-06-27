@@ -81,6 +81,39 @@ class ClickHouseQueryTimeOut(APIException):
     default_detail = "Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize."
 
 
+# Substrings identifying transient database failures that callers should retry rather than
+# treat as permanent. PgBouncer (transaction pooling) kills queries waiting too long for a
+# backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
+# connections as connection failures. Both are retryable blips, not permanent errors.
+TRANSIENT_DB_ERROR_MARKERS = (
+    "query_wait_timeout",
+    "server closed the connection unexpectedly",
+    "connection failed",
+)
+
+
+def is_transient_db_error(error: BaseException) -> bool:
+    message = str(error)
+    return any(marker in message for marker in TRANSIENT_DB_ERROR_MARKERS)
+
+
+class ServiceUnavailable(APIException):
+    """Retryable 503 for transient failures (e.g. database connection-pool pressure).
+
+    Signals a temporary, retryable condition so clients back off and retry instead of
+    treating the request as permanently failed. ``wait`` carries a Retry-After hint for
+    handlers that support it.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "service_unavailable"
+    default_detail = "The server is temporarily unable to handle the request. Please retry."
+
+    def __init__(self, detail: Optional[str] = None, retry_after_seconds: int = 1) -> None:
+        super().__init__(detail=detail)
+        self.wait = retry_after_seconds
+
+
 class ClickHouseQueryMemoryLimitExceeded(APIException):
     status_code = 504
     default_detail = "Query has reached the max memory limit before completing. See our docs for how to improve your query memory footprint. You may need to narrow date range or materialize."

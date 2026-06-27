@@ -393,6 +393,51 @@ export class ApiClient {
                     continue
                 }
 
+                if (response.status === 503) {
+                    // A 503 is a transient, retryable signal — e.g. a database connection-pool blip
+                    // during the API's OAuth token validation, which would otherwise surface as a
+                    // fatal auth failure that silently kills a single-turn agent run. The API raises
+                    // these before the view executes (auth/throttle) or for read-capacity pressure,
+                    // so retrying is safe for mutations too. Reuses the 429 retry budget.
+                    const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get('Retry-After'))
+                    const serviceUnavailableFailure = async (): Promise<Result<T>> => ({
+                        success: false,
+                        error: new PostHogApiError({
+                            status: response.status,
+                            statusText: response.statusText,
+                            body: await response.text(),
+                            url,
+                            method,
+                        }),
+                    })
+
+                    if (attempt === RATE_LIMIT_MAX_RETRIES) {
+                        console.error(`[API] Service unavailable (503) retries exhausted on ${method} ${url}`)
+                        return serviceUnavailableFailure()
+                    }
+
+                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
+                    const delayMs =
+                        retryAfterSeconds !== null
+                            ? retryAfterSeconds * 1000
+                            : // Equal jitter so concurrent 503s don't retry in lockstep.
+                              backoffMs / 2 + Math.random() * (backoffMs / 2)
+
+                    if (delayMs > waitBudgetMs) {
+                        console.warn(
+                            `[API] Service unavailable (503) on ${method} ${url}. Requested wait of ${Math.round(delayMs / 1000)}s exceeds the remaining ${Math.round(waitBudgetMs / 1000)}s retry budget; not retrying.`
+                        )
+                        return serviceUnavailableFailure()
+                    }
+
+                    waitBudgetMs -= delayMs
+                    console.warn(
+                        `[API] Service unavailable (503) on ${method} ${url}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                    )
+                    await new Promise((resolve) => setTimeout(resolve, delayMs))
+                    continue
+                }
+
                 if (!response.ok) {
                     if (response.status === 401) {
                         throw new Error(ErrorCode.INVALID_API_KEY)

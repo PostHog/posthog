@@ -167,6 +167,62 @@ describe('outbound 429 handling', () => {
         })
     })
 
+    describe('ApiClient on 503', () => {
+        const build503 = (headers?: Record<string, string>): Response =>
+            new Response(JSON.stringify({ detail: 'The server is temporarily unable to handle the request.' }), {
+                status: 503,
+                headers,
+            })
+
+        const stubFetch = (...responses: Response[]): ReturnType<typeof vi.fn> => {
+            const mockFetch = vi.fn()
+            for (const response of responses) {
+                mockFetch.mockResolvedValueOnce(response)
+            }
+            // Persistent 503 once the scripted responses run out.
+            mockFetch.mockImplementation(() => Promise.resolve(build503({ 'Retry-After': '1' })))
+            vi.stubGlobal('fetch', mockFetch)
+            return mockFetch
+        }
+
+        const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('retries a transient 503 (e.g. token-validation DB blip) and succeeds', async () => {
+            const mockFetch = stubFetch(build503({ 'Retry-After': '1' }), new Response('{}', { status: 200 }))
+
+            const resultPromise = buildClient().users().me()
+            await vi.advanceTimersByTimeAsync(1000)
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('returns PostHogApiError after exhausting 503 retries', async () => {
+            const mockFetch = stubFetch()
+
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const result = await resultPromise
+
+            expect(result.success).toBe(false)
+            if (result.success) {
+                throw new Error('expected failure')
+            }
+            expect(result.error).toBeInstanceOf(PostHogApiError)
+            expect((result.error as PostHogApiError).status).toBe(503)
+            expect(mockFetch).toHaveBeenCalledTimes(4)
+        })
+    })
+
     describe('handleToolError on PostHogRateLimitError', () => {
         it('returns the retry hint to the agent without capturing an exception', () => {
             const error = new PostHogRateLimitError({

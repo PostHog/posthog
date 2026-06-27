@@ -15,6 +15,7 @@ from django.contrib.sessions.middleware import SessionMiddleware
 from django.core import mail
 from django.core.asgi import get_asgi_application
 from django.core.cache import cache
+from django.db import OperationalError
 from django.http import HttpResponse
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.utils import timezone
@@ -44,6 +45,7 @@ from posthog.auth import (
     _extract_phs_token,
 )
 from posthog.clickhouse.query_tagging import AccessMethod
+from posthog.exceptions import ServiceUnavailable
 from posthog.helpers.user_devices import (
     KNOWN_DEVICE_COOKIE,
     build_known_device_cookie_value,
@@ -2375,6 +2377,45 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             authenticator.authenticate(request)
 
         self.assertIn("User associated with access token is disabled", str(context.exception))
+
+    @parameterized.expand(
+        [
+            ("query_wait_timeout", "query_wait_timeout"),
+            ("connection_reset", "server closed the connection unexpectedly"),
+            ("connection_failed", "connection failed"),
+        ]
+    )
+    def test_authenticate_transient_db_error_raises_retryable_503(self, _name, error_message):
+        # A transient DB blip during validation must surface as a retryable 503, not a permanent
+        # 403 that a short-lived token request (e.g. a sandbox agent) can never recover from.
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+
+        with patch.object(OAuthAccessToken.objects, "select_related", side_effect=OperationalError(error_message)):
+            with self.assertRaises(ServiceUnavailable) as context:
+                authenticator.authenticate(request)
+
+        self.assertEqual(context.exception.status_code, 503)
+
+    def test_authenticate_non_transient_error_raises_authentication_failed(self):
+        wsgi_request = self.factory.get(
+            "/",
+            headers={"AUTHORIZATION": f"Bearer {self.access_token.token}"},
+        )
+        request = Request(wsgi_request)
+
+        authenticator = OAuthAccessTokenAuthentication()
+
+        with patch.object(OAuthAccessToken.objects, "select_related", side_effect=Exception("unexpected boom")):
+            with self.assertRaises(AuthenticationFailed) as context:
+                authenticator.authenticate(request)
+
+        self.assertEqual(str(context.exception.detail), "Failed to validate access token.")
 
     def test_authenticate_without_bearer_token(self):
         wsgi_request = self.factory.get("/")
