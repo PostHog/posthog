@@ -1,11 +1,16 @@
+import json
+
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.core.cache import cache
 
 from parameterized import parameterized
 
-from products.conversations.backend.models import Ticket
+from posthog.models.team.extensions import get_or_create_team_extension
+
+from products.conversations.backend.cache import is_nudge_suppressed
+from products.conversations.backend.models import TeamConversationsSlackConfig, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
@@ -17,8 +22,10 @@ from products.conversations.backend.slack import (
     handle_support_message,
     handle_support_reaction,
 )
+from products.conversations.backend.tasks import process_supporthog_interactivity
 
 MODULE = "products.conversations.backend.slack"
+TASKS_MODULE = "products.conversations.backend.tasks"
 
 
 class TestSlackMessageRouting(BaseTest):
@@ -611,7 +618,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
     @patch(f"{MODULE}.get_slack_client")
     @patch(f"{MODULE}.create_or_update_slack_ticket")
     def test_create_ticket_from_confirmation_is_idempotent(self, mock_create_or_update, mock_get_client):
-        Ticket.objects.create_with_number(
+        existing = Ticket.objects.create_with_number(
             team=self.team,
             channel_source=Channel.SLACK,
             widget_session_id="",
@@ -620,7 +627,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
             slack_thread_ts="1700000000.000100",
         )
 
-        create_ticket_from_confirmation(
+        result = create_ticket_from_confirmation(
             team=self.team,
             slack_team_id="T123",
             slack_channel_id="C_CONFIG",
@@ -629,6 +636,7 @@ class TestSlackConfirmBeforeTicket(BaseTest):
 
         mock_get_client.assert_not_called()
         mock_create_or_update.assert_not_called()
+        assert result == existing
 
 
 class TestSlackMemberAlerts(BaseTest):
@@ -764,3 +772,84 @@ class TestSlackMemberAlerts(BaseTest):
         handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
 
         mock_report.assert_not_called()
+
+
+class TestSupporthogInteractivity(BaseTest):
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+        self.team.conversations_settings = {"slack_enabled": True}
+        self.team.save()
+        config = get_or_create_team_extension(self.team, TeamConversationsSlackConfig)
+        config.slack_team_id = "T123"
+        config.slack_bot_token = "xoxb-test"
+        config.save(update_fields=["slack_team_id", "slack_bot_token"])
+
+    def _payload(self, action_id: str, value: dict) -> dict:
+        return {
+            "type": "block_actions",
+            "team": {"id": "T123"},
+            "user": {"id": "U_CLICKER"},
+            "channel": {"id": "C_CONFIG"},
+            "message": {"ts": "1700000000.000999"},
+            "actions": [{"action_id": action_id, "value": json.dumps(value)}],
+        }
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    def test_disabled_team_is_noop(self, mock_get_client):
+        self.team.conversations_settings = {"slack_enabled": False}
+        self.team.save()
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_OPEN, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        mock_get_client.assert_not_called()
+
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    def test_dismiss_deletes_prompt_acks_and_suppresses(self, mock_get_client):
+        mock_get_client.return_value.auth_test.return_value = {"user_id": "U_BOT"}
+
+        process_supporthog_interactivity(
+            self._payload(TICKET_CONFIRM_ACTION_DISMISS, {"channel": "C_CONFIG", "message_ts": "1700000000.000100"}),
+            "T123",
+        )
+
+        client = mock_get_client.return_value
+        client.chat_delete.assert_called_once()
+        client.chat_postEphemeral.assert_called_once()
+        assert is_nudge_suppressed(self.team.pk, "C_CONFIG", "U_CLICKER")
+
+    @parameterized.expand(
+        [
+            (
+                "created",
+                {"channel": "C_CONFIG", "message_ts": "1700000000.000100"},
+                Mock(ticket_number=42),
+                True,
+                "ticket #42",
+            ),
+            (
+                "genuine_failure",
+                {"channel": "C_CONFIG", "message_ts": "1700000000.000100"},
+                None,
+                True,
+                "couldn't",
+            ),
+            ("malformed_value", {}, None, False, "couldn't"),
+        ]
+    )
+    @patch(f"{TASKS_MODULE}.get_slack_client")
+    @patch(f"{TASKS_MODULE}.create_ticket_from_confirmation")
+    def test_open_replaces_prompt_with_confirmation_or_error(
+        self, _name, value, create_return, expect_create_called, expected_text, mock_create, mock_get_client
+    ):
+        mock_create.return_value = create_return
+
+        process_supporthog_interactivity(self._payload(TICKET_CONFIRM_ACTION_OPEN, value), "T123")
+
+        assert mock_create.call_count == (1 if expect_create_called else 0)
+        client = mock_get_client.return_value
+        client.chat_update.assert_called_once()
+        assert expected_text in client.chat_update.call_args.kwargs["text"].lower()

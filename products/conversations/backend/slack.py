@@ -851,13 +851,15 @@ def create_ticket_from_confirmation(
 
     Mirrors the emoji-reaction path: re-fetch the source message, create the ticket, then
     backfill any replies posted while the prompt was pending. Idempotent — a duplicate
-    click is a no-op because a ticket already exists for the thread.
+    click returns the already-open ticket so the caller can confirm rather than error.
+    Returns None only on genuine failure (source message gone, fetch error, empty content).
     """
-    if Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).exists():
+    existing = Ticket.objects.filter(team=team, slack_channel_id=slack_channel_id, slack_thread_ts=message_ts).first()
+    if existing:
         logger.debug(
             "slack_support_confirmation_ticket_exists", slack_channel_id=slack_channel_id, message_ts=message_ts
         )
-        return None
+        return existing
 
     client = get_slack_client(team)
     try:

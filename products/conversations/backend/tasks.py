@@ -180,14 +180,13 @@ def _delete_supporthog_prompt(team: Team, channel: str, message_ts: str) -> None
         logger.warning("supporthog_interactivity_prompt_delete_failed", exc_info=True)
 
 
-def _update_supporthog_prompt_to_confirmation(team: Team, channel: str, message_ts: str, ticket: Ticket | None) -> None:
-    """Replace the "open a ticket?" prompt in place with the ticket confirmation.
+def _update_supporthog_prompt(team: Team, channel: str, message_ts: str, text: str) -> None:
+    """Replace the "open a ticket?" prompt in place with a final status line (buttons removed).
 
     Best-effort: a failure here never blocks the ticket creation that already ran.
     """
     if not channel or not message_ts:
         return
-    text = ticket_created_text(ticket)
     try:
         get_slack_client(team).chat_update(
             channel=channel,
@@ -279,9 +278,15 @@ def process_supporthog_interactivity(payload: dict[str, Any], slack_team_id: str
                 except Exception as e:
                     logger.exception("supporthog_interactivity_create_failed", error=str(e))
                     raise cast(Any, process_supporthog_interactivity).retry(exc=e)
-            # Replace the prompt in place with the confirmation (post_confirmation=False above
-            # means create_ticket_from_confirmation didn't post a separate one).
-            _update_supporthog_prompt_to_confirmation(team, prompt_channel, prompt_ts, ticket)
+            # Replace the prompt in place: a confirmation when we have a ticket (created or
+            # already open), or an explicit error so a failed open never reads as success.
+            # post_confirmation=False above means no separate confirmation was posted.
+            if ticket:
+                text = ticket_created_text(ticket)
+            else:
+                emoji = support_settings.get("slack_ticket_emoji", DEFAULT_TICKET_EMOJI)
+                text = f":warning: Couldn't open a ticket — react with :{emoji}: or @mention us to try again."
+            _update_supporthog_prompt(team, prompt_channel, prompt_ts, text)
             return
 
 
