@@ -1,3 +1,4 @@
+from asyncio import CancelledError
 from collections.abc import Generator
 from contextlib import contextmanager
 
@@ -65,6 +66,10 @@ def acquire_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
         try:
             acquired = client.set(_lock_key(team_id, schema_id), token, nx=True, ex=LOCK_TTL_SECONDS)
             return bool(acquired)
+        except CancelledError:
+            # Activity cancelled mid-redis-call: re-raise so Temporal sees the
+            # cancellation, but don't record it as an error-tracking issue.
+            raise
         except Exception as e:
             logger.exception(
                 "v3_pipeline_lock_acquire_error",
@@ -87,6 +92,10 @@ def get_v3_pipeline_lock_holder(team_id: int, schema_id: str) -> str | None:
             if holder is None:
                 return None
             return holder.decode() if isinstance(holder, bytes) else str(holder)
+        except CancelledError:
+            # Activity cancelled mid-redis-call: re-raise so Temporal sees the
+            # cancellation, but don't record it as an error-tracking issue.
+            raise
         except Exception as e:
             logger.warning("v3_pipeline_lock_get_holder_error", error=str(e), team_id=team_id, schema_id=schema_id)
             capture_exception(e)
@@ -102,6 +111,10 @@ def release_v3_pipeline_lock(team_id: int, schema_id: str, token: str) -> bool:
         try:
             result = client.eval(_RELEASE_LOCK_SCRIPT, 1, _lock_key(team_id, schema_id), token)
             return bool(result)
+        except CancelledError:
+            # Activity cancelled mid-redis-call: re-raise so Temporal sees the
+            # cancellation, but don't record it as an error-tracking issue.
+            raise
         except Exception as e:
             logger.warning("v3_pipeline_lock_release_error", error=str(e), team_id=team_id, schema_id=schema_id)
             capture_exception(e)

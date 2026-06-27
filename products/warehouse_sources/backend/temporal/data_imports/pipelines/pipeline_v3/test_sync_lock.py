@@ -1,3 +1,6 @@
+from asyncio import CancelledError
+from collections.abc import Callable
+
 import pytest
 from unittest.mock import MagicMock, patch
 
@@ -122,3 +125,31 @@ class TestReleaseV3PipelineLock:
         mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
 
         assert release_v3_pipeline_lock(1, "s-1", "tok-1") is False
+
+
+class TestCancellationPassthrough:
+    """A Temporal activity cancelled mid-redis-call raises CancelledError (a BaseException).
+    It must propagate so Temporal sees the cancellation, and must not be captured as an error."""
+
+    @pytest.mark.parametrize(
+        "redis_method, call_helper",
+        [
+            ("set", lambda: acquire_v3_pipeline_lock(1, "s-1", "tok-1")),
+            ("get", lambda: get_v3_pipeline_lock_holder(1, "s-1")),
+            ("eval", lambda: release_v3_pipeline_lock(1, "s-1", "tok-1")),
+        ],
+        ids=["acquire", "get_holder", "release"],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock._get_redis_client")
+    def test_cancelled_error_reraised_and_not_captured(
+        self, mock_ctx: MagicMock, mock_capture: MagicMock, redis_method: str, call_helper: Callable[[], object]
+    ) -> None:
+        mock_redis = MagicMock()
+        getattr(mock_redis, redis_method).side_effect = CancelledError()
+        mock_ctx.return_value.__enter__ = MagicMock(return_value=mock_redis)
+        mock_ctx.return_value.__exit__ = MagicMock(return_value=False)
+
+        with pytest.raises(CancelledError):
+            call_helper()
+        mock_capture.assert_not_called()
