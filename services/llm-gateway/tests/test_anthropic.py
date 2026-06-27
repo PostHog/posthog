@@ -1219,12 +1219,9 @@ class TestAnthropicCountTokensEndpoint:
         self,
         authenticated_client: TestClient,
     ) -> None:
-        """A `@cf/` model approximates token counts locally even with provider=anthropic.
-
-        The claude-runtime scout calls count_tokens with provider="anthropic"; CF has no
-        count_tokens endpoint, so route by model id and approximate rather than POST a `@cf/...`
-        model id to the real Anthropic count_tokens API (which would 404).
-        """
+        # The claude-runtime scout calls count_tokens with provider="anthropic"; CF has no
+        # count_tokens endpoint, so route a @cf/ model by id and approximate rather than POST a
+        # @cf/... id to the real Anthropic count_tokens API (which would 404).
         with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
             response = authenticated_client.post(
                 "/v1/messages/count_tokens",
