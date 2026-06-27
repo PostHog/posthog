@@ -161,7 +161,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             const hasBreakdown = datum.breakdown_value !== undefined && !!datum.breakdown_value
             if (hasBreakdown || datum.compare_label) {
                 const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
-                if (hasMultipleEvents && hasBreakdown) {
+                if (hasMultipleEvents && (hasBreakdown || datum.compare_label)) {
                     const seriesName =
                         (datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label
                     return (
