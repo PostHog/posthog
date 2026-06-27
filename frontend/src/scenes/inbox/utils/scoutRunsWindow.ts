@@ -358,7 +358,8 @@ export interface FleetSummary {
     emittedCount: number
     /** Completed / (completed + failed) over the window, or null when no finished runs. */
     successRate: number | null
-    /** Share of runs in the window that emitted at least one signal, or null when no runs. */
+    /** Share of runs in the window that produced output — a signal OR report-channel activity — or null
+     * when no runs. Mirrors the per-scout "Emitted" filter so the two surfaces agree. */
     emitRate: number | null
 }
 
@@ -378,7 +379,9 @@ export function computeFleetSummary(configs: SignalScoutConfig[], rollups: Map<s
         failedCount += rollup.failedCount
         runCount += rollup.runCount
         for (const run of rollup.runs) {
-            if ((run.emitted_count ?? 0) > 0) {
+            // Output = a weak finding OR report-channel activity, consistent with `runMatchesFilter('emitted')`
+            // so the fleet emit rate and the per-scout "Emitted" chip never disagree about the same runs.
+            if (runProducedOutput(run)) {
                 emittedRunCount += 1
             }
         }

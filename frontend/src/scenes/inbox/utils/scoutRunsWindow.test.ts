@@ -2,6 +2,7 @@ import { pluralize } from 'lib/utils/strings'
 
 import { SignalScoutRunSummary } from '../types'
 import {
+    computeFleetSummary,
     computeScoutRollups,
     deriveRunOutcome,
     runMatchesFilter,
@@ -91,6 +92,15 @@ describe('scoutRunsWindow report channel', () => {
             const rollup = computeScoutRollups(runs).get(skill)!
             expect([...rollup.authoredReportIds]).toEqual(['r-1'])
             expect([...rollup.editedReportIds].sort()).toEqual(['r-1', 'r-2'])
+        })
+    })
+
+    describe('computeFleetSummary', () => {
+        it('counts a report-only run toward emit rate, matching the Emitted filter', () => {
+            // Guards the divergence where the fleet emit rate counted only `emitted_count > 0` while the
+            // per-scout "Emitted" chip counts report-channel output too — the two surfaces must agree.
+            const rollups = computeScoutRollups([makeRun({ emitted_report_ids: ['r-1'] })])
+            expect(computeFleetSummary([], rollups).emitRate).toEqual(1)
         })
     })
 })
