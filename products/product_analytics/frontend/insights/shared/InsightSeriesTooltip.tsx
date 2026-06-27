@@ -16,14 +16,21 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
-import { IntervalType } from '~/types'
+import { ActionFilter, IntervalType } from '~/types'
 
-import type { TrendsSeriesMeta } from './trendsSeriesMeta'
+type InsightSeriesMetaBase = {
+    action?: ActionFilter
+    breakdown_value?: string | number | string[] | null
+    compare_label?: SeriesDatum['compare_label']
+    days?: string[]
+    order?: number
+    filter?: SeriesDatum['filter']
+}
 
-type TrendsTooltipEntry = TooltipContext<TrendsSeriesMeta>['seriesData'][number]
+type InsightSeriesTooltipEntry<Meta extends InsightSeriesMetaBase> = TooltipContext<Meta>['seriesData'][number]
 
-interface TrendsTooltipProps {
-    context: TooltipContext<TrendsSeriesMeta>
+export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
+    context: TooltipContext<Meta>
     timezone?: string
     interval?: IntervalType
     breakdownFilter?: BreakdownFilter
@@ -49,10 +56,10 @@ interface TrendsTooltipProps {
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
 }
 
-/** Renders hog-charts' DefaultTooltip for trends-family charts (trends, stickiness, lifecycle, pie)
- *  so they share the same tooltip surface as SQL insights. Maps the quill TooltipContext to the
- *  insight-flavored value/label/date formatting and wires the per-series persons-modal drill-down. */
-export function TrendsTooltip({
+/** Renders hog-charts' DefaultTooltip for insight series charts so they share the same tooltip
+ *  surface as SQL insights. Maps the quill TooltipContext to the insight-flavored value/label/date
+ *  formatting and wires the per-series persons-modal drill-down. */
+export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     context,
     timezone = 'UTC',
     interval,
@@ -69,7 +76,7 @@ export function TrendsTooltip({
     altTitle,
     renderCount: renderCountOverride,
     renderSeriesOverride,
-}: TrendsTooltipProps): React.ReactElement {
+}: InsightSeriesTooltipProps<Meta>): React.ReactElement {
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { weekStartDay } = useValues(teamLogic)
 
@@ -84,15 +91,15 @@ export function TrendsTooltip({
                 id: idx,
                 dataIndex: context.dataIndex,
                 datasetIndex: idx,
-                order: meta.order ?? idx,
+                order: (meta as InsightSeriesMetaBase).order ?? idx,
                 label: entry.series.label,
                 color: entry.color,
                 count: entry.value,
-                action: meta.action,
-                breakdown_value: meta.breakdown_value,
-                compare_label: meta.compare_label,
-                date_label: meta.days?.[context.dataIndex],
-                filter: meta.filter,
+                action: (meta as InsightSeriesMetaBase).action,
+                breakdown_value: (meta as InsightSeriesMetaBase).breakdown_value ?? undefined,
+                compare_label: (meta as InsightSeriesMetaBase).compare_label,
+                date_label: (meta as InsightSeriesMetaBase).days?.[context.dataIndex],
+                filter: (meta as InsightSeriesMetaBase).filter,
             })
         })
         return m
@@ -117,7 +124,7 @@ export function TrendsTooltip({
     )
 
     const valueFormatter = useCallback(
-        (value: number, entry: TrendsTooltipEntry): React.ReactNode => {
+        (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
             return formatAggregationValue(
                 datum?.action?.math_property,
@@ -137,7 +144,7 @@ export function TrendsTooltip({
     }, [datumByKey])
 
     const labelRenderer = useCallback(
-        (entry: TrendsTooltipEntry): React.ReactNode => {
+        (entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
             const datum = datumByKey.get(entry.series.key)
             if (!datum) {
                 return entry.series.label
@@ -176,7 +183,7 @@ export function TrendsTooltip({
     }, [context.seriesData, datumByKey, interval, dateRange, timezone, weekStartDay, altTitle])
 
     const onRowClickEntry = useCallback(
-        (entry: TrendsTooltipEntry): void => {
+        (entry: InsightSeriesTooltipEntry<Meta>): void => {
             const datum = datumByKey.get(entry.series.key)
             if (datum) {
                 onRowClick?.(datum)
@@ -186,7 +193,7 @@ export function TrendsTooltip({
     )
 
     return (
-        <DefaultTooltip<TrendsSeriesMeta>
+        <DefaultTooltip<Meta>
             {...context}
             sortedByValue
             showHeader={showHeader !== false}

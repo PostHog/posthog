@@ -8,6 +8,7 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 import { buildTheme } from 'lib/charts/utils/theme'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { roundToDecimal } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import type { SeriesDatum } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
 import { retentionGraphLogic } from 'scenes/retention/retentionGraphLogic'
@@ -18,6 +19,7 @@ import { groupsModel } from '~/models/groupsModel'
 import type { GoalLine } from '~/queries/schema/schema-general'
 import type { GroupTypeIndex, LabelGroupType } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import {
     buildRetentionBarChartConfig,
@@ -105,20 +107,46 @@ export function RetentionBarChart({ inSharedMode = false }: RetentionBarChartPro
         [shouldShowMeanPerBreakdown, isIntervalView, series, openModal]
     )
 
+    const tooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<RetentionSeriesMeta>) => (
-            <RetentionTooltip
-                context={ctx}
-                xAxisLabels={xAxisLabels}
-                period={period}
-                selectedInterval={selectedInterval}
-                shouldShowMeanPerBreakdown={shouldShowMeanPerBreakdown}
-                isPercentage={isPercentage}
-                groupTypeLabel={groupTypeLabel}
-                onRowClick={canClick ? onRowClick : undefined}
-            />
-        ),
+        (ctx: TooltipContext<RetentionSeriesMeta>) => {
+            if (tooltipEnabled) {
+                const altTitle =
+                    selectedInterval !== null
+                        ? `${period ?? ''} ${selectedInterval}`
+                        : (xAxisLabels[ctx.dataIndex] ?? ctx.label)
+                return (
+                    <InsightSeriesTooltip
+                        context={ctx}
+                        altTitle={altTitle}
+                        renderCount={(value) =>
+                            isPercentage ? `${roundToDecimal(value)}%` : `${roundToDecimal(value)}`
+                        }
+                        renderSeriesOverride={(datum) => {
+                            const showCohortPrefix = selectedInterval !== null || !shouldShowMeanPerBreakdown
+                            return showCohortPrefix ? `Cohort ${datum.label ?? ''}` : (datum.label ?? '')
+                        }}
+                        groupTypeLabel={groupTypeLabel}
+                        onRowClick={canClick ? onRowClick : undefined}
+                    />
+                )
+            }
+            return (
+                <RetentionTooltip
+                    context={ctx}
+                    xAxisLabels={xAxisLabels}
+                    period={period}
+                    selectedInterval={selectedInterval}
+                    shouldShowMeanPerBreakdown={shouldShowMeanPerBreakdown}
+                    isPercentage={isPercentage}
+                    groupTypeLabel={groupTypeLabel}
+                    onRowClick={canClick ? onRowClick : undefined}
+                />
+            )
+        },
         [
+            tooltipEnabled,
             xAxisLabels,
             period,
             selectedInterval,

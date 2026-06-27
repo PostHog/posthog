@@ -26,6 +26,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG, INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
@@ -33,7 +34,6 @@ import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLab
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { TrendsTooltipLegacy } from '../shared/TrendsTooltipLegacy'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
@@ -191,7 +191,11 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
             }
-            return tooltipEnabled ? <TrendsTooltip {...tooltipProps} /> : <TrendsTooltipLegacy {...tooltipProps} />
+            return tooltipEnabled ? (
+                <InsightSeriesTooltip {...tooltipProps} />
+            ) : (
+                <TrendsTooltipLegacy {...tooltipProps} />
+            )
         },
         [
             timezone,

@@ -31,6 +31,7 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
@@ -40,7 +41,6 @@ import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/han
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
@@ -376,7 +376,7 @@ export function TrendsBarChart({
                   }
                 : undefined
             return (
-                <TrendsTooltip
+                <InsightSeriesTooltip
                     context={tooltipCtx}
                     timezone={timezone}
                     interval={interval ?? undefined}

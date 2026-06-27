@@ -19,6 +19,7 @@ import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
@@ -28,7 +29,6 @@ import {
     type TrendsChartClickDeps,
 } from '../shared/handleTrendsChartClick'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './trendsLifecycleChartTransforms'
 
 interface TrendsLifecycleChartProps {
@@ -180,7 +180,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                   }
                 : undefined
             return (
-                <TrendsTooltip
+                <InsightSeriesTooltip
                     context={ctx}
                     timezone={timezone}
                     interval={interval ?? undefined}

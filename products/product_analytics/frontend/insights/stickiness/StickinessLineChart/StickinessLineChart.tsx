@@ -21,6 +21,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import { INSIGHT_TOOLTIP_CONFIG_LEGACY } from '../../shared/tooltipConfig'
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
@@ -29,7 +30,6 @@ import {
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
@@ -161,7 +161,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                   }
                 : undefined
             return (
-                <TrendsTooltip
+                <InsightSeriesTooltip
                     context={ctx}
                     timezone={timezone}
                     interval={interval ?? undefined}

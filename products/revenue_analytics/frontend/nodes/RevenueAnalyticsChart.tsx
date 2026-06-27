@@ -18,9 +18,9 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import type { GraphDataset } from '~/types'
 
+import { InsightSeriesTooltip } from 'products/product_analytics/frontend/insights/shared/InsightSeriesTooltip'
 import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 import type { TrendsSeriesMeta } from 'products/product_analytics/frontend/insights/trends/shared/trendsSeriesMeta'
-import { TrendsTooltip } from 'products/product_analytics/frontend/insights/trends/shared/TrendsTooltip'
 
 import { revenueAnalyticsLogic } from '../revenueAnalyticsLogic'
 import {
@@ -94,7 +94,7 @@ export function RevenueAnalyticsChart({
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
+            <InsightSeriesTooltip
                 context={ctx}
                 timezone={timezone}
                 interval={dateFilter.interval}
