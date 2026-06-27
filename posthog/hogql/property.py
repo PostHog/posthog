@@ -429,6 +429,18 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
     )
 
 
+def _looks_like_datetime_value(value: ValueT) -> bool:
+    """Whether a chronological-operator value should be compared as a DateTime.
+
+    Unlike the ``IS_DATE_*`` operators, ``GT``/``LT``/``GTE``/``LTE`` are also used
+    for numeric comparisons, so we only coerce both sides to DateTime when the value
+    is an ISO-8601-style date/datetime string (e.g. ``2026-06-18`` or
+    ``2026-06-18T20:59:05Z``). Numeric values (``100``, ``"3.14"``) stay untouched so
+    numeric comparisons keep working.
+    """
+    return isinstance(value, str) and bool(re.match(r"^\d{4}-\d{2}-\d{2}([T ]|$)", value))
+
+
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
@@ -569,6 +581,12 @@ def _expr_to_compare_op(
             right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
         )
     elif operator == PropertyOperator.LT:
+        if _looks_like_datetime_value(value):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Lt,
+                left=_force_datetime(expr),
+                right=_force_datetime(ast.Constant(value=value)),
+            )
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_BEFORE:
         assert isinstance(value, str)
@@ -578,6 +596,12 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.GT:
+        if _looks_like_datetime_value(value):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.Gt,
+                left=_force_datetime(expr),
+                right=_force_datetime(ast.Constant(value=value)),
+            )
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.IS_DATE_AFTER:
         assert isinstance(value, str)
@@ -587,8 +611,20 @@ def _expr_to_compare_op(
             right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
+        if _looks_like_datetime_value(value):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.LtEq,
+                left=_force_datetime(expr),
+                right=_force_datetime(ast.Constant(value=value)),
+            )
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.GTE or operator == PropertyOperator.MIN:
+        if _looks_like_datetime_value(value):
+            return ast.CompareOperation(
+                op=ast.CompareOperationOp.GtEq,
+                left=_force_datetime(expr),
+                right=_force_datetime(ast.Constant(value=value)),
+            )
         return ast.CompareOperation(op=ast.CompareOperationOp.GtEq, left=expr, right=ast.Constant(value=value))
     elif operator == PropertyOperator.BETWEEN:
         _validate_between_values(value, operator)

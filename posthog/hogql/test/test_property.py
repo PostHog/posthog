@@ -2022,3 +2022,25 @@ class TestPropertyDateOperatorsWithData(APIBaseTest):
 
         count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
         assert count == expected_count
+
+    @parameterized.expand(
+        [
+            # Events stored: u1 = 2026-03-19T10:00:00Z, u2 = 2026-03-19T18:00:00Z.
+            # Chronological operators on a DateTime property must coerce both sides through
+            # toDateTime — an ISO-8601 'Z' RHS would otherwise crash ClickHouse with a string
+            # conversion error against the toDateTime-wrapped LHS.
+            ("gt_iso_z", "2026-03-19T14:00:00Z", "gt", 1),
+            ("lt_iso_z", "2026-03-19T14:00:00Z", "lt", 1),
+            ("gte_iso_z", "2026-03-19T18:00:00Z", "gte", 1),
+            ("lte_iso_z", "2026-03-19T10:00:00Z", "lte", 1),
+            ("gt_mysql", "2026-03-19 14:00:00", "gt", 1),
+            ("lt_mysql", "2026-03-19 14:00:00", "lt", 1),
+            ("gt_date_only", "2026-03-18", "gt", 2),
+            ("lt_date_only", "2026-03-20", "lt", 2),
+        ]
+    )
+    def test_chronological_operator_on_datetime_event_property(
+        self, _name: str, value: str, operator: str, expected_count: int
+    ):
+        count = self._run({"type": "event", "key": "signup_dt", "value": value, "operator": operator})
+        assert count == expected_count
