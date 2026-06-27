@@ -411,6 +411,11 @@ services:
             BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
             HEATMAP_BROWSERLESS_URL: 'http://browserless:3000'
             HEATMAP_BROWSERLESS_TOKEN: ${BROWSERLESS_SECRET:-$POSTHOG_SECRET}
+            # The temporal worker runs personhog-mandatory workflows (e.g. person/team
+            # deletion), which raise at runtime if personhog is unreachable. Keep this in
+            # sync with the `worker` and `web` services.
+            PERSONHOG_ADDR: 'personhog-router:50052'
+            PERSONHOG_ENABLED: 'true'
             # AI provider keys for PostHog's AI features. Blank unless set in .env.
             ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
             OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -423,6 +428,7 @@ services:
             - seaweedfs
             - temporal
             - browserless
+            - personhog-router
 
     cyclotron-janitor:
         extends:
