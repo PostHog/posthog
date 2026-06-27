@@ -395,6 +395,14 @@ class SurveyQuestionValidationRuleSerializer(serializers.Serializer):
 
 
 class SurveyBaseQuestionSchemaSerializer(serializers.Serializer):
+    id = serializers.CharField(
+        required=False,
+        help_text=(
+            "Stable question identifier (UUID). When editing an existing question, send back its current id so "
+            "its responses (keyed by $survey_response_<id>) stay attached; omit it for new questions and the "
+            "server generates one."
+        ),
+    )
     type = serializers.ChoiceField(
         choices=["open", "link", "rating", "single_choice", "multiple_choice"],
         required=True,

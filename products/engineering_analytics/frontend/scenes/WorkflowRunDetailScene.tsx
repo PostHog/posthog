@@ -5,6 +5,7 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -106,7 +107,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                         </span>
                     </div>
 
-                    <div className="divide-y rounded-lg border bg-surface-primary">
+                    <LemonCard hoverEffect={false} className="divide-y p-0">
                         <DetailRow label="Status">
                             <span className="capitalize">{run.status || '—'}</span>
                         </DetailRow>
@@ -158,7 +159,7 @@ export function WorkflowRunDetailScene(): JSX.Element {
                                 <span className="text-secondary">—</span>
                             )}
                         </DetailRow>
-                    </div>
+                    </LemonCard>
 
                     <div className="flex flex-col gap-2">
                         <h3 className="mb-0">Jobs</h3>

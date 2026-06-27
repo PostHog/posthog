@@ -331,12 +331,15 @@ def _store_result(
     error_message: str | None,
     query_id: str | None = None,
 ) -> None:
+    # Upsert on the true unique key (experiment, metric_uuid, query_to); fingerprint goes in defaults so a row
+    # already occupying that key under a different fingerprint is updated in place, not inserted as a colliding
+    # duplicate. This heals rows written under the old per-run fingerprint scheme.
     ExperimentMetricResult.objects.update_or_create(
         experiment_id=experiment_id,
         metric_uuid=metric_uuid,
-        fingerprint=recalc_fp,
         query_to=query_to,
         defaults={
+            "fingerprint": recalc_fp,
             "query_from": query_from,
             "status": status,
             "result": result,
@@ -485,7 +488,19 @@ def _calculate_experiment_metric_for_recalculation_sync(
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
         )
-        recalc_fp = compute_recalc_fingerprint(config_fp, recalculation_id)
+        recalc_fp = compute_recalc_fingerprint(config_fp)
+
+        # Skip the query if this metric is already computed for this exact config and window; a config change
+        # changes the fingerprint, so a stale result won't match and recomputes.
+        already_computed = ExperimentMetricResult.objects.filter(
+            experiment_id=experiment_id,
+            metric_uuid=metric_uuid,
+            query_to=query_to_dt,
+            fingerprint=recalc_fp,
+            status=ExperimentMetricResult.Status.COMPLETED,
+        ).exists()
+        if already_computed:
+            return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
         # Deterministic per-metric-per-run id. ClickHouse stamps it into the query_id as
         # `{team_id}_{client_query_id}_{random}`, so the stored value is a greppable prefix for

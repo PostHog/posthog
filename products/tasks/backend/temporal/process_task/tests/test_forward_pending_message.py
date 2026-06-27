@@ -7,6 +7,8 @@ from unittest.mock import patch
 from django.apps import apps
 from django.test import TestCase
 
+from prometheus_client import REGISTRY
+
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -23,6 +25,16 @@ def _command_result(**kwargs):
     defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
     defaults.update(kwargs)
     return SimpleNamespace(**defaults)
+
+
+def _delivery_failed_sample(retryable: str) -> float:
+    return (
+        REGISTRY.get_sample_value(
+            "posthog_tasks_followup_delivery_failed_total",
+            {"origin_product": "slack", "retryable": retryable},
+        )
+        or 0.0
+    )
 
 
 class TestForwardPendingUserMessage(TestCase):
@@ -117,10 +129,12 @@ class TestForwardPendingUserMessage(TestCase):
         mock_send.return_value = _command_result(
             success=False, status_code=502, error="connection failed", retryable=True
         )
+        before = _delivery_failed_sample("true")
 
         forward_pending_user_message(str(run.id))
 
         assert mock_send.call_count == 2
+        assert _delivery_failed_sample("true") == before + 1
         run.refresh_from_db()
         assert run.state.get("pending_user_message") == "fix the tests"
 
@@ -134,10 +148,12 @@ class TestForwardPendingUserMessage(TestCase):
             }
         )
         mock_send.return_value = _command_result(success=False, status_code=401, error="Unauthorized", retryable=False)
+        before = _delivery_failed_sample("false")
 
         forward_pending_user_message(str(run.id))
 
         mock_send.assert_called_once()
+        assert _delivery_failed_sample("false") == before + 1
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
