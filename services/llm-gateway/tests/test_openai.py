@@ -505,6 +505,34 @@ class TestResponsesCloudflareRouting:
         mock_ensure_configured.assert_not_called()
         mock_make_call.assert_not_called()
 
+    @patch("llm_gateway.api.openai.make_cloudflare_responses_call")
+    @patch("llm_gateway.api.openai.ensure_cloudflare_configured")
+    def test_tools_rejected_for_cf_model(
+        self,
+        mock_ensure_configured: MagicMock,
+        mock_make_call: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        # The Responses->chat/completions bridge doesn't faithfully translate Responses-shaped
+        # tools, so CF's chat/completions endpoint would reject them. Reject up front instead of
+        # handing CF a request that fails the moment tools are advertised.
+        response = authenticated_client.post(
+            "/v1/responses",
+            json={
+                "model": "@cf/zai-org/glm-5.2",
+                "input": "Hello",
+                "tools": [{"type": "function", "function": {"name": "get_weather", "parameters": {}}}],
+            },
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "tools" in response.json()["error"]["message"]
+        # Rejected before any CF hand-off.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
 
 class TestUnsupportedModelRejection:
     """Gemini/Vertex models must be rejected before reaching litellm, which would

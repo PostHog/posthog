@@ -94,6 +94,23 @@ async def _handle_responses(
                     }
                 },
             )
+        if data.get("tools"):
+            # `tools` arrives as an extra field (ResponsesRequest allows extras). The
+            # Responses->chat/completions bridge doesn't faithfully translate Responses-shaped
+            # tools: Responses-only types (`shell`, `custom`) pass through unchanged and
+            # chat-completions-shaped function tools lose their name, so CF's chat/completions
+            # endpoint rejects the payload. Reject up front rather than hand CF a request that
+            # will fail once tools are advertised.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": {
+                        "message": "tools are not yet supported for Cloudflare models on the Responses API",
+                        "type": "invalid_request_error",
+                        "code": None,
+                    }
+                },
+            )
         ensure_cloudflare_model_allowed(body.model)
         settings = get_settings()
         api_base, api_key = ensure_cloudflare_configured(settings)
