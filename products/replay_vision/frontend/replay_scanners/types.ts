@@ -196,6 +196,14 @@ export type ScannerConfig =
 
 export type SamplingMode = 'focused' | 'balanced' | 'comprehensive'
 
+// Approximate fraction of matched sessions that survive each mode's surfacing-score filter.
+// Calibrated against an assumed normal distribution around 0.5 — refine once we have per-team data.
+export const SAMPLING_MODE_FILTER_RATIO: Record<SamplingMode, number> = {
+    focused: 0.25,
+    balanced: 0.65,
+    comprehensive: 1.0,
+}
+
 export const SAMPLING_MODE_OPTIONS: { value: SamplingMode; label: string; description: string }[] = [
     {
         value: 'focused',

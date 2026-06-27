@@ -355,6 +355,7 @@ class TestCreateObservationActivity:
                 period_start=dt.datetime.now(dt.UTC),
                 period_end=dt.datetime.now(dt.UTC),
                 projected_monthly_observations=0,
+                enabled_scanner_count=1,
             )
             result = create_observation_activity(
                 CreateObservationInputs(
