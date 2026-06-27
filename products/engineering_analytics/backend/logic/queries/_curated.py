@@ -164,10 +164,20 @@ class CuratedGitHubSource:
         query_type: str,
         placeholders: dict[str, ast.Expr] | None = None,
     ) -> HogQLQueryResponse:
-        """Parse + execute a curated HogQL query for this team."""
+        """Parse + execute a curated HogQL query for this team.
+
+        Runs with ``bypass_warehouse_access_control=True``. This is a trusted, first-party read whose
+        access is already enforced upstream: ``for_team`` resolves only the sources the requesting user
+        may read (``user_access_control``), and the query reads only those resolved tables. Without the
+        bypass, this userless execution fails closed once the ``hogql-warehouse-access-control`` flag is
+        on — HogQL denies every warehouse table to a no-user query, 500-ing every read surface — and the
+        userless system / Temporal / CLI read paths break too. The bypass keeps access enforced at the
+        resolver (the product's model) instead of at the HogQL table ACL, which can't see a user here.
+        """
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
                 team=self._team,
                 query_type=query_type,
+                bypass_warehouse_access_control=True,
             )

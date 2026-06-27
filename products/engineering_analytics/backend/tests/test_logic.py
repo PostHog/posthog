@@ -678,6 +678,29 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert cost.billable_minutes == pytest.approx(2.0)
         assert cost.estimated_cost_usd == pytest.approx(0.016)
 
+    def test_curated_read_survives_warehouse_access_control_flag(self) -> None:
+        # The hogql-warehouse-access-control flag makes HogQL deny warehouse tables to userless queries
+        # (fail-closed). The curated read path runs userless, so without bypass_warehouse_access_control
+        # every engineering-analytics surface 500s once the flag is on (incident: 2026-06-26 rollout to
+        # 100% for the org). With the bypass, a userless curated read still returns the team's own data.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9900, "CI", "sha90", "completed", "success", _ago(1), _ago(1))],
+        )
+
+        def _flag_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
+            return key == "hogql-warehouse-access-control"
+
+        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", side_effect=_flag_enabled):
+            items = api.list_workflow_health(team=self.team, date_from="-30d")
+        assert any(item.workflow_name == "CI" for item in items)
+
     def test_pull_request_list_author_filter(self) -> None:
         # The author filter scopes the list to one author's PRs (drives the author page).
         self._create_table(
