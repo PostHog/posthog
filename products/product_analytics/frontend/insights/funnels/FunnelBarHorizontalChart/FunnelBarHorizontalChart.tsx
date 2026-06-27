@@ -184,6 +184,7 @@ export function FunnelBarHorizontalChart({
                                         onSegmentClick={onSegmentClick}
                                         renderTooltip={renderTooltip}
                                         onError={handleChartError}
+                                        tooltipPinnable={tooltipEnabled}
                                     />
                                 )}
                                 <StepFooter
