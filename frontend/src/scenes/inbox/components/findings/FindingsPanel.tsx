@@ -91,15 +91,20 @@ export function FindingsPanel(): JSX.Element {
                     value={sortKey}
                     onChange={setSortKey}
                     options={SORT_OPTIONS}
-                    // Prefix so the dropdown reads "Sort: Newest" rather than a bare value.
-                    renderButtonContent={(label) => `Sort: ${label ?? ''}`}
+                    // `renderButtonContent` is handed the selected leaf, not its label string — read
+                    // `leaf.label` so the button reads "Sort: Newest" rather than "Sort: [object Object]".
+                    renderButtonContent={(leaf) => <>Sort: {leaf?.label ?? ''}</>}
                 />
             </div>
 
-            {hasLoadedOnce && emissionsPartialFailedRuns > 0 && (
-                // Partial fetch: some runs' findings loaded, others failed. Warn rather than silently
-                // show an incomplete "all findings" view a user might triage against.
-                <LemonBanner type="warning" action={{ children: 'Retry', onClick: () => loadEmissions() }}>
+            {hasLoadedOnce && (emissionsPartialFailedRuns > 0 || (emissionsLoadFailed && totalCount > 0)) && (
+                // Incomplete fetch: either some runs' findings loaded and others failed (partial), or a
+                // later poll/retry failed outright while a prior set is still on screen (stale). Either
+                // way the list a user triages against may be incomplete — warn rather than show it silently.
+                <LemonBanner
+                    type="warning"
+                    action={{ children: 'Retry', onClick: () => loadEmissions(), loading: emissionsLoading }}
+                >
                     Some findings couldn't be loaded, so this list may be incomplete.
                 </LemonBanner>
             )}
