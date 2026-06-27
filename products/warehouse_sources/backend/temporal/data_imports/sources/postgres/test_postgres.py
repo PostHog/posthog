@@ -1040,7 +1040,8 @@ class TestIsConnectionDroppedError:
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),
             # A genuine XX000 internal error that isn't the Supavisor pooler drop must stay
-            # non-recoverable — the InternalError_ match is scoped to the "(EDBHANDLEREXITED)" code.
+            # non-recoverable — the InternalError_ match is scoped to the known pooler codes
+            # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
         ],
     )
