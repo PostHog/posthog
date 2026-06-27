@@ -414,6 +414,63 @@ const MCPHarnessBreakdownQuery = z.object({
         .optional(),
 })
 
+const MCPToolStatsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolStatsQuery').default('MCPToolStatsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolDailyStatsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolDailyStatsQuery').default('MCPToolDailyStatsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolFailuresQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolFailuresQuery').default('MCPToolFailuresQuery'),
+    toolName: z.string().describe('The raw $mcp_tool_name to scope $exception events to.'),
+})
+
+const MCPToolTopUsersQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolTopUsersQuery').default('MCPToolTopUsersQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolNeighborsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolNeighborsQuery').default('MCPToolNeighborsQuery'),
+    neighborDirection: z
+        .enum(['before', 'after'])
+        .describe('Whether to count tools called immediately before or after the target tool.'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolSampleIntentsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolSampleIntentsQuery').default('MCPToolSampleIntentsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
+const MCPToolDescriptionsQuery = z.object({
+    dateRange: DateRange.optional(),
+    kind: z.literal('MCPToolDescriptionsQuery').default('MCPToolDescriptionsQuery'),
+    toolName: z
+        .string()
+        .describe('The effective tool name to scope to (matched against the single-exec-resolved tool name).'),
+})
+
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'mcp-analytics-intent-clusters-recompute': mcpAnalyticsIntentClustersRecompute,
     'mcp-analytics-intent-clusters-retrieve': mcpAnalyticsIntentClustersRetrieve,
@@ -424,5 +481,40 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
         name: 'query-mcp-harness-breakdown',
         schema: MCPHarnessBreakdownQuery,
         kind: 'MCPHarnessBreakdownQuery',
+    }),
+    'query-mcp-tool-stats': createQueryWrapper({
+        name: 'query-mcp-tool-stats',
+        schema: MCPToolStatsQuery,
+        kind: 'MCPToolStatsQuery',
+    }),
+    'query-mcp-tool-daily-stats': createQueryWrapper({
+        name: 'query-mcp-tool-daily-stats',
+        schema: MCPToolDailyStatsQuery,
+        kind: 'MCPToolDailyStatsQuery',
+    }),
+    'query-mcp-tool-failures': createQueryWrapper({
+        name: 'query-mcp-tool-failures',
+        schema: MCPToolFailuresQuery,
+        kind: 'MCPToolFailuresQuery',
+    }),
+    'query-mcp-tool-top-users': createQueryWrapper({
+        name: 'query-mcp-tool-top-users',
+        schema: MCPToolTopUsersQuery,
+        kind: 'MCPToolTopUsersQuery',
+    }),
+    'query-mcp-tool-neighbors': createQueryWrapper({
+        name: 'query-mcp-tool-neighbors',
+        schema: MCPToolNeighborsQuery,
+        kind: 'MCPToolNeighborsQuery',
+    }),
+    'query-mcp-tool-sample-intents': createQueryWrapper({
+        name: 'query-mcp-tool-sample-intents',
+        schema: MCPToolSampleIntentsQuery,
+        kind: 'MCPToolSampleIntentsQuery',
+    }),
+    'query-mcp-tool-descriptions': createQueryWrapper({
+        name: 'query-mcp-tool-descriptions',
+        schema: MCPToolDescriptionsQuery,
+        kind: 'MCPToolDescriptionsQuery',
     }),
 }
