@@ -548,14 +548,10 @@ class TestAnthropicMessagesEndpoint:
         authenticated_client: TestClient,
         provider_mock_response: dict,
     ) -> None:
-        """A `@cf/` model routes to CF by id even when the provider header is anthropic (or absent).
-
-        This is the real scout case: the agent harness derives the provider header from the runtime
-        (`claude`->anthropic) and never sends "cloudflare", so a claude-runtime scout on GLM arrives
-        here as provider="anthropic". Without id-based routing it would hit the real Anthropic API
-        with a `@cf/...` model and 404. Tools are forwarded — the Anthropic->chat/completions adapter
-        translates them, unlike the Responses path.
-        """
+        # Real scout case: the harness derives the provider header from the runtime (claude->anthropic)
+        # and never sends "cloudflare", so a claude-runtime scout on GLM arrives as provider="anthropic".
+        # Without id-based routing it would hit the real Anthropic API with a @cf/... model and 404.
+        # Tools are forwarded — the Anthropic->chat/completions adapter translates them (unlike Responses).
         mock_response = MagicMock()
         mock_response.model_dump = MagicMock(return_value=provider_mock_response)
 

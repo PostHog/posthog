@@ -3,6 +3,9 @@ from unittest.mock import AsyncMock, patch
 import litellm
 import pytest
 from fastapi import HTTPException
+from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
+    LiteLLMMessagesToCompletionTransformationHandler,
+)
 from litellm.types.utils import ModelResponse
 
 from llm_gateway.cloudflare import (
@@ -57,11 +60,7 @@ def test_ensure_cloudflare_model_allowed_rejects_unpriced_model(model: str) -> N
 
 
 def test_litellm_anthropic_messages_adapter_contract() -> None:
-    """Fails in CI if a litellm bump renames the experimental symbol the CF anthropic route imports."""
-    from litellm.llms.anthropic.experimental_pass_through.adapters.handler import (
-        LiteLLMMessagesToCompletionTransformationHandler,
-    )
-
+    # Fails in CI if a litellm bump renames the experimental symbol the CF anthropic route imports.
     assert callable(LiteLLMMessagesToCompletionTransformationHandler.async_anthropic_messages_handler)
 
 
