@@ -83,6 +83,11 @@ surfaced, defeating the dedupe it was meant to do.
 Good: `dedupe:error_tracking:019de34e`, `pattern:apm:cursor`.
 Bad: `dedupe:error_tracking:019de34e-2026-06-09`, `pattern:apm:scan-2026-06-09-0400`.
 
+Write the `content` as **Markdown** — headings, bullet lists, `inline code` for
+ids/keys, links. Humans read these entries directly, so structured Markdown is far
+easier to skim than a wall of prose; it costs you nothing and reads verbatim into
+future prompts just the same.
+
 # Recency lens
 
 Default to recent windows (~last 72h) when querying — fresh evidence is usually

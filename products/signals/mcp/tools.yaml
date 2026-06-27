@@ -566,8 +566,10 @@ tools:
             Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so
             this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking,
             not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and
-            defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Optionally pass
-            `run_id` to record which run wrote it.
+            defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content`
+            as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline
+            code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run
+            wrote it.
     signals-scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
