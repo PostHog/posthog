@@ -233,6 +233,21 @@ def _is_daily_quota_error(response: requests.Response) -> bool:
     return any(e.get("reason") in DAILY_QUOTA_REASONS for e in errors)
 
 
+def _is_transient_server_error(response: requests.Response) -> bool:
+    """Whether a failed response is a transient Google-side 5xx worth retrying inline.
+
+    A 500/503 from `searchAnalytics/query` is a temporary Google outage, not a
+    client problem — back off and retry rather than letting the HTTPError bubble
+    up into error tracking and restart the whole activity.
+    """
+    return 500 <= response.status_code < 600
+
+
+def _is_retryable_error(response: requests.Response) -> bool:
+    """Whether a failed response should be retried inline with backoff."""
+    return _is_quota_error(response) or _is_transient_server_error(response)
+
+
 def _quota_backoff_seconds(response: requests.Response, attempt: int) -> float:
     """Seconds to wait before retrying a quota error: honor `Retry-After`, else exponential."""
     retry_after = response.headers.get("Retry-After")
@@ -283,22 +298,29 @@ def _query_search_analytics(
                 f"Search Analytics daily quota for '{site_url}' exhausted; retrying at the activity level"
             )
 
-        if not _is_quota_error(response):
-            # Permission / other errors are fatal — let the HTTPError bubble up so
+        if not _is_retryable_error(response):
+            # Permission / other client errors are fatal — let the HTTPError bubble up so
             # `get_non_retryable_errors` can match "403 Client Error" / "401 Client Error".
             response.raise_for_status()
 
         if attempt == QUOTA_MAX_RETRIES:
             raise GoogleSearchConsoleQuotaExceededError(
-                f"Search Analytics quota for '{site_url}' still exhausted after {QUOTA_MAX_RETRIES} retries"
+                f"Search Analytics request for '{site_url}' still failing after {QUOTA_MAX_RETRIES} retries "
+                f"(last status {response.status_code})"
             )
 
         wait = _quota_backoff_seconds(response, attempt)
-        logger.warning("GSC quota exceeded, backing off", site_url=site_url, attempt=attempt, wait_seconds=wait)
+        logger.warning(
+            "GSC searchAnalytics.query transient error, backing off",
+            site_url=site_url,
+            status_code=response.status_code,
+            attempt=attempt,
+            wait_seconds=wait,
+        )
         time.sleep(wait)
 
     # Unreachable: the loop either returns, raises for status, or raises the quota error.
-    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics quota for '{site_url}' exhausted")
+    raise GoogleSearchConsoleQuotaExceededError(f"Search Analytics request for '{site_url}' exhausted retries")
 
 
 def _row_to_dict(row: dict[str, Any], dimensions: list[str], iter_date: dt.date | None = None) -> dict[str, Any]:
