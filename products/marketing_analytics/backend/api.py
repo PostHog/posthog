@@ -710,7 +710,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
             query.limit = ast.Constant(value=10)
 
-            result = execute_hogql_query(query, self.team)
+            result = execute_hogql_query(query, self.team, user=request.user)
 
             return Response(
                 {
