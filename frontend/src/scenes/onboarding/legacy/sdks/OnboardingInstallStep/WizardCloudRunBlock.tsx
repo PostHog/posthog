@@ -81,29 +81,32 @@ export function WizardCloudRunBlock({
                     Connect GitHub
                 </LemonButton>
             ) : (
-                <div className={`flex flex-col gap-2 ${hideHog ? 'items-center' : ''}`}>
-                    <div className="flex items-center gap-1.5 text-xs text-muted">
+                <div className="flex w-full flex-col gap-2">
+                    <div className={`flex items-center gap-1.5 text-xs text-muted ${hideHog ? 'justify-center' : ''}`}>
                         <IconCheckCircle className="text-success" />
                         <span>
                             Connected{githubIntegration.display_name ? ` as ${githubIntegration.display_name}` : ''}
                         </span>
                     </div>
-                    <GitHubRepositoryPicker
-                        integrationId={githubIntegration.id}
-                        value={selectedRepository ?? ''}
-                        onChange={(repository) => setSelectedRepository(repository)}
-                    />
-                    <LemonButton
-                        type="primary"
-                        icon={<IconPullRequest />}
-                        onClick={() => startCloudRun()}
-                        loading={cloudRunStatus === 'submitting'}
-                        disabledReason={selectedRepository ? undefined : 'Pick a repository first'}
-                        data-attr="wizard-cloud-run-open-pr"
-                        className={hideHog ? 'self-center' : 'self-start'}
-                    >
-                        Open my pull request
-                    </LemonButton>
+                    <div className="flex items-center gap-2">
+                        <div className="flex-1">
+                            <GitHubRepositoryPicker
+                                integrationId={githubIntegration.id}
+                                value={selectedRepository ?? ''}
+                                onChange={(repository) => setSelectedRepository(repository)}
+                            />
+                        </div>
+                        <LemonButton
+                            type="primary"
+                            icon={<IconPullRequest />}
+                            onClick={() => startCloudRun()}
+                            loading={cloudRunStatus === 'submitting'}
+                            disabledReason={selectedRepository ? undefined : 'Pick a repository first'}
+                            data-attr="wizard-cloud-run-open-pr"
+                        >
+                            Open my pull request
+                        </LemonButton>
+                    </div>
                 </div>
             )}
         </WizardModeShell>
