@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     _initial_start_date,
     _is_daily_quota_error,
     _is_quota_error,
+    _is_server_error,
     _iter_dates,
     _query_search_analytics,
     _quota_backoff_seconds,
@@ -350,6 +351,23 @@ def test_is_daily_quota_error(response, expected):
     assert _is_daily_quota_error(response) is expected
 
 
+@pytest.mark.parametrize(
+    "response,expected",
+    [
+        (_fake_response(500), True),
+        (_fake_response(502), True),
+        (_fake_response(503), True),
+        (_fake_response(504), True),
+        (_fake_response(429), False),
+        (_fake_response(403, _QUOTA_BODY), False),
+        (_fake_response(403, _PERMISSION_BODY), False),
+        (_fake_response(200, {"rows": []}), False),
+    ],
+)
+def test_is_server_error(response, expected):
+    assert _is_server_error(response) is expected
+
+
 def test_quota_backoff_prefers_retry_after_header():
     resp = _fake_response(403, _QUOTA_BODY, headers={"Retry-After": "30"})
     assert _quota_backoff_seconds(resp, attempt=0) == 30.0
@@ -417,6 +435,38 @@ def test_query_permission_error_is_not_retried(monkeypatch):
 
     # Fatal on the first response — no retries.
     assert session.post.call_count == 1
+
+
+def test_query_retries_server_error_then_succeeds(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        _fake_response(500),
+        _fake_response(503),
+        _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
+    ]
+
+    rows = _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert rows == [{"keys": ["2026-04-15"], "clicks": 1}]
+    assert session.post.call_count == 3
+
+
+def test_query_server_error_bubbles_http_error_after_max_retries(monkeypatch):
+    monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(500)
+
+    # A persistent 5xx exhausts the inline budget and surfaces the real HTTPError (retryable
+    # at the activity level), not the quota error.
+    with pytest.raises(requests.HTTPError):
+        _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
 def test_throttle_spaces_requests_per_site(monkeypatch):
