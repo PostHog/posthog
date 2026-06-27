@@ -150,12 +150,13 @@ class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
     @pytest.mark.xfail(
         strict=True,
         reason="CuratedGitHubSource.run calls execute_hogql_query with no principal, so the flag-on "
-        "build strips the GitHub tables. Remove this marker once run forwards a principal (request "
-        "user, user_access_control, or bypass_warehouse_access_control) into execute_hogql_query.",
+        "build strips the GitHub tables. Remove this marker once run forwards a working principal "
+        "(a request user -- on its own or carried by a user_access_control -- or "
+        "bypass_warehouse_access_control) into execute_hogql_query.",
     )
     def test_curated_run_keeps_github_warehouse_tables_queryable(self) -> None:
-        # An allowed principal: org admin short-circuits the warehouse ACL, so whichever of user /
-        # user_access_control the fix forwards resolves to "allowed" rather than a coincidental default.
+        # An allowed principal: org admin short-circuits the warehouse ACL, so a forwarded user (or
+        # the user behind a forwarded UAC) resolves to "allowed" rather than a coincidental default.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         user_access_control = UserAccessControl(user=self.user, team=self.team)
@@ -185,12 +186,17 @@ class TestEngineeringAnalyticsWarehouseAclRegression(BaseTest):
                 "SELECT 1", query_type="engineering_analytics.test"
             )
 
-        # Rebuild the schema with whatever principal run() supplied. Today it supplies none -> userless
-        # -> flag-on build fails closed -> the GitHub tables are stripped.
+        # Rebuild the schema with whatever principal run() supplied. Database.create_for drops a UAC
+        # passed with user=None (a userless build can't honor it -- see _compute_system_table_access_
+        # decision), so derive the effective user from a forwarded UAC too; that's the only way a
+        # UAC-forwarding fix actually lifts the deny. Today run() forwards nothing -> userless ->
+        # flag-on build fails closed -> the GitHub tables are stripped.
+        forwarded_uac = captured.get("user_access_control")
+        effective_user = captured.get("user") or (forwarded_uac._user if forwarded_uac is not None else None)
         database = Database.create_for(
             team=self.team,
-            user=captured.get("user"),
-            user_access_control=captured.get("user_access_control"),
+            user=effective_user,
+            user_access_control=forwarded_uac,
             bypass_warehouse_access_control=captured.get("bypass_warehouse_access_control", False),
         )
 
