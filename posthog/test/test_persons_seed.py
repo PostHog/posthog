@@ -14,7 +14,7 @@ from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, up
 # test cleans up its own rows to avoid leaking into the shared persons test database.
 SEED_TEST_TEAM_ID = 2_000_000_001
 
-pytestmark = pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
+pytestmark = pytest.mark.django_db()
 
 
 def _cleanup(conn: psycopg.Connection[Any]) -> None:

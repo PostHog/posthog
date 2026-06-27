@@ -69,3 +69,30 @@ def _activate_personhog_fake(request):
 
     with activate_personhog_fake():
         yield
+
+
+@pytest.fixture(autouse=True)
+def _clean_persons_db_for_direct_tests(request):
+    """Truncate the persons DB before each persons_db_direct test.
+
+    These tests seed the persons DB through off-Django psycopg (posthog.test.persons), which
+    commits outside Django's per-test transaction and so is NOT rolled back at teardown. Because
+    team ids reset every test (the main DB rolls back), leaked rows from a prior test would bleed
+    into the next one's reused team id. Truncating before the test (when no Django persons
+    transaction holds locks yet) clears that carryover without risking a TRUNCATE lock hang.
+    """
+    if not request.node.get_closest_marker("persons_db_direct"):
+        yield
+        return
+
+    from posthog.persons_db import persons_db_connection  # noqa: PLC0415
+
+    with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename NOT LIKE 'pg_%' AND tablename NOT LIKE '_sqlx_%' AND tablename != '_persons_migrations'"
+        )
+        tables = [row[0] for row in cursor.fetchall()]
+        if tables:
+            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+    yield

@@ -662,8 +662,7 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
-    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
-    databases = {"default", "persons_db_writer", "persons_db_reader"}
+    databases = {"default"}
 
     # Test data definition stubs
     organization: Organization = cast(Organization, None)
@@ -895,25 +894,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                # Manually truncate persons database tables
-                # Can't use Django's flush because it emits post_migrate signals that try to
-                # create contenttypes/permissions tables that don't exist in persons database
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            else:
-                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
@@ -932,23 +913,13 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
-                if db_name in ("persons_db_writer", "persons_db_reader"):
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                else:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE 'django_%'
-                                   """)
+                cursor.execute("""
+                               SELECT tablename
+                               FROM pg_tables
+                               WHERE schemaname = 'public'
+                                 AND tablename NOT LIKE 'pg_%'
+                                 AND tablename NOT LIKE 'django_%'
+                               """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")

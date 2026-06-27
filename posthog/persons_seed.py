@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import uuid as uuid_lib
 import dataclasses
+from datetime import datetime
 from typing import Any
 
 from django.conf import settings
@@ -37,18 +38,37 @@ def insert_seed_person(
     properties: dict[str, Any],
     is_identified: bool = False,
     uuid: str | uuid_lib.UUID | None = None,
+    version: int | None = None,
+    created_at: datetime | None = None,
+    last_seen_at: datetime | None = None,
+    properties_last_updated_at: dict[str, Any] | None = None,
+    properties_last_operation: dict[str, Any] | None = None,
 ) -> int:
     """Insert one person row and return its database id.
 
     Pass ``uuid`` when the caller needs to reference the person downstream (e.g. to
-    mirror it into ClickHouse); otherwise a fresh ``UUIDT`` is generated.
+    mirror it into ClickHouse); otherwise a fresh ``UUIDT`` is generated. ``created_at``
+    defaults to ``now()`` (matching the model's ``auto_now_add``); ``version``,
+    ``last_seen_at`` and the ``properties_last_*`` maps default to NULL, mirroring
+    ``Person.objects.create`` with no override.
     """
     with conn.cursor() as cursor:
         cursor.execute(
             f"INSERT INTO {settings.PERSON_TABLE_NAME} "
-            "(created_at, properties, is_identified, uuid, team_id) "
-            "VALUES (now(), %s, %s, %s, %s) RETURNING id",
-            (Jsonb(properties), is_identified, uuid or UUIDT(), team_id),
+            "(created_at, properties, is_identified, uuid, team_id, version, last_seen_at, "
+            "properties_last_updated_at, properties_last_operation) "
+            "VALUES (COALESCE(%s, now()), %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                created_at,
+                Jsonb(properties),
+                is_identified,
+                uuid or UUIDT(),
+                team_id,
+                version,
+                last_seen_at,
+                Jsonb(properties_last_updated_at) if properties_last_updated_at is not None else None,
+                Jsonb(properties_last_operation) if properties_last_operation is not None else None,
+            ),
         )
         row = cursor.fetchone()
         assert row is not None  # RETURNING always yields a row on a successful insert
@@ -61,12 +81,17 @@ def insert_seed_distinct_id(
     team_id: int,
     person_id: int,
     distinct_id: str,
+    version: int | None = 0,
 ) -> None:
-    """Insert one distinct-id row linking ``distinct_id`` to ``person_id``."""
+    """Insert one distinct-id row linking ``distinct_id`` to ``person_id``.
+
+    ``version`` defaults to 0 but accepts ``None`` to write a NULL version (the column is
+    nullable), mirroring ``PersonDistinctId.objects.create(version=None)``.
+    """
     with conn.cursor() as cursor:
         cursor.execute(
-            f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id) VALUES (%s, %s, %s)",
-            (distinct_id, person_id, team_id),
+            f"INSERT INTO {PERSON_DISTINCT_ID_TABLE} (distinct_id, person_id, team_id, version) VALUES (%s, %s, %s, %s)",
+            (distinct_id, person_id, team_id, version),
         )
 
 
@@ -78,15 +103,60 @@ def insert_seed_group(
     group_type_index: int,
     group_properties: dict[str, Any],
     version: int = 0,
-) -> None:
-    """Insert one group row. ``created_at``/``version`` are NOT NULL with no DB default."""
+    created_at: datetime | None = None,
+) -> int:
+    """Insert one group row and return its id. ``created_at`` defaults to ``now()``; ``version`` is NOT NULL."""
     with conn.cursor() as cursor:
         cursor.execute(
             "INSERT INTO posthog_group "
             "(team_id, group_key, group_type_index, group_properties, created_at, version) "
-            "VALUES (%s, %s, %s, %s, now(), %s)",
-            (team_id, group_key, group_type_index, Jsonb(group_properties), version),
+            "VALUES (%s, %s, %s, %s, COALESCE(%s, now()), %s) RETURNING id",
+            (team_id, group_key, group_type_index, Jsonb(group_properties), created_at, version),
         )
+        row = cursor.fetchone()
+        assert row is not None  # RETURNING always yields a row on a successful insert
+        return row[0]
+
+
+def insert_seed_group_type_mapping(
+    conn: psycopg.Connection[Any],
+    *,
+    project_id: int,
+    team_id: int | None,
+    group_type: str,
+    group_type_index: int,
+    name_singular: str | None = None,
+    name_plural: str | None = None,
+    default_columns: list[str] | None = None,
+    detail_dashboard_id: int | None = None,
+    created_at: datetime | None = None,
+) -> int:
+    """Insert one group-type-mapping row and return its id.
+
+    ``created_at`` is written as given (``None`` stays NULL — the model's custom ``save()`` stamps
+    created_at only on insert, which this bypasses); callers pass ``now()`` for the normal case.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(
+            "INSERT INTO posthog_grouptypemapping "
+            "(project_id, team_id, group_type, group_type_index, name_singular, name_plural, "
+            "default_columns, detail_dashboard_id, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING id",
+            (
+                project_id,
+                team_id,
+                group_type,
+                group_type_index,
+                name_singular,
+                name_plural,
+                default_columns,
+                detail_dashboard_id,
+                created_at,
+            ),
+        )
+        row = cursor.fetchone()
+        assert row is not None  # RETURNING always yields a row on a successful insert
+        return row[0]
 
 
 def update_seed_person(

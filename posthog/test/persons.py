@@ -28,7 +28,13 @@ from posthog.models.person.util import (
     create_person_distinct_id as _ch_create_person_distinct_id,
 )
 from posthog.models.utils import UUIDT
-from posthog.person_db_router import persons_orm_blocked
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import (
+    insert_seed_distinct_id,
+    insert_seed_group,
+    insert_seed_group_type_mapping,
+    insert_seed_person,
+)
 
 if TYPE_CHECKING:
     import uuid
@@ -285,8 +291,8 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
 
     dids = [str(d) for d in (distinct_ids or [])]
 
-    if not persons_orm_blocked():
-        return _create_person_in_orm(create_kwargs, dids)
+    if _get_active_fake() is None:
+        return _create_person_in_persons_db(create_kwargs, dids)
 
     person = _build_person(create_kwargs)
     person._distinct_ids = list(dids)
@@ -295,13 +301,34 @@ def create_person(*, team: Team | None = None, distinct_ids: list[str] | None = 
     return person
 
 
-def _create_person_in_orm(create_kwargs: dict[str, Any], dids: list[str]) -> Person:
-    """Write a real persons-DB person + distinct ids (for fake-off / excluded tests)."""
-    if not create_kwargs.get("uuid"):
-        create_kwargs["uuid"] = UUIDT()
-    person = Person.objects.create(**create_kwargs)
-    for distinct_id in dids:
-        PersonDistinctId.objects.create(team_id=person.team_id, person=person, distinct_id=distinct_id, version=0)
+def _create_person_in_persons_db(create_kwargs: dict[str, Any], dids: list[str]) -> Person:
+    """Write a real persons-DB person + distinct ids via off-Django psycopg (fake-off / excluded tests).
+
+    Builds the Person instance to resolve the same field defaults Person.objects.create would
+    (uuid, created_at, version), then inserts directly so this path needs no Django persons connection.
+    """
+    person = Person(**create_kwargs)
+    if not person.uuid:
+        person.uuid = UUIDT()
+    person.created_at = person.created_at or now()
+
+    with persons_db_connection(writer=True, autocommit=True) as conn:
+        person.id = insert_seed_person(
+            conn,
+            team_id=person.team_id,
+            properties=person.properties or {},
+            is_identified=person.is_identified,
+            uuid=person.uuid,
+            version=person.version,
+            created_at=person.created_at,
+            last_seen_at=person.last_seen_at,
+            properties_last_updated_at=person.properties_last_updated_at,
+            properties_last_operation=person.properties_last_operation,
+        )
+        for distinct_id in dids:
+            insert_seed_distinct_id(conn, team_id=person.team_id, person_id=person.id, distinct_id=distinct_id)
+
+    person._state.adding = False
     person._distinct_ids = list(dids)
     _ch_sync_person(person, dids)
     return person
@@ -359,10 +386,12 @@ def add_distinct_id(*, person: Person, distinct_id: str, version: int = 0) -> Pe
     if existing_distinct_ids is not None and distinct_id not in existing_distinct_ids:
         existing_distinct_ids.append(distinct_id)
 
-    if not persons_orm_blocked():
-        return PersonDistinctId.objects.create(
-            team_id=person.team_id, person=person, distinct_id=str(distinct_id), version=version
-        )
+    if _get_active_fake() is None:
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            insert_seed_distinct_id(
+                conn, team_id=person.team_id, person_id=person.pk, distinct_id=str(distinct_id), version=version
+            )
+        return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=str(distinct_id), version=version)
 
     _seed_distinct_id_into_fake(person.team_id, person.pk, distinct_id, version=version)
     return PersonDistinctId(team_id=person.team_id, person=person, distinct_id=distinct_id, version=version)
@@ -447,8 +476,22 @@ def create_group(*, team: Team | None = None, group_type_index: int, group_key: 
     if team is not None:
         create_kwargs["team"] = team
 
-    if not persons_orm_blocked():
-        return Group.objects.create(**create_kwargs)
+    if _get_active_fake() is None:
+        group = Group(**create_kwargs)
+        group.created_at = group.created_at or now()
+        group.version = group.version or 0
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            group.id = insert_seed_group(
+                conn,
+                team_id=group.team_id,
+                group_key=group.group_key,
+                group_type_index=group.group_type_index,
+                group_properties=group.group_properties or {},
+                version=group.version,
+                created_at=group.created_at,
+            )
+        group._state.adding = False
+        return group
 
     group = Group(**create_kwargs)
     group.id = _next_synthetic_pk()
@@ -477,8 +520,25 @@ def create_group_type_mapping(*, team: Team | None = None, **kwargs: Any) -> Gro
     if team is not None:
         kwargs["team"] = team
 
-    if not persons_orm_blocked():
-        return GroupTypeMapping.objects.create(**kwargs)
+    if _get_active_fake() is None:
+        mapping = GroupTypeMapping(**kwargs)
+        if mapping.created_at is None:
+            mapping.created_at = now()
+        with persons_db_connection(writer=True, autocommit=True) as conn:
+            mapping.id = insert_seed_group_type_mapping(
+                conn,
+                project_id=mapping.project_id,
+                team_id=mapping.team_id,
+                group_type=mapping.group_type,
+                group_type_index=mapping.group_type_index,
+                name_singular=mapping.name_singular,
+                name_plural=mapping.name_plural,
+                default_columns=list(mapping.default_columns) if mapping.default_columns is not None else None,
+                detail_dashboard_id=mapping.detail_dashboard_id,
+                created_at=mapping.created_at,
+            )
+        mapping._state.adding = False
+        return mapping
 
     mapping = GroupTypeMapping(**kwargs)
     mapping.id = _next_synthetic_pk()
