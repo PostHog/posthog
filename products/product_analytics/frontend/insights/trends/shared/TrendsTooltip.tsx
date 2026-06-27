@@ -11,7 +11,7 @@ import {
     getTooltipTitle,
     SeriesDatum,
 } from 'scenes/insights/InsightTooltip/insightTooltipUtils'
-import { formatAggregationValue } from 'scenes/insights/utils'
+import { formatAggregationValue, getDisplayNameFromEntityFilter } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
@@ -149,7 +149,8 @@ export function TrendsTooltip({
             if (hasBreakdown || datum.compare_label) {
                 const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
                 if (hasMultipleEvents && hasBreakdown) {
-                    const seriesName = datum.action?.custom_name || datum.action?.name || datum.label
+                    const seriesName =
+                        (datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label
                     return (
                         <>
                             <span className="opacity-50 mr-1 shrink-0">{seriesName} ·</span>
