@@ -4,11 +4,11 @@ import type { Context, ToolBase } from '@/tools/types'
 import { invokeMcpTool } from './invokeTool'
 
 // Flag that routes schema discovery through `system.information_schema.*` SQL. When it
-// is on, the discovery instructions steer the agent toward `execute-sql` against
-// `system.information_schema.*` instead of naming this tool. Prompt-only for now: the
-// tool stays registered, advertised, and callable whether the flag is on or off — the
-// flag changes the guidance, not the tool catalog. Rides the same batched evaluation as
-// `RENDER_UI_FEATURE_FLAG`.
+// is on, two things happen: the discovery instructions steer the agent toward
+// `execute-sql` against `system.information_schema.*`, and this tool is gated OUT of the
+// catalog (via `feature_flag_behavior: "disable"` in tool-definitions.json) so the SQL
+// path is the only one. An agent that still calls it by name gets the redirect in
+// `DEPRECATED_TOOL_REDIRECTS`. Off-flag, the tool stays registered and callable.
 //
 // TODO: once `mcp-sql-schema-discovery` is rolled out to 100%, delete this tool
 // entirely — the `system.information_schema.*` SQL path fully replaces it — and retire

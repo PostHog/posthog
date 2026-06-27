@@ -627,6 +627,8 @@
         "summary": "Read core data warehouse schemas and table lists.",
         "title": "Read data warehouse schema",
         "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
+        "feature_flag": "mcp-sql-schema-discovery",
+        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
