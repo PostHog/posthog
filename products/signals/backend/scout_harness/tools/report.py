@@ -261,16 +261,16 @@ def _resolve_reviewer_logins(
         if parsed_uuids:
             by_uuid = get_org_member_github_logins_by_user_uuid(team_id, parsed_uuids)
             for key in parsed_uuids:
-                login = by_uuid.get(key)
-                if login:
-                    _add(login)
+                resolved = by_uuid.get(key)
+                if resolved:
+                    _add(resolved)
 
     if emails:
         by_email = get_org_member_github_logins_by_email(team_id, emails)
         for email in emails:
-            login = by_email.get(str(email).strip().lower())
-            if login:
-                _add(login)
+            resolved = by_email.get(str(email).strip().lower())
+            if resolved:
+                _add(resolved)
 
     return ordered
 
