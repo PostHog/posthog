@@ -84,6 +84,10 @@ def update_cache(caching_state_id: UUID):
                 cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                # Warm the cache as the insight owner so HogQL warehouse access control resolves against
+                # their access. Background warming has no requesting user; without this, the userless
+                # context fails closed and denies every warehouse table (insights with no owner -> None).
+                user=insight.created_by,
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
             # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
