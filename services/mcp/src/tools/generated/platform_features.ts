@@ -298,27 +298,6 @@ const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCo
     },
 })
 
-const OrgMembersListSchema = MembersListQueryParams
-
-const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.PaginatedOrganizationMemberList> => ({
-    name: 'org-members-list',
-    schema: OrgMembersListSchema,
-    handler: async (context: Context, params: z.infer<typeof OrgMembersListSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const result = await context.api.request<Schemas.PaginatedOrganizationMemberList>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
-            query: {
-                limit: params.limit,
-                offset: params.offset,
-                order: params.order,
-                search: params.search,
-            },
-        })
-        return result
-    },
-})
-
 const OrgMemberGetGithubLoginSchema = MembersGithubLoginRetrieveParams.omit({ organization_id: true }).extend({
     user__uuid: MembersGithubLoginRetrieveParams.shape['user__uuid'].describe(
         'The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me" for the current user.'
@@ -336,6 +315,27 @@ const orgMemberGetGithubLogin = (): ToolBase<
         const result = await context.api.request<Schemas.OrganizationMemberGithubLogin>({
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/${encodeURIComponent(String(params.user__uuid))}/github_login/`,
+        })
+        return result
+    },
+})
+
+const OrgMembersListSchema = MembersListQueryParams
+
+const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.PaginatedOrganizationMemberList> => ({
+    name: 'org-members-list',
+    schema: OrgMembersListSchema,
+    handler: async (context: Context, params: z.infer<typeof OrgMembersListSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.PaginatedOrganizationMemberList>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                order: params.order,
+                search: params.search,
+            },
         })
         return result
     },
@@ -515,8 +515,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-get': commentGet,
     'comment-thread': commentThread,
     'comments-list': commentsList,
-    'org-members-list': orgMembersList,
     'org-member-get-github-login': orgMemberGetGithubLogin,
+    'org-members-list': orgMembersList,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
     'role-get': roleGet,
