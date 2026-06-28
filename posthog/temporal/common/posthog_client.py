@@ -64,6 +64,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         _tag_team_id_on_current_span(input)
         try:
             return await super().execute_activity(input)
+        except temporalio.exceptions.CancelledError:
+            # Activity cancellation (worker shutdown, deploy, or an explicit cancel) is a benign
+            # control-flow signal, not a bug. Temporal surfaces it as an Exception subclass, so it
+            # lands here — re-raise without capturing to keep deploy-time noise out of error tracking.
+            raise
         except Exception as e:
             activity_info = activity.info()
             capture_kwargs = {

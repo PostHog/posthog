@@ -8,13 +8,14 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+import temporalio.exceptions
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ActivityInboundInterceptor, UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _PostHogClientActivityInboundInterceptor
 
 
 @dataclass
@@ -158,6 +159,28 @@ async def test_exception_capture(fail: bool, capture_additional_properties: bool
 
         else:
             mock_ph_capture.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_activity_cancellation_is_not_captured():
+    # Temporal surfaces activity cancellation (deploy / worker shutdown) as the Exception subclass
+    # temporalio.exceptions.CancelledError, so it reaches the interceptor's `except Exception`. It
+    # must re-propagate without going to error tracking. (Genuine activity errors are still captured
+    # — see test_exception_capture.)
+    class _CancellingInterceptor(ActivityInboundInterceptor):
+        async def execute_activity(self, input: Any) -> Any:
+            raise temporalio.exceptions.CancelledError("Cancelled")
+
+    class _FakeInput:
+        args: list[Any] = []
+
+    interceptor = _PostHogClientActivityInboundInterceptor(_CancellingInterceptor(None))  # type: ignore[arg-type]
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        with pytest.raises(temporalio.exceptions.CancelledError):
+            await interceptor.execute_activity(_FakeInput())  # type: ignore[arg-type]
+
+    mock_ph_capture.assert_not_called()
 
 
 @pytest.mark.asyncio
