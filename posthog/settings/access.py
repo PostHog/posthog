@@ -5,7 +5,7 @@ import sys
 import structlog
 
 from posthog.settings.base_variables import DEBUG, STATIC_COLLECTION, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, read_secret_file, secret_env, str_to_bool
 
 logger = structlog.get_logger(__name__)
 
@@ -63,23 +63,27 @@ ALLOWED_HOSTS = get_list(os.getenv("ALLOWED_HOSTS", "*"))
 DEFAULT_SECRET_KEY = "<randomly generated secret key>"
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY: str = os.getenv("SECRET_KEY", DEFAULT_SECRET_KEY)
+SECRET_KEY: str = secret_env("SECRET_KEY", DEFAULT_SECRET_KEY)
 
-SECRET_KEY_FALLBACKS: list[str] = get_list(os.getenv("SECRET_KEY_FALLBACKS", ""))
+SECRET_KEY_FALLBACKS: list[str] = get_list(secret_env("SECRET_KEY_FALLBACKS", ""))
 
 # Dedicated key for signing PostHog-issued JWTs (posthog.jwt), so JWT signing can move off
 # SECRET_KEY. Defaults to SECRET_KEY, so deployments keep working until they provision a
 # separate key; once set, add the old key to JWT_SIGNING_KEY_FALLBACKS so tokens already in
 # flight keep validating until they expire. An empty value coalesces back to SECRET_KEY —
 # signing with an empty key is never a valid intent.
-JWT_SIGNING_KEY: str = os.getenv("JWT_SIGNING_KEY", "") or SECRET_KEY
+JWT_SIGNING_KEY: str = secret_env("JWT_SIGNING_KEY", "") or SECRET_KEY
 # Previous JWT signing keys still trusted for verifying tokens in flight, newest first.
 # Defaults to SECRET_KEY_FALLBACKS only when *unset*; an explicit empty value (e.g.
 # JWT_SIGNING_KEY_FALLBACKS="") clears it, so operators can stop trusting old JWT keys
 # without disturbing SECRET_KEY_FALLBACKS (which Django also uses for session/CSRF rotation).
+# File (if present) or env counts as "explicitly set" — an explicit empty value clears it.
+_jwt_signing_key_fallbacks = read_secret_file("JWT_SIGNING_KEY_FALLBACKS")
+if _jwt_signing_key_fallbacks is None and "JWT_SIGNING_KEY_FALLBACKS" in os.environ:
+    _jwt_signing_key_fallbacks = os.environ["JWT_SIGNING_KEY_FALLBACKS"]
 JWT_SIGNING_KEY_FALLBACKS: list[str] = (
-    get_list(os.environ["JWT_SIGNING_KEY_FALLBACKS"])
-    if "JWT_SIGNING_KEY_FALLBACKS" in os.environ
+    get_list(_jwt_signing_key_fallbacks)
+    if _jwt_signing_key_fallbacks is not None
     else (SECRET_KEY_FALLBACKS if JWT_SIGNING_KEY == SECRET_KEY else [])
 )
 
@@ -95,7 +99,7 @@ For the safety of your instance, you must generate and set a unique key.
 
 # RS256 private key for sandbox JWT authentication
 # Used to sign tokens; public key is derived from this and injected into sandboxes for verification
-SANDBOX_JWT_PRIVATE_KEY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY")
+SANDBOX_JWT_PRIVATE_KEY: str | None = secret_env("SANDBOX_JWT_PRIVATE_KEY")
 # Verify-only services (e.g. the agent-proxy) set just the public key so they never hold the private
 # key. Django leaves this unset and derives the public key from the private key (it mints tokens).
 SANDBOX_JWT_PUBLIC_KEY: str | None = os.getenv("SANDBOX_JWT_PUBLIC_KEY")
@@ -134,13 +138,13 @@ TASKS_AGENT_PROXY_PUBLIC_URL: str | None = os.getenv("TASKS_AGENT_PROXY_PUBLIC_U
 # agent-proxy and not directly from a sandbox (which also holds the event-ingest JWT). When set, the
 # callback requires a matching X-Agent-Proxy-Secret header. Provision the same value to Django and the
 # agent-proxy in production; unset (local/CI) disables the check.
-AGENT_PROXY_CALLBACK_SECRET: str | None = os.getenv("AGENT_PROXY_CALLBACK_SECRET") or None
+AGENT_PROXY_CALLBACK_SECRET: str | None = secret_env("AGENT_PROXY_CALLBACK_SECRET") or None
 
 # These are legacy values only kept around for backwards compatibility with self hosted versions
-SALT_KEY = get_list(os.getenv("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
+SALT_KEY = get_list(secret_env("SALT_KEY", "0123456789abcdefghijklmnopqrstuvwxyz"))
 # We provide a default as it is needed for hobby deployments. Each entry must be exactly 32 bytes
 # (used directly as a Fernet key) — enforced by check_encryption_salt_keys in encrypted_fields.py.
-ENCRYPTION_SALT_KEYS = get_list(os.getenv("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
+ENCRYPTION_SALT_KEYS = get_list(secret_env("ENCRYPTION_SALT_KEYS", "00beef0000beef0000beef0000beef00"))
 
 INTERNAL_IPS = ["127.0.0.1", "172.18.0.1"]  # Docker IP
 if os.getenv("CORS_ALLOWED_ORIGINS", False):

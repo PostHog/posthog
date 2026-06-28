@@ -1,3 +1,7 @@
+import os
+import sys
+import subprocess
+
 from posthog.settings.utils import get_from_env, read_secret_file, secret_env
 
 
@@ -46,3 +50,29 @@ def test_get_from_env_file_takes_precedence_over_env(monkeypatch, tmp_path):
     monkeypatch.setenv("CUSTOMER_IO_API_KEY", "env-key")
     (tmp_path / "CUSTOMER_IO_API_KEY").write_text("file-key")
     assert get_from_env("CUSTOMER_IO_API_KEY", "") == "file-key"
+
+
+def _settings_value_in_subprocess(env_extra: dict, expr: str) -> str:
+    """Boot Django settings in a clean subprocess and print a settings value.
+    Used to prove a migrated setting reads from the secrets dir end-to-end."""
+    env = {**os.environ, "DJANGO_SETTINGS_MODULE": "posthog.settings", "TEST": "1", **env_extra}
+    code = f"import django; django.setup(); from django.conf import settings; print({expr})"
+    return subprocess.check_output([sys.executable, "-c", code], env=env, text=True).strip()
+
+
+def test_secret_key_loads_from_file(tmp_path):
+    (tmp_path / "SECRET_KEY").write_text("secret-from-file")
+    out = _settings_value_in_subprocess(
+        {"POSTHOG_SECRETS_DIR": str(tmp_path), "SECRET_KEY": "secret-from-env"},
+        "settings.SECRET_KEY",
+    )
+    assert out == "secret-from-file"
+
+
+def test_encryption_salt_keys_load_from_file(tmp_path):
+    (tmp_path / "ENCRYPTION_SALT_KEYS").write_text("00beef0000beef0000beef0000beef00")
+    out = _settings_value_in_subprocess(
+        {"POSTHOG_SECRETS_DIR": str(tmp_path)},
+        "','.join(settings.ENCRYPTION_SALT_KEYS)",
+    )
+    assert out == "00beef0000beef0000beef0000beef00"
