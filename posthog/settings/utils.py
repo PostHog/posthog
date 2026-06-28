@@ -11,6 +11,8 @@ __all__ = [
     "generate_rsa_private_key_pem",
     "get_from_env",
     "get_list",
+    "read_secret_file",
+    "secret_env",
     "str_to_bool",
 ]
 
@@ -46,6 +48,34 @@ def generate_rsa_private_key_pem() -> str:
     return pem.decode("utf-8")
 
 
+def read_secret_file(key: str) -> Optional[str]:
+    """Return the contents of $POSTHOG_SECRETS_DIR/<key> if it exists, else None.
+
+    Secrets can be delivered as files (one file per secret, filename == the env var
+    name) instead of environment variables, so they never appear in /proc/<pid>/environ.
+    No stripping: the file holds the exact bytes the env var would have carried (same
+    External-Secrets source), preserving byte-parity — important for multi-line PEM
+    keys/certs. A missing dir or file returns None so callers fall back to os.getenv.
+    """
+    secrets_dir = os.environ.get("POSTHOG_SECRETS_DIR")
+    if not secrets_dir:
+        return None
+    try:
+        with open(os.path.join(secrets_dir, key), encoding="utf-8") as f:
+            return f.read()
+    except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+        return None
+
+
+def secret_env(key: str, default: Any = None) -> Any:
+    """os.getenv(key, default), but a file at $POSTHOG_SECRETS_DIR/<key> takes
+    precedence. Use this for secrets read outside get_from_env (raw os.getenv sites)."""
+    file_value = read_secret_file(key)
+    if file_value is not None:
+        return file_value
+    return os.getenv(key, default)
+
+
 def get_from_env(
     key: str,
     default: Any = None,
@@ -53,7 +83,9 @@ def get_from_env(
     optional: bool = False,
     type_cast: Optional[Callable] = None,
 ) -> Any:
-    value = os.getenv(key)
+    value = read_secret_file(key)
+    if value is None:
+        value = os.getenv(key)
     if value is None or value == "":
         if optional:
             return None

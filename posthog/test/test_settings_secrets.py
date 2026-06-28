@@ -1,0 +1,48 @@
+from posthog.settings.utils import get_from_env, read_secret_file, secret_env
+
+
+def test_read_secret_file_returns_none_when_dir_unset(monkeypatch):
+    monkeypatch.delenv("POSTHOG_SECRETS_DIR", raising=False)
+    assert read_secret_file("SECRET_KEY") is None
+
+
+def test_read_secret_file_returns_none_when_file_missing(monkeypatch, tmp_path):
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
+    assert read_secret_file("SECRET_KEY") is None
+
+
+def test_read_secret_file_returns_exact_contents_no_strip(monkeypatch, tmp_path):
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
+    pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n"
+    (tmp_path / "TEMPORAL_CLIENT_KEY").write_text(pem)
+    # No stripping: trailing newline preserved for byte-parity with secretKeyRef env.
+    assert read_secret_file("TEMPORAL_CLIENT_KEY") == pem
+
+
+def test_secret_env_prefers_file_over_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
+    monkeypatch.setenv("SECRET_KEY", "from-env")
+    (tmp_path / "SECRET_KEY").write_text("from-file")
+    assert secret_env("SECRET_KEY", "default") == "from-file"
+
+
+def test_secret_env_falls_back_to_env_then_default(monkeypatch, tmp_path):
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
+    monkeypatch.delenv("MY_SECRET", raising=False)
+    assert secret_env("MY_SECRET", "default") == "default"
+    monkeypatch.setenv("MY_SECRET", "from-env")
+    assert secret_env("MY_SECRET", "default") == "from-env"
+
+
+def test_get_from_env_reads_from_file(monkeypatch, tmp_path):
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
+    monkeypatch.delenv("CUSTOMER_IO_API_KEY", raising=False)
+    (tmp_path / "CUSTOMER_IO_API_KEY").write_text("file-key")
+    assert get_from_env("CUSTOMER_IO_API_KEY", "") == "file-key"
+
+
+def test_get_from_env_file_takes_precedence_over_env(monkeypatch, tmp_path):
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
+    monkeypatch.setenv("CUSTOMER_IO_API_KEY", "env-key")
+    (tmp_path / "CUSTOMER_IO_API_KEY").write_text("file-key")
+    assert get_from_env("CUSTOMER_IO_API_KEY", "") == "file-key"
