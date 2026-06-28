@@ -30441,6 +30441,14 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    export interface OrganizationMemberGithubLogin {
+      /**
+         * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+         * @nullable
+         */
+      github_login: string | null;
+    }
+
     /**
      * Serializer for organization-scoped OAuth applications (read-only).
      */

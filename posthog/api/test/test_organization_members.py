@@ -8,6 +8,7 @@ from django.test import override_settings
 from django_otp.plugins.otp_totp.models import TOTPDevice
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.user import User
@@ -92,6 +93,20 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             groups={"instance": "http://localhost:8010", "organization": str(self.organization.id)},
         )
         mock_sync_delay.assert_called_once_with(str(self.organization.id))
+
+    def test_github_login_endpoint(self):
+        # A different member than the requester — proves the lookup is org-scoped, not self-only
+        member = User.objects.create_and_join(self.organization, "gh@x.com", None, "X")
+
+        response = self.client.get(f"/api/organizations/@current/members/{member.uuid}/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": None})
+
+        UserSocialAuth.objects.create(user=member, provider="github", uid="123", extra_data={"login": "octocat"})
+
+        response = self.client.get(f"/api/organizations/@current/members/{member.uuid}/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": "octocat"})
 
     def test_scoped_api_keys_endpoint(self):
         # Create a user who is a member of the organization

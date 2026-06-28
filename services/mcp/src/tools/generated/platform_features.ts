@@ -13,6 +13,7 @@ import {
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
     ListQueryParams,
+    MembersGithubLoginRetrieveParams,
     MembersListQueryParams,
     RetrieveParams,
     RolesListQueryParams,
@@ -318,6 +319,28 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
     },
 })
 
+const OrgMemberGetGithubLoginSchema = MembersGithubLoginRetrieveParams.omit({ organization_id: true }).extend({
+    user__uuid: MembersGithubLoginRetrieveParams.shape['user__uuid'].describe(
+        'The PostHog user UUID of the organization member, as returned by org-members-list. Pass "@me" for the current user.'
+    ),
+})
+
+const orgMemberGetGithubLogin = (): ToolBase<
+    typeof OrgMemberGetGithubLoginSchema,
+    Schemas.OrganizationMemberGithubLogin
+> => ({
+    name: 'org-member-get-github-login',
+    schema: OrgMemberGetGithubLoginSchema,
+    handler: async (context: Context, params: z.infer<typeof OrgMemberGetGithubLoginSchema>) => {
+        const orgId = await context.stateManager.getOrgID()
+        const result = await context.api.request<Schemas.OrganizationMemberGithubLogin>({
+            method: 'GET',
+            path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/${encodeURIComponent(String(params.user__uuid))}/github_login/`,
+        })
+        return result
+    },
+})
+
 const OrganizationGetSchema = RetrieveParams.extend({
     id: RetrieveParams.shape['id'].describe('Organization ID. If omitted, uses the active organization.').optional(),
 })
@@ -493,6 +516,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-thread': commentThread,
     'comments-list': commentsList,
     'org-members-list': orgMembersList,
+    'org-member-get-github-login': orgMemberGetGithubLogin,
     'organization-get': organizationGet,
     'organizations-list': organizationsList,
     'role-get': roleGet,
