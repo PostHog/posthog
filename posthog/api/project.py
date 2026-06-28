@@ -12,7 +12,6 @@ from django.utils.dateparse import parse_datetime
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import BasePermission, IsAuthenticated
@@ -49,6 +48,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -68,6 +68,7 @@ from posthog.models.product_intent.product_intent import (
     calculate_product_activation,
 )
 from posthog.models.project import Project
+from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, Team
@@ -132,7 +133,7 @@ def capture_team_config_diff(team: Team, key: str, before: dict, after: dict, *,
             organization_id=cast(UUIDT, team.organization_id),
             team_id=team.pk,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="updated",
@@ -570,6 +571,9 @@ class ProjectBackwardCompatSerializer(
     product_intents = serializers.SerializerMethodField()  # Compat with TeamSerializer
     available_setup_task_ids = serializers.SerializerMethodField()  # Compat with TeamSerializer
     managed_viewsets = serializers.SerializerMethodField()  # Compat with TeamSerializer
+    events_retention_enforced = serializers.SerializerMethodField(
+        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+    )  # Compat with TeamSerializer
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
@@ -695,6 +699,8 @@ class ProjectBackwardCompatSerializer(
             "default_data_theme",  # Compat with TeamSerializer
             "onboarding_tasks",  # Compat with TeamSerializer
             "web_analytics_pre_aggregated_tables_enabled",  # Compat with TeamSerializer
+            "event_retention_months",  # Compat with TeamSerializer
+            "events_retention_enforced",  # Compat with TeamSerializer
         )
         read_only_fields = (
             "id",
@@ -718,6 +724,7 @@ class ProjectBackwardCompatSerializer(
             "project_id",
             "user_access_level",
             "managed_viewsets",
+            "event_retention_months",
         )
 
         team_passthrough_fields = {
@@ -794,6 +801,7 @@ class ProjectBackwardCompatSerializer(
             "marketing_analytics_config",
             "customer_analytics_config",
             "workflows_config",
+            "event_retention_months",
         }
 
         # help_text entries flow into the generated OpenAPI spec, frontend types, and MCP tool schemas.
@@ -839,6 +847,12 @@ class ProjectBackwardCompatSerializer(
             "session_recording_retention_period": {
                 "help_text": (
                     "How long to retain new session recordings. One of `30d`, `90d`, `1y`, or `5y` (availability depends on plan)."
+                )
+            },
+            "event_retention_months": {
+                "help_text": (
+                    "The team's events data retention window in months (plan-derived, synced from billing). When "
+                    "retention enforcement is active for the team, queries do not return events older than this many months."
                 )
             },
             "data_attributes": {
@@ -894,6 +908,10 @@ class ProjectBackwardCompatSerializer(
             DataWarehouseManagedViewSet.objects.filter(team=obj.passthrough_team).values_list("kind", flat=True)
         )
         return {kind: (kind in enabled_set) for kind, _ in DataWarehouseManagedViewSetKind.choices}
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_events_retention_enforced(self, obj: Project) -> bool:
+        return should_enforce_events_retention(obj.passthrough_team.id)
 
     @staticmethod
     def validate_revenue_analytics_config(value):
@@ -1063,7 +1081,7 @@ class ProjectBackwardCompatSerializer(
             organization_id=project.organization_id,
             team_id=project.pk,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Project",
             item_id=project.pk,
             activity="created",
@@ -1073,7 +1091,7 @@ class ProjectBackwardCompatSerializer(
             organization_id=project.organization_id,
             team_id=team.pk,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="created",
@@ -1123,7 +1141,7 @@ class ProjectBackwardCompatSerializer(
                     organization_id=cast(UUIDT, instance.organization_id),
                     team_id=instance.pk,
                     user=cast(User, self.context["request"].user),
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(self.context["request"]),
                     scope="Survey",
                     item_id="#",
                     activity="updated",
@@ -1218,7 +1236,7 @@ class ProjectBackwardCompatSerializer(
                 organization_id=cast(UUIDT, instance.organization_id),
                 team_id=instance.pk,
                 user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(self.context["request"]),
                 scope="Team",
                 item_id=instance.pk,
                 activity="updated",
@@ -1232,7 +1250,7 @@ class ProjectBackwardCompatSerializer(
                 organization_id=cast(UUIDT, instance.organization_id),
                 team_id=instance.pk,
                 user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(self.context["request"]),
                 scope="Project",
                 item_id=instance.pk,
                 activity="updated",
@@ -1476,7 +1494,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 organization_id=cast(UUIDT, organization_id),
                 team_id=team.pk,
                 user=user,
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 scope="Team",
                 item_id=team.pk,
                 activity="deleted",
@@ -1487,7 +1505,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
             organization_id=cast(UUIDT, organization_id),
             team_id=project_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Project",
             item_id=project_id,
             activity="deleted",
@@ -1510,7 +1528,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         project.passthrough_team.reset_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
@@ -1523,7 +1541,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         project.passthrough_team.rotate_secret_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
@@ -1536,7 +1554,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         project.passthrough_team.delete_secret_token_backup_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
@@ -1548,7 +1566,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
     def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         project = self.get_object()
         project.passthrough_team.generate_conversations_public_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(ProjectBackwardCompatSerializer(project, context=self.get_serializer_context()).data)
 
@@ -1787,7 +1805,7 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
                 organization_id=cast(UUIDT, target_organization_id),
                 team_id=project.pk,
                 user=user,
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 scope="Project",
                 item_id=project.pk,
                 activity="updated",

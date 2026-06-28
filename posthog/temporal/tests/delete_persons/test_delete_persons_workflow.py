@@ -19,7 +19,7 @@ pytestmark = pytest.mark.django_db
 
 class TestDeletePersonsActivity:
     async def test_by_ids_resolves_uuids_then_deletes(self, activity_environment):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_person(team_id=1, person_id=10, uuid=str(uuid_lib.uuid4()), distinct_ids=["d1"])
 
             deleted, should_continue = await activity_environment.run(
@@ -34,7 +34,7 @@ class TestDeletePersonsActivity:
         fake.assert_called("delete_persons")
 
     async def test_by_ids_should_continue_when_more_remain(self, activity_environment):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             for pid in (1, 2, 3):
                 fake.add_person(team_id=1, person_id=pid, uuid=str(uuid_lib.uuid4()), distinct_ids=[f"d{pid}"])
 
@@ -47,7 +47,7 @@ class TestDeletePersonsActivity:
         assert should_continue is True  # one of three ids is left for the next batch
 
     async def test_whole_team_uses_batch_for_team_rpc(self, activity_environment):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             for pid in (1, 2):
                 fake.add_person(team_id=1, person_id=pid, uuid=str(uuid_lib.uuid4()))
 
@@ -68,7 +68,7 @@ class TestDeletePersonsActivity:
 class TestPrecleanCohortMembersActivity:
     async def test_clears_team_cohort_memberships(self, activity_environment, ateam):
         cohort = await sync_to_async(Cohort.objects.create)(team=ateam, name="preclean-test")
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             fake.add_cohort_membership(person_id=5, cohort_id=cohort.id)
 
             await activity_environment.run(
@@ -81,7 +81,7 @@ class TestPrecleanCohortMembersActivity:
         assert (cohort.id, 5) not in fake._cohort_members
 
     async def test_noop_when_team_has_no_cohorts(self, activity_environment, ateam):
-        with fake_personhog_client(gate_enabled=True) as fake:
+        with fake_personhog_client() as fake:
             await activity_environment.run(
                 preclean_cohort_members_activity,
                 PrecleanCohortMembersActivityInputs(team_id=ateam.id),

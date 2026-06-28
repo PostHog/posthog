@@ -7159,6 +7159,49 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    @parameterized.expand(
+        [
+            ("NODE_OPTIONS",),
+            ("LD_PRELOAD",),
+            ("LD_LIBRARY_PATH",),
+            ("DYLD_INSERT_LIBRARIES",),
+            ("BASH_ENV",),
+            ("GIT_SSH_COMMAND",),
+            ("GIT_CONFIG_KEY_0",),
+            ("GIT_CONFIG_VALUE_0",),
+        ]
+    )
+    def test_blocked_process_control_env_var_key_rejected(self, key):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Dangerous Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {key: "value"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("GITHUB_TOKEN",),
+            ("POSTHOG_PERSONAL_API_KEY",),
+            ("JWT_PUBLIC_KEY",),
+        ]
+    )
+    def test_reserved_env_var_key_rejected(self, key):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Reserved Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {key: "value"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_environment_variables_never_returned(self):
         response = self.client.post(
             self.base_url,

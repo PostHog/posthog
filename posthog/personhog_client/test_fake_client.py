@@ -453,14 +453,3 @@ class TestFakePersonhogClientContextManager:
 
             client = get_personhog_client()
             assert client is fake
-
-    def test_patches_gate(self):
-        with fake_personhog_client(gate_enabled=True):
-            from posthog.personhog_client.gate import use_personhog
-
-            assert use_personhog() is True
-
-        with fake_personhog_client(gate_enabled=False):
-            from posthog.personhog_client.gate import use_personhog
-
-            assert use_personhog() is False
