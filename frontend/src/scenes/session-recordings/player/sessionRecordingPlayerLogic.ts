@@ -34,7 +34,6 @@ import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isReadOnly } from 'lib/readOnlyGuard'
 import { findLastIndex } from 'lib/utils/arrays'
 import { downloadFile, uuid } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
@@ -1822,12 +1821,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             if (
                 props.playerKey?.startsWith('file-') ||
                 values.wasMarkedViewed ||
-                (props.mode && !ModesWithInteractions.includes(props.mode)) ||
-                // Passive view-tracking telemetry: skip the PATCH /session_recordings/:id
-                // in read-only mode. The guard in lib/api would otherwise throw a
-                // ReadOnlyModeError and surface a toast on every recording open.
-                // Allow-listing the URL is not safe because DELETE shares the path.
-                isReadOnly()
+                (props.mode && !ModesWithInteractions.includes(props.mode))
             ) {
                 return
             }
