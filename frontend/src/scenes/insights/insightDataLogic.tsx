@@ -301,6 +301,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
             if (!insightId) {
                 return
             }
+            // Only persist when the query actually differs from what's saved. The setQuery →
+            // props.setQuery path fires for any InsightVizNode change, including programmatic
+            // re-syncs (tile re-renders, results refreshes) that carry an unchanged query —
+            // persisting those produces spurious saves and activity-log churn.
+            if (objectsEqual(query, values.savedInsight.query)) {
+                return
+            }
             try {
                 const updatedItem = await insightsApi.update(insightId, { query })
                 // Drop the response if a newer save started while this request was in flight.

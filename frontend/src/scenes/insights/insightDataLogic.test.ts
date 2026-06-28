@@ -511,5 +511,13 @@ describe('insightDataLogic', () => {
 
             expect(patchSpy).toHaveBeenCalledTimes(1)
         })
+
+        it('skips the PATCH when the query is unchanged from the saved insight', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(baseQuery)
+            }).toFinishAllListeners()
+
+            expect(patchSpy).not.toHaveBeenCalled()
+        })
     })
 })
