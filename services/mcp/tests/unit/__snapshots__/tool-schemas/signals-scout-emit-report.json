@@ -79,8 +79,22 @@
             "description": "UUID of the `SignalScoutRun` bridge row.",
             "type": "string"
         },
+        "suggested_reviewer_emails": {
+            "description": "Reviewers as PostHog user emails (org members only) — a fallback when you have an internal owner's email but not their UUID. Resolved server-side to the org member's GitHub login; non-members or members without a connected GitHub account are silently dropped. Merged with `suggested_reviewers` and `suggested_reviewer_user_uuids`.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "suggested_reviewer_user_uuids": {
+            "description": "Reviewers as PostHog user UUIDs (e.g. from `org-members-list`) — the preferred way to set reviewers, since you rarely know a person's GitHub login but can look up their UUID. Each is resolved server-side to the org member's GitHub login. A UUID that isn't an org member, or whose member hasn't connected a GitHub account, is silently dropped (it can't be routed yet). Merged with `suggested_reviewers` and `suggested_reviewer_emails`.",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
         "suggested_reviewers": {
-            "description": "Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path.",
+            "description": "Reviewers as raw GitHub logins. Reviewers determine who the report is surfaced/assigned to in the inbox and Slack, and who autostart considers for a draft PR (one must clear their autonomy threshold). Prefer `suggested_reviewer_user_uuids` when you can — you usually don't know a person's GitHub login, but you can get their UUID from `org-members-list`. Merged with the identifier-based fields below.",
             "items": {
                 "type": "string"
             },
