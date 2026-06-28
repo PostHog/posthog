@@ -72,8 +72,9 @@ class TestFormatJqlDatetime:
 
 
 class TestBuildIssuesJql:
-    def test_no_last_value_orders_ascending(self) -> None:
-        assert _build_issues_jql("updated", None) == "ORDER BY updated ASC"
+    def test_no_last_value_floors_to_epoch(self) -> None:
+        # First/full sync has no watermark; the query must stay bounded or ``/search/jql`` 400s.
+        assert _build_issues_jql("updated", None) == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
     def test_with_last_value_filters_and_orders(self) -> None:
         jql = _build_issues_jql("updated", datetime(2026, 3, 4, 2, 58))
@@ -84,7 +85,7 @@ class TestBuildIssuesJql:
         assert jql == 'created >= "2026-03-03 02:58" ORDER BY created ASC'
 
     def test_none_field_defaults_to_updated(self) -> None:
-        assert _build_issues_jql(None, None) == "ORDER BY updated ASC"
+        assert _build_issues_jql(None, None) == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
 
 class TestExtractItems:
@@ -224,6 +225,32 @@ class TestGetRows:
         params = session.get.call_args.kwargs["params"]
         assert params["jql"] == 'updated >= "2026-03-03 02:58" ORDER BY updated ASC'
         assert params["fields"] == "*all"
+
+    def test_token_pagination_first_sync_sends_bounded_jql(self) -> None:
+        # No watermark (first/full sync): the JQL must carry a date floor, never a bare ``ORDER BY``,
+        # otherwise ``/search/jql`` rejects it with a 400.
+        manager = _manager()
+        session = mock.MagicMock()
+        session.get.side_effect = [_fake_response({"issues": [], "isLast": True})]
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.jira.jira.make_tracked_session",
+            return_value=session,
+        ):
+            list(
+                get_rows(
+                    config=JIRA_ENDPOINTS["issues"],
+                    subdomain="acme",
+                    email="e@x.com",
+                    api_token="token",
+                    logger=mock.MagicMock(),
+                    resumable_source_manager=manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=None,
+                    incremental_field="updated",
+                )
+            )
+        params = session.get.call_args.kwargs["params"]
+        assert params["jql"] == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
     def test_offset_pagination_walks_pages(self) -> None:
         manager = _manager()

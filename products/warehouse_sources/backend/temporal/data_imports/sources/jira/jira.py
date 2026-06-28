@@ -27,6 +27,11 @@ JQL_DATETIME_FORMAT = "%Y-%m-%d %H:%M"
 # Re-scan a day on every incremental run so a timezone offset can't open a gap; merge dedupes the overlap.
 INCREMENTAL_LOOKBACK = timedelta(days=1)
 
+# The enhanced ``/rest/api/3/search/jql`` endpoint rejects unbounded queries (a bare ``ORDER BY``) with a
+# 400. On first/full sync we have no watermark, so floor the query at a date predating any possible issue —
+# this keeps the query bounded while still selecting every issue.
+JQL_EPOCH_FLOOR = "1970-01-01 00:00"
+
 _VALID_SUBDOMAIN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9-]*$")
 
 
@@ -65,9 +70,10 @@ def _format_jql_datetime(value: Any) -> str:
 
 def _build_issues_jql(incremental_field: str | None, last_value: Any) -> str:
     field = incremental_field or "updated"
-    where = f'{field} >= "{_format_jql_datetime(last_value)}"' if last_value else ""
+    floor = _format_jql_datetime(last_value) if last_value else JQL_EPOCH_FLOOR
+    where = f'{field} >= "{floor}"'
     order = f"ORDER BY {field} ASC"
-    return f"{where} {order}".strip()
+    return f"{where} {order}"
 
 
 def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
