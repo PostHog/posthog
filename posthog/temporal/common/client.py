@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 from typing import Any
 
@@ -11,6 +12,18 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
+from posthog.temporal.common.logger import get_write_only_logger
+
+logger = get_write_only_logger()
+
+# Bounded retry-with-backoff for the initial connection to the Temporal frontend.
+# Workers boot before — or during a restart of — the Temporal frontend, so the first
+# `Client.connect()` can hit a transient `ConnectionRefused`. Without retry a momentary
+# blip crashes the whole worker process; these defaults wait out normal infra churn.
+CONNECT_MAX_ATTEMPTS = 10
+CONNECT_INITIAL_RETRY_DELAY_SECONDS = 1.0
+CONNECT_MAX_RETRY_DELAY_SECONDS = 30.0
+CONNECT_BACKOFF_COEFFICIENT = 2.0
 
 
 async def connect(
@@ -42,15 +55,41 @@ async def connect(
             payload_codec=EncryptionCodec.from_settings(settings=settings),
         )
 
-    client = await Client.connect(
-        f"{host}:{port}",
-        namespace=namespace,
-        tls=tls,
-        runtime=runtime,
-        interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
-        data_converter=data_converter,
-    )
-    return client
+    target = f"{host}:{port}"
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            return await Client.connect(
+                target,
+                namespace=namespace,
+                tls=tls,
+                runtime=runtime,
+                interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
+                data_converter=data_converter,
+            )
+        except Exception as err:
+            if attempt >= CONNECT_MAX_ATTEMPTS:
+                logger.exception(
+                    "temporal_client_connect_failed",
+                    target=target,
+                    attempts=attempt,
+                )
+                raise
+
+            delay = min(
+                CONNECT_MAX_RETRY_DELAY_SECONDS,
+                CONNECT_INITIAL_RETRY_DELAY_SECONDS * (CONNECT_BACKOFF_COEFFICIENT ** (attempt - 1)),
+            )
+            logger.warning(
+                "temporal_client_connect_retry",
+                target=target,
+                attempt=attempt,
+                max_attempts=CONNECT_MAX_ATTEMPTS,
+                retry_in_seconds=round(delay, 1),
+                error=str(err),
+            )
+            await asyncio.sleep(delay)
 
 
 @async_to_sync
