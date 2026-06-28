@@ -108,6 +108,13 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"github_login": "octocat"})
 
+        # `@me` resolves the requesting user via a separate branch in safely_get_object
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="456", extra_data={"login": "hedgehog"})
+
+        response = self.client.get("/api/organizations/@current/members/@me/github_login/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"github_login": "hedgehog"})
+
     def test_scoped_api_keys_endpoint(self):
         # Create a user who is a member of the organization
         user = User.objects.create_and_join(self.organization, "test@x.com", None, "X")

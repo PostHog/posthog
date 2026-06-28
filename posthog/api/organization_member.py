@@ -274,7 +274,7 @@ class OrganizationMemberViewSet(
         instance.user.leave(organization=instance.organization)
 
     @extend_schema(responses=OrganizationMemberGithubLoginSerializer)
-    @action(detail=True, methods=["get"], url_path="github_login")
+    @action(detail=True, methods=["get"], url_path="github_login", required_scopes=["organization_member:read"])
     def github_login(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         instance = cast(OrganizationMembership, self.get_object())
         return Response({"github_login": instance.user.get_github_login()})
