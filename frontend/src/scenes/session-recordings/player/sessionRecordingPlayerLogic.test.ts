@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { setReadOnlyGetter } from 'lib/readOnlyGuard'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import * as sessionRecordingDataCoordinatorLogicModule from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
@@ -325,6 +326,35 @@ describe('sessionRecordingPlayerLogic', () => {
             await expectLogic(logic).toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
 
             resumeKeaLoadersErrors()
+        })
+
+        it('skips the markViewed PATCH in read-only mode so the guard does not throw', async () => {
+            // The PATCH /session_recordings/:id call markViewed makes is passive
+            // telemetry, but the URL-only read-only allow-list cannot let it through
+            // without also letting DELETE on the same path through. The listener
+            // must therefore short-circuit when read-only is active.
+            setReadOnlyGetter(() => true)
+            try {
+                logic.unmount()
+                logic = sessionRecordingPlayerLogic({
+                    sessionRecordingId: '2',
+                    playerKey: 'test',
+                    autoPlay: true,
+                })
+                logic.mount()
+
+                silenceKeaLoadersErrors()
+
+                await expectLogic(logic)
+                    .toDispatchActions([logic.actionTypes.setPlay, logic.actionTypes.markViewed])
+                    .toNotHaveDispatchedActions([logic.actionTypes.setWasMarkedViewed])
+
+                expect(logic.values.wasMarkedViewed).toBe(false)
+
+                resumeKeaLoadersErrors()
+            } finally {
+                setReadOnlyGetter(null)
+            }
         })
 
         it('load snapshot errors and triggers error state', async () => {
