@@ -3,7 +3,7 @@ from typing import Optional
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import DEBUG, TEST
-from posthog.settings.utils import str_to_bool
+from posthog.settings.utils import secret_env, str_to_bool
 
 if TEST or DEBUG:
     SESSION_RECORDING_V2_S3_ENDPOINT = os.getenv("SESSION_RECORDING_V2_S3_ENDPOINT", "http://seaweedfs:8333")
@@ -17,7 +17,7 @@ else:
     # or Fargate task, we default to `None` rather than "" as this will, when
     # passed to boto, result in the correct credentials being used.
     SESSION_RECORDING_V2_S3_ACCESS_KEY_ID = os.getenv("SESSION_RECORDING_V2_S3_ACCESS_KEY_ID", "") or None
-    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY = os.getenv("SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY", "") or None
+    SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY = secret_env("SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY", "") or None
 
 SESSION_RECORDING_V2_S3_ENABLED = get_from_env(
     "SESSION_RECORDING_V2_S3_ENABLED", True if DEBUG else False, type_cast=str_to_bool

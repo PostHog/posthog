@@ -108,6 +108,7 @@ from posthog.session.activity import (
     sync_current_session_metadata,
 )
 from posthog.session.models import Session
+from posthog.settings.utils import secret_env
 from posthog.tasks.email import (
     send_email_change_emails,
     send_password_changed_email,
@@ -1823,7 +1824,7 @@ def redirect_to_website(request):
                 "iat": int(time.time()),
                 "exp": int((datetime.now() + timedelta(days=30)).timestamp()),
             },
-            os.environ.get("JWT_SECRET_STRAPI", "random_fallback_secret"),
+            secret_env("JWT_SECRET_STRAPI", "random_fallback_secret"),
             algorithm="HS256",
         )
 

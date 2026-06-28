@@ -12,7 +12,7 @@ import dj_database_url
 
 from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, secret_env, str_to_bool
 from posthog.utils import str_to_int_set
 
 # See https://docs.djangoproject.com/en/3.2/ref/settings/#std:setting-DATABASE-DISABLE_SERVER_SIDE_CURSORS
@@ -51,7 +51,7 @@ def postgres_config(host: str) -> dict:
         "ENGINE": "django.db.backends.postgresql_psycopg2",
         "NAME": get_from_env("POSTHOG_DB_NAME"),
         "USER": os.getenv("POSTHOG_DB_USER", "postgres"),
-        "PASSWORD": os.getenv("POSTHOG_DB_PASSWORD", ""),
+        "PASSWORD": secret_env("POSTHOG_DB_PASSWORD", ""),
         "HOST": host,
         "PORT": os.getenv("POSTHOG_POSTGRES_PORT", "5432"),
         "CONN_MAX_AGE": 0,
@@ -83,7 +83,7 @@ if TEST or DEBUG:
         f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DATABASE}",
     )
 else:
-    DATABASE_URL = os.getenv("DATABASE_URL", "")
+    DATABASE_URL = secret_env("DATABASE_URL", "")
 
 if DATABASE_URL:
     DATABASES: dict[str, dict] = {"default": dict(dj_database_url.config(default=DATABASE_URL, conn_max_age=0))}
@@ -146,7 +146,7 @@ if direct_host:
 
 # Add the persons_db_writer database configuration using PERSONS_DB_WRITER_URL
 # For local development, default to the persons database in the main container if no URL is provided
-persons_db_writer_url = os.getenv("PERSONS_DB_WRITER_URL")
+persons_db_writer_url = secret_env("PERSONS_DB_WRITER_URL")
 if not persons_db_writer_url and DEBUG and not TEST:
     # Default to local persons database in main container in development mode (but not test mode)
     # This matches the docker-compose.dev.yml configuration
@@ -161,13 +161,17 @@ elif not persons_db_writer_url and TEST:
     persons_db_writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{test_persons_db}"
 
 if persons_db_writer_url:
+    # secret_env adds file support, then mirror dj_database_url.config's "value or default,
+    # parse only if truthy else {}" semantics (config reads the env var by name internally).
+    _persons_writer_value = secret_env("PERSONS_DB_WRITER_URL", persons_db_writer_url)
     DATABASES["persons_db_writer"] = dict(
-        dj_database_url.config(env="PERSONS_DB_WRITER_URL", default=persons_db_writer_url, conn_max_age=0)
+        dj_database_url.parse(_persons_writer_value, conn_max_age=0) if _persons_writer_value else {}
     )
 
     # Fall back to the writer URL if no reader URL is set
+    _persons_reader_value = secret_env("PERSONS_DB_READER_URL", persons_db_writer_url)
     DATABASES["persons_db_reader"] = dict(
-        dj_database_url.config(env="PERSONS_DB_READER_URL", default=persons_db_writer_url, conn_max_age=0)
+        dj_database_url.parse(_persons_reader_value, conn_max_age=0) if _persons_reader_value else {}
     )
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES["persons_db_writer"]["DISABLE_SERVER_SIDE_CURSORS"] = True
@@ -236,7 +240,7 @@ for route in product_routes:
     writer_alias = f"{db}_db_writer"
     reader_alias = f"{db}_db_reader"
 
-    writer_url = os.getenv(writer_env)
+    writer_url = secret_env(writer_env)
     if not writer_url and DEBUG and not TEST:
         writer_url = f"postgres://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/posthog_{db}"
     elif not writer_url and TEST:
@@ -250,7 +254,7 @@ for route in product_routes:
     DATABASES[writer_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
     DATABASES[writer_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
 
-    reader_url = os.getenv(reader_env, writer_url)
+    reader_url = secret_env(reader_env, writer_url)
     DATABASES[reader_alias] = dict(dj_database_url.parse(reader_url, conn_max_age=0))
     DATABASES[reader_alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
     DATABASES[reader_alias]["ENGINE"] = PRODUCT_DB_FAIL_OPEN_ENGINE
@@ -283,7 +287,7 @@ for route in product_routes:
     # when the env var is explicitly set — in dev/test there's no PgBouncer,
     # so migrations use the writer alias directly.
     direct_env = f"PRODUCT_DB_{db.upper()}_DIRECT_URL"
-    direct_url = os.getenv(direct_env)
+    direct_url = secret_env(direct_env)
     if direct_url:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
@@ -336,7 +340,7 @@ CLICKHOUSE_OFFLINE_CLUSTER_HOST: str | None = os.getenv("CLICKHOUSE_OFFLINE_CLUS
 CLICKHOUSE_MIGRATIONS_HOST: str = os.getenv("CLICKHOUSE_MIGRATIONS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_ENDPOINTS_HOST: str = os.getenv("CLICKHOUSE_ENDPOINTS_HOST", CLICKHOUSE_HOST)
 CLICKHOUSE_USER: str = os.getenv("CLICKHOUSE_USER", "default")
-CLICKHOUSE_PASSWORD: str = os.getenv("CLICKHOUSE_PASSWORD", "")
+CLICKHOUSE_PASSWORD: str = secret_env("CLICKHOUSE_PASSWORD", "")
 CLICKHOUSE_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_DATABASE", "default")
 CLICKHOUSE_CLUSTER: str = os.getenv("CLICKHOUSE_CLUSTER", "posthog")
 CLICKHOUSE_MIGRATIONS_CLUSTER: str = os.getenv("CLICKHOUSE_MIGRATIONS_CLUSTER", "posthog_migrations")
@@ -381,7 +385,7 @@ CLICKHOUSE_CONN_POOL_MAX: int = get_from_env("CLICKHOUSE_CONN_POOL_MAX", 1000, t
 CLICKHOUSE_TEST_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_HOST", "")
 CLICKHOUSE_TEST_CLUSTER_DATABASE: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_DATABASE", "")
 CLICKHOUSE_TEST_CLUSTER_USER: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_USER", "")
-CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_TEST_CLUSTER_PASSWORD", "")
+CLICKHOUSE_TEST_CLUSTER_PASSWORD: str = secret_env("CLICKHOUSE_TEST_CLUSTER_PASSWORD", "")
 CLICKHOUSE_TEST_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_TEST_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
@@ -398,7 +402,7 @@ CLICKHOUSE_LOGS_CLUSTER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER", "posthog_sin
 CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "localhost")
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
-CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
+CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = secret_env("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
 CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
     CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", CLICKHOUSE_DATABASE)
 )
@@ -487,7 +491,7 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
 
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
-READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
+READONLY_CLICKHOUSE_PASSWORD: str | None = secret_env("READONLY_CLICKHOUSE_PASSWORD", None)
 
 
 # A list of tokens for which events should be sent to the historical topic
@@ -503,11 +507,11 @@ if TEST or DEBUG or IS_COLLECT_STATIC:
     else:
         REDIS_URL = os.getenv("REDIS_URL", "redis://redis7/")
 else:
-    REDIS_URL = os.getenv("REDIS_URL", "")
+    REDIS_URL = secret_env("REDIS_URL", "")
 
 if not REDIS_URL and get_from_env("POSTHOG_REDIS_HOST", ""):
     REDIS_URL = "redis://:{}@{}:{}/".format(
-        os.getenv("POSTHOG_REDIS_PASSWORD", ""),
+        secret_env("POSTHOG_REDIS_PASSWORD", ""),
         os.getenv("POSTHOG_REDIS_HOST", ""),
         os.getenv("POSTHOG_REDIS_PORT", "6379"),
     )
@@ -545,13 +549,13 @@ USE_REDIS_COMPRESSION = get_from_env("USE_REDIS_COMPRESSION", True, type_cast=st
 # A reader endpoint distributes read-only connections across all replicas in the cluster.
 # ElastiCache manages updating which nodes are used if a replica is failed-over to primary
 # so that we don't have to worry about changing config.
-REDIS_READER_URL = os.getenv("REDIS_READER_URL", None)
+REDIS_READER_URL = secret_env("REDIS_READER_URL", None)
 
 # Ingestion is now using a separate Redis cluster for better resource isolation.
 # Django and plugin-server currently communicate via the reload-plugins Redis
 # pubsub channel, pushed to when plugin configs change.
 # We should move away to a different communication channel and remove this.
-PLUGINS_RELOAD_REDIS_URL = os.getenv("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
+PLUGINS_RELOAD_REDIS_URL = secret_env("PLUGINS_RELOAD_REDIS_URL", REDIS_URL)
 
 CDP_API_URL = get_from_env("CDP_API_URL", "")
 
@@ -572,7 +576,7 @@ INTERNAL_API_SECRET = get_from_env(
 ).strip()
 # Previous secrets still accepted for verification during zero-downtime rotation, newest first.
 # Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
-INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
+INTERNAL_API_SECRET_FALLBACKS = get_list(secret_env("INTERNAL_API_SECRET_FALLBACKS", ""))
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -582,15 +586,15 @@ if not EMBEDDING_API_URL:
 
 # Dedicated Redis for feature flags
 # This allows feature-flags service to have dedicated Redis for better resource isolation
-FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
+FLAGS_REDIS_URL = secret_env("FLAGS_REDIS_URL", None)
 
 # Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
 # sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
 # published where the gateway reads it — zero config for the agent-platform e2e
 # (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
-AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
+AI_GATEWAY_REDIS_URL = secret_env("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
-TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+TASKS_REDIS_URL = secret_env("TASKS_REDIS_URL", None)
 
 # Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
 # examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
@@ -614,7 +618,7 @@ REMOTE_CONFIG_SHADOW_ENABLED = get_from_env("REMOTE_CONFIG_SHADOW_ENABLED", Fals
 # When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this
 # as `Authorization: Bearer …` so the Rust service skips per-team billing and quota limits.
 # Must match `INTERNAL_REQUEST_TOKEN` in the feature-flags service env.
-INTERNAL_REQUEST_TOKEN = os.getenv("INTERNAL_REQUEST_TOKEN", "")
+INTERNAL_REQUEST_TOKEN = secret_env("INTERNAL_REQUEST_TOKEN", "")
 
 FLAGS_CACHE_TTL = int(os.getenv("FLAGS_CACHE_TTL", str(60 * 60 * 24 * 7)))  # 7 days
 FLAGS_CACHE_MISS_TTL = int(os.getenv("FLAGS_CACHE_MISS_TTL", str(60 * 60 * 24)))  # 1 day
@@ -680,7 +684,7 @@ if TASKS_REDIS_URL:
         "KEY_PREFIX": "posthog",
     }
 
-QUERY_CACHE_REDIS_CLUSTER_URL: str | None = os.getenv("QUERY_CACHE_REDIS_CLUSTER_URL", None)
+QUERY_CACHE_REDIS_CLUSTER_URL: str | None = secret_env("QUERY_CACHE_REDIS_CLUSTER_URL", None)
 
 if QUERY_CACHE_REDIS_CLUSTER_URL:
     CACHES["query_cache"] = {
@@ -709,7 +713,7 @@ PATCH_EVENT_LIST_MAX_OFFSET_PER_TEAM: set[int] = get_from_env(
 
 CLICKHOUSE_EVENT_LIST_MAX_THREADS: int = get_from_env("CLICKHOUSE_EVENT_LIST_MAX_THREADS", 50, type_cast=int)
 
-WAREHOUSE_SOURCES_DATABASE_URL: str = os.getenv("WAREHOUSE_SOURCES_DATABASE_URL", "")
-WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = os.getenv(
+WAREHOUSE_SOURCES_DATABASE_URL: str = secret_env("WAREHOUSE_SOURCES_DATABASE_URL", "")
+WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL: str = secret_env(
     "WAREHOUSE_SOURCES_QUEUE_PARTITION_SLACK_WEBHOOK_URL", ""
 )

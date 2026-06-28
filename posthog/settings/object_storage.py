@@ -3,6 +3,7 @@ from typing import Optional
 
 from posthog.settings import get_from_env
 from posthog.settings.base_variables import DEBUG, TEST
+from posthog.settings.utils import secret_env
 from posthog.utils import str_to_bool
 
 if TEST or DEBUG:
@@ -17,7 +18,7 @@ else:
     # or Fargate task, we default to `None` rather than "" as this will, when
     # passed to boto, result in the correct credentials being used.
     OBJECT_STORAGE_ACCESS_KEY_ID = os.getenv("OBJECT_STORAGE_ACCESS_KEY_ID", "") or None
-    OBJECT_STORAGE_SECRET_ACCESS_KEY = os.getenv("OBJECT_STORAGE_SECRET_ACCESS_KEY", "") or None
+    OBJECT_STORAGE_SECRET_ACCESS_KEY = secret_env("OBJECT_STORAGE_SECRET_ACCESS_KEY", "") or None
 
 OBJECT_STORAGE_ENABLED = get_from_env("OBJECT_STORAGE_ENABLED", True if DEBUG else False, type_cast=str_to_bool)
 OBJECT_STORAGE_PUBLIC_ENDPOINT = os.getenv("OBJECT_STORAGE_PUBLIC_ENDPOINT", "") or OBJECT_STORAGE_ENDPOINT

@@ -53,7 +53,7 @@ from posthog.settings.ses import *
 from posthog.settings.email import *
 from posthog.settings.exports import *
 
-from posthog.settings.utils import get_from_env, str_to_bool
+from posthog.settings.utils import get_from_env, secret_env, str_to_bool
 
 from posthog.settings.base_variables import DEBUG, TEST
 from posthog.settings.web import INSTALLED_APPS
@@ -76,7 +76,7 @@ INSTANCE_TAG: str = os.getenv("INSTANCE_TAG", "none")
 # Vapi voice-AI integration (used by user_interviews to host public interview pages).
 VAPI_PUBLIC_KEY: str = os.getenv("VAPI_PUBLIC_KEY", "")
 VAPI_ASSISTANT_ID: str = os.getenv("VAPI_ASSISTANT_ID", "")
-VAPI_WEBHOOK_SECRET: str = os.getenv("VAPI_WEBHOOK_SECRET", "")
+VAPI_WEBHOOK_SECRET: str = secret_env("VAPI_WEBHOOK_SECRET", "")
 
 if DEBUG:
     JS_URL: str = os.getenv("JS_URL", "http://localhost:8234").rstrip("/")
@@ -97,9 +97,9 @@ PLUGINS_PREINSTALLED_URLS: list[str] = (
 
 # Tokens used when installing plugins, for example to get the latest commit SHA or to download private repositories.
 # Used mainly to get around API limits and only if no ?private_token=TOKEN found in the plugin URL.
-GITLAB_TOKEN: str | None = os.getenv("GITLAB_TOKEN", None)
-GITHUB_TOKEN: str | None = os.getenv("GITHUB_TOKEN", None)
-NPM_TOKEN: str | None = os.getenv("NPM_TOKEN", None)
+GITLAB_TOKEN: str | None = secret_env("GITLAB_TOKEN", None)
+GITHUB_TOKEN: str | None = secret_env("GITHUB_TOKEN", None)
+NPM_TOKEN: str | None = secret_env("NPM_TOKEN", None)
 
 
 # Whether to capture time-to-see-data metrics

@@ -5,7 +5,7 @@ Django settings for PostHog Enterprise Edition.
 import os
 
 from posthog.settings import AUTHENTICATION_BACKENDS, DEBUG, DEMO, MIDDLEWARE, SITE_URL
-from posthog.settings.utils import get_from_env
+from posthog.settings.utils import get_from_env, secret_env
 from posthog.utils import str_to_bool
 
 # SSO
@@ -33,8 +33,8 @@ SOCIAL_AUTH_SAML_SUPPORT_CONTACT = SOCIAL_AUTH_SAML_TECHNICAL_CONTACT
 
 
 # Google SSO
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY: str | None = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET: str | None = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY: str | None = secret_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET: str | None = secret_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 if "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS" in os.environ:
     SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS: list[str] = os.environ[
         "SOCIAL_AUTH_GOOGLE_OAUTH2_WHITELISTED_DOMAINS"
@@ -46,7 +46,7 @@ elif DEMO:
 
 # Admin OAuth2 Verification
 ADMIN_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_KEY")
-ADMIN_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("ADMIN_AUTH_GOOGLE_OAUTH2_SECRET")
+ADMIN_AUTH_GOOGLE_OAUTH2_SECRET = secret_env("ADMIN_AUTH_GOOGLE_OAUTH2_SECRET")
 # Restrict admin OAuth to specific Google Workspace domains (comma-separated list)
 ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS = [
     d.strip() for d in os.environ.get("ADMIN_AUTH_GOOGLE_ALLOWED_DOMAINS", "posthog.com").split(",") if d.strip()

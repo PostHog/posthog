@@ -1,6 +1,5 @@
 # ruff: noqa: T201 allow print statements
 
-import os
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -10,6 +9,7 @@ import requests
 from posthog.models import Team, User
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.user_home_settings import UserHomeSettings
+from posthog.settings.utils import secret_env
 
 
 class Command(BaseCommand):
@@ -66,7 +66,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         # Get API key from options or environment
-        api_key = options.get("api_key") or os.environ.get("POSTHOG_PERSONAL_API_KEY")
+        api_key = options.get("api_key") or secret_env("POSTHOG_PERSONAL_API_KEY")
         if not api_key:
             raise CommandError(
                 "Personal API key required. Provide --api-key or set POSTHOG_PERSONAL_API_KEY environment variable.\n"

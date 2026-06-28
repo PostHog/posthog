@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 from posthog.clickhouse.workload import Workload
 from posthog.settings import data_stores
+from posthog.settings.utils import secret_env
 from posthog.utils import patchable
 
 
@@ -94,7 +95,7 @@ def init_clickhouse_users() -> Mapping[ClickHouseUser, tuple[str, str]]:
     }
     for u in ClickHouseUser:
         user = os.getenv(f"CLICKHOUSE_{u.name.upper()}_USER")
-        password = os.getenv(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
+        password = secret_env(f"CLICKHOUSE_{u.name.upper()}_PASSWORD")
         if user and password:
             user_dict[u] = (user, password)
         elif bool(user) != bool(password):
@@ -115,6 +116,9 @@ def get_clickhouse_creds(user: ClickHouseUser) -> tuple[str, str]:
     The user and password must be properly passed as ENVs:
         CLICKHOUSE_<USER_NAME>_USER
         CLICKHOUSE_<USER_NAME>_PASSWORD
+
+    The password may also be supplied as a file at $POSTHOG_SECRETS_DIR/CLICKHOUSE_<USER_NAME>_PASSWORD
+    (read via secret_env), which takes precedence over the env var; the user is still read from the ENV.
 
     Args:
         user (ClickHouseUser): The user whose ClickHouse credentials need

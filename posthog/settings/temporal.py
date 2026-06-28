@@ -2,20 +2,20 @@ import os
 
 from posthog.settings.access import SECRET_KEY
 from posthog.settings.base_variables import CLOUD_DEPLOYMENT, DEBUG
-from posthog.settings.utils import get_from_env, get_list, str_to_bool
+from posthog.settings.utils import get_from_env, get_list, secret_env, str_to_bool
 
 TEMPORAL_NAMESPACE: str = os.getenv("TEMPORAL_NAMESPACE", "default")
 TEMPORAL_HOST: str = os.getenv("TEMPORAL_HOST", "temporal")
 TEMPORAL_UI_HOST: str = os.getenv("TEMPORAL_UI_HOST", "http://localhost:8081" if DEBUG else "https://cloud.temporal.io")
 TEMPORAL_PORT: str = os.getenv("TEMPORAL_PORT", "7233")
-TEMPORAL_CLIENT_ROOT_CA: str | None = os.getenv("TEMPORAL_CLIENT_ROOT_CA", None)
-TEMPORAL_CLIENT_CERT: str | None = os.getenv("TEMPORAL_CLIENT_CERT", None)
-TEMPORAL_CLIENT_KEY: str | None = os.getenv("TEMPORAL_CLIENT_KEY", None)
+TEMPORAL_CLIENT_ROOT_CA: str | None = secret_env("TEMPORAL_CLIENT_ROOT_CA", None)
+TEMPORAL_CLIENT_CERT: str | None = secret_env("TEMPORAL_CLIENT_CERT", None)
+TEMPORAL_CLIENT_KEY: str | None = secret_env("TEMPORAL_CLIENT_KEY", None)
 TEMPORAL_WORKFLOW_MAX_ATTEMPTS: str = os.getenv("TEMPORAL_WORKFLOW_MAX_ATTEMPTS", "3")
 TEMPORAL_USE_PYDANTIC_CONVERTER: bool = get_from_env("TEMPORAL_USE_PYDANTIC_CONVERTER", False, type_cast=str_to_bool)
 
-TEMPORAL_SECRET_KEY: str = os.getenv("TEMPORAL_SECRET_KEY", SECRET_KEY)
-TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(os.getenv("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]
+TEMPORAL_SECRET_KEY: str = secret_env("TEMPORAL_SECRET_KEY", SECRET_KEY)
+TEMPORAL_FALLBACK_SECRET_KEYS: list[str] = get_list(secret_env("TEMPORAL_FALLBACK_SECRET_KEYS", "")) or [SECRET_KEY]
 
 
 GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS: int | None = get_from_env(

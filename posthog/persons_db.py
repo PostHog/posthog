@@ -43,9 +43,13 @@ def persons_db_url(*, writer: bool = True) -> str:
     reader endpoint is configured (mirroring production). Falls back to a local
     default (derived from the PG* env vars) only when nothing is set, i.e. local development.
     """
+    # Imported inside the function (not at module top) to keep this cold-path module off
+    # the Django settings import chain that posthog.settings.utils pulls in.
+    from posthog.settings.utils import secret_env  # noqa: PLC0415
+
     if writer:
-        return os.getenv("PERSONS_DB_WRITER_URL") or LOCAL_DEV_PERSONS_DB_URL
-    return os.getenv("PERSONS_DB_READER_URL") or os.getenv("PERSONS_DB_WRITER_URL") or LOCAL_DEV_PERSONS_DB_URL
+        return secret_env("PERSONS_DB_WRITER_URL") or LOCAL_DEV_PERSONS_DB_URL
+    return secret_env("PERSONS_DB_READER_URL") or secret_env("PERSONS_DB_WRITER_URL") or LOCAL_DEV_PERSONS_DB_URL
 
 
 @contextmanager
