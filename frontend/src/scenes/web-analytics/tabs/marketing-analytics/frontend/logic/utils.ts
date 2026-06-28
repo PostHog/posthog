@@ -30,7 +30,6 @@ export const VALID_SELF_MANAGED_MARKETING_SOURCES: ManualLinkSourceType[] = [
 
 // Map of native sources that require feature flags to be enabled
 export const NATIVE_SOURCE_FEATURE_FLAGS: Partial<Record<NativeMarketingSource, FeatureFlagKey>> = {
-    BingAds: FEATURE_FLAGS.BING_ADS_SOURCE,
     SnapchatAds: FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE,
     PinterestAds: FEATURE_FLAGS.PINTEREST_ADS_SOURCE,
 }

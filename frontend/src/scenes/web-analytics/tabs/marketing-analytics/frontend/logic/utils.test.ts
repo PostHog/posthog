@@ -25,9 +25,7 @@ import {
 describe('marketing analytics utils', () => {
     describe('getEnabledNativeMarketingSources', () => {
         it.each([
-            ['filters out BingAds when flag is disabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: false }, 'BingAds', false],
-            ['includes BingAds when flag is enabled', { [FEATURE_FLAGS.BING_ADS_SOURCE]: true }, 'BingAds', true],
-            ['filters out BingAds with empty feature flags', {}, 'BingAds', false],
+            ['always includes BingAds regardless of feature flags', {}, 'BingAds', true],
             [
                 'filters out SnapchatAds when flag is disabled',
                 { [FEATURE_FLAGS.SNAPCHAT_ADS_SOURCE]: false },
@@ -61,7 +59,7 @@ describe('marketing analytics utils', () => {
 
         it('always includes sources without feature flag requirements', () => {
             const sourcesWithoutFlags = VALID_NATIVE_MARKETING_SOURCES.filter(
-                (s) => s !== 'BingAds' && s !== 'SnapchatAds' && s !== 'PinterestAds'
+                (s) => s !== 'SnapchatAds' && s !== 'PinterestAds'
             )
             const result = getEnabledNativeMarketingSources({})
             sourcesWithoutFlags.forEach((source) => {
