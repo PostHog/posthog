@@ -16,6 +16,7 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
+import { createRecordingApiAuthMiddleware } from './auth'
 import { RecordingService } from './recording-service'
 import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
 import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
@@ -185,6 +186,24 @@ export class RecordingApi {
         const blockPath = '/api/projects/:team_id/recordings/:session_id/block'
 
         const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
+
+        const auth = (op: 'read' | 'delete') =>
+            createRecordingApiAuthMiddleware({
+                jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+                legacySecret: this.config.INTERNAL_API_SECRET,
+                allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
+                op,
+            })
+        const readAuth = auth('read')
+        const deleteAuth = auth('delete')
+
+        // Authorize the whole recording-api namespace rather than each route individually, so a route
+        // added later under this prefix can't ship unauthenticated (the prefix is exempt from the
+        // shared-secret middleware). op is derived from the method: GET reads, anything mutating gets
+        // the stricter delete scope. Registered before the routes so it runs first.
+        router.use('/api/projects/:team_id/recordings', (req, res, next) =>
+            (req.method === 'GET' ? readAuth : deleteAuth)(req, res, next)
+        )
 
         router.get(blockPath, asyncHandler(this.getBlock))
         router.get(blocksPath, asyncHandler(this.listBlocks))

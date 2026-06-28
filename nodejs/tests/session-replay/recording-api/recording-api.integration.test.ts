@@ -44,6 +44,8 @@ import snappy from 'snappy'
 import supertest from 'supertest'
 import express from 'ultimate-express'
 
+import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
+import { setupExpressApp } from '~/common/api/router'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
@@ -751,6 +753,176 @@ describe('Recording API encryption integration', () => {
                 expect(result).toEqual(
                     expect.objectContaining({ ok: false, error: 'deleted', deletedAt: expect.any(Number) })
                 )
+            })
+        })
+    })
+
+    // Auth matrix exercised through the real router chain (no Localstack needed — rejections happen
+    // in the middleware before the handler touches S3; the few pass-through cases use MemoryKeyStore).
+    describe('HTTP auth (team + operation scoped JWT)', () => {
+        const JWT_SECRET = 'itest-jwt-secret'
+        const LEGACY_SECRET = 'itest-legacy-secret'
+        const TEAM = 1
+        const SESSION = 'auth-session-1'
+        const BLOCK_KEY = 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee'
+
+        let keyStore: MemoryKeyStore
+        let encryptor: SodiumRecordingEncryptor
+        let decryptor: SodiumRecordingDecryptor
+        let mockS3Send: jest.Mock
+        let recordingService: RecordingService
+        let servers: Server[]
+
+        beforeEach(async () => {
+            keyStore = new MemoryKeyStore()
+            await keyStore.start()
+            decryptor = new SodiumRecordingDecryptor(keyStore)
+            await decryptor.start()
+            encryptor = new SodiumRecordingEncryptor(keyStore)
+            await encryptor.start()
+            mockS3Send = jest.fn()
+            const mockS3Client = { send: mockS3Send, destroy: jest.fn() } as unknown as S3Client
+            recordingService = new RecordingService(
+                mockS3Client,
+                'test-bucket',
+                'session_recordings',
+                keyStore,
+                decryptor
+            )
+            servers = []
+        })
+
+        afterEach(() => {
+            servers.forEach((s) => s.close())
+        })
+
+        const defaultConfig: Partial<RecordingApiConfig> = {
+            RECORDING_API_JWT_SECRET: JWT_SECRET,
+            INTERNAL_API_SECRET: LEGACY_SECRET,
+            RECORDING_API_ALLOW_LEGACY_SECRET: true,
+        }
+
+        const makeApp = async (config: Partial<RecordingApiConfig> = defaultConfig): Promise<express.Application> => {
+            const api = new RecordingApi(config as RecordingApiConfig, {} as PostgresRouter, mockOutputs)
+            await api.start(recordingService)
+            // Mirror RecordingApiServer's real wiring: the shared-secret middleware fronts the app but
+            // exempts the recording-api namespace, which then owns auth per-route. Exercises that
+            // interaction (and the JSON body parser) instead of mounting the router on a bare app.
+            const app = setupExpressApp({
+                internalApiSecret: config.INTERNAL_API_SECRET ?? '',
+                internalApiAuthExcludedPathPrefixes: ['/api/projects/'],
+            })
+            app.use('/', api.router())
+            servers.push(app.listen(0, () => {}))
+            return app
+        }
+
+        const token = (
+            claims: { team_id: number; op: string },
+            secret = JWT_SECRET,
+            expiresIn: string | number = '5m'
+        ) => new JWT(secret).sign(claims, PosthogJwtAudience.RECORDING_API, { expiresIn })
+
+        const bearer = (t: string) => ({ Authorization: `Bearer ${t}` })
+
+        // Set up a real fetchable block so a request that PASSES auth returns 200 (not just "not 401").
+        const setupBlock = async (): Promise<{ key: string; startByte: string; endByte: string }> => {
+            const sessionKey = await keyStore.generateKey(SESSION, TEAM)
+            const blockData = await createBlockData([{ type: 2, data: { content: 'hi' } }])
+            const { data: encrypted } = encryptor.encryptBlockWithKey(SESSION, TEAM, blockData, sessionKey)
+            mockS3Send.mockResolvedValue({ Body: { transformToByteArray: () => Promise.resolve(encrypted) } })
+            return { key: BLOCK_KEY, startByte: '0', endByte: String(encrypted.length - 1) }
+        }
+
+        const getBlock = (app: express.Application, headers: Record<string, string>, team: number = TEAM) =>
+            supertest(app)
+                .get(`/api/projects/${team}/recordings/${SESSION}/block`)
+                .query({ key: BLOCK_KEY, start_byte: '0', end_byte: '100' })
+                .set(headers)
+
+        const postDelete = (app: express.Application, headers: Record<string, string>, team: number = TEAM) =>
+            supertest(app)
+                .post(`/api/projects/${team}/recordings/delete`)
+                .send({ session_ids: [SESSION], deleted_by: 'x@posthog.com' })
+                .set(headers)
+
+        it('valid read token (matching team) reaches the handler and returns the block', async () => {
+            const app = await makeApp()
+            const block = await setupBlock()
+            const res = await supertest(app)
+                .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
+                .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
+                .set(bearer(token({ team_id: TEAM, op: 'read' })))
+            expect(res.status).toBe(200)
+        })
+
+        it('accepts a valid delete token on the delete route', async () => {
+            const app = await makeApp()
+            const res = await postDelete(app, bearer(token({ team_id: TEAM, op: 'delete' })))
+            expect(res.status).not.toBe(401)
+            expect(res.status).not.toBe(403)
+        })
+
+        it('rejects a token scoped to a different team (403)', async () => {
+            const app = await makeApp()
+            const res = await getBlock(app, bearer(token({ team_id: 999, op: 'read' })))
+            expect(res.status).toBe(403)
+        })
+
+        it('rejects a read token on the delete route (403)', async () => {
+            const app = await makeApp()
+            const res = await postDelete(app, bearer(token({ team_id: TEAM, op: 'read' })))
+            expect(res.status).toBe(403)
+        })
+
+        it('rejects a delete token on a read route (403)', async () => {
+            const app = await makeApp()
+            const res = await getBlock(app, bearer(token({ team_id: TEAM, op: 'delete' })))
+            expect(res.status).toBe(403)
+        })
+
+        it.each([
+            ['no token', undefined],
+            ['garbage token', 'not-a-jwt'],
+            ['expired token', token({ team_id: TEAM, op: 'read' }, JWT_SECRET, -60)],
+            ['token signed by an unknown key', token({ team_id: TEAM, op: 'read' }, 'rogue-key')],
+        ])('rejects %s with 401', async (_name, t) => {
+            const app = await makeApp()
+            const res = await getBlock(app, t ? bearer(t) : {})
+            expect(res.status).toBe(401)
+        })
+
+        it('accepts the legacy secret while allowLegacySecret is true', async () => {
+            const app = await makeApp()
+            const block = await setupBlock()
+            const res = await supertest(app)
+                .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
+                .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
+                .set({ 'X-Internal-Api-Secret': LEGACY_SECRET })
+            expect(res.status).toBe(200)
+        })
+
+        it('rejects the legacy secret once allowLegacySecret is false', async () => {
+            const app = await makeApp({ ...defaultConfig, RECORDING_API_ALLOW_LEGACY_SECRET: false })
+            const res = await getBlock(app, { 'X-Internal-Api-Secret': LEGACY_SECRET })
+            expect(res.status).toBe(401)
+        })
+
+        describe('key rotation', () => {
+            it('accepts a token signed by the retiring key while both keys are configured', async () => {
+                const app = await makeApp({ ...defaultConfig, RECORDING_API_JWT_SECRET: 'new-key,old-key' })
+                const block = await setupBlock()
+                const res = await supertest(app)
+                    .get(`/api/projects/${TEAM}/recordings/${SESSION}/block`)
+                    .query({ key: block.key, start_byte: block.startByte, end_byte: block.endByte })
+                    .set(bearer(token({ team_id: TEAM, op: 'read' }, 'old-key')))
+                expect(res.status).toBe(200)
+            })
+
+            it('rejects a token signed by a retired key once it is dropped', async () => {
+                const app = await makeApp({ ...defaultConfig, RECORDING_API_JWT_SECRET: 'new-key' })
+                const res = await getBlock(app, bearer(token({ team_id: TEAM, op: 'read' }, 'old-key')))
+                expect(res.status).toBe(401)
             })
         })
     })
