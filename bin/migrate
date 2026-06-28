@@ -61,6 +61,38 @@ fi
 if run_scope "clickhouse"; then RUN_CLICKHOUSE=1; else RUN_CLICKHOUSE=0; fi
 if run_scope "postgres"; then RUN_POSTGRES=1; else RUN_POSTGRES=0; fi
 
+# Retry config shared by the ClickHouse and Postgres migration steps. A database
+# can come up a few seconds after this job starts (ConnectionRefusedError on the
+# first connect), so we retry with exponential backoff instead of failing the run.
+MIGRATE_MAX_RETRIES=${MIGRATE_MAX_RETRIES:-10}
+MIGRATE_RETRY_DELAY=${MIGRATE_RETRY_DELAY:-3}
+MIGRATE_BACKOFF=${MIGRATE_BACKOFF:-2}
+
+# retry_command <label> <command...> — run a command, retrying with backoff on
+# failure. Returns the command's exit status once it succeeds, or non-zero after
+# exhausting MIGRATE_MAX_RETRIES.
+retry_command() {
+    local label="$1"; shift
+    local attempt=1
+    local delay=$MIGRATE_RETRY_DELAY
+    while [ $attempt -le $MIGRATE_MAX_RETRIES ]; do
+        echo "[migrate] $label attempt $attempt/$MIGRATE_MAX_RETRIES"
+        if "$@"; then
+            return 0
+        fi
+        echo "[migrate] $label failed"
+        if [ $attempt -ge $MIGRATE_MAX_RETRIES ]; then
+            echo "[migrate] $label max retries reached, aborting"
+            return 1
+        fi
+        echo "[migrate] waiting ${delay}s before retry..."
+        sleep $delay
+        delay=$((delay * MIGRATE_BACKOFF))
+        attempt=$((attempt + 1))
+    done
+    return 1
+}
+
 # Run ClickHouse in background only when both CH and Postgres run (original parallel behavior)
 if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
     trap 'rm -f "$CLICKHOUSE_STATUS" 2>/dev/null' EXIT
@@ -68,37 +100,29 @@ if [ "$RUN_CLICKHOUSE" = "1" ] && [ "$RUN_POSTGRES" = "1" ]; then
     echo "0" > $CLICKHOUSE_STATUS
     
     (
-        python manage.py migrate_clickhouse
-        CH_MIGRATE_STATUS=$?
-        if [ $CH_MIGRATE_STATUS -ne 0 ]; then
+        if ! retry_command "migrate_clickhouse" python manage.py migrate_clickhouse; then
             echo "Error in migrate_clickhouse, setting error status."
             echo "1" > $CLICKHOUSE_STATUS
-            exit $CH_MIGRATE_STATUS
+            exit 1
         fi
-        
-        python manage.py sync_replicated_schema
-        SYNC_STATUS=$?
-        if [ $SYNC_STATUS -ne 0 ]; then
+
+        if ! retry_command "sync_replicated_schema" python manage.py sync_replicated_schema; then
             echo "Error in sync_replicated_schema, setting error status."
             echo "1" > $CLICKHOUSE_STATUS
-            exit $SYNC_STATUS
+            exit 1
         fi
     ) &
     CLICKHOUSE_PID=$!
     elif [ "$RUN_CLICKHOUSE" = "1" ]; then
     # ClickHouse only - run directly
-    python manage.py migrate_clickhouse || { echo "Error in migrate_clickhouse, exiting."; exit 1; }
-    python manage.py sync_replicated_schema || { echo "Error in sync_replicated_schema, exiting."; exit 1; }
+    retry_command "migrate_clickhouse" python manage.py migrate_clickhouse || { echo "Error in migrate_clickhouse, exiting."; exit 1; }
+    retry_command "sync_replicated_schema" python manage.py sync_replicated_schema || { echo "Error in sync_replicated_schema, exiting."; exit 1; }
 fi
 
 if [ "$RUN_POSTGRES" = "1" ]; then
-    # Run postgres migrations with retry logic
+    # Run postgres migrations with retry logic (config defined above)
     # If POSTHOG_POSTGRES_DIRECT_HOST is set, use direct connection (bypasses PgBouncer)
     # which allows lock_timeout to be set in Django database OPTIONS
-    MIGRATE_MAX_RETRIES=${MIGRATE_MAX_RETRIES:-10}
-    MIGRATE_RETRY_DELAY=${MIGRATE_RETRY_DELAY:-3}
-    MIGRATE_BACKOFF=${MIGRATE_BACKOFF:-2}
-    
     MIGRATE_ATTEMPT=1
     MIGRATE_SUCCESS=false
     MIGRATE_START_TIME=$(timestamp)
