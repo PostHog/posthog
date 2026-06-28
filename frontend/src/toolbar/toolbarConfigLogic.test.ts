@@ -345,6 +345,17 @@ describe('toolbar toolbarConfigLogic', () => {
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
         })
+
+        it('does not throw and flips to error when a host fetch wrapper throws synchronously', () => {
+            // Host pages (e.g. Shopify storefronts) can monkey-patch window.fetch with a wrapper
+            // that throws synchronously before any promise exists — this must not escape afterMount.
+            ;(global.fetch as jest.Mock).mockImplementation(() => {
+                throw new TypeError('Failed to fetch')
+            })
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            expect(() => logic.mount()).not.toThrow()
+            expect(logic.values.authStatus).toBe('error')
+        })
     })
 
     describe('canonicalizeUiHost', () => {

@@ -635,42 +635,56 @@ function verifyUiHostReachability(
     }
 
     const checkStart = Date.now()
-    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
-        method: 'HEAD',
-        mode: 'cors',
-        signal: AbortSignal.timeout(5000),
-    })
-        .then((response) => {
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`)
-            }
-            actions.setAuthStatus('idle')
-            toolbarPosthogJS.capture('toolbar ui host check', {
-                ...checkBaseProps,
-                status: 'ok',
-                duration_ms: Date.now() - checkStart,
-            })
 
-            if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
-            }
+    // Surfaces both a rejected promise AND a synchronous throw through the same path.
+    // Host pages can monkey-patch `window.fetch` (e.g. Shopify storefronts) with a wrapper
+    // that throws synchronously before any promise exists — `.catch` alone wouldn't catch it,
+    // and the error would escape afterMount uncaught. AbortSignal.timeout can also throw
+    // synchronously on browsers that lack it.
+    const onCheckError = (error: unknown): void => {
+        actions.setAuthStatus('error')
+        captureToolbarException(error, 'ui_host_check', {
+            error_type: classifyFetchError(error),
         })
-        .catch((error: unknown) => {
-            actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
-            toolbarPosthogJS.capture('toolbar ui host check', {
-                ...checkBaseProps,
-                status: 'error',
-                error_type: classifyFetchError(error),
-                duration_ms: Date.now() - checkStart,
-            })
+        toolbarPosthogJS.capture('toolbar ui host check', {
+            ...checkBaseProps,
+            status: 'error',
+            error_type: classifyFetchError(error),
+            duration_ms: Date.now() - checkStart,
+        })
 
-            if (authParams) {
-                actions.openUiHostConfigModal()
-            }
+        if (authParams) {
+            actions.openUiHostConfigModal()
+        }
+    }
+
+    try {
+        // Guard AbortSignal.timeout so it can't throw synchronously on unsupported browsers.
+        const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(5000) : undefined
+        void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+            method: 'HEAD',
+            mode: 'cors',
+            signal,
         })
+            .then((response) => {
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`)
+                }
+                actions.setAuthStatus('idle')
+                toolbarPosthogJS.capture('toolbar ui host check', {
+                    ...checkBaseProps,
+                    status: 'ok',
+                    duration_ms: Date.now() - checkStart,
+                })
+
+                if (authParams) {
+                    startCodeExchange(values.uiHost, authParams, actions)
+                }
+            })
+            .catch(onCheckError)
+    } catch (error) {
+        onCheckError(error)
+    }
 }
 
 /** Exchange an OAuth authorization code for access + refresh tokens. */
