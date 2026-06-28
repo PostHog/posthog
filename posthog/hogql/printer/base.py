@@ -730,7 +730,9 @@ class BasePrinter(Visitor[str]):
                 raise QueryError("JOIN USING expects column names")
             name = str(field.chain[-1])
             right = ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=right_type))
-            comparisons.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=col, right=right))
+            # Use the unwrapped `field`, not `col`: a user-supplied alias (`USING (x AS y)`) would
+            # otherwise render as `x AS y` inside the ON clause, which ClickHouse rejects.
+            comparisons.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=right))
         return comparisons[0] if len(comparisons) == 1 else ast.And(exprs=comparisons)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
