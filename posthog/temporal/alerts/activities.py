@@ -39,6 +39,7 @@ from posthog.temporal.alerts.types import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.alerts.backend.evaluation import check_alert_for_insight
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.notifications.backend.facade.api import (
@@ -219,6 +220,12 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             breaches = alert_evaluation_result.breaches
         except CH_TRANSIENT_ERRORS:
             raise
+        except AlertExtractionError as err:
+            # The extractor signals "this alert can't be evaluated as configured" (e.g. an empty
+            # funnel returns no steps) by raising AlertExtractionError. That's an expected config-level
+            # outcome routed to the errored-alert state — not a crash — so skip capture/logger.exception
+            # to keep error tracking clean, while still recording the error on the alert check.
+            error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
             logger.exception(f"Alert id = {alert.id}, failed to evaluate", exc_info=err)
             capture_exception(

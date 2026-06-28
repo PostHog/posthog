@@ -33,6 +33,7 @@ from posthog.temporal.alerts.types import (
     SkipReason,
 )
 
+from products.alerts.backend.evaluation.contract import AlertExtractionError
 from products.alerts.backend.evaluation.validation import THRESHOLD_BOUNDS_REQUIRED_MESSAGE
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
 from products.product_analytics.backend.models.insight import Insight
@@ -354,6 +355,28 @@ class TestEvaluateAlert:
         # Only prepare-time validate_alert_config failures call disable_invalid_alert.
         refreshed = await sync_to_async(AlertConfiguration.objects.get)(pk=alert.pk)
         assert refreshed.enabled is True
+
+    async def test_evaluate_extraction_error_routes_to_errored_without_capturing(self, alert) -> None:
+        # An empty-funnel alert raises AlertExtractionError — an expected config-level "no data"
+        # outcome. It must land in ERRORED without paging error tracking via capture_exception.
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                side_effect=AlertExtractionError("Funnel alert query returned no steps."),
+            ),
+            patch("posthog.temporal.alerts.activities.capture_exception") as mock_capture,
+        ):
+            env = ActivityEnvironment()
+            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+
+        mock_capture.assert_not_called()
+
+        assert result.new_state == AlertState.ERRORED
+
+        check = await sync_to_async(AlertCheck.objects.get)(pk=result.alert_check_id)
+        assert check.state == AlertState.ERRORED
+        assert check.error is not None
+        assert "no steps" in check.error["message"]
 
     async def test_evaluate_reraises_ch_transient_error(self, alert) -> None:
         # Transient CH errors bubble up so Temporal's retry policy handles them.
