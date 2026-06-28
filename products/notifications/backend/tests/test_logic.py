@@ -86,6 +86,40 @@ class TestCreateNotification(BaseTest):
         assert event is not None
         assert set(event.resolved_user_ids) == {self.user.id, user2.id}
 
+    def test_resolve_team_excludes_org_members_without_project_access(self):
+        from posthog.models import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="none",
+        )
+
+        allowed_user = User.objects.create_and_join(self.organization, "allowed@test.com", "password")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=OrganizationMembership.objects.get(organization=self.organization, user=allowed_user),
+            access_level="member",
+        )
+        denied_user = User.objects.create_and_join(self.organization, "denied@test.com", "password")
+
+        result = RecipientsResolver().resolve(TargetType.TEAM, str(self.team.id), self.team.id)
+
+        assert allowed_user.id in result
+        assert denied_user.id not in result
+
     def test_resolve_unknown_target_type_raises(self):
         resolver = RecipientsResolver()
         with pytest.raises(ValueError, match="Unknown target type"):
