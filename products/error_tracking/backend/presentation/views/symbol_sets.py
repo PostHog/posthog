@@ -220,7 +220,7 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     @extend_schema(exclude=True)  # deprecated; serializer has no settable fields, hidden from typed clients
     def create(self, request: Request, *args, **kwargs) -> Response:
         chunk_id = request.query_params.get("chunk_id", None)
-        multipart = request.query_params.get("multipart", False)
+        multipart = request.query_params.get("multipart", "false").lower() in ("true", "1")
         release_id = request.query_params.get("release_id", None)
 
         posthoganalytics.capture(
@@ -233,12 +233,16 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
         if multipart:
+            if "file" not in request.FILES:
+                return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
             data = bytearray()
             for chunk in request.FILES["file"].chunks():
                 data.extend(chunk)
         else:
             # legacy: older versions of the CLI did not use multipart uploads
             # file added to the request data by the FileUploadParser
+            if "file" not in request.data:
+                return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
             data = request.data["file"].read()
 
         symbol_sets_facade.create_deprecated_symbol_set(self.team, chunk_id, release_id, bytearray(data))

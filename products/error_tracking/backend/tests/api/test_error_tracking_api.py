@@ -323,6 +323,21 @@ class TestErrorTracking(APIBaseTest):
         assert symbol_set.content_hash is None
         assert symbol_set.last_used is None
 
+    @parameterized.expand(
+        [
+            ("legacy", ""),
+            ("multipart", "&multipart=true"),
+        ]
+    )
+    def test_deprecated_create_returns_400_when_file_missing(self, _name: str, multipart_param: str) -> None:
+        chunk_id = uuid7()
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={chunk_id}{multipart_param}"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "file is required"
+
     def test_finish_upload_fails_if_file_not_found(self):
         symbol_set = ErrorTrackingSymbolSet.objects.create(
             team=self.team, ref=str(uuid7()), storage_ptr=f"symbolsets/{uuid7()}"
