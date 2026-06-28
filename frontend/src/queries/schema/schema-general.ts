@@ -1507,7 +1507,6 @@ export type TrendsFilter = {
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
-     * @default value
      **/
     resultCustomizationBy?: ResultCustomizationBy
     /** Customizations for the appearance of result datasets. */
@@ -1973,7 +1972,6 @@ export type StickinessFilter = {
     computedAs?: StickinessComputationMode
     /**
      * Whether result datasets are associated by their values or by their order.
-     * @default value
      **/
     resultCustomizationBy?: ResultCustomizationBy
     /** Customizations for the appearance of result datasets. */

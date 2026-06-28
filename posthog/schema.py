@@ -8017,18 +8017,18 @@ class TrendsFilter(BaseModel):
             ' total/average compare against the previous period when "compare to'
             ' previous" is on; latest compares first→last of the series.'
         ),
-    )
-    minDecimalPlaces: float | None = None
-    movingAverageIntervals: float | None = None
-    resultCustomizationBy: ResultCustomizationBy | None = Field(
-        default=None,
-        description=("Wether result datasets are associated by their values or by their order."),
-    )
-    resultCustomizations: dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition] | None = (
-        Field(
-            default=None,
-            description="Customizations for the appearance of result datasets.",
         )
+        minDecimalPlaces: float | None = None
+        movingAverageIntervals: float | None = None
+        resultCustomizationBy: ResultCustomizationBy | None = Field(
+            default=None,
+            description=("Wether result datasets are associated by their values or by their order."),
+        )
+        resultCustomizations: dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition] | None = (
+            Field(
+                default=None,
+                description="Customizations for the appearance of result datasets.",
+            )
     )
     showAlertThresholdLines: bool | None = False
     showAnnotations: bool | None = True
