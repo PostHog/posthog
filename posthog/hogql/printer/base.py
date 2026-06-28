@@ -717,6 +717,10 @@ class BasePrinter(Visitor[str]):
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
 
     def _using_constraint_as_on(self, expr: ast.Expr, right_type: ast.Type | None) -> ast.Expr:
+        if not isinstance(
+            right_type, ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType
+        ):
+            raise QueryError("JOIN USING requires a table or subquery on the right-hand side")
         columns = expr.exprs if isinstance(expr, ast.Tuple) else [expr]
         comparisons: list[ast.Expr] = []
         for col in columns:
