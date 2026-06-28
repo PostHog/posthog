@@ -4,6 +4,8 @@ from pathlib import Path
 import pytest
 from unittest.mock import MagicMock, patch
 
+import requests
+
 from products.growth.dags.github_sdk_versions import (
     fetch_android_sdk_data,
     fetch_dotnet_sdk_data,
@@ -15,6 +17,7 @@ from products.growth.dags.github_sdk_versions import (
     fetch_php_sdk_data,
     fetch_python_sdk_data,
     fetch_react_native_sdk_data,
+    fetch_releases_from_repo,
     fetch_ruby_sdk_data,
     fetch_web_sdk_data,
 )
@@ -345,3 +348,50 @@ class TestSupportsUnprefixedReleaseTags(TestFetchSdkDataBase):
         assert result["latestVersion"] == latest_tag
         assert result["releaseDates"][latest_tag] == latest_created_at
         assert result["releaseDates"][previous_version] == previous_created_at
+
+
+class TestTransientNetworkErrors:
+    """Transient GitHub connectivity blips should self-heal via in-process retries and never be
+    escalated to error tracking, while genuinely unexpected failures still are."""
+
+    def _ok_page(self, data):
+        page = MagicMock()
+        page.ok = True
+        page.status_code = 200
+        page.json.return_value = data
+        return page
+
+    @patch("products.growth.dags.github_sdk_versions.time.sleep")
+    @patch("products.growth.dags.github_sdk_versions.capture_exception")
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_transient_error_recovers_without_capture(self, mock_get, mock_capture, _mock_sleep):
+        # First attempt times out, retry succeeds.
+        mock_get.side_effect = [requests.exceptions.ConnectTimeout(), self._ok_page([]), self._ok_page([])]
+
+        result = fetch_releases_from_repo("PostHog/posthog-js", skip_cache=True)
+
+        assert result == []
+        mock_capture.assert_not_called()
+
+    @patch("products.growth.dags.github_sdk_versions.time.sleep")
+    @patch("products.growth.dags.github_sdk_versions.capture_exception")
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_persistent_transient_error_is_not_captured(self, mock_get, mock_capture, _mock_sleep):
+        mock_get.side_effect = requests.exceptions.ConnectTimeout()
+
+        result = fetch_releases_from_repo("PostHog/posthog-js", skip_cache=True)
+
+        assert result == []
+        # Retried up to the limit before giving up, but never escalated to error tracking.
+        assert mock_get.call_count == 3
+        mock_capture.assert_not_called()
+
+    @patch("products.growth.dags.github_sdk_versions.capture_exception")
+    @patch("products.growth.dags.github_sdk_versions.requests.get")
+    def test_unexpected_error_is_captured(self, mock_get, mock_capture):
+        mock_get.side_effect = ValueError("something genuinely unexpected")
+
+        result = fetch_releases_from_repo("PostHog/posthog-js", skip_cache=True)
+
+        assert result == []
+        mock_capture.assert_called_once()

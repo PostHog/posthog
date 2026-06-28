@@ -1,5 +1,6 @@
 import re
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -23,6 +24,10 @@ logger = structlog.get_logger(__name__)
 MAX_REQUEST_RETRIES = 3
 INITIAL_RETRIES_BACKOFF = 1  # in seconds
 UNPREFIXED_SEMVER_TAG = re.compile(r"\d+\.\d+(?:\.\d+)*$")
+
+# Connectivity hiccups to GitHub are expected and self-heal — we retry them in-process and,
+# combined with the op-level retry_policy, they shouldn't be escalated to error tracking.
+TRANSIENT_REQUEST_ERRORS = (requests.exceptions.Timeout, requests.exceptions.ConnectionError)
 
 
 # Using lambda here to be able to define this before defining the functions
@@ -107,6 +112,30 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern]
     return {"latestVersion": latest_version, "releaseDates": release_dates}
 
 
+def _get_with_retries(url: str) -> requests.Response:
+    """GET a URL, retrying transient connectivity errors with exponential backoff.
+
+    Raises the underlying error if every retry is exhausted, so the caller can decide
+    whether it's an expected blip (transient) or a genuinely unexpected failure.
+    """
+    backoff = INITIAL_RETRIES_BACKOFF
+    for attempt in range(1, MAX_REQUEST_RETRIES + 1):
+        try:
+            return requests.get(url, timeout=10)
+        except TRANSIENT_REQUEST_ERRORS:
+            if attempt == MAX_REQUEST_RETRIES:
+                raise
+            logger.warning(
+                f"[SDK Health] Transient network error fetching {url}, retrying",
+                attempt=attempt,
+                max_retries=MAX_REQUEST_RETRIES,
+            )
+            time.sleep(backoff)
+            backoff *= 2
+    # Unreachable: the loop either returns a response or re-raises on the final attempt.
+    raise RuntimeError("unreachable")
+
+
 # This is used to avoid hitting the GitHub API too often
 # for requests coming from the same pod, this doesn't happen often but it's good to have it anyway
 local_releases_cache: dict[str, list[Any]] = {}
@@ -130,34 +159,44 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
     page = 1
 
     while page <= 10:  # Github only permits us to list the first 1000 items, so that's 100 items * 10 pages
+        url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
+        logger.info(f"[SDK Health] Fetching releases from {url}")
+
         try:
-            url = f"https://api.github.com/repos/{repo}/releases?per_page=100&page={page}"
-            logger.info(f"[SDK Health] Fetching releases from {url}")
-
-            response = requests.get(url, timeout=10)
-
-            if not response.ok:
-                logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)
-                break
-
-            releases_json = response.json()
-            if releases_json is None:
-                logger.error(f"[SDK Health] Expected list of releases, got empty response", repo=repo)
-                break
-
-            if not isinstance(releases_json, list):
-                logger.error(f"[SDK Health] Expected list of releases, got {type(releases_json)}", repo=repo)
-                break
-
-            if len(releases_json) == 0:
-                break
-
-            releases.extend(releases_json)
-            page += 1
+            response = _get_with_retries(url)
+        except TRANSIENT_REQUEST_ERRORS as e:
+            # Expected, self-healing connectivity blip — the op-level retry_policy will re-run
+            # the whole op, so don't escalate it to error tracking as if it were an incident.
+            logger.warning(
+                f"[SDK Health] Transient network error fetching releases for {repo}, giving up after retries",
+                repo=repo,
+                page=page,
+                error=str(e),
+            )
+            break
         except Exception as e:
             logger.exception(f"[SDK Health] Failed to fetch releases for {repo}", repo=repo)
             capture_exception(e, additional_properties={"repo": repo, "page": page, "url": url})
             break
+
+        if not response.ok:
+            logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)
+            break
+
+        releases_json = response.json()
+        if releases_json is None:
+            logger.error(f"[SDK Health] Expected list of releases, got empty response", repo=repo)
+            break
+
+        if not isinstance(releases_json, list):
+            logger.error(f"[SDK Health] Expected list of releases, got {type(releases_json)}", repo=repo)
+            break
+
+        if len(releases_json) == 0:
+            break
+
+        releases.extend(releases_json)
+        page += 1
 
     # Cache for later use and return
     local_releases_cache[repo] = releases
