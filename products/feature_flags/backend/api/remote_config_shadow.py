@@ -39,7 +39,7 @@ REMOTE_CONFIG_SHADOW_COMPARISONS = Counter(
     ["result"],  # match | mismatch | error | skipped
 )
 
-# Rust only implements these two SDK credential types. Session-cookie and OAuth requests (Django's
+# Rust implements these SDK credential types. Session-cookie and OAuth requests (Django's
 # own preview/decrypt UI) 401 on Rust by design, so shadowing them would log false mismatches.
 _RUST_SUPPORTED_AUTH = (
     TeamSecretTokenAuthentication,
