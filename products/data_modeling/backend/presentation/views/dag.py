@@ -56,8 +56,11 @@ class DAGSerializer(serializers.ModelSerializer):
         return value
 
     def validate_name(self, value: str) -> str:
-        if self.instance is not None and self.instance.is_default and value != self.instance.name:
-            raise serializers.ValidationError("The default DAG cannot be renamed.")
+        if self.instance is not None and value != self.instance.name:
+            if self.instance.is_default:
+                raise serializers.ValidationError("The default DAG cannot be renamed.")
+            if self.instance.is_managed:
+                raise serializers.ValidationError("System-managed DAGs cannot be renamed.")
         return value
 
     def create(self, validated_data: dict) -> DAG:
@@ -68,6 +71,8 @@ class DAGSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
     def update(self, instance: DAG, validated_data: dict) -> DAG:
+        if instance.is_managed:
+            raise serializers.ValidationError("System-managed DAGs cannot be edited.")
         sync_frequency = validated_data.pop("sync_frequency", None)
         if sync_frequency is not None:
             validated_data["sync_frequency_interval"] = sync_frequency_to_sync_frequency_interval(sync_frequency)
@@ -86,4 +91,6 @@ class DAGViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def perform_destroy(self, instance: DAG) -> None:
         if instance.is_default:
             raise ValidationError("The default DAG cannot be deleted.")
+        if instance.is_managed:
+            raise ValidationError("System-managed DAGs cannot be deleted.")
         instance.delete()

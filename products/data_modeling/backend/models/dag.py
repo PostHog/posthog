@@ -39,6 +39,11 @@ class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     def is_default(self) -> bool:
         return self.name == DEFAULT_DAG_NAME
 
+    @property
+    def is_managed(self) -> bool:
+        """System-managed DAGs (e.g. Revenue Analytics) cannot be renamed, edited, or deleted by users."""
+        return self.name == REVENUE_ANALYTICS_DAG_NAME
+
     class Meta:
         db_table = "posthog_datamodelingdag"
         constraints = [
