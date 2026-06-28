@@ -11,7 +11,6 @@ All three converge to create_or_update_slack_ticket().
 
 import re
 import json
-from types import MappingProxyType
 from typing import Any, Literal, NamedTuple
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -29,8 +28,8 @@ from posthog.comment.formatting import (
     strip_slack_user_mentions,
 )
 from posthog.event_usage import groups, report_team_action
+from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.models.comment import Comment
-from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
@@ -38,12 +37,8 @@ from posthog.ph_client import ph_scoped_capture
 from .cache import (
     NUDGE_COOLDOWN_TTL,
     get_cached_bot_user_id,
-    get_cached_slack_avatar,
-    get_cached_slack_user,
     is_nudge_suppressed,
     set_cached_bot_user_id,
-    set_cached_slack_avatar,
-    set_cached_slack_user,
     slack_ticket_create_lock,
     suppress_nudge,
 )
@@ -143,91 +138,6 @@ def get_slack_client(team: Team) -> WebClient:
     if bot_token:
         return WebClient(token=bot_token)
     raise ValueError("Support Slack bot token is not configured")
-
-
-_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None})
-
-
-def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
-    """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes."""
-    if not slack_user_id:
-        logger.warning("slack_support_user_resolve_empty_id")
-        return dict(_UNKNOWN_USER)
-
-    cached = get_cached_slack_user(slack_user_id)
-    if cached is not None:
-        return cached
-
-    try:
-        response = client.users_info(user=slack_user_id)
-        raw_data = response.data if hasattr(response, "data") else None
-        data: dict = raw_data if isinstance(raw_data, dict) else {}
-
-        if not data.get("ok"):
-            logger.warning(
-                "slack_support_user_resolve_not_ok",
-                slack_user_id=slack_user_id,
-                error=data.get("error"),
-            )
-            return dict(_UNKNOWN_USER)
-
-        user_data = data.get("user") or {}
-        profile = user_data.get("profile") or {}
-        name = profile.get("display_name") or profile.get("real_name") or "Unknown"
-        result = {
-            "name": name,
-            "email": profile.get("email"),
-            "avatar": profile.get("image_72"),
-        }
-        set_cached_slack_user(slack_user_id, result)
-        return result
-    except Exception as e:
-        logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
-        return dict(_UNKNOWN_USER)
-
-
-def resolve_slack_avatar_by_email(client: WebClient, email: str) -> str | None:
-    """Look up a Slack user by email and return their profile image URL. Cached in Redis."""
-    if not email:
-        return None
-
-    cached = get_cached_slack_avatar(email)
-    if cached is not None:
-        return cached or None  # empty string = negative cache
-
-    try:
-        response = client.users_lookupByEmail(email=email)
-        raw_data = response.data if hasattr(response, "data") else None
-        data: dict = raw_data if isinstance(raw_data, dict) else {}
-
-        if not data.get("ok"):
-            set_cached_slack_avatar(email, "")
-            return None
-
-        profile = (data.get("user") or {}).get("profile") or {}
-        avatar = profile.get("image_72") or ""
-        set_cached_slack_avatar(email, avatar)
-        return avatar or None
-    except Exception:
-        # Don't negative-cache on transient errors (rate limits, network)
-        # so the next reply retries the lookup.
-        logger.warning("slack_avatar_lookup_failed", email=email)
-        return None
-
-
-def resolve_posthog_user_for_slack(email: str | None, team: Team) -> User | None:
-    """Match a Slack user's email to a PostHog user within the team's organization."""
-    if not email:
-        return None
-    membership = (
-        OrganizationMembership.objects.filter(
-            organization_id=team.organization_id,
-            user__email=email,
-        )
-        .select_related("user")
-        .first()
-    )
-    return membership.user if membership else None
 
 
 def get_bot_user_id(client: WebClient) -> str | None:
