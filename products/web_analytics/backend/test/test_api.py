@@ -305,7 +305,7 @@ class TestWebAnalyticsRecapAPI(ClickhouseTestMixin, APIBaseTest):
             "project_name",
             "recap_url",
         } <= set(data.keys())
-        assert set(data["persona"].keys()) == {"id", "label", "emoji", "blurb", "color"}
+        assert set(data["persona"].keys()) == {"id", "name", "emoji", "blurb", "color"}
         assert isinstance(data["highlights"], list)
         assert data["period_start"] == "2025-01-22"
         assert data["period_end"] == "2025-01-29"
