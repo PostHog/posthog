@@ -240,7 +240,14 @@ class EventDefinitionViewSet(
     def dangerously_get_queryset(self):
         # `type` = 'all' | 'event' | 'action_event'
         # Allows this endpoint to return lists of event definitions, actions, or both.
-        event_type = EventDefinitionType(self.request.GET.get("event_type", EventDefinitionType.EVENT))
+        raw_event_type = self.request.GET.get("event_type", EventDefinitionType.EVENT)
+        try:
+            event_type = EventDefinitionType(raw_event_type)
+        except ValueError:
+            valid_values = ", ".join(t.value for t in EventDefinitionType)
+            raise serializers.ValidationError(
+                {"event_type": f"'{raw_event_type}' is not a valid event_type. Valid values are: {valid_values}."}
+            )
 
         search = self.request.GET.get("search", None)
         search_query, search_kwargs = term_search_filter_sql(self.search_fields, search)
