@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Any, Optional
 
 from django.conf import settings
@@ -11,8 +12,28 @@ from .constants import (
     HARMONIC_BASE_URL,
     HARMONIC_COMPANY_ENRICHMENT_QUERY,
     HARMONIC_DOMAIN_VARIATIONS,
+    HARMONIC_MAX_RETRIES,
     HARMONIC_REQUEST_TIMEOUT_SECONDS,
+    HARMONIC_RETRY_BACKOFF_SECONDS,
+    HARMONIC_RETRYABLE_STATUS_CODES,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def is_transient_network_error(exc: BaseException) -> bool:
+    """Whether an exception is an expected, retryable network blip from the Harmonic API.
+
+    Covers upstream connection drops (``ServerDisconnectedError`` and other
+    ``ClientConnectionError`` subclasses), egress-proxy errors and upstream 5xx
+    (``ClientHttpProxyError`` / ``ClientResponseError`` with a retryable status),
+    and request timeouts. These resolve on retry and should not be reported as issues.
+    """
+    if isinstance(exc, aiohttp.ClientConnectionError | asyncio.TimeoutError):
+        return True
+    if isinstance(exc, aiohttp.ClientResponseError) and exc.status in HARMONIC_RETRYABLE_STATUS_CODES:
+        return True
+    return False
 
 
 class AsyncHarmonicClient:
@@ -73,10 +94,32 @@ class AsyncHarmonicClient:
 
         for domain_variation in domain_variations:
             try:
-                variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
+                data = await self._post_enrichment_query(domain_variation)
+            except Exception as e:
+                # Transient network blips (proxy 502s, server disconnects, timeouts) are expected for
+                # this batch job and already retried above — don't surface them as actionable issues.
+                if not is_transient_network_error(e):
+                    capture_exception(e)
+                continue
 
-                if self.session is None:
-                    raise RuntimeError("HTTP session not initialized. Use async context manager.")
+            if "errors" in data:
+                continue
+
+            result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
+            if result.get("companyFound"):
+                return result.get("company")
+
+        return None
+
+    async def _post_enrichment_query(self, domain_variation: str) -> dict[str, Any]:
+        """POST a single enrichment query, retrying transient network failures with backoff."""
+        if self.session is None:
+            raise RuntimeError("HTTP session not initialized. Use async context manager.")
+
+        variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
+
+        for attempt in range(HARMONIC_MAX_RETRIES + 1):
+            try:
                 async with self.session.post(
                     f"{HARMONIC_BASE_URL}/graphql",
                     params={"apikey": self.api_key},
@@ -84,21 +127,23 @@ class AsyncHarmonicClient:
                     headers={"Content-Type": "application/json"},
                 ) as response:
                     response.raise_for_status()
-                    data = await response.json()
-
-                    if "errors" in data:
-                        continue
-
-                    result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
-                    if result.get("companyFound"):
-                        company_data = result.get("company")
-                        return company_data
-
+                    data: dict[str, Any] = await response.json()
+                    return data
             except Exception as e:
-                capture_exception(e)
-                continue
+                if attempt == HARMONIC_MAX_RETRIES or not is_transient_network_error(e):
+                    raise
+                backoff = HARMONIC_RETRY_BACKOFF_SECONDS * (2**attempt)
+                logger.warning(
+                    "Transient Harmonic request error for %s (attempt %d/%d), retrying in %.1fs: %s",
+                    domain_variation,
+                    attempt + 1,
+                    HARMONIC_MAX_RETRIES + 1,
+                    backoff,
+                    e,
+                )
+                await asyncio.sleep(backoff)
 
-        return None
+        raise AssertionError("unreachable")  # loop either returns or raises
 
     async def enrich_companies_batch(self, domains: list[str]) -> list[dict[str, Any] | None]:
         """Enrich multiple domains concurrently.

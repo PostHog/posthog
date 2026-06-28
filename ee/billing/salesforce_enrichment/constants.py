@@ -8,6 +8,9 @@ HARMONIC_DEFAULT_MAX_CONCURRENT_REQUESTS: int = 5  # rate limit: 10/s
 HARMONIC_REQUEST_TIMEOUT_SECONDS: int = 30
 HARMONIC_BATCH_SIZE: int = 100
 HARMONIC_DOMAIN_VARIATIONS: list[str] = ["", "www."]  # Try exact domain first, then with www prefix
+HARMONIC_MAX_RETRIES: int = 3  # Retry transient network blips (proxy 502s, server disconnects, timeouts)
+HARMONIC_RETRY_BACKOFF_SECONDS: float = 0.5  # Base backoff, doubled each retry
+HARMONIC_RETRYABLE_STATUS_CODES: frozenset[int] = frozenset({502, 503, 504})  # Bad gateway / unavailable / timeout
 SALESFORCE_UPDATE_BATCH_SIZE: int = 200  # Max records per sObject Collections API call
 DEFAULT_CHUNK_SIZE: int = 5000
 

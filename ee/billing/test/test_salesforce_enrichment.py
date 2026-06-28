@@ -6,8 +6,11 @@ from pathlib import Path
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.test import override_settings
+
+import aiohttp
 from parameterized import parameterized
 
 from ee.billing.salesforce_enrichment.enrichment import (
@@ -21,6 +24,7 @@ from ee.billing.salesforce_enrichment.enrichment import (
     prepare_salesforce_update_data,
     transform_harmonic_data,
 )
+from ee.billing.salesforce_enrichment.harmonic_client import AsyncHarmonicClient, is_transient_network_error
 
 
 @contextmanager
@@ -932,3 +936,108 @@ class TestValuesMatch(BaseTest):
     def test_normalize_datetime_string_invalid_format(self):
         result = _normalize_datetime_string("not-a-date")
         assert result is None
+
+
+class _FakePostContext:
+    """Stand-in for the async context manager returned by aiohttp's session.post."""
+
+    def __init__(self, result):
+        self._result = result  # either an Exception to raise, or a response object to yield
+
+    async def __aenter__(self):
+        if isinstance(self._result, BaseException):
+            raise self._result
+        return self._result
+
+    async def __aexit__(self, *args):
+        return None
+
+
+def _fake_response(json_data):
+    response = MagicMock()
+    response.raise_for_status = MagicMock(return_value=None)
+    response.json = AsyncMock(return_value=json_data)
+    return response
+
+
+def _build_client_with_post_results(results):
+    """Build an AsyncHarmonicClient whose session.post yields the given per-call results in order."""
+    client = AsyncHarmonicClient()
+    session = MagicMock()
+    session.post = MagicMock(side_effect=[_FakePostContext(r) for r in results])
+    client.session = session
+    return client
+
+
+COMPANY_FOUND_RESPONSE = {"data": {"enrichCompanyByIdentifiers": {"companyFound": True, "company": {"name": "Acme"}}}}
+
+
+@override_settings(HARMONIC_API_KEY="test-key")
+class TestHarmonicClientTransientErrors(BaseTest):
+    @parameterized.expand(
+        [
+            (aiohttp.ServerDisconnectedError(), True, "server disconnected"),
+            (aiohttp.ClientHttpProxyError(MagicMock(), (), status=502, message="Bad gateway"), True, "proxy 502"),
+            (aiohttp.ClientResponseError(MagicMock(), (), status=503), True, "upstream 503"),
+            (aiohttp.ClientResponseError(MagicMock(), (), status=504), True, "upstream 504"),
+            (TimeoutError(), True, "timeout"),
+            (aiohttp.ClientConnectionError(), True, "generic connection error"),
+            (aiohttp.ClientResponseError(MagicMock(), (), status=400), False, "client 400 is not transient"),
+            (aiohttp.ClientResponseError(MagicMock(), (), status=500), False, "plain 500 is not transient"),
+            (ValueError("boom"), False, "unrelated error"),
+        ]
+    )
+    def test_is_transient_network_error_classification(self, exc, expected, description):
+        assert is_transient_network_error(exc) is expected, f"Failed for: {description}"
+
+    @pytest.mark.asyncio
+    async def test_transient_error_is_retried_then_succeeds(self):
+        # Two disconnects on the first domain variation, then a successful response.
+        results = [
+            aiohttp.ServerDisconnectedError(),
+            aiohttp.ServerDisconnectedError(),
+            _fake_response(COMPANY_FOUND_RESPONSE),
+        ]
+        client = _build_client_with_post_results(results)
+
+        with (
+            patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock()),
+            patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception") as mock_capture,
+        ):
+            result = await client.enrich_company_by_domain("example.com")
+
+        assert result == {"name": "Acme"}
+        assert client.session.post.call_count == 3  # 2 failed attempts + 1 success
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_exhausted_transient_retries_are_not_captured(self):
+        # Every attempt across both domain variations is a transient blip: 2 variations * (3 retries + 1) = 8.
+        results = [aiohttp.ServerDisconnectedError() for _ in range(8)]
+        client = _build_client_with_post_results(results)
+
+        with (
+            patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock()),
+            patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception") as mock_capture,
+        ):
+            result = await client.enrich_company_by_domain("example.com")
+
+        assert result is None
+        assert client.session.post.call_count == 8
+        mock_capture.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_unexpected_error_is_still_captured(self):
+        # A non-transient error is not retried and is reported once per domain variation.
+        results = [ValueError("unexpected"), ValueError("unexpected")]
+        client = _build_client_with_post_results(results)
+
+        with (
+            patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock()),
+            patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception") as mock_capture,
+        ):
+            result = await client.enrich_company_by_domain("example.com")
+
+        assert result is None
+        assert client.session.post.call_count == 2  # no retries, one attempt per variation
+        assert mock_capture.call_count == 2
