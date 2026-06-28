@@ -48,6 +48,24 @@ def generate_rsa_private_key_pem() -> str:
     return pem.decode("utf-8")
 
 
+_secrets_dir_listing_cache: dict[str, set[str]] = {}
+
+
+def _secrets_dir_files(secrets_dir: str) -> set[str]:
+    # Cache the secrets-dir listing so the hundreds of get_from_env/secret_env calls at
+    # settings import don't each attempt a doomed open() for keys that aren't files. The
+    # dir is a read-only volume mounted before the process starts, so its contents are
+    # fixed for the process lifetime.
+    listing = _secrets_dir_listing_cache.get(secrets_dir)
+    if listing is None:
+        try:
+            listing = set(os.listdir(secrets_dir))
+        except OSError:
+            listing = set()
+        _secrets_dir_listing_cache[secrets_dir] = listing
+    return listing
+
+
 def read_secret_file(key: str) -> Optional[str]:
     """Return the contents of $POSTHOG_SECRETS_DIR/<key> if it exists, else None.
 
@@ -60,10 +78,12 @@ def read_secret_file(key: str) -> Optional[str]:
     secrets_dir = os.environ.get("POSTHOG_SECRETS_DIR")
     if not secrets_dir:
         return None
+    if key not in _secrets_dir_files(secrets_dir):
+        return None
     try:
         with open(os.path.join(secrets_dir, key), encoding="utf-8") as f:
             return f.read()
-    except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
+    except OSError:
         return None
 
 

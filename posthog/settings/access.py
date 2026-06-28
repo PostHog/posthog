@@ -105,7 +105,7 @@ SANDBOX_JWT_PRIVATE_KEY: str | None = secret_env("SANDBOX_JWT_PRIVATE_KEY")
 SANDBOX_JWT_PUBLIC_KEY: str | None = os.getenv("SANDBOX_JWT_PUBLIC_KEY")
 
 # Additional RS256 private key accepted during key rotation of SANDBOX_JWT_PRIVATE_KEY
-SANDBOX_JWT_PRIVATE_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PRIVATE_KEY_SECONDARY")
+SANDBOX_JWT_PRIVATE_KEY_SECONDARY: str | None = secret_env("SANDBOX_JWT_PRIVATE_KEY_SECONDARY")
 # Additional public key a verify-only service (the agent-proxy) trusts during key rotation, so a token
 # signed with either the primary or the secondary key verifies. The proxy holds public keys only.
 SANDBOX_JWT_PUBLIC_KEY_SECONDARY: str | None = os.getenv("SANDBOX_JWT_PUBLIC_KEY_SECONDARY")

@@ -16,6 +16,26 @@ def test_read_secret_file_returns_none_when_file_missing(monkeypatch, tmp_path):
     assert read_secret_file("SECRET_KEY") is None
 
 
+def test_read_secret_file_returns_none_when_dir_missing(monkeypatch, tmp_path):
+    # Pointed at a path that doesn't exist: os.listdir raises OSError, which the cache
+    # swallows into an empty listing, so the lookup falls back to None (open() is never
+    # attempted) instead of crashing Django settings import.
+    missing_dir = tmp_path / "does-not-exist"
+    monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(missing_dir))
+
+    import posthog.settings.utils as utils
+
+    utils._secrets_dir_listing_cache.pop(str(missing_dir), None)
+
+    def _fail_open(*args, **kwargs):
+        raise AssertionError("open() must not be attempted when the listing is empty")
+
+    monkeypatch.setattr(utils, "open", _fail_open, raising=False)
+    assert read_secret_file("SECRET_KEY") is None
+    # The empty listing is cached so repeated lookups don't re-stat the missing dir.
+    assert utils._secrets_dir_listing_cache[str(missing_dir)] == set()
+
+
 def test_read_secret_file_returns_exact_contents_no_strip(monkeypatch, tmp_path):
     monkeypatch.setenv("POSTHOG_SECRETS_DIR", str(tmp_path))
     pem = "-----BEGIN PRIVATE KEY-----\nabc\n-----END PRIVATE KEY-----\n"
@@ -77,6 +97,26 @@ def test_encryption_salt_keys_load_from_file(tmp_path):
         "','.join(settings.ENCRYPTION_SALT_KEYS)",
     )
     assert out == "00beef0000beef0000beef0000beef00"
+
+
+def test_jwt_signing_key_fallbacks_load_from_file(tmp_path):
+    (tmp_path / "JWT_SIGNING_KEY_FALLBACKS").write_text("oldkey1,oldkey2")
+    out = _settings_value_in_subprocess(
+        {"POSTHOG_SECRETS_DIR": str(tmp_path)},
+        "','.join(settings.JWT_SIGNING_KEY_FALLBACKS)",
+    )
+    assert out == "oldkey1,oldkey2"
+
+
+def test_jwt_signing_key_fallbacks_empty_file_clears(tmp_path):
+    # A present-but-empty file explicitly clears fallbacks, rather than defaulting
+    # to SECRET_KEY_FALLBACKS - the None-vs-"" distinction secret_env can't express.
+    (tmp_path / "JWT_SIGNING_KEY_FALLBACKS").write_text("")
+    out = _settings_value_in_subprocess(
+        {"POSTHOG_SECRETS_DIR": str(tmp_path)},
+        "repr(settings.JWT_SIGNING_KEY_FALLBACKS)",
+    )
+    assert out == "[]"
 
 
 def test_explain_clusters_reads_gemini_from_settings():
