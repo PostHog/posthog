@@ -1,6 +1,7 @@
 import os
 import sys
 import subprocess
+from pathlib import Path
 
 from posthog.settings.utils import get_from_env, read_secret_file, secret_env
 
@@ -76,3 +77,15 @@ def test_encryption_salt_keys_load_from_file(tmp_path):
         "','.join(settings.ENCRYPTION_SALT_KEYS)",
     )
     assert out == "00beef0000beef0000beef0000beef00"
+
+
+def test_explain_clusters_reads_gemini_from_settings():
+    src = Path("ee/hogai/llm_traces_summaries/tools/clustering/explain_clusters.py").read_text()
+    assert 'os.getenv("GEMINI_API_KEY")' not in src
+    assert "settings.GEMINI_API_KEY" in src
+
+
+def test_inkeep_provider_reads_key_from_settings():
+    src = Path("products/ai_observability/backend/providers/inkeep.py").read_text()
+    assert 'os.environ.get("INKEEP_API_KEY")' not in src
+    assert "settings.INKEEP_API_KEY" in src

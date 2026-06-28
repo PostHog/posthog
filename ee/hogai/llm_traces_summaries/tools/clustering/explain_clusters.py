@@ -1,7 +1,8 @@
-import os
 import json
 from dataclasses import dataclass
 from typing import Any
+
+from django.conf import settings
 
 import structlog
 from google import genai
@@ -62,7 +63,7 @@ class ClusterExplainer:
 
     @staticmethod
     def _prepare_client() -> genai.Client:
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = settings.GEMINI_API_KEY
         return genai.Client(api_key=api_key)
 
     def _name_clusters(

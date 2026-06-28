@@ -1,4 +1,3 @@
-import os
 import json
 import uuid
 import logging
@@ -28,7 +27,7 @@ class InkeepProvider:
 
     @classmethod
     def get_api_key(cls) -> str:
-        api_key = os.environ.get("INKEEP_API_KEY") or settings.INKEEP_API_KEY
+        api_key = settings.INKEEP_API_KEY
         if not api_key:
             raise ValueError("INKEEP_API_KEY is not set in environment or settings")
         return api_key
