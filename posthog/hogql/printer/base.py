@@ -699,13 +699,35 @@ class BasePrinter(Visitor[str]):
             # Allowlist gate against `setattr`-bypass — the printer interpolates `constraint_type` verbatim.
             if node.constraint.constraint_type not in ast.VALID_JOIN_CONSTRAINT_TYPES:
                 raise QueryError(f"Invalid join constraint type: {node.constraint.constraint_type!r}")
-            if on_clause_guard is not None:
+            if node.constraint.constraint_type == "USING":
+                # ClickHouse's analyzer requires JOIN ... USING columns to be bare identifiers resolvable from
+                # *both* relations. The resolver binds them to the left table, so emitting the resolved field
+                # gives `left_alias.col`, which the right relation can't resolve (Code 47 UNKNOWN_IDENTIFIER).
+                # Lower USING to an explicit ON with both sides qualified — this also folds in the LEFT-JOIN guard.
+                on_expr = self._using_constraint_as_on(node.constraint.expr, node.type)
+                if on_clause_guard is not None:
+                    on_expr = ast.And(exprs=[on_clause_guard, on_expr])
+                join_strings.append(f"ON {self.visit(on_expr)}")
+            elif on_clause_guard is not None:
                 combined_constraint = ast.And(exprs=[on_clause_guard, node.constraint.expr])
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(combined_constraint)}")
             else:
                 join_strings.append(f"{node.constraint.constraint_type} {self.visit(node.constraint)}")
 
         return JoinExprResponse(printed_sql=" ".join(join_strings), where=extra_where)
+
+    def _using_constraint_as_on(self, expr: ast.Expr, right_type: ast.Type | None) -> ast.Expr:
+        columns = expr.exprs if isinstance(expr, ast.Tuple) else [expr]
+        comparisons: list[ast.Expr] = []
+        for col in columns:
+            # The resolver wraps each USING field in an Alias bound to the left table; unwrap for the name.
+            field = col.expr if isinstance(col, ast.Alias) else col
+            if not isinstance(field, ast.Field) or not field.chain:
+                raise QueryError("JOIN USING expects column names")
+            name = str(field.chain[-1])
+            right = ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=right_type))
+            comparisons.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=col, right=right))
+        return comparisons[0] if len(comparisons) == 1 else ast.And(exprs=comparisons)
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)

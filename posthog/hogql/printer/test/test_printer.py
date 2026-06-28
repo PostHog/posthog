@@ -1765,6 +1765,36 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            (
+                "single_column",
+                "SELECT s.platform_group FROM (SELECT 1 AS platform_group) AS s "
+                "LEFT JOIN (SELECT 1 AS platform_group) AS platform USING (platform_group)",
+                "ON equals(s.platform_group, platform.platform_group)",
+            ),
+            (
+                "multi_column",
+                "SELECT a.x FROM (SELECT 1 AS x, 2 AS y) AS a INNER JOIN (SELECT 1 AS x, 2 AS y) AS b USING (x, y)",
+                "ON and(equals(a.x, b.x), equals(a.y, b.y))",
+            ),
+        ],
+    )
+    def test_join_using_is_lowered_to_qualified_on(self, _name: str, query: str, expected_on: str):
+        # ClickHouse's analyzer rejects table-qualified columns inside USING (Code 47); the printer must
+        # lower USING to an ON with both sides qualified so the right relation can resolve the column.
+        self.assertIn(expected_on, self._select(query))
+
+    def test_left_join_using_retains_team_id_guard(self):
+        # Lowering USING to ON must still fold the LEFT-JOIN team_id guard into the ON clause, otherwise
+        # the joined table would leak rows across teams.
+        result = self._select("SELECT e.event FROM events AS e LEFT JOIN events AS s USING (event)")
+        on_start = result.find(" ON ")
+        where_start = result.find("WHERE")
+        on_clause = result[on_start:where_start] if on_start != -1 and where_start != -1 else ""
+        self.assertIn(f"equals(s.team_id, {self.team.pk})", on_clause)
+        self.assertIn("equals(e.event, s.event)", on_clause)
+
+    @parameterized.expand(
+        [
             ("gte", ast.CompareOperationOp.GtEq),
             ("gt", ast.CompareOperationOp.Gt),
             ("lte", ast.CompareOperationOp.LtEq),
