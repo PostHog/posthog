@@ -110,6 +110,27 @@ class TestDAGViewSet(APIBaseTest):
         dag.refresh_from_db()
         self.assertEqual(dag.description, "")
 
+    def test_cannot_create_dag_with_reserved_name(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/data_modeling_dags/",
+            {"name": "PostHog Revenue Analytics"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(DAG.objects.filter(team=self.team, name="PostHog Revenue Analytics").exists())
+
+    def test_cannot_rename_dag_to_reserved_name(self):
+        dag = DAG.objects.create(team=self.team, name="my_dag")
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/data_modeling_dags/{dag.id}/",
+            {"name": "PostHog Revenue Analytics"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        dag.refresh_from_db()
+        self.assertEqual(dag.name, "my_dag")
+
     def test_node_count_reflects_nodes(self):
         dag = DAG.objects.create(team=self.team, name="my_dag")
         Node.objects.create(team=self.team, dag=dag, name="events", type=NodeType.TABLE)

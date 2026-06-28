@@ -12,7 +12,7 @@ distinct resolver enum ``models.modeling.NodeType`` is exposed via ``facade.mode
 """
 
 from products.data_modeling.backend.graph import Graph
-from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME
+from products.data_modeling.backend.models.dag import DAG, DEFAULT_DAG_NAME, RESERVED_DAG_NAMES
 from products.data_modeling.backend.models.data_modeling_job import (
     DataModelingJob,
     DataModelingJobEngine,
@@ -33,6 +33,7 @@ from products.data_modeling.backend.models.node import Node, NodeType
 __all__ = [
     "DAG",
     "DEFAULT_DAG_NAME",
+    "RESERVED_DAG_NAMES",
     "DataModelingJob",
     "DataModelingJobEngine",
     "DataModelingJobStatus",

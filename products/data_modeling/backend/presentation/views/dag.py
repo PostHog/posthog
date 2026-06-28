@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.models import DAG
+from products.data_modeling.backend.facade.models import DAG, RESERVED_DAG_NAMES
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
@@ -56,11 +56,15 @@ class DAGSerializer(serializers.ModelSerializer):
         return value
 
     def validate_name(self, value: str) -> str:
-        if self.instance is not None and value != self.instance.name:
+        is_rename = self.instance is not None and value != self.instance.name
+        if is_rename:
             if self.instance.is_default:
                 raise serializers.ValidationError("The default DAG cannot be renamed.")
             if self.instance.is_managed:
                 raise serializers.ValidationError("System-managed DAGs cannot be renamed.")
+        # Block users from claiming a reserved system name via create or rename.
+        if value in RESERVED_DAG_NAMES and (self.instance is None or is_rename):
+            raise serializers.ValidationError("This name is reserved for system-managed DAGs.")
         return value
 
     def create(self, validated_data: dict) -> DAG:

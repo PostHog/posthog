@@ -13,6 +13,9 @@ if TYPE_CHECKING:
 DEFAULT_DAG_NAME = "Default"
 REVENUE_ANALYTICS_DAG_NAME = "PostHog Revenue Analytics"
 
+# Names users may not claim via the API — they belong to system-controlled DAGs.
+RESERVED_DAG_NAMES = frozenset({DEFAULT_DAG_NAME, REVENUE_ANALYTICS_DAG_NAME})
+
 
 class DAG(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
