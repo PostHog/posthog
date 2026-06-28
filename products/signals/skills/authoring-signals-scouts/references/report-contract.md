@@ -102,7 +102,7 @@ Each entry must be a **GitHub login** (the backend maps it to the PostHog user t
 assignment). You rarely know the login outright — resolve it, cheapest source first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a sibling run) recorded
-   before — reuse it. Fastest path, and the reason step 5 exists.
+   before — reuse it. Fastest path, and the reason the caching step below exists.
 2. **Inbox precedent.** `inbox-reports-list` for a similar/related report on the same surface
    (same `source_product`, plus a free-text `search` for the area), then `inbox-reports-retrieve`
    / `inbox-report-artefacts-list` to see who comparable reports were routed to. Reuse that
