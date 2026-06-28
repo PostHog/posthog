@@ -23,6 +23,11 @@ import structlog
 import posthoganalytics
 from slack_sdk import WebClient
 
+from posthog.comment.formatting import (
+    extract_slack_user_ids,
+    slack_to_content_and_rich_content,
+    strip_slack_user_mentions,
+)
 from posthog.event_usage import groups, report_team_action
 from posthog.models.comment import Comment
 from posthog.models.organization import OrganizationMembership
@@ -42,7 +47,6 @@ from .cache import (
     slack_ticket_create_lock,
     suppress_nudge,
 )
-from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content, strip_slack_user_mentions
 from .models import Ticket
 from .models.constants import Channel, ChannelDetail, Status
 from .services.attachments import (
