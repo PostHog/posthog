@@ -2,8 +2,21 @@ import pytest
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.transforms.property_types import _AI_STRING_ID_PROPERTIES
 
-from posthog.hogql_queries.ai.ai_property_rewriter import AiPropertyRewriter, _rewrite_property_field
+from posthog.hogql_queries.ai.ai_property_rewriter import (
+    AI_PROPERTY_TO_COLUMN,
+    AiPropertyRewriter,
+    _rewrite_property_field,
+)
+
+
+class TestAiStringIdProperties:
+    def test_string_id_properties_are_known_ai_properties(self):
+        # The String-forcing override in PropertySwapper hardcodes these names; guard
+        # against drift from the canonical AI property -> column mapping.
+        for prop_name in _AI_STRING_ID_PROPERTIES:
+            assert prop_name in AI_PROPERTY_TO_COLUMN, f"{prop_name} is not a known AI property"
 
 
 class TestRewritePropertyField:
