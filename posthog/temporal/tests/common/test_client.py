@@ -1,6 +1,5 @@
-from unittest import mock
-
 import pytest
+from unittest import mock
 
 from posthog.temporal.common import client as client_module
 from posthog.temporal.common.client import connect
