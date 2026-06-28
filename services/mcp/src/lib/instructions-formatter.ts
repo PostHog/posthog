@@ -94,8 +94,17 @@ export class InstructionsFormatter {
      *  `instructions` field), the env-related placeholders (metadata, group
      *  types, tool domains) resolve to empty strings to avoid duplication. The
      *  query-tool catalog is kept: in single-exec mode it lives here on the exec
-     *  tool, not in `instructions` (which only carries the `query` tool domain). */
-    buildExecCommandReference(ctx: InstructionsContext, opts: { stripEnvContext: boolean }): string {
+     *  tool, not in `instructions` (which only carries the `query` tool domain).
+     *
+     *  `keepToolDomains` is the escape hatch for clients that report
+     *  `supportsInstructions` but don't actually surface the `instructions`
+     *  payload to the model (Claude web/desktop): it retains the tool-domain
+     *  index here even when the rest of env-context is stripped, so the domain
+     *  list still reaches the agent. */
+    buildExecCommandReference(
+        ctx: InstructionsContext,
+        opts: { stripEnvContext: boolean; keepToolDomains?: boolean }
+    ): string {
         const sections = [
             CLI_SYNTAX,
             CLI_SCHEMA_DRILLDOWN,
@@ -113,7 +122,12 @@ export class InstructionsFormatter {
             EXAMPLES,
         ]
         const renderCtx: InstructionsContext = opts.stripEnvContext
-            ? { guidelines: ctx.guidelines, queryTools: ctx.queryTools, featureFlags: ctx.featureFlags }
+            ? {
+                  guidelines: ctx.guidelines,
+                  queryTools: ctx.queryTools,
+                  featureFlags: ctx.featureFlags,
+                  ...(opts.keepToolDomains ? { tools: ctx.tools } : {}),
+              }
             : ctx
         return this.compose(sections, renderCtx, { compact: false })
     }

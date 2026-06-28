@@ -48,6 +48,7 @@ function makeState(tools: { name: string }[], overrides: Partial<ResolvedState> 
         clientProfile: {
             capabilities: { supportsInstructions: true },
             isCliModeEnabled: vi.fn(() => false),
+            isClaudeUiHost: vi.fn(() => false),
         } as any,
         requestContext: {
             sessionId: 'sess-1',
@@ -177,6 +178,46 @@ describe('ToolExecutor', () => {
             const result = await executor.handleToolsList(state)
             expect(result.tools).toHaveLength(1)
             expect(result.tools[0]!.name).toBe('exec')
+        })
+
+        it('keeps the tool-domain list on the exec command for Claude UI hosts (they ignore instructions)', async () => {
+            const tools = catalog
+                .getPreBuiltEntries()
+                .slice(0, 5)
+                .map((e) => ({ name: e.name }))
+
+            const uiHostState = makeState(tools, {
+                useSingleExec: true,
+                clientProfile: {
+                    capabilities: { supportsInstructions: true },
+                    isCliModeEnabled: vi.fn(() => true),
+                    isClaudeUiHost: vi.fn(() => true),
+                } as any,
+            })
+            const codeState = makeState(tools, {
+                useSingleExec: true,
+                clientProfile: {
+                    capabilities: { supportsInstructions: true },
+                    isCliModeEnabled: vi.fn(() => true),
+                    isClaudeUiHost: vi.fn(() => false),
+                } as any,
+            })
+
+            const commandDescOf = async (state: ReturnType<typeof makeState>): Promise<string> => {
+                const result = await executor.handleToolsList(state)
+                const exec = result.tools[0]!
+                return (exec.inputSchema.properties as any).command.description as string
+            }
+
+            const uiHostDesc = await commandDescOf(uiHostState)
+            const codeDesc = await commandDescOf(codeState)
+
+            // Both carry the tool-search section; only Claude web/desktop also get the
+            // rendered domain list inlined here, since they never surface the
+            // `instructions` payload where Claude Code receives it instead.
+            expect(uiHostDesc).toContain('PostHog tools have lowercase kebab-case naming')
+            expect(codeDesc).toContain('PostHog tools have lowercase kebab-case naming')
+            expect(uiHostDesc.length).toBeGreaterThan(codeDesc.length)
         })
 
         it('lists render-ui alongside exec when render-ui is enabled and a UI-app tool is available', async () => {
