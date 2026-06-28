@@ -576,6 +576,8 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority=data.get("priority"),
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=data.get("suggested_reviewers"),
+                suggested_reviewer_user_uuids=data.get("suggested_reviewer_user_uuids"),
+                suggested_reviewer_emails=data.get("suggested_reviewer_emails"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})

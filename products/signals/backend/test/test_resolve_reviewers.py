@@ -7,7 +7,10 @@ from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 
-from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
+from products.signals.backend.report_generation.resolve_reviewers import (
+    get_org_member_github_logins_by_email,
+    resolve_org_github_login_to_users,
+)
 
 
 @pytest.fixture
@@ -102,6 +105,36 @@ def test_skips_users_outside_organization(organization, team):
         )
 
         result = resolve_org_github_login_to_users(team.id, ["outsider"])
+
+        assert result == {}
+    finally:
+        other_org.delete()
+
+
+@pytest.mark.django_db
+def test_get_logins_by_email_resolves_case_insensitively(organization, team):
+    user = _create_org_member("Reviewer@Example.com", organization)
+    _make_social_auth(user, team, "OctoCat")
+
+    result = get_org_member_github_logins_by_email(team.id, ["reviewer@example.com"])
+
+    assert result == {"reviewer@example.com": "octocat"}
+
+
+@pytest.mark.django_db
+def test_get_logins_by_email_skips_users_outside_organization(organization, team):
+    other_org = Organization.objects.create(name="test-resolve-reviewers-email-other-org")
+    try:
+        outside_user = User.objects.create(email="outside-email@example.com")
+        OrganizationMembership.objects.create(user=outside_user, organization=other_org)
+        UserSocialAuth.objects.create(
+            user=outside_user,
+            provider="github",
+            uid="github-outside-email",
+            extra_data={"login": "outsider"},
+        )
+
+        result = get_org_member_github_logins_by_email(team.id, ["outside-email@example.com"])
 
         assert result == {}
     finally:

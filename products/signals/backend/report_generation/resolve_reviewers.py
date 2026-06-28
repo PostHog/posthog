@@ -238,6 +238,39 @@ def get_org_member_github_logins_by_user_uuid(team_id: int, user_uuids: list[str
     return user_uuid_to_login
 
 
+def get_org_member_github_logins_by_email(team_id: int, emails: Iterable[str]) -> dict[str, str]:
+    """Map normalized (lowercased) email -> org member GitHub login for org members on the team.
+
+    Mirrors ``get_org_member_github_logins_by_user_uuid`` but keys on email, so a scout that only has
+    a person's email (e.g. from ``org-members-list``) can still resolve them to a reviewer login.
+    Matching is case-insensitive; only members with a connected GitHub identity appear in the result.
+    """
+    normalized = frozenset(e.strip().lower() for e in emails if e and str(e).strip())
+    if not normalized:
+        return {}
+
+    try:
+        org_id = str(Team.objects.values_list("organization_id", flat=True).get(id=team_id))
+    except Team.DoesNotExist:
+        return {}
+
+    org_member_user_ids = Subquery(OrganizationMembership.objects.filter(organization_id=org_id).values("user_id"))
+    users = (
+        User.objects.filter(id__in=org_member_user_ids)
+        .annotate(_email_lc=Lower("email"))
+        .filter(_email_lc__in=sorted(normalized))
+        .prefetch_related(*_github_identity_prefetches())
+    )
+
+    email_to_login: dict[str, str] = {}
+    for user in users:
+        login = user.get_github_login()
+        if login:
+            email_to_login[(user.email or "").strip().lower()] = login.lower()
+
+    return email_to_login
+
+
 def resolve_org_github_login_to_users(team_id: int, github_logins: Iterable[str]) -> dict[str, User]:
     """Map normalized GitHub login -> org member ``User`` (same identity rules as ``User.get_github_login()``).
 

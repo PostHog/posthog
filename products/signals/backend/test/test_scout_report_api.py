@@ -5,8 +5,10 @@ from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
+from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -200,6 +202,51 @@ class TestScoutReportAPI(APIBaseTest):
         assert self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT) is not None
         reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
         assert reviewers is not None and "octocat" in reviewers.content
+
+    def _github_linked_member(self, *, login: str, email: str) -> User:
+        user = User.objects.create(email=email)
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
+        return user
+
+    @parameterized.expand([("by_uuid",), ("by_email",)])
+    def test_emit_report_resolves_reviewer_from_user_identifier(self, mode: str) -> None:
+        # A scout can pass a PostHog user identifier (UUID/email it got from `org-members-list`) and the
+        # backend resolves it to that org member's GitHub login in the suggested_reviewers artefact — so the
+        # scout no longer has to know the login. Guards the serializer->view->tool->resolver->artefact wiring.
+        member = self._github_linked_member(login="octoreviewer", email="rev@example.com")
+        field, value = (
+            ("suggested_reviewer_user_uuids", [str(member.uuid)])
+            if mode == "by_uuid"
+            else ("suggested_reviewer_emails", [member.email])
+        )
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(**{field: value}), format="json"
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewers = self._latest_artefact(
+            response.json()["report_id"], SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        assert reviewers is not None and "octoreviewer" in reviewers.content
+
+    def test_emit_report_drops_unresolvable_identifier_but_keeps_explicit_login(self) -> None:
+        # A malformed/unresolvable identifier must be dropped silently (never 500 the emit), and an explicit
+        # GitHub login still lands — so a partial reviewer resolution doesn't lose the whole report.
+        run = _make_run(self.team)
+        payload = self._payload(
+            suggested_reviewers=["hubot"],
+            suggested_reviewer_user_uuids=["not-a-uuid", "00000000-0000-0000-0000-000000000000"],
+            suggested_reviewer_emails=["ghost@example.com"],
+        )
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        reviewers = self._latest_artefact(
+            response.json()["report_id"], SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS
+        )
+        assert reviewers is not None and "hubot" in reviewers.content
 
     def test_emit_report_fires_autostart_when_surfaced(self) -> None:
         run = _make_run(self.team)

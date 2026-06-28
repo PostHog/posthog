@@ -21,6 +21,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID
 
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -38,6 +39,10 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.report_generation.resolve_reviewers import (
+    get_org_member_github_logins_by_email,
+    get_org_member_github_logins_by_user_uuid,
+)
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
@@ -214,6 +219,61 @@ def _build_suggested_reviewers(github_logins: list[str] | None) -> SuggestedRevi
     if len(cleaned) > MAX_SUGGESTED_REVIEWERS:
         raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(cleaned)}")
     return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in cleaned])
+
+
+def _resolve_reviewer_logins(
+    team_id: int,
+    *,
+    explicit_logins: list[str] | None,
+    user_uuids: list[str] | None,
+    emails: list[str] | None,
+) -> list[str]:
+    """Merge the scout's reviewer inputs into one ordered, de-duplicated list of GitHub logins.
+
+    `explicit_logins` (`suggested_reviewers`) are GitHub logins passed through as-is — resolved against
+    org membership only at inbox read time, matching legacy behaviour. `user_uuids` / `emails` are
+    PostHog user identifiers (typically what the scout gets back from `org-members-list`) that we resolve
+    *here* to the org member's GitHub login, so the scout no longer has to know the login. An identifier
+    that doesn't resolve to an org member with a connected GitHub account is dropped. Order is preserved
+    (logins, then uuid-derived, then email-derived); the count cap is enforced by `_build_suggested_reviewers`.
+    Hits the DB only when a uuid/email is supplied, so the legacy logins-only path is unchanged."""
+    ordered: list[str] = []
+    seen: set[str] = set()
+
+    def _add(login: str) -> None:
+        cleaned = login.strip()
+        key = cleaned.lower()
+        if cleaned and key not in seen:
+            seen.add(key)
+            ordered.append(cleaned)
+
+    for login in explicit_logins or []:
+        if login and login.strip():
+            _add(login)
+
+    if user_uuids:
+        # Parse to canonical form, dropping anything unparseable so a malformed id can't 500 the emit.
+        parsed_uuids = []
+        for raw in user_uuids:
+            try:
+                parsed_uuids.append(str(UUID(str(raw).strip())))
+            except (ValueError, AttributeError, TypeError):
+                continue
+        if parsed_uuids:
+            by_uuid = get_org_member_github_logins_by_user_uuid(team_id, parsed_uuids)
+            for key in parsed_uuids:
+                login = by_uuid.get(key)
+                if login:
+                    _add(login)
+
+    if emails:
+        by_email = get_org_member_github_logins_by_email(team_id, emails)
+        for email in emails:
+            login = by_email.get(str(email).strip().lower())
+            if login:
+                _add(login)
+
+    return ordered
 
 
 def _wants_repo_selection(
@@ -399,13 +459,18 @@ async def emit_report(
     priority: str | None = None,
     priority_explanation: str | None = None,
     suggested_reviewers: list[str] | None = None,
+    suggested_reviewer_user_uuids: list[str] | None = None,
+    suggested_reviewer_emails: list[str] | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
 
     `repository` / `priority` / `priority_explanation` / `suggested_reviewers` are the optional
     autostart inputs (custom_agent parity): with them a surfaced, immediately-actionable report can
-    open a draft PR. They're only resolved/written when the report actually surfaces."""
+    open a draft PR. They're only resolved/written when the report actually surfaces.
+    `suggested_reviewer_user_uuids` / `suggested_reviewer_emails` are resolved here to the org member's
+    GitHub login (so the scout can pass identifiers it has, e.g. from `org-members-list`) and merged
+    into the same reviewer set."""
     _assert_team_owns_run(team, run)
     _validate_emit_inputs(title, summary, evidence)
     # Validate the explicit repository format up front (cheap, pure) so a malformed `owner/repo` fails
@@ -416,7 +481,13 @@ async def emit_report(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    reviewers = _build_suggested_reviewers(suggested_reviewers)
+    reviewer_logins = await database_sync_to_async(_resolve_reviewer_logins, thread_sensitive=False)(
+        team.id,
+        explicit_logins=suggested_reviewers,
+        user_uuids=suggested_reviewer_user_uuids,
+        emails=suggested_reviewer_emails,
+    )
+    reviewers = _build_suggested_reviewers(reviewer_logins)
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
@@ -479,6 +550,8 @@ def emit_report_sync(
     priority: str | None = None,
     priority_explanation: str | None = None,
     suggested_reviewers: list[str] | None = None,
+    suggested_reviewer_user_uuids: list[str] | None = None,
+    suggested_reviewer_emails: list[str] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -495,7 +568,13 @@ def emit_report_sync(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    reviewers = _build_suggested_reviewers(suggested_reviewers)
+    reviewer_logins = _resolve_reviewer_logins(
+        team.id,
+        explicit_logins=suggested_reviewers,
+        user_uuids=suggested_reviewer_user_uuids,
+        emails=suggested_reviewer_emails,
+    )
+    reviewers = _build_suggested_reviewers(reviewer_logins)
 
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:

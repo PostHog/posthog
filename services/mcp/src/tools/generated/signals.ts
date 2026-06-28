@@ -629,6 +629,12 @@ const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema,
         if (params.suggested_reviewers !== undefined) {
             body['suggested_reviewers'] = params.suggested_reviewers
         }
+        if (params.suggested_reviewer_user_uuids !== undefined) {
+            body['suggested_reviewer_user_uuids'] = params.suggested_reviewer_user_uuids
+        }
+        if (params.suggested_reviewer_emails !== undefined) {
+            body['suggested_reviewer_emails'] = params.suggested_reviewer_emails
+        }
         const result = await context.api.request<Schemas.EmitReportResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-report/`,
