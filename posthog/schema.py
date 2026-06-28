@@ -7183,7 +7183,7 @@ class StickinessFilter(BaseModel):
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
     resultCustomizationBy: ResultCustomizationBy | None = Field(
-        default=ResultCustomizationBy.VALUE,
+        default=None,
         description=("Whether result datasets are associated by their values or by their order."),
     )
     resultCustomizations: dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition] | None = (
@@ -8021,7 +8021,7 @@ class TrendsFilter(BaseModel):
     minDecimalPlaces: float | None = None
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
-        default=ResultCustomizationBy.VALUE,
+        default=None,
         description=("Wether result datasets are associated by their values or by their order."),
     )
     resultCustomizations: dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition] | None = (
