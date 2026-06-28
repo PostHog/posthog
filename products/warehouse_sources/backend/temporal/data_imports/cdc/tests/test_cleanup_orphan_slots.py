@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import pytest
 from unittest.mock import MagicMock, patch
 
+from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import cleanup_orphan_slots_activity
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import PostgresCDCConfig
@@ -20,6 +21,17 @@ def _create_source(team, *, deleted=False, job_inputs=None):
         source_type="Postgres",
         deleted=deleted,
         job_inputs=job_inputs,
+    )
+
+
+def _create_cdc_schema(team, source, name="users"):
+    return ExternalDataSchema.objects.create(
+        team_id=team.pk,
+        source=source,
+        name=name,
+        sync_type=ExternalDataSchema.SyncType.CDC,
+        should_sync=True,
+        sync_type_config={"cdc_mode": "streaming"},
     )
 
 
@@ -58,10 +70,14 @@ def _run(adapter):
             "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter",
             return_value=adapter,
         ),
-        patch("products.data_warehouse.backend.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
+        patch("products.data_warehouse.backend.logic.data_load.service.delete_cdc_extraction_schedule") as mock_delete,
+        # mark_cdc_broken (critical-lag paths) reaches Temporal / Kafka / analytics — stub the boundaries.
+        patch("products.data_warehouse.backend.logic.data_load.service.pause_cdc_extraction_schedule") as mock_pause,
+        patch("products.notifications.backend.facade.api.create_notification"),
+        patch("posthoganalytics.capture"),
     ):
         cleanup_orphan_slots_activity()
-    return mock_activity, mock_delete
+    return mock_activity, mock_delete, mock_pause
 
 
 def test_encrypted_cdc_source_is_selected(team):
@@ -97,7 +113,7 @@ def test_deleted_posthog_managed_drops_resources_and_schedule(team):
     _create_source(team, deleted=True, job_inputs=_cdc_job_inputs(management="posthog"))
     adapter = _mock_adapter()
 
-    _, mock_delete = _run(adapter)
+    _, mock_delete, _ = _run(adapter)
 
     mock_delete.assert_called_once()
     adapter.drop_resources.assert_called_once()
@@ -108,21 +124,26 @@ def test_deleted_self_managed_drops_schedule_but_not_slot(team):
     _create_source(team, deleted=True, job_inputs=_cdc_job_inputs(management="self_managed"))
     adapter = _mock_adapter()
 
-    _, mock_delete = _run(adapter)
+    _, mock_delete, _ = _run(adapter)
 
     mock_delete.assert_called_once()
     adapter.drop_resources.assert_not_called()
 
 
-def test_critical_lag_posthog_auto_drop_drops_and_marks_error(team):
+def test_critical_lag_posthog_auto_drop_marks_broken_and_pauses(team):
     source = _create_source(team, job_inputs=_cdc_job_inputs(auto_drop_slot=True))
+    schema = _create_cdc_schema(team, source)
     adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)  # 5000 MB > 2048 MB critical default
 
-    _run(adapter)
+    _, _, mock_pause = _run(adapter)
 
     adapter.drop_resources.assert_called_once()
     source.refresh_from_db()
     assert source.status == ExternalDataSource.Status.ERROR
+    schema.refresh_from_db()
+    assert schema.status == ExternalDataSchema.Status.FAILED
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "auto_dropped_critical_lag"
+    mock_pause.assert_called_once_with(str(source.id))
 
 
 def test_critical_lag_auto_drop_disabled_does_not_drop(team):
@@ -136,10 +157,17 @@ def test_critical_lag_auto_drop_disabled_does_not_drop(team):
     adapter.drop_resources.assert_not_called()
 
 
-def test_critical_lag_self_managed_never_drops(team):
-    _create_source(team, job_inputs=_cdc_job_inputs(management="self_managed"))
+def test_critical_lag_self_managed_marks_broken_without_drop_or_pause(team):
+    source = _create_source(team, job_inputs=_cdc_job_inputs(management="self_managed"))
+    schema = _create_cdc_schema(team, source)
     adapter = _mock_adapter(lag_bytes=5000 * 1024 * 1024)
 
-    _run(adapter)
+    _, _, mock_pause = _run(adapter)
 
+    # Customer owns the slot: surface the broken state but never drop or pause — it may recover.
     adapter.drop_resources.assert_not_called()
+    mock_pause.assert_not_called()
+    source.refresh_from_db()
+    assert source.status == ExternalDataSource.Status.ERROR
+    schema.refresh_from_db()
+    assert schema.sync_type_config["cdc_broken"]["reason"] == "critical_lag_self_managed"

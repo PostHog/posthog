@@ -9,9 +9,9 @@ import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
 import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
 import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
-import { OriginProduct } from 'products/tasks/frontend/types'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
@@ -19,6 +19,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
+    mostRecentEmittedRuns,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -226,6 +227,26 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
         ],
         runsWindowComplete: [(s) => [s.runsWindow], (runsWindow): boolean => runsWindow.complete],
+        // Cheap fleet-wide findings tally off the runs window — sums each run's `emitted_count` without
+        // fetching emission bodies, to power the "Scout findings" callout. Tallied over the SAME capped
+        // set the page fetches (`mostRecentEmittedRuns`) so the callout can't over-advertise.
+        emittedFindingsSummary: [
+            (s) => [s.runsWindow],
+            (runsWindow): { count: number; scoutCount: number; latestAt: string | null } => {
+                let count = 0
+                const scouts = new Set<string>()
+                let latestAt: string | null = null
+                for (const run of mostRecentEmittedRuns(runsWindow.runs)) {
+                    count += run.emitted_count ?? 0
+                    scouts.add(run.skill_name)
+                    const at = run.completed_at ?? run.created_at
+                    if (at && (!latestAt || at > latestAt)) {
+                        latestAt = at
+                    }
+                }
+                return { count, scoutCount: scouts.size, latestAt }
+            },
+        ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
             (scoutConfigs): number =>

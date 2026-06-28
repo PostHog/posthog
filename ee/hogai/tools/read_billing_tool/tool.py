@@ -17,6 +17,7 @@ from ee.hogai.utils.types import AssistantState
 from .prompts import BILLING_CONTEXT_PROMPT, BILLING_CONTEXT_UNAVAILABLE_PROMPT
 
 # sync with frontend/src/scenes/billing/constants.ts
+# Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
 USAGE_TYPES = [
     {"label": "Events", "value": "event_count_in_period"},
     {"label": "Identified events", "value": "enhanced_persons_event_count_in_period"},

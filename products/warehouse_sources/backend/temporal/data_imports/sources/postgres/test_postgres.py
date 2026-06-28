@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
+    _SSH_HANDSHAKE_EOF_ERROR,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
@@ -85,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_connection_limit_error,
     _is_dropped_or_connect_timeout,
     _is_invalid_ssl_negotiation_response,
     _is_options_startup_param_unsupported,
@@ -100,6 +102,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _safe_close_connection,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
+    _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_foreign_keys,
@@ -293,6 +296,10 @@ class TestPostgresSourceNonRetryableErrors:
             'OperationalError: connection failed: connection to server at "44.216.29.125", port 5432 failed: FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+            # Server-wide max_connections reached. Transient capacity on the customer's DB — a slot
+            # frees as soon as another connection closes — so it's retried in-process on connect and
+            # must stay out of NonRetryableErrors.
+            'OperationalError: connection failed: connection to server at "142.93.153.201", port 25060 failed: FATAL:  sorry, too many clients already',
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
             # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
             "consuming input failed: SSL connection has been closed unexpectedly",
@@ -626,6 +633,26 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw activity-level message (what `_handle_import_error` sees via str(e)) — no class name.
+            # Raised by get_rows when a recovery conflict forces offset chunking and a chunk then hits
+            # the 10-minute statement timeout.
+            "Reading from your read replica timed out: Postgres canceled the initial read with a "
+            "recovery conflict, and the chunked fallback read still couldn't finish within the 10 "
+            "minute statement timeout. Increase max_standby_streaming_delay or enable "
+            "hot_standby_feedback on the replica, or sync from the primary database instead.",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "QueryTimeoutException: Reading from your read replica timed out: Postgres canceled the "
+            "initial read with a recovery conflict",
+        ],
+    )
+    def test_read_replica_timeout_query_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Read-replica timeout error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
             "permission denied for table brand",
             "permission denied for view posthog_areas",
@@ -761,6 +788,48 @@ class TestPostgresSourceNonRetryableErrors:
         # dedicated message fragment is what recognises it at the activity layer.
         assert "QueryTimeoutException" not in matching_keys
         assert "has an appropriate index" in matching_keys
+
+    def test_ssh_handshake_eof_is_non_retryable(self, source):
+        # `_tunnel_with_handshake_translation` turns paramiko's bare, empty-message handshake
+        # EOFError into this stable message; without the entry it would match no rule and retry forever.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
+
+def _raise_eof() -> None:
+    # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
+    # this raises before the generator yields, standing in for paramiko's handshake EOFError.
+    raise EOFError()
+
+
+@contextmanager
+def _handshake_eof_tunnel() -> Iterator[tuple[str, int]]:
+    _raise_eof()
+    yield ("127.0.0.1", 5432)
+
+
+@contextmanager
+def _body_eof_tunnel() -> Iterator[tuple[str, int]]:
+    yield ("127.0.0.1", 5432)
+
+
+class TestTunnelWithHandshakeTranslation:
+    def test_bare_handshake_eof_is_translated_with_cause(self):
+        # The translated message (verified non-retryable in `test_ssh_handshake_eof_is_non_retryable`)
+        # replaces the bare EOFError while preserving it as the cause.
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with _tunnel_with_handshake_translation(_handshake_eof_tunnel):
+                pass
+
+        assert isinstance(exc_info.value.__cause__, EOFError)
+
+    def test_body_eof_is_not_translated(self):
+        # A failure raised by the body (not the handshake) must surface as the original EOFError,
+        # never the translated handshake message — guards the `yield`-outside-`except` invariant.
+        with pytest.raises(EOFError):
+            with _tunnel_with_handshake_translation(_body_eof_tunnel):
+                raise EOFError()
 
 
 class TestPostgresSourceSetupRecoveryConflictRetry:
@@ -1009,6 +1078,43 @@ class TestDroppedOrConnectTimeout:
         assert _is_dropped_or_connect_timeout(error) is False
 
 
+class TestIsConnectionLimitError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  sorry, too many clients already"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  too many connections for role "reader"'
+            ),
+        ],
+    )
+    def test_connection_limit_errors_are_detected(self, error):
+        assert _is_connection_limit_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A connection that was established then dropped is a different class — not a limit.
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            ValueError("sorry, too many clients already"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_limit_error(error) is False
+
+
 class TestRaiseIfSetupConnectionBroken:
     """A connection dropped mid-discovery must surface as a retryable error, not the masked
     `ProgrammingError: Explicit commit() forbidden within a Transaction context` that psycopg's
@@ -1075,6 +1181,31 @@ class TestConnectWithDroppedRetry:
 
         assert result is good_conn
         assert connect.call_count == 2
+
+    def test_retries_connection_limit_error_then_succeeds(self, logger):
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                # The source is momentarily at its connection limit; slots free up by a
+                # later attempt, so the reconnect succeeds rather than failing the whole sync.
+                # Two consecutive refusals lock in that the loop keeps retrying past one attempt.
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  sorry, too many clients already"
+                ),
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+                ),
+                good_conn,
+            ]
+        )
+
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 3
 
     def test_permanent_error_is_not_retried(self, logger):
         connect = mock.MagicMock(
@@ -5609,3 +5740,158 @@ class TestGetRowsInitialConnectRetry:
         finally:
             with django_connection.cursor() as dj_cursor:
                 dj_cursor.execute(f"DROP TABLE IF EXISTS {table_name}")
+
+
+class TestPartitionIterationConnectRetry:
+    # Regression: the windowed / per-partition read paths opened each window's (or partition's)
+    # connection with a bare get_connection(), so a transient drop while establishing it — the
+    # observed "OperationalError: the connection is lost" raised by the setup commit() inside
+    # get_connection — escaped and failed the whole activity, even though every other read path
+    # already recovers in-process via _connect_with_dropped_retry. Wrapping the per-window connect
+    # in the same helper makes a transient drop retry instead of aborting.
+
+    class _BenignSetupCursor:
+        # psycopg.Cursor(connection) inside get_connection, used only to SET statement_timeout.
+        def execute(self, *args, **kwargs):
+            return None
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _WindowCursor:
+        # Named server-side cursor opened by iterate_date_windows; yields one batch then drains.
+        def __init__(self, rows):
+            id_col, val_col = mock.Mock(), mock.Mock()
+            id_col.name, val_col.name = "id", "val"
+            self.description = [id_col, val_col]
+            self._rows = rows
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, n):
+            batch, self._rows = self._rows[:n], self._rows[n:]
+            return batch
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    class _WindowConnection:
+        def __init__(self, *, commit_error=None, rows=None):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+            self._commit_error = commit_error
+            self._rows = rows or []
+
+        def cursor(self, *args, **kwargs):
+            if "name" in kwargs:
+                return TestPartitionIterationConnectRetry._WindowCursor(list(self._rows))
+            # Unnamed setup cursor (metadata probes are patched out) stays benign.
+            return mock.MagicMock()
+
+        def commit(self):
+            # Reproduces the production failure: a freshly opened socket dies before the setup
+            # commit, so psycopg raises "the connection is lost" from inside get_connection.
+            if self._commit_error is not None:
+                raise self._commit_error
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    # Both branches changed by the fix are covered: get_partition_strategy=None keeps
+    # use_per_partition_chunking False -> iterate_date_windows (windowed path); a range strategy
+    # keyed on the incremental field flips it True -> iterate_partitions (per-partition path).
+    @pytest.mark.parametrize(
+        "partition_strategy",
+        [
+            pytest.param(None, id="windowed"),
+            pytest.param(PartitionStrategy(strategy="r", key_columns=("id",)), id="per_partition"),
+        ],
+    )
+    def test_partition_connect_retries_transient_drop_in_process(self, partition_strategy):
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64()), pa.field("val", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        connect_calls = {"n": 0}
+
+        def connect_side_effect(*args, **kwargs):
+            connect_calls["n"] += 1
+            if connect_calls["n"] == 1:
+                # Setup connection (metadata probes are patched out).
+                return TestPartitionIterationConnectRetry._WindowConnection()
+            if connect_calls["n"] == 2:
+                # First per-window/per-partition connect: the setup commit() inside get_connection drops.
+                return TestPartitionIterationConnectRetry._WindowConnection(
+                    commit_error=psycopg.OperationalError("the connection is lost")
+                )
+            # The retried connect succeeds and serves the rows.
+            return TestPartitionIterationConnectRetry._WindowConnection(rows=[(1, 10), (2, 20), (3, 30)])
+
+        child = ChildPartition(
+            oid=1,
+            schema="public",
+            name="events_p1",
+            partbound="FOR VALUES FROM (0) TO (100)",
+        )
+
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", side_effect=connect_side_effect) as connect_mock,
+            patch(
+                f"{module}.psycopg.Cursor",
+                side_effect=lambda _conn: TestPartitionIterationConnectRetry._BenignSetupCursor(),
+            ),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=True),
+            patch(f"{module}.list_child_partitions", return_value=[child]),
+            patch(f"{module}.get_partition_strategy", return_value=partition_strategy),
+            patch(f"{module}._get_table_chunk_size", return_value=1000),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+            patch(f"{module}.time.sleep"),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["events"],
+                should_use_incremental_field=True,
+                logger=structlog.get_logger(),
+                incremental_field="id",
+                incremental_field_type=IncrementalFieldType.Integer,
+                db_incremental_field_last_value=0,
+                team_id=1,
+            )
+            # Before the fix the connect drop escaped iterate_date_windows / iterate_partitions here.
+            tables = list(cast(Iterable[Any], response.items()))
+
+        # 1 setup + 2 per-window/per-partition connects (1 dropped commit + 1 success).
+        assert connect_mock.call_count == 3
+        assert sum(table.num_rows for table in tables) == 3

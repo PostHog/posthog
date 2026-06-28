@@ -63,6 +63,8 @@ import {
     type ExportContext,
 } from '~/types'
 
+import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
+
 import {
     copyTableToCsv,
     copyTableToExcel,
@@ -1109,17 +1111,22 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <MCPUseCaseCard
-                        surfaceKey="sql.execute"
-                        expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    <WarehouseWizardHint
                         className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
                     />
                 </div>
             )
         }
 
         return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t overflow-auto">
+            <div className="absolute inset-0 flex flex-col hide-scrollbar border-t overflow-auto">
                 <SyncWarningsBanner warnings={response?.warnings} />
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
@@ -1163,10 +1170,15 @@ const Content = ({
                     {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
                     statements with <code>;</code> to run them independently.
                 </span>
-                <MCPUseCaseCard
-                    surfaceKey="sql.execute"
-                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                <WarehouseWizardHint
                     className="max-w-140"
+                    fallback={
+                        <MCPUseCaseCard
+                            surfaceKey="sql.execute"
+                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                            className="max-w-140"
+                        />
+                    }
                 />
             </div>
         )

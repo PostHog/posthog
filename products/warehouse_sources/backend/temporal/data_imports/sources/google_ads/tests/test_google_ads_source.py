@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import grpc
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
@@ -21,8 +23,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
+    _get_integration,
     _is_invalid_page_token_error,
-    _is_transient_grpc_unavailable,
+    _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
@@ -536,33 +539,54 @@ class TestLoadClientTransientRetry:
         assert sleep.call_args_list == []
 
 
-class _UnavailableRpcError(grpc.RpcError):
-    """A raw gRPC error whose ``code()`` reports ``UNAVAILABLE`` (502:Bad Gateway shape)."""
+class _StatusCodeRpcError(grpc.RpcError):
+    """A raw gRPC error whose ``code()`` reports a given ``StatusCode`` (``_InactiveRpcError`` shape)."""
+
+    def __init__(self, status_code: grpc.StatusCode):
+        self._status_code = status_code
 
     def code(self) -> grpc.StatusCode:
-        return grpc.StatusCode.UNAVAILABLE
+        return self._status_code
 
 
 def _grpc_unavailable_error() -> grpc.RpcError:
-    return _UnavailableRpcError()
+    return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
 
 
-class TestTransientGrpcUnavailableDetection:
+def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
+    """A ``GoogleAdsException`` carrying a transport-level error on ``error``, the shape the SDK
+    raises when it can pull an ads ``failure`` from the trailing metadata alongside the gRPC status.
+    """
+    return GoogleAdsException(error=grpc_error, call=None, failure=None, request_id="req-1")
+
+
+def _grpc_internal_error() -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.INTERNAL)
+
+
+class TestTransientGrpcErrorDetection:
     @pytest.mark.parametrize(
         "exc, expected",
         [
             (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), True),
             (_grpc_unavailable_error(), True),
-            # A different gapic error must not be treated as transient-unavailable.
+            # The SDK wraps the transport status in a GoogleAdsException when an ads failure rides
+            # along (e.g. a backend DEADLINE_EXCEEDED) — still transient, so we unwrap it.
+            (_google_ads_exception_wrapping(_grpc_unavailable_error()), True),
+            # gRPC INTERNAL ("Internal error encountered.") is a transient Google-side blip — the
+            # gapic wrapper and the raw _InactiveRpcError must both be ridden out in-process.
+            (google_api_exceptions.InternalServerError("500 Internal error encountered."), True),
+            (_grpc_internal_error(), True),
+            # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
-            # Google Ads API errors carry no UNAVAILABLE gRPC status — they route through
-            # the existing GoogleAdsException handling, not the transient retry.
+            # Google Ads API errors carry no transient gRPC status — they route through the existing
+            # INVALID_PAGE_TOKEN / GoogleAdsException handling, not the transient retry.
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
             (ValueError("boom"), False),
         ],
     )
-    def test_is_transient_grpc_unavailable(self, exc, expected):
-        assert _is_transient_grpc_unavailable(exc) is expected
+    def test_is_transient_grpc_error(self, exc, expected):
+        assert _is_transient_grpc_error(exc) is expected
 
 
 class _FlakyService:
@@ -587,9 +611,12 @@ class TestSearchTransientRetry:
         [
             google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
             _grpc_unavailable_error(),
+            _google_ads_exception_wrapping(_grpc_unavailable_error()),
+            google_api_exceptions.InternalServerError("500 Internal error encountered."),
+            _grpc_internal_error(),
         ],
     )
-    def test_rides_out_transient_unavailable(self, error):
+    def test_rides_out_transient_error(self, error):
         service = _FlakyService(_single_page(), error=error, fail_times=2)
         manager = _FakeResumableManager(saved_token=None)
 
@@ -658,3 +685,56 @@ class TestSearchTransientRetry:
         # First call raises and propagates immediately — no retry, no backoff.
         assert service.calls == 1
         assert sleep.call_count == 0
+
+
+_INTEGRATION_GET_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get"
+)
+_CLOSE_CONNECTIONS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
+)
+
+
+class TestGetIntegrationDbResilience:
+    def test_retries_once_on_dropped_connection_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 2
+        # Evicted up front, then again after the failed query marked the connection unusable.
+        assert close.call_count == 2
+
+    def test_reraises_when_retry_also_fails(self):
+        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(OperationalError):
+                _get_integration(integration_id=1, team_id=2)
+
+        # One retry only — the second failure propagates so Temporal still retries the activity.
+        assert get.call_count == 2
+
+    def test_missing_integration_is_not_retried(self):
+        get = mock.Mock(side_effect=Integration.DoesNotExist())
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(Integration.DoesNotExist):
+                _get_integration(integration_id=1, team_id=2)
+
+        # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
+        assert get.call_count == 1
+
+    def test_no_retry_on_success(self):
+        integration = object()
+        get = mock.Mock(return_value=integration)
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 1
+        assert close.call_count == 1

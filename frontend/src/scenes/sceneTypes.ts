@@ -168,6 +168,7 @@ export enum Scene {
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
+    CodeCanvasLink = 'CodeCanvasLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -197,6 +198,7 @@ export enum Scene {
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
+    MCPAnalytics = 'MCPAnalytics',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -244,12 +246,8 @@ export interface SceneTab {
     search: string
     hash: string
     title: string
-    active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
-    pinned?: boolean
-    /** Show a small badge indicator on the tab icon */
-    badge?: boolean
 
     sceneId?: string
     sceneKey?: string

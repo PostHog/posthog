@@ -49,7 +49,11 @@ jobs:
               with:
                   image-name: posthog
                   ecr-image-name: posthog-cloud
-                  push-to-dockerhub: 'true'
+                  # Public registries (DockerHub + ghcr) hold the OSS image; prod deploys
+                  # from the private ECR `posthog-cloud`. Pause the public push when
+                  # PUBLIC_IMAGE_PUSH_PAUSED is set (deploy is unaffected — ECR still pushes).
+                  push-to-dockerhub: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
+                  push-to-ghcr: ${{ vars.PUBLIC_IMAGE_PUSH_PAUSED != 'true' }}
                   aws-role-to-assume: ${{ secrets.AWS_ECR_PUBLISH_IAM_ROLE }}
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   dockerhub-username: ${{ secrets.DOCKERHUB_USER }}
@@ -828,6 +832,27 @@ jobs:
                           }
                         },
                         "release": "temporal-worker-data-warehouse",
+                        "commit": ${{ toJson(github.event.head_commit) }},
+                        "repository": ${{ toJson(github.repository) }},
+                        "labels": ${{ steps.labels.outputs.labels }},
+                        "timestamp": "${{ github.event.head_commit.timestamp }}"
+                      }
+
+            - name: Trigger Data Warehouse Metadata Temporal Worker Cloud deployment
+              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+              with:
+                  token: ${{ steps.deployer.outputs.token }}
+                  repository: PostHog/charts
+                  event-type: commit_state_update
+                  client-payload: |
+                      {
+                        "values": {
+                          "image": {
+                            "sha": "${{ github.sha }}@${{ steps.build_retry.outputs.digest || steps.build.outputs.digest }}"
+                          }
+                        },
+                        "release": "temporal-worker-data-warehouse-metadata",
                         "commit": ${{ toJson(github.event.head_commit) }},
                         "repository": ${{ toJson(github.repository) }},
                         "labels": ${{ steps.labels.outputs.labels }},

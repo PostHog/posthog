@@ -10,13 +10,15 @@ from django.conf import settings
 from django.contrib.auth import logout
 from django.core.signing import TimestampSigner
 from django.http import HttpRequest
-from django.test import RequestFactory
+from django.test import RequestFactory, SimpleTestCase
 from django.utils import timezone
 
 from loginas import settings as la_settings
 from parameterized import parameterized
 
 from posthog.api.oauth.views import _impersonation_ai_processing_block, _impersonator_id_for_request
+from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.helpers.impersonation import is_impersonated
 from posthog.middleware import IMPERSONATION_READ_ONLY_SESSION_KEY
 from posthog.models import OAuthApplication, Organization, OrganizationMembership, Team, User
 from posthog.models.oauth import OAuthAccessToken, OAuthApplicationAccessLevel, OAuthGrant, OAuthRefreshToken
@@ -290,3 +292,43 @@ class TestImpersonationAIProcessingBlock(BaseTest):
         )
         assert response is not None
         self.assertEqual(response.status_code, 403)
+
+
+def _session_request(*, impersonated: bool) -> HttpRequest:
+    request = RequestFactory().get("/")
+    request.session = SessionStore()
+    if impersonated:
+        request.session[la_settings.USER_SESSION_FLAG] = "signed-staff-pk"
+    return request
+
+
+def _oauth_request(*, impersonated_by_id: int | None) -> HttpRequest:
+    request = RequestFactory().get("/")
+    request.session = SessionStore()  # API/MCP requests carry no loginas cookie
+    authenticator = OAuthAccessTokenAuthentication()
+    authenticator.access_token = OAuthAccessToken(impersonated_by_id=impersonated_by_id)
+    request.successful_authenticator = authenticator  # type: ignore[attr-defined]
+    return request
+
+
+def _non_oauth_request() -> HttpRequest:
+    request = RequestFactory().get("/")
+    request.session = SessionStore()
+    request.successful_authenticator = object()  # type: ignore[attr-defined]  # e.g. session/personal-key auth
+    return request
+
+
+class TestIsImpersonated(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_request", lambda: None, False),
+            ("loginas_browser_session", lambda: _session_request(impersonated=True), True),
+            ("plain_browser_session", lambda: _session_request(impersonated=False), False),
+            # an OAuth/MCP token minted under impersonation must flag as impersonated
+            ("oauth_token_minted_under_impersonation", lambda: _oauth_request(impersonated_by_id=1), True),
+            ("oauth_token_customer_owned", lambda: _oauth_request(impersonated_by_id=None), False),
+            ("non_oauth_authenticator", _non_oauth_request, False),
+        ]
+    )
+    def test_is_impersonated(self, _name: str, build_request, expected: bool) -> None:
+        self.assertEqual(is_impersonated(build_request()), expected)

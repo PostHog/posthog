@@ -23,13 +23,14 @@ from posthog.temporal.session_replay.rasterize_recording import RASTERIZE_RECORD
 from posthog.temporal.session_replay.replay_count_metrics import REPLAY_COUNT_METRICS_WORKFLOWS
 from posthog.temporal.session_replay.summarization_sweep import SUMMARIZATION_SWEEP_WORKFLOWS
 from posthog.temporal.session_replay.surfacing_scoring_sweep import SURFACING_SCORING_SWEEP_WORKFLOWS
+from posthog.temporal.sync_events_retention import SYNC_EVENTS_RETENTION_WORKFLOWS
 from posthog.temporal.sync_person_distinct_ids import WORKFLOWS as SYNC_PERSON_DISTINCT_IDS_WORKFLOWS
 from posthog.temporal.tests.utils.workflow import WORKFLOWS as TEST_WORKFLOWS
 from posthog.temporal.usage_report import WORKFLOWS as USAGE_REPORTS_WORKFLOWS
 from posthog.temporal.weekly_digest import WORKFLOWS as WEEKLY_DIGEST_WORKFLOWS
 
 from products.batch_exports.backend.temporal import WORKFLOWS as BATCH_EXPORT_WORKFLOWS
-from products.warehouse_sources.backend.temporal.data_imports.settings import WORKFLOWS as DATA_IMPORT_WORKFLOWS
+from products.warehouse_sources.backend.facade.temporal import WORKFLOWS as DATA_IMPORT_WORKFLOWS
 from products.web_analytics.backend.temporal import WORKFLOWS as WA_DIGEST_WORKFLOWS
 
 
@@ -148,6 +149,7 @@ class Command(BaseCommand):
             + COUNT_PLAYLIST_ITEMS_WORKFLOWS
             + DELETE_RECORDINGS_WORKFLOWS
             + ENFORCE_MAX_REPLAY_RETENTION_WORKFLOWS
+            + SYNC_EVENTS_RETENTION_WORKFLOWS
             + RASTERIZE_RECORDING_WORKFLOWS
             + REPLAY_COUNT_METRICS_WORKFLOWS
             + SUMMARIZATION_SWEEP_WORKFLOWS

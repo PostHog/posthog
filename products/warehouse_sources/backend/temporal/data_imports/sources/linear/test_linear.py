@@ -11,6 +11,7 @@ from tenacity import Future, RetryCallState
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear import (
     LINEAR_MAX_RETRY_AFTER_SECONDS,
+    LINEAR_MAX_RETRY_ATTEMPTS,
     LinearResumeConfig,
     LinearRetryableError,
     _make_paginated_request,
@@ -208,7 +209,7 @@ class TestMakePaginatedRequest:
         self, mock_session_cls: MagicMock, _mock_sleep: MagicMock
     ) -> None:
         session = MagicMock()
-        session.post.side_effect = [_make_rate_limited_response() for _ in range(5)]
+        session.post.side_effect = [_make_rate_limited_response() for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)]
         mock_session_cls.return_value = session
 
         manager = _make_resumable_manager()
@@ -224,7 +225,7 @@ class TestMakePaginatedRequest:
                 )
             )
 
-        assert session.post.call_count == 5
+        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
 
     @parameterized.expand(
         [
@@ -269,7 +270,8 @@ class TestMakePaginatedRequest:
     ) -> None:
         session = MagicMock()
         session.post.side_effect = [
-            requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)") for _ in range(5)
+            requests.exceptions.ReadTimeout("Read timed out. (read timeout=60)")
+            for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
         ]
         mock_session_cls.return_value = session
 
@@ -286,7 +288,7 @@ class TestMakePaginatedRequest:
                 )
             )
 
-        assert session.post.call_count == 5
+        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
 
 
 class TestRateLimitBackoff:
@@ -313,14 +315,16 @@ class TestRateLimitBackoff:
 
     def test_wait_strategy_falls_back_to_backoff_without_retry_after(self) -> None:
         exc = LinearRetryableError("Linear: rate limited (429)")
-        assert 0 < _wait_strategy(_retry_state(exc)) <= 30
+        assert 0 < _wait_strategy(_retry_state(exc)) <= 60
 
     @patch("time.sleep", return_value=None)
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.linear.linear.make_tracked_session")
     def test_429_carries_retry_after_into_exception(self, mock_session_cls: MagicMock, _mock_sleep: MagicMock) -> None:
         # Retry-After of 0 keeps the test fast while still exercising the honored-wait path.
         session = MagicMock()
-        session.post.side_effect = [_make_rate_limited_response({"Retry-After": "0"}) for _ in range(5)]
+        session.post.side_effect = [
+            _make_rate_limited_response({"Retry-After": "0"}) for _ in range(LINEAR_MAX_RETRY_ATTEMPTS)
+        ]
         mock_session_cls.return_value = session
 
         manager = _make_resumable_manager()
@@ -337,7 +341,7 @@ class TestRateLimitBackoff:
             )
 
         assert exc_info.value.retry_after == 0.0
-        assert session.post.call_count == 5
+        assert session.post.call_count == LINEAR_MAX_RETRY_ATTEMPTS
 
 
 class TestLinearSource:

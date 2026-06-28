@@ -784,6 +784,7 @@ describe('exec tool', () => {
 
     describe('deprecated tool redirects', () => {
         it.each([
+            ['read-data-warehouse-schema', 'execute-sql'],
             ['entity-search', 'execute-sql'],
             ['event-definitions-list', 'read-data-schema'],
             ['properties-list', 'read-data-schema'],

@@ -6,7 +6,7 @@ import time
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager, contextmanager
+from contextlib import ExitStack, _GeneratorContextManager, contextmanager
 from datetime import (
     UTC,
     date,
@@ -198,6 +198,22 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
 
+# Connect-time capacity errors: the source refuses a *new* connection because it has hit a
+# connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
+# clients already" once max_connections is reached, "remaining connection slots are reserved for
+# roles with the SUPERUSER attribute" once only the superuser_reserved_connections slots remain,
+# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. All three are
+# transient capacity conditions on the customer's database — a slot frees the moment another
+# connection closes — so a fresh connect after a short backoff usually succeeds. Retried in-process
+# on the read/sync connect path (see `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`);
+# kept retryable and intentionally NOT added to `get_non_retryable_errors` for the same reason as
+# pooler saturation (see source.py).
+_CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
+    "sorry, too many clients already",
+    "remaining connection slots are reserved",
+    "too many connections for role",
+)
+
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
 # PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
 # socket. IdleInTransactionSessionTimeout (SQLSTATE 25P03) is what Postgres raises
@@ -256,19 +272,38 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _is_connection_limit_error(error: BaseException) -> bool:
+    """True if the source refused a new connection because it's at a connection limit.
+
+    Distinct from `_is_connection_dropped_error`: the connection was never established, so this is
+    only meaningful on the connect path (`_connect_with_dropped_retry`), not for mid-stream fetch
+    failures on an already-open connection.
+    """
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
-    Either a mid-stream drop (`_is_connection_dropped_error`) or a connect-time timeout. psycopg
-    raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a connection,
-    never mid-query, so on the import/read path it's transient: the source was reachable moments
-    earlier in the same sync, and the reconnect just needs retrying. Used by the read/sync connect
-    retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The user-facing
-    validation path (`get_schemas`, via `_retry_on_connection_dropped` directly) deliberately keeps
-    failing fast on the same timeout, where it usually means an unreachable host / unconfigured
-    firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, or a connect-time
+    connection-limit refusal (`_is_connection_limit_error`). psycopg raises `ConnectionTimeout`
+    ("connection timeout expired") only while *establishing* a connection, never mid-query, so on the
+    import/read path it's transient: the source was reachable moments earlier in the same sync, and
+    the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
+    etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
+    read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
+    user-facing validation path (`get_schemas`, via `_retry_on_connection_dropped` directly)
+    deliberately keeps failing fast on the same connect-time conditions, where a timeout usually means
+    an unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
-    return _is_connection_dropped_error(error) or isinstance(error, psycopg.errors.ConnectionTimeout)
+    return (
+        _is_connection_dropped_error(error)
+        or _is_connection_limit_error(error)
+        or isinstance(error, psycopg.errors.ConnectionTimeout)
+    )
 
 
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
@@ -305,8 +340,9 @@ def _retry_on_connection_dropped(
 
     `is_retryable` decides which errors are transient; it defaults to `_is_connection_dropped_error`
     (mid-stream drops only). The read/sync connect path widens it to also retry connect-time timeouts
-    (see `_connect_with_dropped_retry`). Permanent errors (auth failures, SSL-required) are re-raised
-    immediately because neither predicate matches them.
+    and connection-limit refusals (see `_connect_with_dropped_retry` / `_is_dropped_or_connect_timeout`).
+    Permanent errors (auth failures, SSL-required) are re-raised immediately because no predicate
+    matches them.
     """
     attempt = 0
     while True:
@@ -333,10 +369,11 @@ def _connect_with_dropped_retry(
     The streaming recovery path (offset chunking) is reached precisely because the
     source just dropped our connection (idle cull, failover, mid-stream SSL EOF), so
     the very reconnect that bootstraps the recovery can itself hit a still-recovering
-    source and fail with another connection-dropped error — or time out establishing the
-    socket. Without this, that transient failure escapes the recovery loop and fails the
-    whole sync. Retry both transient classes with bounded backoff; permanent errors (auth
-    failures, SSL-required) are re-raised immediately because neither predicate matches them.
+    source and fail with another connection-dropped error — time out establishing the
+    socket, or refuse the reconnect with a connection-limit error while still saturated.
+    Without this, that transient failure escapes the recovery loop and fails the whole sync.
+    Retry all transient classes with bounded backoff; permanent errors (auth failures,
+    SSL-required) are re-raised immediately because no transient predicate matches them.
     """
     return _retry_on_connection_dropped(
         connect, logger, max_attempts=max_attempts, is_retryable=_is_dropped_or_connect_timeout
@@ -2424,6 +2461,33 @@ def _project_table_columns(
     return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
 
 
+# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
+# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
+# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
+# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
+# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
+# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
+# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
+_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
+
+
+@contextmanager
+def _tunnel_with_handshake_translation(
+    tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
+) -> Iterator[tuple[str, int]]:
+    """Enter `tunnel()`, translating a bare paramiko handshake EOFError into a classifiable message.
+
+    The `yield` sits outside the `except` so a failure raised by the body can never be
+    misattributed to the tunnel handshake.
+    """
+    with ExitStack() as stack:
+        try:
+            host, port = stack.enter_context(tunnel())
+        except EOFError as e:
+            raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
+        yield host, port
+
+
 def postgres_source(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
@@ -2453,7 +2517,7 @@ def postgres_source(
 
     effective_sslmode = _get_sslmode(require_ssl)
 
-    with tunnel() as (host, port):
+    with _tunnel_with_handshake_translation(tunnel) as (host, port):
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
@@ -2770,7 +2834,7 @@ def postgres_source(
             # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
-        with tunnel() as (host, port):
+        with _tunnel_with_handshake_translation(tunnel) as (host, port):
             cursor_factory = psycopg.ServerCursor if not using_read_replica else None
 
             def get_connection():
@@ -2985,6 +3049,16 @@ def postgres_source(
 
                 _safe_close_connection(connection)
 
+            def connect_for_partition_iteration() -> psycopg.Connection:
+                # Each window/partition opens its own connection. A transient drop on that connect —
+                # idle cull, failover, an SSL EOF, or a freshly opened socket dying before the setup
+                # commit ("the connection is lost") — is the same recoverable class the initial
+                # server-cursor connect and the offset-chunking bootstrap already retry in-process.
+                # Retry it here too so a blip resumes the next window/partition instead of escaping
+                # and failing the whole activity. Only the connect is retried; a drop mid-fetch still
+                # propagates, so a partially read window/partition is never re-yielded.
+                return _connect_with_dropped_retry(get_connection, logger)
+
             if use_per_partition_chunking and incremental_field is not None and incremental_field_type is not None:
 
                 def _build_per_partition_query(child_schema: str, child_name: str) -> sql.Composed:
@@ -3001,7 +3075,7 @@ def postgres_source(
                     )
 
                 yield from iterate_partitions(
-                    get_connection=get_connection,
+                    get_connection=connect_for_partition_iteration,
                     build_partition_query=_build_per_partition_query,
                     schema=schema,
                     table_name=table_name,
@@ -3033,7 +3107,7 @@ def postgres_source(
                     )
 
                 yield from iterate_date_windows(
-                    get_connection=get_connection,
+                    get_connection=connect_for_partition_iteration,
                     build_windowed_query=_build_windowed_query,
                     schema=schema,
                     table_name=table_name,

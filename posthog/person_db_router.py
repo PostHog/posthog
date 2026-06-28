@@ -1,6 +1,58 @@
 # posthog/person_db_router.py
 
+import threading
+import contextlib
+
 from django.conf import settings
+
+
+class PersonsDBORMBlockedError(RuntimeError):
+    """Raised when the Django ORM attempts to touch a persons-DB model while ORM
+    access is blocked.
+
+    personhog is the sole source of truth for person/group/cohort data. The test
+    suite activates this block (via the personhog fake) so that any code path that
+    still reaches for the persons DB through the ORM fails loudly instead of
+    silently reading stale/empty rows. Use the personhog helpers
+    (``posthog/models/person/util.py``, ``posthog/models/group_type_mapping.py``)
+    for production reads and ``posthog/test/persons.py`` for test data.
+    """
+
+
+# Thread-local toggle. Off by default so production, migrations, management
+# commands and the e2e/demo data paths route to the persons DB as before; the
+# test fixture flips it on for the duration of each test.
+_orm_block = threading.local()
+
+
+def block_persons_orm() -> None:
+    _orm_block.enabled = True
+
+
+def unblock_persons_orm() -> None:
+    _orm_block.enabled = False
+
+
+def persons_orm_blocked() -> bool:
+    return getattr(_orm_block, "enabled", False)
+
+
+@contextlib.contextmanager
+def allow_persons_orm():
+    """Temporarily allow direct persons-DB ORM access while the block is active.
+
+    For maintenance paths that legitimately read/write the persons DB even when a
+    test's personhog fake is active — management commands and the demo-data
+    generator, which the router is designed to let "route to the persons DB as
+    before". Saves and restores the previous block state so nesting is safe.
+    """
+    previously_blocked = persons_orm_blocked()
+    _orm_block.enabled = False
+    try:
+        yield
+    finally:
+        _orm_block.enabled = previously_blocked
+
 
 # Set of models (lowercase) that should live in the persons_db
 # Add other models from the plan here as needed.
@@ -54,6 +106,7 @@ class PersonDBRouter:
         Attempts to read person models go to persons_db (writer in tests, reader in production).
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
+            self._raise_if_blocked(model)
             return PERSONS_DB_FOR_READ
         return None  # Allow default db selection
 
@@ -62,8 +115,26 @@ class PersonDBRouter:
         Attempts to write person models go to persons_db_writer.
         """
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
+            # Django also calls db_for_write to compute _state.db when an FK *instance*
+            # is assigned during Model.__init__ (e.g. ``GroupTypeMapping(team=team)``).
+            # In that case hints["instance"] is the *related* object — a different model
+            # — and nothing is being written, so it must not trip the block. Real writes
+            # pass the model's own instance (save/create) or no instance (queryset writes).
+            instance = hints.get("instance")
+            if instance is None or isinstance(instance, model):
+                self._raise_if_blocked(model)
             return PERSONS_DB_FOR_WRITE
         return None  # Allow default db selection
+
+    @staticmethod
+    def _raise_if_blocked(model) -> None:
+        if persons_orm_blocked():
+            raise PersonsDBORMBlockedError(
+                f"Direct ORM access to persons-DB model {model._meta.label} is blocked. "
+                f"personhog is the sole source of truth — read via the helpers in "
+                f"posthog/models/person/util.py or posthog/models/group_type_mapping.py, "
+                f"and create test data via posthog/test/persons.py."
+            )
 
     def allow_relation(self, obj1, obj2, **hints):
         """
