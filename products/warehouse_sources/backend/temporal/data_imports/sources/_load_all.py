@@ -60,6 +60,7 @@ from .azure_table_storage.source import AzureTableStorageSource
 from .babelforce.source import BabelforceSource
 from .bamboohr.source import BambooHRSource
 from .basecamp.source import BasecampSource
+from .baserow.source import BaserowSource
 from .beamer.source import BeamerSource
 from .bigcommerce.source import BigCommerceSource
 from .bigmailer.source import BigMailerSource

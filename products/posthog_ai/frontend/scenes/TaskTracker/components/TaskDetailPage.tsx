@@ -28,6 +28,8 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 
+import { RunLogSkeleton } from 'products/posthog_ai/frontend/api/primitives'
+
 import { TaskRun } from '../../../types/taskTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { TaskRunChat } from './TaskRunChat'
@@ -241,17 +243,6 @@ function TaskActionsSkeleton(): JSX.Element {
     )
 }
 
-function TaskRunLogSkeleton(): JSX.Element {
-    return (
-        <div className="flex flex-col gap-3 max-w-6xl mx-auto w-full" data-attr="task-run-log-skeleton">
-            <LemonSkeleton className="h-4 w-40" />
-            <LemonSkeleton className="h-20 w-11/12" />
-            <LemonSkeleton className="h-4 w-32 ml-auto opacity-60" />
-            <LemonSkeleton className="h-24 w-4/5 ml-auto opacity-40" />
-        </div>
-    )
-}
-
 function TaskLoadErrorBanner({ message, onRetry }: { message: string; onRetry: () => void }): JSX.Element {
     return (
         <LemonBanner
@@ -343,7 +334,7 @@ function TaskRunLogState({
         return <TaskRunsErrorBanner message={runsError} onRetry={onRetryRuns} />
     }
     if (runsLoading && runsLength === 0) {
-        return <TaskRunLogSkeleton />
+        return <RunLogSkeleton />
     }
     if (selectedRunNotFound) {
         return <NotFound object="task run" className="m-0 py-8" />
@@ -352,7 +343,7 @@ function TaskRunLogState({
         return <TaskRunsErrorBanner message={selectedRunError} onRetry={onRetrySelectedRun} />
     }
     if (selectedRunDataLoading && !selectedRun) {
-        return <TaskRunLogSkeleton />
+        return <RunLogSkeleton />
     }
     if (runsLength === 0 && !selectedRunId) {
         return (
@@ -368,5 +359,5 @@ function TaskRunLogState({
             </div>
         )
     }
-    return selectedRunId ? <TaskRunLogSkeleton /> : null
+    return selectedRunId ? <RunLogSkeleton /> : null
 }

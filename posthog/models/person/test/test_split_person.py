@@ -4,8 +4,8 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from posthog.models import Person
-from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
+from posthog.models.person.util import get_person_by_distinct_id, get_person_by_id
 from posthog.personhog_client.fake_client import FakePersonHogClient, fake_personhog_client
 from posthog.test.persons import add_distinct_id, create_person
 
@@ -74,7 +74,6 @@ class TestSplitPerson(BaseTest):
             assert moved_2.id != moved_3.id
 
         # Original person keeps its properties when main_distinct_id is provided
-        person.refresh_from_db()
         assert person.properties == {"email": "test@example.com", "name": "Test"}
 
         assert mock_create_pdi.call_count == 2
@@ -86,11 +85,12 @@ class TestSplitPerson(BaseTest):
 
             person.split_person(main_distinct_id="id1")
 
-        # The write went through the RPC — local DB rows are untouched
-        for did in ["id1", "id2", "id3"]:
-            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
-            assert pdi.person_id == person.id
-        assert Person.objects.filter(team_id=self.team.id).count() == 1
+            # The write went through the RPC — reads resolve via personhog, not the ORM.
+            # "id1" stays on the original person; "id2"/"id3" each moved to a new person.
+            assert get_person_by_distinct_id(self.team.id, "id1").pk == person.id  # type: ignore[union-attr]
+            assert get_person_by_distinct_id(self.team.id, "id2").pk != person.id  # type: ignore[union-attr]
+            assert get_person_by_distinct_id(self.team.id, "id3").pk != person.id  # type: ignore[union-attr]
+            assert get_person_by_id(self.team.id, person.id) is not None
 
     def test_split_without_main_distinct_id_keeps_properties(self, mock_create_pdi, mock_create_person):
         with fake_personhog_client() as fake:
@@ -110,7 +110,6 @@ class TestSplitPerson(BaseTest):
             assert len(split_ids) == 1
             assert split_ids == {"id2"}
 
-        person.refresh_from_db()
         assert person.properties == {"email": "test@example.com"}
 
     def test_split_with_max_splits(self, mock_create_pdi, mock_create_person):
@@ -219,7 +218,6 @@ class TestSplitPerson(BaseTest):
             assert fake._persons_by_distinct_id[(self.team.id, "move2")].id != person.id
 
         # Original person keeps its properties intact — this is the key partial-split guarantee.
-        person.refresh_from_db()
         assert person.properties == {"email": "mega@example.com", "name": "Mega"}
 
         assert mock_create_pdi.call_count == 2
@@ -300,9 +298,8 @@ class TestSplitPerson(BaseTest):
             with self.assertRaises(RuntimeError):
                 person.split_person(main_distinct_id="id1")
 
-        # Local DB rows are untouched and no Kafka messages were published
-        pdi = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
-        assert pdi.person_id == person.id
+            # The split never happened — "id2" still resolves to the original person — and no Kafka was published
+            assert get_person_by_distinct_id(self.team.id, "id2").pk == person.id  # type: ignore[union-attr]
         mock_create_pdi.assert_not_called()
         mock_create_person.assert_not_called()
 
@@ -324,7 +321,6 @@ class TestSplitPerson(BaseTest):
             split_calls = fake.assert_called("split_person", times=1)
             assert list(split_calls[0].request.distinct_ids_to_split) == ["id2"]
 
-        person.refresh_from_db()
         assert person.properties == {"email": "test@example.com"}
 
     def test_split_person_not_found_in_personhog(self, mock_create_pdi, mock_create_person):

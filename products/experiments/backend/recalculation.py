@@ -234,7 +234,7 @@ def _recalc_fingerprints_for_run(experiment: Experiment, recalc: ExperimentMetri
             experiment.exposure_criteria,
             only_count_matured_users=experiment.only_count_matured_users,
         )
-        fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp, str(recalc.id))
+        fingerprints[metric_uuid] = compute_recalc_fingerprint(config_fp)
     return fingerprints
 
 
@@ -249,11 +249,14 @@ def get_run_results(recalc: ExperimentMetricsRecalculation) -> list[dict]:
     run. Symptom: "results disappeared after editing exposure_criteria / start_date / stats config."
     """
     fingerprints = _recalc_fingerprints_for_run(recalc.experiment, recalc)
-    if not fingerprints:
+    if not fingerprints or recalc.query_to is None:
         return []
 
+    # Scope to this run's window. The recalc fingerprint is now deterministic per config (not per run), so a
+    # running experiment accumulates one row per query_to under the same fingerprint; without this filter a
+    # later run would return every prior window's row and overcount. recalc.query_to pins the run's window.
     rows = ExperimentMetricResult.objects.filter(
-        experiment=recalc.experiment, fingerprint__in=list(fingerprints.values())
+        experiment=recalc.experiment, fingerprint__in=list(fingerprints.values()), query_to=recalc.query_to
     )
     return [
         {

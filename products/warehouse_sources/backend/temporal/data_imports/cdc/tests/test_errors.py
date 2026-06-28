@@ -5,6 +5,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     MAX_FRIENDLY_MESSAGE_LENGTH,
     CDCErrorCategory,
     CDCErrorInfo,
+    CDCSchemaMergeError,
     CDCTransactionTooLargeError,
     cdc_error_info,
     classify_cdc_error,
@@ -36,6 +37,7 @@ class TestCDCErrorInfo:
             (CDCErrorCategory.SLOT_IN_USE, True),
             (CDCErrorCategory.WAL_DECODE_ERROR, False),
             (CDCErrorCategory.TRANSACTION_TOO_LARGE, False),
+            (CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE, False),
             (CDCErrorCategory.UNKNOWN, True),
         ]
     )
@@ -79,6 +81,16 @@ class TestClassifyCDCError:
     def test_transaction_too_large_is_classified_without_adapter(self):
         info = classify_cdc_error(CDCTransactionTooLargeError("500001 events"), None)
         assert info.category is CDCErrorCategory.TRANSACTION_TOO_LARGE
+        assert info.retryable is False
+
+    def test_schema_merge_error_is_non_retryable_via_cause_chain(self):
+        # The activity wraps the Arrow type error as CDCSchemaMergeError; classification must
+        # find it through the cause chain and mark the run non-retryable so it stops looping.
+        cause = CDCSchemaMergeError("Incompatible column types across CDC batches for orders")
+        wrapper = RuntimeError("flush failed")
+        wrapper.__cause__ = cause
+        info = classify_cdc_error(wrapper, None)
+        assert info.category is CDCErrorCategory.SCHEMA_MERGE_INCOMPATIBLE
         assert info.retryable is False
 
     def test_non_psycopg_exception_with_slot_message_is_not_classified(self):

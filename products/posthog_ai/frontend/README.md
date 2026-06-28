@@ -30,12 +30,12 @@ re-introduce the exact bundling problem the split solves. Always import an `api/
 
 Pick the **lowest tier** that does the job.
 
-| Tier                           | Module                     | What's in it                                                                                                                                                                                                                          | Use when                                                                                    |
-| ------------------------------ | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/run`                  | `RunViewer` (call directly → default layout), `RunComposer`                                                                                                                                                                           | "Just show/drive a run." Inbox read-only embed, tasks embed.                                |
-| **2 — Compound primitives**    | `api/primitives`           | `RunViewer.Root` + slots, `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces | Custom layout, or a bespoke/compact thread.                                                 |
-| **3 — Headless logic + types** | `api/logics` + `api/types` | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers; folded-thread + tool types                                                                      | Status badge or automation — no React, no registry.                                         |
-| **4 — Extension seam**         | `api/tools`                | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                                      | Your product renders tool cards (insights, dashboards…). Register them from your own scene. |
+| Tier                           | Module                     | What's in it                                                                                                                                                                                                                  | Use when                                                                                    |
+| ------------------------------ | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**   | `api/run`                  | `RunViewer` (lazy, code-split embeddable → default layout), `RunComposer`                                                                                                                                                     | "Just show/drive a run." Inbox read-only embed, tasks embed.                                |
+| **2 — Compound primitives**    | `api/primitives`           | `Thread` + atoms (`.Message/.Markdown/.Reasoning/.Failure/.Activity/.ToolCall`), `ThreadView`, `Composer.*`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces | Custom layout, or a bespoke/compact thread.                                                 |
+| **3 — Headless logic + types** | `api/logics` + `api/types` | `runStreamLogic`, `runInteractionLogic`, status helpers (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), thinking-message helpers; folded-thread + tool types                                                              | Status badge or automation — no React, no registry.                                         |
+| **4 — Extension seam**         | `api/tools`                | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                                              | Your product renders tool cards (insights, dashboards…). Register them from your own scene. |
 
 `api/run` (Tier 1) is built on `api/primitives` (Tier 2); `api/primitives` consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
@@ -62,17 +62,13 @@ const { queuedMessages } = useValues(runInteractionLogic(props))
 <RunViewer taskId={task.id} runId={run.id} />
 ```
 
-### Custom layout via `RunViewer.Root` + slots
+### Custom layout via `Thread.*` + the run primitives
 
-```tsx
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
-;<RunViewer.Root taskId={task.id} runId={run.id}>
-  <RunViewer.Resources />
-  <RunViewer.Thread />
-  <RunViewer.ContextUsage />
-  <RunViewer.Composer />
-</RunViewer.Root>
-```
+`RunViewer` (Tier 1) is a single lazy embeddable — it renders the default layout and intentionally does
+not surface slot atoms (no consumer composed them, and lazy-wrapping each would only add Suspense
+boundaries that never fire). For a custom layout, bind `runStreamLogic` yourself and compose the Tier 2
+primitives (`ThreadView`, `ResourcesBar`, `PermissionInput`, `Composer.*`, `ContextUsageBar`) — use
+`RunLogSkeleton` for the loading state so the surface keeps its shape.
 
 ### Bespoke / compact thread via `Thread.*` atoms
 

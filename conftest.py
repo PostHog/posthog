@@ -54,13 +54,45 @@ def _activate_personhog_fake(request):
     """Force all person/group reads through the personhog fake for every test.
 
     The fake is seeded explicitly by the test helpers in posthog.test.persons
-    (create_person, create_group, etc.) — no signals are used.  Tests in
-    personhog_client/ manage their own client and are excluded.
+    (create_person, create_group, etc.).  While the fake is active, ORM access to
+    persons-DB models raises (PersonsDBORMBlockedError) so nothing can silently
+    fall back to the persons DB.
+
+    Tests that exercise the persons DB layer itself (sync, backfill, maintenance
+    commands) opt out with ``@pytest.mark.persons_db_direct`` — either on the
+    class/function or as a module-level ``pytestmark``.
     """
-    if "personhog_client" in str(request.node.path):
+    if request.node.get_closest_marker("persons_db_direct"):
         yield
         return
-    from posthog.test.personhog_fake import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
+    from posthog.personhog_client.fake_client import activate_personhog_fake  # noqa: PLC0415, I001 — lazy import avoids connecting signals before Django is ready
 
     with activate_personhog_fake():
         yield
+
+
+@pytest.fixture(autouse=True)
+def _clean_persons_db_for_direct_tests(request):
+    """Truncate the persons DB before each persons_db_direct test.
+
+    These tests seed the persons DB through off-Django psycopg (posthog.test.persons), which
+    commits outside Django's per-test transaction and so is NOT rolled back at teardown. Because
+    team ids reset every test (the main DB rolls back), leaked rows from a prior test would bleed
+    into the next one's reused team id. Truncating before the test (when no Django persons
+    transaction holds locks yet) clears that carryover without risking a TRUNCATE lock hang.
+    """
+    if not request.node.get_closest_marker("persons_db_direct"):
+        yield
+        return
+
+    from posthog.persons_db import persons_db_connection  # noqa: PLC0415
+
+    with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+        cursor.execute(
+            "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+            "AND tablename NOT LIKE 'pg_%' AND tablename NOT LIKE '_sqlx_%' AND tablename != '_persons_migrations'"
+        )
+        tables = [row[0] for row in cursor.fetchall()]
+        if tables:
+            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
+    yield
