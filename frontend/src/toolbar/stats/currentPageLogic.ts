@@ -112,7 +112,7 @@ export const currentPageLogic = kea<currentPageLogicType>([
                         actions.autoWildcardHref()
                     }
                 }
-            }, '__ph_current_page_logic_wrapped__'),
+            }),
             'historyProxy'
         )
     }),

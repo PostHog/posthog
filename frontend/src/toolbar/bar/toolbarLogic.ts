@@ -680,10 +680,7 @@ export const toolbarLogic = kea<toolbarLogicType>([
             return () => window.removeEventListener('popstate', popstateHandler)
         }, 'popstateListener')
 
-        cache.disposables.add(
-            makeNavigateWrapper(actions.maybeSendNavigationMessage, '__ph_toolbar_logic_wrapped__'),
-            'historyProxy'
-        )
+        cache.disposables.add(makeNavigateWrapper(actions.maybeSendNavigationMessage), 'historyProxy')
 
         cache.disposables.add(() => {
             const syncHedgehogLoop = setInterval(() => {

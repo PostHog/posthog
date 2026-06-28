@@ -1,4 +1,4 @@
-import { asNonEmptyString, joinWithUiHost, safeFetch, slashDotDataAttrUnescape } from './utils'
+import { asNonEmptyString, joinWithUiHost, makeNavigateWrapper, safeFetch, slashDotDataAttrUnescape } from './utils'
 
 describe('utils', () => {
     describe('asNonEmptyString', () => {
@@ -134,5 +134,75 @@ describe('utils', () => {
                 expect(result.status).toBe(502)
             }
         )
+    })
+
+    describe('makeNavigateWrapper', () => {
+        const nativePushState = History.prototype.pushState
+        const nativeReplaceState = History.prototype.replaceState
+        let cleanups: Array<() => void>
+
+        beforeEach(() => {
+            cleanups = []
+        })
+
+        afterEach(() => {
+            cleanups.forEach((cleanup) => cleanup())
+            window.history.pushState = nativePushState
+            window.history.replaceState = nativeReplaceState
+        })
+
+        const register = (onNavigate: () => void): void => {
+            cleanups.push(makeNavigateWrapper(onNavigate)())
+        }
+
+        it('patches history.pushState only once regardless of how many wrappers register', () => {
+            register(() => {})
+            const patchedAfterFirst = window.history.pushState
+
+            // A second logic asking to react to navigation must not re-wrap the native method —
+            // double-wrapping is what produces the "Illegal invocation" through chained .call(this).
+            register(() => {})
+
+            expect(window.history.pushState).toBe(patchedAfterFirst)
+        })
+
+        it('notifies every registered callback on pushState and replaceState', () => {
+            const first = jest.fn()
+            const second = jest.fn()
+            register(first)
+            register(second)
+
+            window.history.pushState(null, '', '/pushed')
+            window.history.replaceState(null, '', '/replaced')
+
+            expect(first).toHaveBeenCalledTimes(2)
+            expect(second).toHaveBeenCalledTimes(2)
+        })
+
+        it('restores native methods once all wrappers are removed', () => {
+            register(() => {})
+            register(() => {})
+            expect(window.history.pushState).not.toBe(nativePushState)
+
+            cleanups.forEach((cleanup) => cleanup())
+            cleanups = []
+
+            expect(window.history.pushState).toBe(nativePushState)
+            expect(window.history.replaceState).toBe(nativeReplaceState)
+        })
+
+        it('falls back to the native method and still notifies when the wrapped call throws', () => {
+            // Emulate a customer-page wrapper that rejects the `this` we forward, like an SPA router
+            // whose history wrapper throws "Illegal invocation".
+            window.history.pushState = function throwingPushState(): void {
+                throw new TypeError('Illegal invocation')
+            }
+            const onNavigate = jest.fn()
+            register(onNavigate)
+
+            expect(() => window.history.pushState(null, '', '/pushed')).not.toThrow()
+            expect(onNavigate).toHaveBeenCalledTimes(1)
+            expect(window.location.pathname).toBe('/pushed')
+        })
     })
 })

@@ -665,51 +665,100 @@ export function slashDotDataAttrUnescape(foundSelector: string): string | undefi
     return foundSelector.replace(/\\./g, '.')
 }
 
-export function makeNavigateWrapper(onNavigate: () => void, patchKey: string): () => () => void {
-    return () => {
-        let unwrapPushState: undefined | (() => void)
-        let unwrapReplaceState: undefined | (() => void)
-        if (!(window.history.pushState as any)?.[patchKey]) {
-            unwrapPushState = patch(
-                window.history,
-                'pushState',
-                (originalPushState) => {
-                    return function patchedPushState(
-                        this: History,
-                        state: any,
-                        title: string,
-                        url?: string | URL | null
-                    ): void {
-                        ;(originalPushState as History['pushState']).call(this, state, title, url)
-                        onNavigate()
-                    }
-                },
-                patchKey
-            )
-        }
+// We patch `history.pushState`/`replaceState` exactly once for the whole toolbar, no matter how
+// many logics want to react to SPA navigation. Multiple logics each patching with a distinct
+// patchKey would double-wrap the native methods; chaining `.call(this, …)` through that extra
+// wrapper (and any wrapper the customer page added) can forward a `this` an inner wrapper rejects,
+// throwing "Illegal invocation" inside the customer's own navigation. A single wrapper plus a
+// shared callback set removes the double-wrap entirely.
+const HISTORY_PATCH_KEY = '__ph_toolbar_history_wrapped__'
 
-        if (!(window.history.replaceState as any)?.[patchKey]) {
-            unwrapReplaceState = patch(
-                window.history,
-                'replaceState',
-                (originalReplaceState) => {
-                    return function patchedReplaceState(
-                        this: History,
-                        state: any,
-                        title: string,
-                        url?: string | URL | null
-                    ): void {
-                        ;(originalReplaceState as History['replaceState']).call(this, state, title, url)
-                        onNavigate()
-                    }
-                },
-                patchKey
-            )
+// Genuinely native references, captured from the prototype before any wrapping, used as a
+// last-resort fallback when a customer-page wrapper rejects the `this` we forward. Mirrors the
+// `safeFetch` hardening above against customer-page `fetch` wrappers.
+const nativePushState = History.prototype.pushState
+const nativeReplaceState = History.prototype.replaceState
+
+const navigateCallbacks = new Set<() => void>()
+let unwrapHistoryPatches: undefined | (() => void)
+
+function notifyNavigate(): void {
+    // A single misbehaving listener must not break navigation for the others.
+    for (const callback of Array.from(navigateCallbacks)) {
+        try {
+            callback()
+        } catch {
+            // ignore — listener errors are non-fatal for the customer's navigation
         }
+    }
+}
+
+function ensureHistoryPatched(): void {
+    if (unwrapHistoryPatches || (window.history.pushState as any)?.[HISTORY_PATCH_KEY]) {
+        return
+    }
+
+    const unwrapPushState = patch(
+        window.history,
+        'pushState',
+        (originalPushState) => {
+            return function patchedPushState(
+                this: History,
+                state: any,
+                title: string,
+                url?: string | URL | null
+            ): void {
+                try {
+                    ;(originalPushState as History['pushState']).call(this, state, title, url)
+                } catch {
+                    // A customer page that also wraps pushState can reject the `this` we forward;
+                    // fall back to the native method so navigation still happens.
+                    nativePushState.call(window.history, state, title, url)
+                }
+                notifyNavigate()
+            }
+        },
+        HISTORY_PATCH_KEY
+    )
+
+    const unwrapReplaceState = patch(
+        window.history,
+        'replaceState',
+        (originalReplaceState) => {
+            return function patchedReplaceState(
+                this: History,
+                state: any,
+                title: string,
+                url?: string | URL | null
+            ): void {
+                try {
+                    ;(originalReplaceState as History['replaceState']).call(this, state, title, url)
+                } catch {
+                    nativeReplaceState.call(window.history, state, title, url)
+                }
+                notifyNavigate()
+            }
+        },
+        HISTORY_PATCH_KEY
+    )
+
+    unwrapHistoryPatches = () => {
+        unwrapPushState()
+        unwrapReplaceState()
+    }
+}
+
+export function makeNavigateWrapper(onNavigate: () => void): () => () => void {
+    return () => {
+        navigateCallbacks.add(onNavigate)
+        ensureHistoryPatched()
 
         return () => {
-            unwrapPushState?.()
-            unwrapReplaceState?.()
+            navigateCallbacks.delete(onNavigate)
+            if (navigateCallbacks.size === 0) {
+                unwrapHistoryPatches?.()
+                unwrapHistoryPatches = undefined
+            }
         }
     }
 }
