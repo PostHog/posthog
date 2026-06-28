@@ -25,7 +25,7 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
     ClusteringMetricsInterceptor,
 )
 from posthog.temporal.ai_observability.trace_summarization.metrics import SummarizationMetricsInterceptor
-from posthog.temporal.common.client import connect
+from posthog.temporal.common.client import CONNECT_MAX_ATTEMPTS, connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
@@ -345,6 +345,9 @@ async def create_worker(
         client_key=client_key,
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
+        # Retry the initial connect with backoff so a transient DNS blip during a
+        # deploy or pod reschedule doesn't crash worker boot. See `connect()`.
+        max_attempts=CONNECT_MAX_ATTEMPTS,
     )
     supported_interceptors = [
         interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
