@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -99,20 +100,38 @@ def _test_account_filter_expr(team: Team) -> ast.Expr:
     return test_account_filter_expr(test_account_filters=filters, team=team)
 
 
+# These evaluators run `count`/`countIf` over the raw events table per environment, on every
+# achievement trigger and on the daily sweep. Without bounds a high-volume team's scan can blow past
+# ClickHouse's read safety limit and error out, so the whole achievement silently fails to compute.
+# A tight lookback window keeps the scan deterministic, and a byte cap (well under the cluster limit)
+# with read_overflow_mode="break" makes an oversized scan return a partial count instead of throwing.
+# Achievement progress is monotonic (max-of-old-and-new), so a partial undercount never regresses it.
+PAGEVIEWS_LOOKBACK_DAYS = 365
+CONVERSIONS_LOOKBACK_DAYS = 90
+ACHIEVEMENTS_MAX_BYTES_TO_READ = 10_000_000_000  # 10 GB; ~500x below the 5 TiB cluster limit
+
+
+def _bounded_settings() -> HogQLGlobalSettings:
+    # "break" returns whatever was aggregated so far if the read cap is hit, instead of throwing.
+    return HogQLGlobalSettings(max_bytes_to_read=ACHIEVEMENTS_MAX_BYTES_TO_READ, read_overflow_mode="break")
+
+
 def evaluate_cumulative_pageviews(ctx: EvalContext) -> int:
     total = 0
     for team in _project_environment_teams(ctx.team):
         query = parse_select(
-            "SELECT count() FROM events WHERE and(event IN ('$pageview', '$screen'), {test})",
-            placeholders={"test": _test_account_filter_expr(team)},
+            "SELECT count() FROM events WHERE and(timestamp >= now() - toIntervalDay({days}), event IN ('$pageview', '$screen'), {test})",
+            placeholders={
+                "days": ast.Constant(value=PAGEVIEWS_LOOKBACK_DAYS),
+                "test": _test_account_filter_expr(team),
+            },
         )
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_pageviews")
+        response = execute_hogql_query(
+            query=query, team=team, query_type="web_achievements_pageviews", settings=_bounded_settings()
+        )
         if response.results:
             total += int(response.results[0][0] or 0)
     return total
-
-
-CONVERSIONS_LOOKBACK_DAYS = 90
 
 
 def evaluate_conversions(ctx: EvalContext) -> int:
@@ -136,7 +155,9 @@ def evaluate_conversions(ctx: EvalContext) -> int:
         if not isinstance(query, ast.SelectQuery):
             raise TypeError(f"evaluate_conversions: expected SelectQuery, got {type(query)}")
         query.select = [ast.Call(name="countIf", args=[action_to_expr(action)]) for action in actions]
-        response = execute_hogql_query(query=query, team=team, query_type="web_achievements_conversions")
+        response = execute_hogql_query(
+            query=query, team=team, query_type="web_achievements_conversions", settings=_bounded_settings()
+        )
         if response.results:
             for index, value in enumerate(response.results[0]):
                 per_action_totals[index] += int(value or 0)

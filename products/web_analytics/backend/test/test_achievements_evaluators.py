@@ -1,4 +1,4 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
@@ -9,6 +9,7 @@ from posthog.models import Element, Team, User
 from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
+    PAGEVIEWS_LOOKBACK_DAYS,
     EvalContext,
     evaluate_conversions,
     evaluate_cumulative_pageviews,
@@ -82,6 +83,18 @@ class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         self.assertEqual(evaluate_cumulative_pageviews(self._ctx()), 3)
+
+    def test_cumulative_pageviews_excludes_events_outside_lookback_window(self) -> None:
+        _create_event(team=self.team, event="$pageview", distinct_id="d1")
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="d1",
+            timestamp=datetime.now() - timedelta(days=PAGEVIEWS_LOOKBACK_DAYS + 1),
+        )
+        flush_persons_and_events()
+
+        self.assertEqual(evaluate_cumulative_pageviews(self._ctx()), 1)
 
     def test_conversions_returns_best_goal_conversion_count(self) -> None:
         Action.objects.create(
