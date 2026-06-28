@@ -248,8 +248,7 @@ def _resolve_reviewer_logins(
             ordered.append(cleaned)
 
     for login in explicit_logins or []:
-        if login and login.strip():
-            _add(login)
+        _add(login)
 
     if user_uuids:
         # Parse to canonical form, dropping anything unparseable so a malformed id can't 500 the emit.

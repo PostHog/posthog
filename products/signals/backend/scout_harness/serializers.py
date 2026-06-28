@@ -25,6 +25,11 @@ from products.signals.backend.scout_harness.tools.emit import (
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
+# Upper bound on each reviewer-identifier list before server-side resolution. The effective reviewer
+# count is capped lower downstream (`_build_suggested_reviewers`); this just bounds the DB lookup /
+# payload so a scout can't send an unbounded candidate list into the org-membership `IN` query.
+MAX_REVIEWER_IDENTIFIERS = 25
+
 # --- Run history -----------------------------------------------------------
 
 
@@ -572,6 +577,7 @@ class EmitReportRequestSerializer(serializers.Serializer):
     )
     suggested_reviewer_user_uuids = serializers.ListField(
         required=False,
+        max_length=MAX_REVIEWER_IDENTIFIERS,
         child=serializers.CharField(),
         help_text=(
             "Reviewers as PostHog user UUIDs (e.g. from `org-members-list`) — the preferred way to set "
@@ -583,6 +589,7 @@ class EmitReportRequestSerializer(serializers.Serializer):
     )
     suggested_reviewer_emails = serializers.ListField(
         required=False,
+        max_length=MAX_REVIEWER_IDENTIFIERS,
         child=serializers.CharField(),
         help_text=(
             "Reviewers as PostHog user emails (org members only) — a fallback when you have an internal "

@@ -84,6 +84,7 @@
             "items": {
                 "type": "string"
             },
+            "maxItems": 25,
             "type": "array"
         },
         "suggested_reviewer_user_uuids": {
@@ -91,6 +92,7 @@
             "items": {
                 "type": "string"
             },
+            "maxItems": 25,
             "type": "array"
         },
         "suggested_reviewers": {

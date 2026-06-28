@@ -600,6 +600,9 @@ export const signalsScoutEmitReportBodyTitleMax = 300
 export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
+export const signalsScoutEmitReportBodySuggestedReviewerUserUuidsMax = 25
+
+export const signalsScoutEmitReportBodySuggestedReviewerEmailsMax = 25
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -682,12 +685,14 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             ),
         suggested_reviewer_user_uuids: zod
             .array(zod.string())
+            .max(signalsScoutEmitReportBodySuggestedReviewerUserUuidsMax)
             .optional()
             .describe(
                 "Reviewers as PostHog user UUIDs (e.g. from `org-members-list`) — the preferred way to set reviewers, since you rarely know a person's GitHub login but can look up their UUID. Each is resolved server-side to the org member's GitHub login. A UUID that isn't an org member, or whose member hasn't connected a GitHub account, is silently dropped (it can't be routed yet). Merged with `suggested_reviewers` and `suggested_reviewer_emails`."
             ),
         suggested_reviewer_emails: zod
             .array(zod.string())
+            .max(signalsScoutEmitReportBodySuggestedReviewerEmailsMax)
             .optional()
             .describe(
                 "Reviewers as PostHog user emails (org members only) — a fallback when you have an internal owner's email but not their UUID. Resolved server-side to the org member's GitHub login; non-members or members without a connected GitHub account are silently dropped. Merged with `suggested_reviewers` and `suggested_reviewer_user_uuids`."
