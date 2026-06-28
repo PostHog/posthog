@@ -16,7 +16,6 @@ from django.conf import settings
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
-import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
 from rest_framework import serializers, viewsets
@@ -29,17 +28,18 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -154,7 +154,7 @@ def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
     distinct_id = user.distinct_id or str(user.uuid)
     organization_id = str(team.organization_id)
     project_id = str(team.id)
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         PROMPT_EXPERIMENTS_FEATURE_FLAG,
         distinct_id,
         groups={"organization": organization_id, "project": project_id},

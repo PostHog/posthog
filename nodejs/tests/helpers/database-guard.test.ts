@@ -1,4 +1,5 @@
-import { PostgresRouter, PostgresUse } from '../../src/utils/db/postgres'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+
 import { assertRouterTargetsTestDatabase, assertTestDatabaseName } from './database-guard'
 
 describe('database-guard', () => {

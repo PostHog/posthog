@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, ClassVar, Optional
 from unittest.mock import MagicMock, patch
 
 from django.apps import apps
+from django.db import ProgrammingError
 from django.test import TestCase
 from django.utils import timezone
 
@@ -198,6 +199,30 @@ class TestCaptureTaskRunStateMetrics(TestCase):
             )
             == 1
         )
+
+    def test_missing_table_is_suppressed_without_reporting(self) -> None:
+        with (
+            patch(
+                "products.tasks.backend.facade.api.collect_task_run_state_metrics",
+                side_effect=ProgrammingError('relation "posthog_task_run" does not exist'),
+            ),
+            patch("posthog.tasks.tasks.capture_exception") as capture_mock,
+        ):
+            self._run_with_registry()
+
+        capture_mock.assert_not_called()
+
+    def test_unexpected_errors_are_still_reported(self) -> None:
+        with (
+            patch(
+                "products.tasks.backend.facade.api.collect_task_run_state_metrics",
+                side_effect=ValueError("boom"),
+            ),
+            patch("posthog.tasks.tasks.capture_exception") as capture_mock,
+        ):
+            self._run_with_registry()
+
+        capture_mock.assert_called_once()
 
     def test_age_gauge_only_covers_queued_and_in_progress(self) -> None:
         Task = apps.get_model("tasks", "Task")

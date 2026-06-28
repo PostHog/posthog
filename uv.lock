@@ -5508,7 +5508,6 @@ dependencies = [
     { name = "aiohttp" },
     { name = "aiokafka" },
     { name = "anthropic" },
-    { name = "antlr4-python3-runtime" },
     { name = "asgiref" },
     { name = "asyncstdlib" },
     { name = "azure-ai-inference" },
@@ -5783,7 +5782,6 @@ requires-dist = [
     { name = "aiohttp", specifier = "==3.13.5" },
     { name = "aiokafka", specifier = "~=0.12.0" },
     { name = "anthropic", specifier = "==0.80.0" },
-    { name = "antlr4-python3-runtime", specifier = "==4.13.1" },
     { name = "asgiref", specifier = "==3.11.0" },
     { name = "asyncstdlib", specifier = "==3.13.1" },
     { name = "azure-ai-inference", specifier = "~=1.0.0b9" },
@@ -5913,7 +5911,7 @@ requires-dist = [
     { name = "pixelhog", specifier = "~=1.2.0" },
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
-    { name = "posthoganalytics", specifier = "==7.13.0" },
+    { name = "posthoganalytics", specifier = "==7.20.4" },
     { name = "protobuf", specifier = "~=5.29.6" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.4" },
     { name = "psycopg2-binary", specifier = "==2.9.10" },
@@ -6052,18 +6050,17 @@ sentiment = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.13.0"
+version = "7.20.4"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
     { name = "distro" },
-    { name = "python-dateutil" },
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/05/27/34aa6241cdc0145d6a7ceedfd590425d9f35ca17983f6f812f83ffce5e08/posthoganalytics-7.13.0.tar.gz", hash = "sha256:a1dc24da926f016df3c50cd6846eb899326bf83eedaa2486d1c6956a41250f16", size = 193851, upload-time = "2026-04-21T09:12:15.658Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/21/ee/a2e18df3178f3cd05512bb65b87b3037b145c2889477820b1a5b243b1bce/posthoganalytics-7.20.4.tar.gz", hash = "sha256:89f364d1796ca4e414977e67f6dae94136fb41385f68f37d4c3c85bd4278fb74", size = 262180, upload-time = "2026-06-24T15:48:16.262Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0b/28/703fc06f56231f81c522cb895ebdcd9d14bfbe38f1b8d4f07a358b6696ab/posthoganalytics-7.13.0-py3-none-any.whl", hash = "sha256:87d8f04f9255645efd058caf027b7f6a68642186d91de5f174f369c8e1819f1d", size = 229183, upload-time = "2026-04-21T09:12:13.981Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/de/81f6ffaae7ab5e95121b960bb98a2958b5ab7c36c10e1933da49d791b239/posthoganalytics-7.20.4-py3-none-any.whl", hash = "sha256:fcbfc2f9db527abeea8ba06caede720ee5fa5115f89b48827527314418c6a33c", size = 305163, upload-time = "2026-06-24T15:48:14.397Z" },
 ]
 
 [[package]]

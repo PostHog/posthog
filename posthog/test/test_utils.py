@@ -2,7 +2,7 @@ import os
 import json
 import base64
 from datetime import datetime, timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 from zoneinfo import ZoneInfo
 
 import pytest
@@ -20,8 +20,12 @@ from parameterized import parameterized
 from rest_framework.request import Request
 
 from posthog.exceptions import RequestParsingError, UnspecifiedCompressionFallbackParsingError
-from posthog.models import EventDefinition, GroupTypeMapping, Organization, Team, User
+from posthog.models import EventDefinition, Organization, Team, User
 from posthog.settings.utils import get_from_env
+
+if TYPE_CHECKING:
+    from posthog.models.group_type_mapping import GroupTypeMapping
+
 from posthog.utils import (
     PotentialSecurityProblemException,
     _build_flag_provider,
@@ -851,9 +855,21 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    instance = GroupTypeMapping.objects.create(**kwargs)
-    GroupTypeMapping.objects.filter(id=instance.id).update(created_at=None)
-    instance.refresh_from_db()
+    from posthog.personhog_client.fake_client import personhog_fake_active  # noqa: PLC0415
+    from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping  # noqa: PLC0415
+
+    instance = create_group_type_mapping(**kwargs)
+    instance.created_at = None
+    # Mirror create_group_type_mapping's own branch: when the fake is off (persons-DB-direct tests),
+    # it wrote a real row whose created_at defaulted to now(). Null the column with a direct UPDATE
+    # over off-Django psycopg so the persons DB genuinely holds a null created_at — making this
+    # helper's name true to form for the fake-off path too.
+    if not personhog_fake_active():
+        from posthog.persons_db import persons_db_connection  # noqa: PLC0415
+
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE posthog_grouptypemapping SET created_at = NULL WHERE id = %s", (instance.pk,))
+    _seed_group_type_mapping_into_fake(instance)
     return instance
 
 

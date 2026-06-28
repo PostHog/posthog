@@ -48,7 +48,7 @@ import {
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
-import { statusReasonLabel } from './statusDisplay'
+import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
@@ -321,10 +321,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <div className="space-y-1">
                         <p className="font-semibold">This evaluation was automatically disabled</p>
                         <p>
-                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
-                            supported model or add a provider API key in settings), then re-enable the evaluation to
-                            resume running.
+                            {statusReasonLabel(evaluation.status_reason)}.{' '}
+                            {statusReasonRecoveryLabel(evaluation.status_reason)}
                         </p>
+                        {evaluation.status_reason_detail && (
+                            <div className="space-y-1">
+                                <p className="font-semibold">Error details</p>
+                                <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-bg-light p-2 font-mono text-xs">
+                                    {evaluation.status_reason_detail}
+                                </pre>
+                            </div>
+                        )}
                     </div>
                 </LemonBanner>
             )}

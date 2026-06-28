@@ -203,6 +203,11 @@ class JanitorClient:
     # Roll-up endpoints powering the fleet overview tiles. The
     # janitor side owns the JSONB read so Django doesn't reach across DBs.
 
+    def get_models(self) -> dict:
+        """The served-model catalog + curated auto-level map. Project-agnostic
+        (the gateway catalog is global), so no params."""
+        return self._call("GET", "/models")
+
     def aggregate_for_application(self, application_id: str, *, since: str | None = None) -> dict:
         params: dict[str, Any] = {"application_id": application_id}
         if since:

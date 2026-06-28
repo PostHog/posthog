@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -47,6 +48,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         closeModal: true,
         acknowledgeCelebration: (trackKey: string, stage: number) => ({ trackKey, stage }),
         markCelebrated: (key: string) => ({ key }),
+        triggerConfetti: true,
         toggleTrackExpanded: (trackKey: string) => ({ trackKey }),
     }),
     loaders(({ values }) => ({
@@ -71,6 +73,12 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
             [] as string[],
             {
                 markCelebrated: (state, { key }) => (state.includes(key) ? state : [...state, key]),
+            },
+        ],
+        confettiNonce: [
+            0,
+            {
+                triggerConfetti: (state) => state + 1,
             },
         ],
         expandedTracks: [
@@ -130,11 +138,44 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     progressByTrack
                 ),
         ],
+        pendingTrackKeys: [
+            (s) => [s.uncelebratedPending],
+            (pending): Set<string> => new Set(pending.map((entry) => entry.track_key)),
+        ],
+        unlockedStages: [
+            (s) => [s.definitions, s.progressByTrack],
+            (definitions, progressByTrack): number =>
+                definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0),
+        ],
+        totalStages: [
+            (s) => [s.definitions],
+            (definitions): number => definitions.reduce((sum, track) => sum + track.stages.length, 0),
+        ],
     }),
     listeners(({ values, actions }) => ({
         openModal: () => {
             posthog.capture('web_analytics_achievements_opened')
             actions.loadAchievements()
+        },
+        loadAchievementsSuccess: () => {
+            const pending = values.uncelebratedPending
+            if (pending.length === 0) {
+                return
+            }
+            pending.forEach((entry) => {
+                const track = values.definitions.find((t) => t.key === entry.track_key)
+                lemonToast.success(
+                    `Achievement unlocked — ${track?.display_name ?? entry.track_key}: ${entry.stage_name}`,
+                    {
+                        button: {
+                            label: 'View',
+                            action: () => actions.openModal(),
+                        },
+                    }
+                )
+                actions.acknowledgeCelebration(entry.track_key, entry.stage)
+            })
+            actions.triggerConfetti()
         },
         acknowledgeCelebration: async ({ trackKey, stage }) => {
             const track = values.definitions.find((t) => t.key === trackKey)
@@ -150,7 +191,9 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
                     track_key: trackKey,
                     stage,
                 })
-            } catch {}
+            } catch (error) {
+                posthog.captureException(error)
+            }
         },
     })),
     afterMount(({ actions, values }) => {

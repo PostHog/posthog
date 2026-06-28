@@ -14,7 +14,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { IntegrationType } from '~/types'
 
-import { OriginProduct, TaskUpsertProps } from 'products/tasks/frontend/types'
+import { OriginProduct, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
