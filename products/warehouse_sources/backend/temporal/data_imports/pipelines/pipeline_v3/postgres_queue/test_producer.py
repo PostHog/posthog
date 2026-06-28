@@ -1,12 +1,20 @@
 import json
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from psycopg.errors import ProtocolViolation
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
+    _POOL_RETRY_MAX_ATTEMPTS,
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
+
+_PRODUCER_MODULE = (
+    "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer"
+)
 
 
 def _make_producer(**kwargs: Any) -> PostgresProducer:
@@ -157,6 +165,59 @@ class TestPostgresProducerSupersede:
             producer.send_batch_notification(batch_result)
 
         mock_supersede.assert_not_called()
+
+
+class TestPostgresProducerPoolRetry:
+    _DEFAULTS: dict[str, Any] = {
+        "database_url": "postgres://unused:unused@localhost/unused",
+        "team_id": 1,
+        "job_id": "job-1",
+        "schema_id": "schema-1",
+        "source_id": "source-1",
+        "resource_name": "test_resource",
+        "sync_type": "full_refresh",
+        "run_uuid": "run-1",
+    }
+
+    def test_reconnects_and_retries_on_query_wait_timeout(self) -> None:
+        # PgBouncer drops the client on query_wait_timeout, so the retry must run on a fresh
+        # connection rather than re-using the dropped one.
+        broken = MagicMock()
+        broken.closed = False
+        broken.execute.side_effect = ProtocolViolation("query_wait_timeout")
+        fresh = MagicMock()
+
+        with (
+            patch(f"{_PRODUCER_MODULE}.psycopg") as mock_psycopg,
+            patch(f"{_PRODUCER_MODULE}.time.sleep") as mock_sleep,
+        ):
+            mock_psycopg.Connection.connect.side_effect = [broken, fresh]
+            producer = PostgresProducer(logger=MagicMock(), **self._DEFAULTS)
+
+            producer.send_batch_notification(_make_batch_result(batch_index=1))
+
+        broken.close.assert_called_once()
+        fresh.execute.assert_called_once()
+        mock_sleep.assert_called_once()
+        assert producer._conn is fresh
+
+    def test_raises_after_exhausting_retries(self) -> None:
+        conn = MagicMock()
+        conn.closed = False
+        conn.execute.side_effect = ProtocolViolation("query_wait_timeout")
+
+        with (
+            patch(f"{_PRODUCER_MODULE}.psycopg") as mock_psycopg,
+            patch(f"{_PRODUCER_MODULE}.time.sleep") as mock_sleep,
+        ):
+            mock_psycopg.Connection.connect.return_value = conn
+            producer = PostgresProducer(logger=MagicMock(), **self._DEFAULTS)
+
+            with pytest.raises(ProtocolViolation):
+                producer.send_batch_notification(_make_batch_result(batch_index=1))
+
+        assert conn.execute.call_count == _POOL_RETRY_MAX_ATTEMPTS
+        assert mock_sleep.call_count == _POOL_RETRY_MAX_ATTEMPTS - 1
 
 
 class TestPostgresProducerProperties:
