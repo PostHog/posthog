@@ -746,6 +746,15 @@ def get_active_fake() -> FakePersonHogClient:
     return _active_fake
 
 
+def personhog_fake_active() -> bool:
+    """Whether a personhog fake is active for the current test.
+
+    The test seed helpers use this to choose between seeding the fake (fake active, the default)
+    and writing the real persons DB via off-Django psycopg (fake off — persons_db_direct tests).
+    """
+    return _active_fake is not None
+
+
 @contextmanager
 def activate_personhog_fake():
     """Activate a FakePersonHogClient for the duration of a test.

@@ -855,21 +855,20 @@ class TestFlatten(TestCase):
 
 
 def create_group_type_mapping_without_created_at(**kwargs) -> "GroupTypeMapping":
-    from posthog.person_db_router import PERSONS_DB_FOR_WRITE, persons_orm_blocked  # noqa: PLC0415
+    from posthog.personhog_client.fake_client import personhog_fake_active  # noqa: PLC0415
     from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping  # noqa: PLC0415
 
     instance = create_group_type_mapping(**kwargs)
     instance.created_at = None
     # Mirror create_group_type_mapping's own branch: when the fake is off (persons-DB-direct tests),
-    # it wrote a real row whose GroupTypeMapping.save() auto-stamped created_at=now(). Null the
-    # column with a direct UPDATE (which skips that auto-stamp) so the persons DB genuinely holds
-    # a null created_at — making this helper's name true to form for the fake-off path too.
-    if not persons_orm_blocked():
-        from posthog.models.group_type_mapping import GroupTypeMapping  # noqa: PLC0415
+    # it wrote a real row whose created_at defaulted to now(). Null the column with a direct UPDATE
+    # over off-Django psycopg so the persons DB genuinely holds a null created_at — making this
+    # helper's name true to form for the fake-off path too.
+    if not personhog_fake_active():
+        from posthog.persons_db import persons_db_connection  # noqa: PLC0415
 
-        GroupTypeMapping.objects.using(PERSONS_DB_FOR_WRITE).filter(  # nosemgrep: no-direct-persons-db-orm
-            pk=instance.pk
-        ).update(created_at=None)
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("UPDATE posthog_grouptypemapping SET created_at = NULL WHERE id = %s", (instance.pk,))
     _seed_group_type_mapping_into_fake(instance)
     return instance
 

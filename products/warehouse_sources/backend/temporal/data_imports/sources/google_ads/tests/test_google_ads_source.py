@@ -29,7 +29,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
@@ -738,3 +740,27 @@ class TestGetIntegrationDbResilience:
         assert result is integration
         assert get.call_count == 1
         assert close.call_count == 1
+
+
+class TestOverviewStatsSchemas:
+    # Overview stats tables exist to recover cost that click-type segmentation drops: requesting
+    # segments.click_type makes Google omit cost not yet attributed to a click type, so summed cost
+    # reads low for recent days. Each overview must equal its *_stats counterpart minus that one
+    # segment, while staying incremental on segments.date.
+    @pytest.mark.parametrize(
+        "overview_alias, stats_alias",
+        [
+            ("ad_overview_stats", "ad_stats"),
+            ("ad_group_overview_stats", "ad_group_stats"),
+        ],
+    )
+    def test_overview_equals_stats_table_without_click_type(self, overview_alias, stats_alias):
+        overview = RESOURCE_SCHEMAS[overview_alias]
+        stats = RESOURCE_SCHEMAS[stats_alias]
+
+        assert "segments.click_type" not in overview["field_names"]
+        assert "segments.click_type" not in overview["primary_key"]
+        assert overview["resource_name"] == stats["resource_name"]
+        assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
+        assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
+        assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
