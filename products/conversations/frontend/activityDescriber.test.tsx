@@ -1,6 +1,8 @@
 import { render } from '@testing-library/react'
 
-import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { ActivityScope } from '~/types'
 
 import { ticketActivityDescriber } from './activityDescriber'
 
@@ -22,16 +24,16 @@ const ticketLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => 
 })
 
 describe('ticketActivityDescriber', () => {
-    const snoozeCleared = {
-        type: 'Ticket' as const,
-        action: 'changed' as const,
+    const snoozeCleared: ActivityChange = {
+        type: ActivityScope.TICKET,
+        action: 'changed',
         field: 'snoozed_until',
         before: '2026-06-25T10:00:00Z',
         after: null,
     }
-    const reopened = {
-        type: 'Ticket' as const,
-        action: 'changed' as const,
+    const reopened: ActivityChange = {
+        type: ActivityScope.TICKET,
+        action: 'changed',
         field: 'status',
         before: 'on_hold',
         after: 'open',

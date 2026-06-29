@@ -363,6 +363,7 @@ class TestWakeSnoozedTickets(BaseTest):
             team_id=self.team.id, scope="Ticket", item_id=str(ticket.id), activity="updated"
         ).first()
         assert activity is not None
+        assert activity.detail is not None
         self.assertTrue(activity.is_system)
         self.assertIsNone(activity.user_id)
         changes = activity.detail.get("changes", [])
@@ -396,6 +397,7 @@ class TestWakeSnoozedTickets(BaseTest):
             team_id=self.team.id, scope="Ticket", item_id=str(ticket.id), activity="updated"
         ).first()
         assert activity is not None
+        assert activity.detail is not None
         changes = activity.detail.get("changes", [])
         self.assertEqual([c["field"] for c in changes], ["snoozed_until"])
         self.assertIsNone(changes[0]["after"])
