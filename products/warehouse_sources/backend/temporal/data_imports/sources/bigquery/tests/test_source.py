@@ -14,7 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery i
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
     BIGQUERY_QUERY_JOB_RETRY,
+    BIGQUERY_SCOPES,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
+    BigQueryAuthInfo,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
@@ -1066,6 +1068,8 @@ def test_validate_bigquery_credentials_reports_unexpected_errors():
 
     assert is_valid is False
     assert error == "Failed to validate BigQuery credentials"
+
+
 @pytest.mark.parametrize(
     "observed_error",
     [

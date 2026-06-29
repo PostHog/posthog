@@ -44,6 +44,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import (
     incremental_type_to_initial_value,
@@ -321,6 +322,7 @@ def _resolve_auth_from_key_file(config: BigQuerySourceConfig) -> BigQueryAuthInf
         scopes=BIGQUERY_SCOPES,
     )
     return BigQueryAuthInfo(project_id=project_id, credentials=credentials)
+
 
 def _resolve_query_project(config: BigQuerySourceConfig) -> str:
     """Project used to run INFORMATION_SCHEMA discovery queries.
@@ -1043,7 +1045,6 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
         auth = resolve_bigquery_auth(config, inputs.team_id)
         region = _resolve_region(config)
         dataset_project_id = _resolve_dataset_project_id(config)
-        project_id = _resolve_project_id(config)
         destination_table_dataset_id = _resolve_dataset_id(config)
 
         if (
