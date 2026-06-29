@@ -100,7 +100,7 @@ def test_none_result_raises_runtime_error():
 
 
 def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
-    days = [f"2024-01-0{i + 1}" for i in range(len(data))]
+    days = [f"2024-01-{i + 1:02d}" for i in range(len(data))]
     series: dict = {"count": len(data), "data": data, "days": days, "labels": days}
     if breakdown_value is not None:
         series["breakdown_value"] = breakdown_value
