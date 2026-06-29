@@ -96,8 +96,6 @@ export const loadAppMetricsTotals = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        // Don't serve cached totals — metrics like "email sent" must reflect the
-        // latest counts, not a result that can be up to several hours stale.
         { refresh: 'force_blocking' }
     )
 
@@ -212,7 +210,6 @@ const loadAppMetricsTimeSeries = async (
     const response = await api.queryHogQL(
         query,
         { scene: 'HogFunction', productKey: 'pipeline_destinations' },
-        // Don't serve cached time series — metrics must reflect the latest counts.
         { refresh: 'force_blocking' }
     )
 
