@@ -259,19 +259,39 @@
                         });
                     }
                     // md5 hashes all keys together (composite), so it allows several; datetime and
-                    // numerical only use the first key, so restrict the picker to a single choice.
+                    // numerical only use the first key, so restrict to a single choice. The picker
+                    // stays a `multiple` listbox in every mode (same size, easy to read the options)
+                    // — we just enforce one selection in JS rather than collapsing the widget.
                     var keysEl = document.getElementById("repartition_keys");
+                    var keysIsSelect = keysEl && keysEl.tagName === "SELECT";
+                    function keysSelected() {
+                        return keysIsSelect
+                            ? Array.prototype.filter.call(keysEl.options, function (o) { return o.selected; })
+                            : [];
+                    }
+                    var prevKeys = keysSelected().map(function (o) { return o.value; });
+                    function collapseToSingle() {
+                        // Keep the most recently added option (else the first selected) and drop the rest.
+                        var selected = keysSelected();
+                        var added = selected.filter(function (o) { return prevKeys.indexOf(o.value) === -1; });
+                        var keep = added.length ? added[added.length - 1] : selected[0];
+                        Array.prototype.forEach.call(keysEl.options, function (o) { o.selected = o === keep; });
+                    }
                     function applyKeyMode(mode) {
-                        var single = mode === "datetime" || mode === "numerical";
-                        if (keysEl && keysEl.tagName === "SELECT") {
-                            keysEl.multiple = !single;
-                            if (single) {
-                                var firstSelected = keysEl.selectedOptions[0] || null;
-                                Array.prototype.forEach.call(keysEl.options, function (o) {
-                                    o.selected = o === firstSelected;
-                                });
-                            }
+                        if (!keysIsSelect) return;
+                        keysEl._singleKey = mode === "datetime" || mode === "numerical";
+                        if (keysEl._singleKey && keysSelected().length > 1) {
+                            collapseToSingle();
                         }
+                        prevKeys = keysSelected().map(function (o) { return o.value; });
+                    }
+                    if (keysIsSelect) {
+                        keysEl.addEventListener("change", function () {
+                            if (keysEl._singleKey && keysSelected().length > 1) {
+                                collapseToSingle();
+                            }
+                            prevKeys = keysSelected().map(function (o) { return o.value; });
+                        });
                     }
                     function sync() {
                         var mode = modeSelect.value;
