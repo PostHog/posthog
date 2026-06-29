@@ -1,6 +1,5 @@
-import { toast } from 'react-toastify'
-
 import { expectLogic } from 'kea-test-utils'
+import { toast } from 'react-toastify'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
@@ -8,6 +7,8 @@ import { SidePanelTab } from '~/types'
 
 import { mcpHintLogic } from './mcpHintLogic'
 
+// Stub the toast so rendering it can't throw; the hint's observable signal is the recordShown
+// action it dispatches when (and only when) a toast is shown.
 jest.mock('react-toastify', () => ({
     toast: { info: jest.fn(), dismiss: jest.fn() },
 }))
@@ -39,24 +40,23 @@ describe('mcpHintLogic', () => {
     it('shows the cohort hint when Max is not open', async () => {
         await expectLogic(logic, () => {
             logic.actions.tryShowHint('cohorts.create')
-        }).toFinishAllListeners()
-        expect(toast.info).toHaveBeenCalledTimes(1)
+        }).toDispatchActions(['recordShown'])
     })
 
     it('suppresses the cohort hint when the Max side panel is open', async () => {
         await openMaxSidePanel()
         await expectLogic(logic, () => {
             logic.actions.tryShowHint('cohorts.create')
-        }).toFinishAllListeners()
-        expect(toast.info).not.toHaveBeenCalled()
+        })
+            .toFinishAllListeners()
+            .toNotHaveDispatchedActions(['recordShown'])
     })
 
     it('still shows a Max-supported surface hint while Max is open', async () => {
         await openMaxSidePanel()
         await expectLogic(logic, () => {
             logic.actions.tryShowHint('insights.create')
-        }).toFinishAllListeners()
-        expect(toast.info).toHaveBeenCalledTimes(1)
+        }).toDispatchActions(['recordShown'])
     })
 
     it('shows the cohort hint when a non-Max side panel is open', async () => {
@@ -65,7 +65,6 @@ describe('mcpHintLogic', () => {
         }).toFinishAllListeners()
         await expectLogic(logic, () => {
             logic.actions.tryShowHint('cohorts.create')
-        }).toFinishAllListeners()
-        expect(toast.info).toHaveBeenCalledTimes(1)
+        }).toDispatchActions(['recordShown'])
     })
 })
