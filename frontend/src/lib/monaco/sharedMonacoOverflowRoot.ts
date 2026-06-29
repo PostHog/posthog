@@ -24,10 +24,8 @@ export function sharedMonacoOverflowRoot(): HTMLDivElement | undefined {
         return sharedMonacoOverflowRootEl
     }
     sharedMonacoOverflowRootEl = document.createElement('div')
-    // This div lives at body level, outside any popover's DOM subtree, so a click on a
-    // suggestion/hover widget portaled here reads as an "outside click" and dismisses whatever
-    // popover hosts the editor (e.g. a SQL expression inside the TaxonomicFilter). The block class
-    // exempts it from both the floating-ui Popover dismiss path and useOutsideClickHandler.
+    // Block class: this div is at body level, so clicking a suggestion widget here would otherwise
+    // dismiss the popover hosting the editor (e.g. a SQL expression inside the TaxonomicFilter).
     sharedMonacoOverflowRootEl.classList.add('monaco-editor', CLICK_OUTSIDE_BLOCK_CLASS)
     sharedMonacoOverflowRootEl.style.zIndex = 'var(--z-tooltip)'
     sharedMonacoOverflowRootEl.setAttribute('data-attr', 'monaco-overflow-root')

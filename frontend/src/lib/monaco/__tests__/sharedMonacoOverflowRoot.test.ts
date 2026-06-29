@@ -24,8 +24,6 @@ describe('sharedMonacoOverflowRoot', () => {
     })
 
     it('carries the click-outside-block class so suggestion clicks do not dismiss the host popover', () => {
-        // Suggestion/hover widgets portal here at body level; without the block class a click on a
-        // SQL-expression autocomplete would read as an outside click and close the TaxonomicFilter.
         const root = sharedMonacoOverflowRoot()
 
         expect(root?.classList.contains(CLICK_OUTSIDE_BLOCK_CLASS)).toBe(true)
