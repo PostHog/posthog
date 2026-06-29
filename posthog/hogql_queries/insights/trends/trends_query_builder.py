@@ -14,9 +14,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext, get_breakdown_limit_for_context
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, property_to_expr
 from posthog.hogql.timings import HogQLTimings
 
+from posthog.hogql_compat import action_to_expr, property_to_expr
 from posthog.hogql_queries.insights.data_warehouse_mixin import DataWarehouseInsightQueryMixin
 from posthog.hogql_queries.insights.trends.aggregation_operations import AggregationOperations
 from posthog.hogql_queries.insights.trends.breakdown import Breakdown

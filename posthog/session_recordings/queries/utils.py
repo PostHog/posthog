@@ -18,8 +18,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr
 
+from posthog.hogql_compat import action_to_expr
 from posthog.models import Team
 from posthog.types import AnyPropertyFilter
 

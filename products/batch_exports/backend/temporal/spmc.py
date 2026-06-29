@@ -20,9 +20,9 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 from posthog.hogql.hogql import ast
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
+from posthog.hogql_compat import property_to_expr
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client

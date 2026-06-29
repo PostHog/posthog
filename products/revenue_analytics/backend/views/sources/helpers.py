@@ -75,7 +75,7 @@ def currency_aware_amount() -> ast.Alias:
 
 
 def events_expr_for_team(team: Team) -> ast.Expr:
-    from posthog.hogql.property import property_to_expr
+    from posthog.hogql_compat import property_to_expr
 
     exprs = []
     if (

@@ -15,16 +15,15 @@ from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import CacheOrigin, parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.user_query_validator import validate_user_query
-from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.hogql_compat import replace_filters, replace_variables
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 

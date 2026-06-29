@@ -2,12 +2,11 @@ import re
 from collections.abc import Callable
 from typing import Literal, Optional, TypeGuard, cast
 
-from django.db import models
-from django.db.models import Q
-from django.db.models.functions.comparison import Coalesce
-
 import re2
-from pydantic import BaseModel
+from pydantic import (
+    BaseModel,
+    ValidationError as PydanticValidationError,
+)
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -26,6 +25,7 @@ from posthog.schema import (
     HogQLPropertyFilter,
     LogEntryPropertyFilter,
     LogPropertyFilter,
+    PathCleaningFilter,
     PersonPropertyFilter,
     PropertyGroupFilter,
     PropertyGroupFilterValue,
@@ -40,6 +40,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.data_provider import DataProvider
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
@@ -50,18 +51,15 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import AUTOCAPTURE_EVENT, TREND_FILTER_TYPE_ACTIONS, PropertyOperatorType
-from posthog.models import Property, PropertyDefinition, Team
+from posthog.models import Property
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import PropertyGroup, ValueT
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr
 
-from products.actions.backend.models.action import Action, ActionStepJSON
-from products.cohorts.backend.models.cohort import Cohort
-from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.actions.backend.models.action import ActionStepJSON
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -267,7 +265,7 @@ class AggregationFinder(TraversingVisitor):
                 self.visit(arg)
 
 
-def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team: Team) -> ValueT | bool:
+def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, data: DataProvider) -> ValueT | bool:
     if value is True:
         value = "true"
     elif value is False:
@@ -288,48 +286,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     if property.type == "person":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.PERSON,
-        )
+        property_type = data.property_type("person", str(property.key))
     elif property.type == "group":
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.GROUP,
-            group_type_index=property.group_type_index,
-        )
+        property_type = data.property_type("group", str(property.key), property.group_type_index)
     elif property.type == "data_warehouse_person_property":
         if not isinstance(expr, ast.Field):
             raise Exception(f"Requires a Field expression")
 
         key = expr.chain[-2]
-
-        # TODO: pass id of table item being filtered on instead of searching through joins
-        current_join: DataWarehouseJoin | None = (
-            DataWarehouseJoin.objects.filter(Q(deleted__isnull=True) | Q(deleted=False))
-            .filter(team=team, source_table_name="persons", field_name=key)
-            .first()
-        )
-
-        if not current_join:
-            raise Exception(f"Could not find join for key {key}")
-
-        prop_type = None
-
-        table_or_view = get_view_or_table_by_name(team, current_join.joining_table_name)
-        if table_or_view and table_or_view.columns is not None:
-            prop_type_dict = table_or_view.columns.get(property.key, None)
-            if prop_type_dict is not None:
-                prop_type = prop_type_dict.get("hogql")
-
-        if not table_or_view:
-            raise Exception(f"Could not find table or view for key {key}")
+        prop_type = data.person_warehouse_property_type(key, str(property.key))
 
         if prop_type == "BooleanDatabaseField":
             if value == "true":
@@ -349,14 +314,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
         return value
 
     else:
-        property_types = PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        ).filter(
-            effective_project_id=team.project_id,
-            name=property.key,
-            type=PropertyDefinition.Type.EVENT,
-        )
-    property_type = property_types[0].property_type if len(property_types) > 0 else None
+        property_type = data.property_type("event", str(property.key))
 
     if property_type == PropertyType.Boolean:
         if value == "true":
@@ -366,7 +324,7 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
-def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
+def _resolve_date_value(value: ValueT, data: DataProvider) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
     Relative dates (e.g. ``-7d``, ``-10m`` for months, ``-10M`` for minutes) are
@@ -390,7 +348,7 @@ def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     if re.match(relative_regex, value):
         from posthog.utils import relative_date_parse
 
-        resolved = relative_date_parse(value, team.timezone_info)
+        resolved = relative_date_parse(value, data.team_context.timezone_info)
         return resolved.strftime("%Y-%m-%d %H:%M:%S")
 
     return value
@@ -474,7 +432,12 @@ def _validate_regex(value: ValueT) -> None:
 
 
 def _expr_to_compare_op(
-    expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
+    expr: ast.Expr,
+    value: ValueT,
+    operator: PropertyOperator,
+    property: Property,
+    is_json_field: bool,
+    data: DataProvider,
 ) -> ast.Expr:
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
@@ -553,20 +516,20 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, data)),
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
         assert isinstance(value, str)
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, data))),
         )
     elif operator == PropertyOperator.IS_NOT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(value=_handle_bool_values(value, expr, property, data)),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
@@ -575,7 +538,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Lt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, data))),
         )
     elif operator == PropertyOperator.GT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Gt, left=expr, right=ast.Constant(value=value))
@@ -584,7 +547,7 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Gt,
             left=_force_datetime(expr),
-            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, team))),
+            right=_force_datetime(ast.Constant(value=_resolve_date_value(value, data))),
         )
     elif operator == PropertyOperator.LTE or operator == PropertyOperator.MAX:
         return ast.CompareOperation(op=ast.CompareOperationOp.LtEq, left=expr, right=ast.Constant(value=value))
@@ -611,8 +574,8 @@ def _expr_to_compare_op(
     elif operator == PropertyOperator.IS_CLEANED_PATH_EXACT:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
-            left=apply_path_cleaning(expr, team),
-            right=apply_path_cleaning(ast.Constant(value=value), team),
+            left=apply_path_cleaning_core(expr, data),
+            right=apply_path_cleaning_core(ast.Constant(value=value), data),
         )
     elif operator == PropertyOperator.IN_ or operator == PropertyOperator.NOT_IN:
         if not isinstance(value, list):
@@ -683,11 +646,16 @@ def _expr_to_compare_op(
         raise NotImplementedError(f"PropertyOperator {operator} not implemented")
 
 
-def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
-    if not team.path_cleaning_filters:
+def apply_path_cleaning_core(path_expr: ast.Expr, data: DataProvider) -> ast.Expr:
+    if not data.team_context.path_cleaning_filters:
         return path_expr
 
-    for replacement in team.path_cleaning_filter_models():
+    for raw_filter in data.team_context.path_cleaning_filters:
+        # Invalid filters are skipped, matching Team.path_cleaning_filter_models.
+        try:
+            replacement = PathCleaningFilter.model_validate(raw_filter)
+        except PydanticValidationError:
+            continue
         path_expr = ast.Call(
             name="replaceRegexpAll",
             args=[
@@ -700,7 +668,7 @@ def apply_path_cleaning(path_expr: ast.Expr, team: Team) -> ast.Expr:
     return path_expr
 
 
-def property_to_expr(
+def property_to_expr_core(
     property: (
         list
         | dict
@@ -730,7 +698,7 @@ def property_to_expr(
         | SpanPropertyFilter
         | WorkflowVariablePropertyFilter
     ),
-    team: Team,
+    data: DataProvider,
     scope: Literal[
         "event", "person", "group", "session", "replay", "replay_entity", "revenue_analytics", "log_resource"
     ] = "event",
@@ -750,7 +718,7 @@ def property_to_expr(
                 raise
             return ast.Constant(value=1)
     elif isinstance(property, list):
-        properties = [property_to_expr(p, team, scope, strict=strict) for p in property]
+        properties = [property_to_expr_core(p, data, scope, strict=strict) for p in property]
         if len(properties) == 0:
             return ast.Constant(value=1)
         if len(properties) == 1:
@@ -781,12 +749,12 @@ def property_to_expr(
         if len(property.values) == 0:
             return ast.Constant(value=1)
         if len(property.values) == 1:
-            return property_to_expr(property.values[0], team, scope, strict=strict)
+            return property_to_expr_core(property.values[0], data, scope, strict=strict)
 
         if property.type == PropertyOperatorType.AND or property.type == FilterLogicalOperator.AND_:
-            return ast.And(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
+            return ast.And(exprs=[property_to_expr_core(p, data, scope, strict=strict) for p in property.values])
         else:
-            return ast.Or(exprs=[property_to_expr(p, team, scope, strict=strict) for p in property.values])
+            return ast.Or(exprs=[property_to_expr_core(p, data, scope, strict=strict) for p in property.values])
     elif isinstance(property, EmptyPropertyFilter):
         return ast.Constant(value=1)
     elif isinstance(property, FlagPropertyFilter):
@@ -839,7 +807,7 @@ def property_to_expr(
             operator=operator,
             property=property,
             is_json_field=False,
-            team=team,
+            data=data,
         )
 
         return ast.And(exprs=[key_condition, index_condition])
@@ -912,7 +880,7 @@ def property_to_expr(
                         expr=field,
                         value=v,
                         operator=operator,
-                        team=team,
+                        data=data,
                         property=property,
                         is_json_field=False,
                     )
@@ -1056,7 +1024,7 @@ def property_to_expr(
                     if is_exception_string_array_property or is_visited_page_property:
                         # For exception properties and visited_page, use multiSearch optimization within arrayExists
                         multi_search_expr = _expr_to_compare_op(
-                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", team
+                            ast.Field(chain=["v"]), value, operator, property, property.type != "session", data
                         )
                         if is_exception_string_array_property:
                             return parse_expr(
@@ -1069,10 +1037,10 @@ def property_to_expr(
                                 {"expr": multi_search_expr, "key": all_urls_field},
                             )
                     else:
-                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", team)
+                        return _expr_to_compare_op(expr, value, operator, property, property.type != "session", data)
 
                 exprs = [
-                    property_to_expr(
+                    property_to_expr_core(
                         Property(
                             type=property.type,
                             key=property.key,
@@ -1080,7 +1048,7 @@ def property_to_expr(
                             group_type_index=property.group_type_index,
                             value=v,
                         ),
-                        team,
+                        data,
                         scope,
                         strict=strict,
                     )
@@ -1098,7 +1066,7 @@ def property_to_expr(
             expr=ast.Field(chain=["v"]) if (is_exception_string_array_property or is_visited_page_property) else expr,
             value=value,
             operator=operator,
-            team=team,
+            data=data,
             property=property,
             is_json_field=property.type != "session",
         )
@@ -1139,7 +1107,7 @@ def property_to_expr(
                 value = value[0]
             else:
                 exprs = [
-                    property_to_expr(
+                    property_to_expr_core(
                         Property(
                             type=property.type,
                             key=property.key,
@@ -1147,7 +1115,7 @@ def property_to_expr(
                             group_type_index=property.group_type_index,
                             value=v,
                         ),
-                        team,
+                        data,
                         scope,
                         strict=strict,
                     )
@@ -1176,7 +1144,7 @@ def property_to_expr(
                 expr=ast.Field(chain=["elements_chain_href"]),
                 value=value,
                 operator=operator,
-                team=team,
+                data=data,
                 property=property,
                 is_json_field=False,
             )
@@ -1189,7 +1157,7 @@ def property_to_expr(
                         expr=ast.Field(chain=["text"]),
                         value=value,
                         operator=operator,
-                        team=team,
+                        data=data,
                         property=property,
                         is_json_field=False,
                     )
@@ -1198,11 +1166,9 @@ def property_to_expr(
 
         raise NotImplementedError(f"property_to_expr for type element not implemented for key {property.key}")
     elif property.type == "cohort" or property.type == "static-cohort" or property.type == "precalculated-cohort":
-        if not team:
-            raise Exception("Can not convert cohort property to expression without team")
         if not isinstance(property.value, (str, int)):
             raise ValidationError("Cohort property value must be a cohort ID")
-        cohort = Cohort.objects.get(team__project_id=team.project_id, id=property.value)
+        cohort_pk = data.cohort_id(property.value)
         return ast.CompareOperation(
             left=ast.Field(chain=["id" if scope == "person" else "person_id"]),
             op=(
@@ -1211,7 +1177,7 @@ def property_to_expr(
                 if property.negation or property.operator == PropertyOperator.NOT_IN.value
                 else ast.CompareOperationOp.InCohort
             ),
-            right=ast.Constant(value=cohort.pk),
+            right=ast.Constant(value=cohort_pk),
         )
 
     # TODO: Add support for these types: "recording"
@@ -1221,7 +1187,7 @@ def property_to_expr(
     )
 
 
-def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optional[str] = None) -> ast.Expr:
+def steps_to_expr_core(steps: list[ActionStepJSON], data: DataProvider, events_alias: Optional[str] = None) -> ast.Expr:
     if len(steps) == 0:
         return ast.Constant(value=True)
 
@@ -1325,7 +1291,7 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
             exprs.append(expr)
 
         if step.properties:
-            exprs.append(property_to_expr(step.properties, team))
+            exprs.append(property_to_expr_core(step.properties, data))
 
         if len(exprs) == 1:
             or_queries.append(exprs[0])
@@ -1340,19 +1306,14 @@ def steps_to_expr(steps: list[ActionStepJSON], team: Team, events_alias: Optiona
         return ast.Or(exprs=or_queries)
 
 
-def action_to_expr(action: Action, events_alias: Optional[str] = None) -> ast.Expr:
-    return steps_to_expr(action.steps, action.team, events_alias)
-
-
-def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
+def entity_to_expr_core(entity: RetentionEntity, data: DataProvider) -> ast.Expr:
     if entity.type == TREND_FILTER_TYPE_ACTIONS and entity.id is not None:
         # action
         action_id = int(entity.id) if isinstance(entity.id, float) else entity.id
-        try:
-            action = Action.objects.get(pk=action_id, team=team)
-        except Action.DoesNotExist:
+        matches = data.actions(action_id, scope="team")
+        event_expr = data.action_expr(matches[0].id) if matches else None
+        if event_expr is None:
             raise ValidationError(f"Action ID {entity.id} does not exist!")
-        event_expr = action_to_expr(action)
     elif entity.id is None:
         # all events
         event_expr = ast.Constant(value=True)
@@ -1362,7 +1323,7 @@ def entity_to_expr(entity: RetentionEntity, team: Team) -> ast.Expr:
 
     if entity.properties is not None and entity.properties != []:
         # add property filters
-        filter_expr = property_to_expr(entity.properties, team)
+        filter_expr = property_to_expr_core(entity.properties, data)
         return ast.And(exprs=[event_expr, filter_expr])
     else:
         return event_expr
@@ -1421,16 +1382,6 @@ def get_property_value(property):
 
 def get_property_operator(property):
     return get_from_dict_or_attr(property, "operator")
-
-
-def get_lowercase_index_hint(property, team: Team) -> ast.Call:
-    """
-    Returns an index hint for a case insensitive index on `lower(key)`
-    e.g. for the property `body ILIKE '%STR%'` return `indexHint(lower(body) ILIKE '%str%')`
-         this means we can use ngram indexes on `lower(body)` efficiently
-    """
-    expr = property_to_expr(property, team=team)
-    return ast.Call(name="indexHint", args=[_LowercaseIndexRewriter().visit(expr)])
 
 
 class _LowercaseIndexRewriter(CloningVisitor):

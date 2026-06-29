@@ -20,7 +20,6 @@ from posthog.hogql.ast import Constant
 from posthog.hogql.base import Expr
 from posthog.hogql.constants import MAX_SELECT_HEATMAPS_LIMIT, LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -31,6 +30,7 @@ from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.impersonation import is_impersonated
+from posthog.hogql_compat import replace_filters
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (

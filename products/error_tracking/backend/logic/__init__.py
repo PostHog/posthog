@@ -505,8 +505,8 @@ def compile_filter_bytecode(team_id: int, filters: dict) -> list[Any]:
 
     from posthog.hogql import ast  # noqa: PLC0415
     from posthog.hogql.compiler.bytecode import create_bytecode  # noqa: PLC0415
-    from posthog.hogql.property import property_to_expr  # noqa: PLC0415
 
+    from posthog.hogql_compat import property_to_expr
     from posthog.models.team.team import Team  # noqa: PLC0415
 
     team = Team.objects.get(id=team_id)

@@ -1,11 +1,9 @@
 from datetime import datetime
-from typing import Literal, Optional, cast
-
-from django.db import models
-from django.db.models.functions.comparison import Coalesce
+from typing import Literal, Optional
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import MaterializedColumnInfo, PropertyTypeInfo
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.events import (
@@ -21,108 +19,25 @@ from posthog.hogql.property_planner import PropertySourceKind, plan_property_acc
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
-from posthog.clickhouse.materialized_columns import (
-    DMAT_STRING_COLUMN_NAME_PREFIX,
-    MATERIALIZATION_VALID_TABLES,
-    MaterializedColumn,
-    TablesWithMaterializedColumns,
-    get_materialized_column_for_property,
-)
-from posthog.models import Team
-from posthog.models.property import PropertyName, TableColumn
+from posthog.clickhouse.materialized_columns import MATERIALIZATION_VALID_TABLES
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
-    from posthog.models import PropertyDefinition
-    from posthog.models.materialized_column_slots import MaterializedColumnSlot, MaterializedColumnSlotState
-
     if not context or not context.team_id:
-        return
-
-    if not context.team:
-        context.team = Team.objects.get(id=context.team_id)
-
-    if not context.team:
         return
 
     # find all properties
     property_finder = PropertyFinder(context)
     property_finder.visit(node)
 
-    # Load event property definitions with their materialized slots in a single query
-    event_property_definitions = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=context.team.project_id,
-            name__in=property_finder.event_properties,
-            type__in=[None, PropertyDefinition.Type.EVENT],
-        )
-        .prefetch_related(
-            models.Prefetch(
-                "materialized_column_slots",
-                queryset=MaterializedColumnSlot.objects.filter(
-                    team_id=context.team_id, state=MaterializedColumnSlotState.READY
-                ),
-            )
-        )
-        if property_finder.event_properties
-        else []
+    catalog = context.data.property_types(
+        event_properties=sorted(property_finder.event_properties),
+        person_properties=sorted(property_finder.person_properties),
+        group_properties={group_id: sorted(names) for group_id, names in property_finder.group_properties.items()},
     )
-
-    event_properties: dict[str, dict[str, str | None]] = {}
-    for prop_def in event_property_definitions:
-        if not prop_def.property_type:
-            continue
-
-        prop_info: dict[str, str | None] = {"type": prop_def.property_type}
-        slot = prop_def.materialized_column_slots.first()
-        if slot:
-            prop_info["dmat"] = f"{DMAT_STRING_COLUMN_NAME_PREFIX}{slot.slot_index}"
-
-        event_properties[prop_def.name] = prop_info
-
-    person_property_values = (
-        PropertyDefinition.objects.alias(
-            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-        )
-        .filter(
-            effective_project_id=context.team.project_id,
-            name__in=property_finder.person_properties,
-            type=PropertyDefinition.Type.PERSON,
-        )
-        .values_list("name", "property_type")
-        if property_finder.person_properties
-        else []
-    )
-    person_properties: dict[str, dict[str, str | None]] = {
-        name: {"type": property_type} for name, property_type in person_property_values if property_type
-    }
-
-    group_properties: dict[str, dict[str, str | None]] = {}
-    for group_id, properties in property_finder.group_properties.items():
-        if not properties:
-            continue
-        group_property_values = (
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-            )
-            .filter(
-                effective_project_id=context.team.project_id,
-                name__in=properties,
-                type=PropertyDefinition.Type.GROUP,
-                group_type_index=group_id,
-            )
-            .values_list("name", "property_type")
-        )
-        group_properties.update(
-            {
-                f"{group_id}_{name}": {"type": property_type}
-                for name, property_type in group_property_values
-                if property_type
-            }
-        )
+    event_properties = catalog.event
+    person_properties = catalog.person
+    group_properties = catalog.group
 
     if context.type_observability is not None:
         context.type_observability.record_property_definition_lookup(
@@ -219,9 +134,9 @@ class PropertySwapper(CloningVisitor):
     def __init__(
         self,
         timezone: str,
-        event_properties: dict[str, dict[str, str | None]],
-        person_properties: dict[str, dict[str, str | None]],
-        group_properties: dict[str, dict[str, str | None]],
+        event_properties: dict[str, PropertyTypeInfo],
+        person_properties: dict[str, PropertyTypeInfo],
+        group_properties: dict[str, PropertyTypeInfo],
         context: HogQLContext,
         setTimeZones: bool,
     ):
@@ -358,12 +273,7 @@ class PropertySwapper(CloningVisitor):
         if table_name not in MATERIALIZATION_VALID_TABLES:
             return None
 
-        field_name = cast(TableColumn, database_field.name)
-        mat_col = get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name),
-            field_name,
-            property_name,
-        )
+        mat_col = self.context.data.materialized_column(table_name, database_field.name, property_name)
         if mat_col is None:
             return None
 
@@ -391,7 +301,7 @@ class PropertySwapper(CloningVisitor):
         return None
 
     @staticmethod
-    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumn) -> bool:
+    def _json_extract_matches_materialized_column_type(node: ast.Call, mat_col: MaterializedColumnInfo) -> bool:
         if node.name == "JSONExtractString":
             # JSONExtractString has string semantics, so it only matches a string-backed column.
             # A non-string materialized column (e.g. Nullable(Float64)) would otherwise be rewritten
@@ -616,11 +526,13 @@ class PropertySwapper(CloningVisitor):
             "person": self.person_properties,
             "group": self.group_properties,
         }
-        prop_info = properties_by_type[property_type].get(property_name, {})
-        field_type = "Float" if prop_info.get("type") == "Numeric" else prop_info.get("type") or "String"
+        prop_info = properties_by_type[property_type].get(property_name)
+        prop_type = prop_info.get("type") if prop_info else None
+        field_type = "Float" if prop_type == "Numeric" else prop_type or "String"
+        dmat_column = prop_info.get("dmat") if prop_info else None
 
         # Add notice about the property type and materialization status
-        self._add_property_notice(node, property_type, field_type, prop_info.get("dmat"))
+        self._add_property_notice(node, property_type, field_type, dmat_column)
 
         # The user is parsing this property as a string (toFloatOrZero/toIntOrZero/
         # toFloatOrDefault). Those ClickHouse functions require a String argument, so
@@ -716,11 +628,4 @@ class PropertySwapper(CloningVisitor):
             start=max(node.start, node.end - len(escape_hogql_identifier(node.chain[-1]))),
             end=node.end,
             message=message,
-        )
-
-    def _get_materialized_column(
-        self, table_name: str, property_name: PropertyName, field_name: TableColumn
-    ) -> MaterializedColumn | None:
-        return get_materialized_column_for_property(
-            cast(TablesWithMaterializedColumns, table_name), field_name, property_name
         )

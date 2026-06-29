@@ -8,10 +8,11 @@ from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import QueryError
-from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.visitor import clear_locations
+
+from posthog.hogql_compat import replace_filters
 
 
 class TestFilters(BaseTest):

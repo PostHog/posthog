@@ -2,8 +2,8 @@ from posthog.schema import PropertyGroupFilterValue, RecordingsQuery
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_compat import property_to_expr
 from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.utils import is_person_property, poe_is_active

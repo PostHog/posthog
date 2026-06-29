@@ -51,8 +51,6 @@ from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
 from posthog.models.team.event_retention import events_retention_months_for_team
 
-from products.access_control.backend.property_access_control import get_restricted_properties_for_team
-
 PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "clickhouse": ClickHousePrinter,
     "postgres": PostgresPrinter,
@@ -150,10 +148,7 @@ def prepare_ast_for_printing(
     # sources, which carry no restrictable event/person properties, so they need no enforcement here.
     if context.team_id is not None and context.restricted_properties is None:
         with context.timings.measure("load_restricted_properties"):
-            context.restricted_properties = get_restricted_properties_for_team(
-                team_id=context.team_id,
-                user=context.user,
-            )
+            context.restricted_properties = context.data.restricted_properties()
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:
         with context.timings.measure("resolve_in_cohorts_conjoined"):

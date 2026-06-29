@@ -15,10 +15,10 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query, tracer
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.hogql_compat import property_to_expr
 from posthog.hogql_queries.legacy_compatibility.filter_to_query import MathAvailability, legacy_entity_to_node
 from posthog.models import Entity, EventProperty, Team
 from posthog.ph_client import feature_enabled_or_false

@@ -5,10 +5,19 @@ from unittest.mock import patch
 
 from django.test import override_settings
 
-from posthog.schema import HogQLQueryModifiers, MaterializationMode, PersonsArgMaxVersion, PersonsOnEventsMode
+from posthog.schema import (
+    HogQLQueryModifiers,
+    MaterializationMode,
+    PersonsArgMaxVersion,
+    PersonsOnEventsMode,
+    PropertyGroupsMode,
+)
 
-from posthog.hogql.modifiers import create_default_modifiers_for_team
+from posthog.hogql.modifiers import create_default_modifiers_for_team, create_default_modifiers_for_team_context
 from posthog.hogql.query import execute_hogql_query
+from posthog.hogql.team_context import HogQLTeamContext
+
+from posthog.cloud_utils import is_cloud
 
 from products.cohorts.backend.models.cohort import Cohort
 
@@ -319,3 +328,50 @@ class TestModifiers(BaseTest):
         assert response is not None
         assert response.clickhouse is not None
         assert response.clickhouse.count("toTimeZone") == 0
+
+    def test_team_context_resolution_needs_no_team(self):
+        # The pure core resolves every team-independent default from plain data, with no
+        # Django model and no database. personsOnEventsMode is left None on purpose — it
+        # is the one flag-based default that stays a boundary responsibility.
+        team_context = HogQLTeamContext(team_id=1, project_id=1, uuid="x", organization_id="y", timezone="UTC")
+
+        modifiers = create_default_modifiers_for_team_context(team_context, cloud=False)
+
+        assert modifiers.personsOnEventsMode is None
+        assert modifiers.propertyGroupsMode is None
+        assert modifiers.personsArgMaxVersion == PersonsArgMaxVersion.AUTO
+        assert modifiers.materializationMode == MaterializationMode.LEGACY_NULL_AS_NULL
+        assert modifiers.optimizeProjections is True
+        assert modifiers.convertToProjectTimezone is True
+
+    def test_team_context_modifiers_dict_is_merged(self):
+        team_context = HogQLTeamContext(
+            team_id=1,
+            project_id=1,
+            uuid="x",
+            organization_id="y",
+            timezone="UTC",
+            modifiers={"personsOnEventsMode": PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS},
+        )
+
+        modifiers = create_default_modifiers_for_team_context(team_context, cloud=False)
+
+        assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS
+
+    def test_cloud_bool_drives_property_groups_mode(self):
+        team_context = HogQLTeamContext(team_id=1, project_id=1, uuid="x", organization_id="y", timezone="UTC")
+
+        assert create_default_modifiers_for_team_context(team_context, cloud=True).propertyGroupsMode == (
+            PropertyGroupsMode.OPTIMIZED
+        )
+        assert create_default_modifiers_for_team_context(team_context, cloud=False).propertyGroupsMode is None
+
+    def test_pure_core_matches_boundary_except_persons_on_events(self):
+        # The full Django boundary equals the pure core plus the single lazily-resolved
+        # personsOnEventsMode default — proving the split preserves behavior.
+        expected = create_default_modifiers_for_team(self.team)
+
+        pure = create_default_modifiers_for_team_context(HogQLTeamContext.from_team(self.team), cloud=is_cloud())
+
+        assert pure.personsOnEventsMode is None
+        assert pure == expected.model_copy(update={"personsOnEventsMode": None})

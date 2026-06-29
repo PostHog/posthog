@@ -109,7 +109,8 @@ def _get_person_blast_radius(team: Team, filter: Filter) -> tuple[int, int]:
 def _build_person_query(team: Team, filter: Filter, return_count: bool = True, cursor: Optional[str] = None):
     """Build HogQL AST query to count or select distinct persons matching filters."""
     from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
+
+    from posthog.hogql_compat import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT persons.id) or DISTINCT persons.id
     if return_count:
@@ -211,7 +212,8 @@ def _build_group_query(
 ):
     """Build HogQL AST query to count or select distinct groups matching filters."""
     from posthog.hogql import ast
-    from posthog.hogql.property import property_to_expr
+
+    from posthog.hogql_compat import property_to_expr
 
     # Build the main SELECT with either count(DISTINCT groups.key) or DISTINCT groups.key
     if return_count:

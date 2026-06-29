@@ -23,18 +23,12 @@ from posthog.hogql.errors import QueryError
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.printer.utils import prepare_and_print_ast
-from posthog.hogql.property import (
-    entity_to_expr,
-    has_aggregation,
-    map_virtual_properties,
-    property_to_expr,
-    selector_to_expr,
-    tag_name_to_expr,
-)
+from posthog.hogql.property import has_aggregation, map_virtual_properties, selector_to_expr, tag_name_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_EVENTS, PropertyOperatorType
+from posthog.hogql_compat import entity_to_expr, property_to_expr
 from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.property import PropertyGroup
 
@@ -996,7 +990,10 @@ class TestProperty(BaseTest):
 
     def test_entity_to_expr_actions_type_with_id(self):
         action_mock = MagicMock()
-        with patch("products.actions.backend.models.action.Action.objects.get", return_value=action_mock):
+        action_mock.pk = 123
+        action_mock.name = "mock action"
+        with patch("products.actions.backend.models.action.Action.objects.filter") as filter_mock:
+            filter_mock.return_value.all.return_value = [action_mock]
             entity = RetentionEntity(**{"type": TREND_FILTER_TYPE_ACTIONS, "id": 123})
             result = entity_to_expr(entity, self.team)
             self.assertIsInstance(result, ast.Expr)

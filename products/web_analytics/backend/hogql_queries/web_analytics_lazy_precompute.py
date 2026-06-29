@@ -24,9 +24,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
+from posthog.hogql_compat import property_to_expr
 from posthog.models.team import Team
 
 from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (

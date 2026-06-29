@@ -131,7 +131,8 @@ class Action(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Mode
 
     def refresh_bytecode(self) -> None:
         from posthog.hogql.compiler.bytecode import create_bytecode
-        from posthog.hogql.property import action_to_expr
+
+        from posthog.hogql_compat import action_to_expr
 
         try:
             new_bytecode = create_bytecode(action_to_expr(self)).bytecode

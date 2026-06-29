@@ -274,7 +274,7 @@ class ClickHousePrinter(BasePrinter):
         args = [self.visit(arg) for arg in node.args]
 
         if node.name == "embedText":
-            return self.visit_constant(resolve_embed_text(self.context.team, node))
+            return self.visit_constant(resolve_embed_text(self.context.data, node))
         elif node.name in ("_lookupGeoipCityName", "_lookupGeoipPostalCode"):
             # Temporary (June 2026 MaxMind incident: https://posthog.slack.com/archives/C0B9DDSCTF1), remove with the
             # geoip_dict_fallback transform. toIPv6OrDefault

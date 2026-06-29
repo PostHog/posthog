@@ -13,9 +13,9 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.constants import UNIQUE_GROUPS
+from posthog.hogql_compat import action_to_expr, property_to_expr
 
 if TYPE_CHECKING:
     from posthog.models import Team

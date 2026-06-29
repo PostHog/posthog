@@ -17,9 +17,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_compat import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery

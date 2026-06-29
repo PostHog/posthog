@@ -15,16 +15,16 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.direct_sql import get_adapter
 from posthog.hogql.errors import ExposedHogQLError
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.metadata_heuristics import run_metadata_heuristics
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.taxonomy_validation import validate_taxonomy_references
-from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
+from posthog.hogql_compat import replace_variables
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import Team
 from posthog.models.user import User
@@ -94,7 +94,7 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
-                    hogql_ast = replace_filters(hogql_ast, query.filters, team, database=database)
+                    hogql_ast = replace_filters_core(hogql_ast, query.filters, context.data, database=database)
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(
                         hogql_ast, list(query.variables.values()) if query.variables else [], team

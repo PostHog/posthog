@@ -72,10 +72,10 @@ def render_hogql_example(query_dict: dict[str, Any]) -> str:
     from posthog.schema import HogQLFilters
 
     from posthog.hogql import ast
-    from posthog.hogql.filters import replace_filters
     from posthog.hogql.placeholders import replace_placeholders
     from posthog.hogql.printer.utils import to_printed_hogql
 
+    from posthog.hogql_compat import replace_filters
     from posthog.hogql_queries.query_runner import get_query_runner
 
     kind = query_dict.get("kind")

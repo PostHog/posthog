@@ -19,9 +19,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
+from posthog.hogql.property import operator_is_negative
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_compat import get_lowercase_index_hint, property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange

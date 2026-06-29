@@ -2,6 +2,8 @@ from typing import TYPE_CHECKING, Optional
 
 import posthoganalytics
 
+from posthog.hogql.team_context import HogQLTeamContext
+
 from posthog.cloud_utils import is_cloud
 from posthog.schema_enums import (
     BounceRatePageViewMode,
@@ -9,6 +11,7 @@ from posthog.schema_enums import (
     InlineCohortCalculation,
     MaterializationMode,
     PersonsArgMaxVersion,
+    PersonsOnEventsMode,
     PropertyGroupsMode,
     SessionsV2JoinMode,
     SessionTableVersion,
@@ -20,6 +23,12 @@ if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
     from posthog.models import Team, User
+
+
+# ---- Django boundary -------------------------------------------------------
+# These keep their existing signatures (callers across the codebase and the Team
+# model depend on them) and own the one default that needs the ORM: the flag-based
+# personsOnEventsMode. Everything else is delegated to the pure functions below.
 
 
 def create_default_modifiers_for_user(
@@ -48,6 +57,51 @@ def create_default_modifiers_for_user(
 def create_default_modifiers_for_team(
     team: "Team", modifiers: Optional["HogQLQueryModifiers"] = None
 ) -> "HogQLQueryModifiers":
+    # Resolve the flag-based persons-on-events default here (the boundary, where the Team and
+    # flags live) and inject it as plain data, so the pure builder never touches the Team. Only
+    # evaluate the flag when the caller hasn't already set the mode.
+    needs_persons_on_events = modifiers is None or modifiers.personsOnEventsMode is None
+    return create_default_modifiers_for_team_context(
+        HogQLTeamContext.from_team(team),
+        modifiers,
+        cloud=is_cloud(),
+        persons_on_events=team.person_on_events_mode_flag_based_default if needs_persons_on_events else None,
+    )
+
+
+def set_default_modifier_values(modifiers: "HogQLQueryModifiers", team: "Team") -> None:
+    """Fill modifier defaults in place from a Django ``Team``.
+
+    Kept for existing callers, including ``Team.default_modifiers``. Resolves the flag-based
+    ``personsOnEventsMode`` from the team at the boundary and injects it, then applies the
+    team-independent defaults.
+    """
+    apply_modifier_defaults(
+        modifiers,
+        cloud=is_cloud(),
+        persons_on_events=team.person_on_events_mode_flag_based_default
+        if modifiers.personsOnEventsMode is None
+        else None,
+    )
+
+
+# ---- Pure engine (no Team, no DB, no feature flags) ------------------------
+
+
+def create_default_modifiers_for_team_context(
+    team_context: HogQLTeamContext,
+    modifiers: Optional["HogQLQueryModifiers"] = None,
+    *,
+    cloud: bool,
+    persons_on_events: Optional[PersonsOnEventsMode] = None,
+) -> "HogQLQueryModifiers":
+    """Resolve default HogQL modifiers from plain team-context data.
+
+    Pure: no Django model access, no database query, no flag or deploy-setting evaluation.
+    ``cloud`` and ``persons_on_events`` arrive as already-resolved boundary values — the
+    latter is the team's flag-based persons-on-events default, evaluated on the Django side
+    and injected (``None`` to leave the mode unset, e.g. the standalone/test path).
+    """
     from pydantic import ValidationError  # noqa: PLC0415
 
     from posthog.schema import CustomChannelRule, HogQLQueryModifiers  # noqa: PLC0415
@@ -60,8 +114,8 @@ def create_default_modifiers_for_team(
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
-    if isinstance(team.modifiers, dict):
-        for key, value in team.modifiers.items():
+    if isinstance(team_context.modifiers, dict):
+        for key, value in team_context.modifiers.items():
             if getattr(modifiers, key, None) is None:
                 if key == "customChannelTypeRules":
                     # don't break all queries if customChannelTypeRules are invalid
@@ -77,14 +131,23 @@ def create_default_modifiers_for_team(
     if modifiers.optimizeProjections is None:
         modifiers.optimizeProjections = True
 
-    set_default_modifier_values(modifiers, team)
+    apply_modifier_defaults(modifiers, cloud=cloud, persons_on_events=persons_on_events)
 
     return modifiers
 
 
-def set_default_modifier_values(modifiers: "HogQLQueryModifiers", team: "Team"):
-    if modifiers.personsOnEventsMode is None:
-        modifiers.personsOnEventsMode = team.person_on_events_mode_flag_based_default
+def apply_modifier_defaults(
+    modifiers: "HogQLQueryModifiers", *, cloud: bool, persons_on_events: Optional[PersonsOnEventsMode] = None
+) -> None:
+    """Fill modifier defaults in place from already-resolved boundary values.
+
+    ``cloud`` (``is_cloud()``) and ``persons_on_events`` (the team's flag-based persons-on-events
+    default) are both resolved on the Django side and injected, so this stays free of flag,
+    deploy-setting, and ``Team`` access. ``persons_on_events`` is applied only when the caller
+    hasn't already set the mode; pass ``None`` to leave it unset (the standalone/test path).
+    """
+    if modifiers.personsOnEventsMode is None and persons_on_events is not None:
+        modifiers.personsOnEventsMode = persons_on_events
 
     if modifiers.personsArgMaxVersion is None:
         modifiers.personsArgMaxVersion = PersonsArgMaxVersion.AUTO
@@ -110,7 +173,7 @@ def set_default_modifier_values(modifiers: "HogQLQueryModifiers", team: "Team"):
     if modifiers.useMaterializedViews is None:
         modifiers.useMaterializedViews = True
 
-    if modifiers.propertyGroupsMode is None and is_cloud():
+    if modifiers.propertyGroupsMode is None and cloud:
         modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
     if modifiers.convertToProjectTimezone is None:

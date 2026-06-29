@@ -25,11 +25,11 @@ from posthog.hogql.errors import (
     QueryError,
     ResolutionError,
 )
-from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 
+from posthog.hogql_compat import replace_filters
 from posthog.models import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async

@@ -4,31 +4,25 @@ from typing import TypeVar
 from posthog.schema import HogQLVariable
 
 from posthog.hogql import ast
+from posthog.hogql.data_provider import DataProvider, InsightVariableInfo
 from posthog.hogql.errors import QueryError
 from posthog.hogql.visitor import CloningVisitor
-
-from posthog.models.team.team import Team
-
-from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 T = TypeVar("T", bound=ast.Expr)
 
 
-def replace_variables(node: T, variables: list[HogQLVariable], team: Team) -> T:
-    return ReplaceVariables(variables, team).visit(node)
+def replace_variables_core(node: T, variables: list[HogQLVariable], data: DataProvider) -> T:
+    return ReplaceVariables(variables, data).visit(node)
 
 
 class ReplaceVariables(CloningVisitor):
-    insight_variables: list[InsightVariable]
+    insight_variables: list[InsightVariableInfo]
 
-    def __init__(self, variables: list[HogQLVariable], team: Team):
+    def __init__(self, variables: list[HogQLVariable], data: DataProvider):
         super().__init__()
 
-        insight_vars = InsightVariable.objects.filter(team_id=team.pk, id__in=[v.variableId for v in variables]).all()
-
-        self.insight_variables = list(insight_vars)
+        self.insight_variables = data.insight_variables([v.variableId for v in variables])
         self.variables = variables
-        self.team = team
 
     def visit_placeholder(self, node):
         if node.chain and node.chain[0] == "variables":

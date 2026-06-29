@@ -4,9 +4,9 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _cre
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.hogql import HogQLContext
-from posthog.hogql.property import action_to_expr
 
 from posthog.clickhouse.client import sync_execute
+from posthog.hogql_compat import action_to_expr
 from posthog.models.test.test_event_model import filter_by_actions_factory
 
 from products.actions.backend.models.action import Action

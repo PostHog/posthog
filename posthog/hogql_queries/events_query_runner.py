@@ -13,18 +13,13 @@ from posthog.schema import CachedEventsQueryResponse, DashboardFilter, EventsQue
 from posthog.hogql import ast
 from posthog.hogql.ast import Alias
 from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
-from posthog.hogql.property import (
-    action_to_expr,
-    has_aggregation,
-    map_virtual_properties,
-    property_to_expr,
-    steps_to_expr,
-)
+from posthog.hogql.property import has_aggregation, map_virtual_properties
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.element import ElementSerializer
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.hogql_compat import action_to_expr, property_to_expr, steps_to_expr
 from posthog.hogql_queries.insights.insight_actors_query_runner import InsightActorsQueryRunner
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, get_query_runner

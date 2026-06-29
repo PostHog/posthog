@@ -27,7 +27,6 @@ from posthog.hogql import ast
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.printer import prepare_ast_for_printing as unmocked_prepare_ast_for_printing
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
     execute_hogql_query_with_timings,
@@ -36,6 +35,7 @@ from posthog.hogql.test.utils import (
 )
 
 from posthog.errors import InternalCHQueryError
+from posthog.hogql_compat import property_to_expr
 from posthog.models.exchange_rate.currencies import SUPPORTED_CURRENCY_CODES
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary

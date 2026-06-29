@@ -28,10 +28,10 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.hogql_compat import action_to_expr
 
 from products.actions.backend.models.action import Action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (

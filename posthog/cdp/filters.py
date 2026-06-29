@@ -5,9 +5,10 @@ from django.conf import settings
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, ast, property_to_expr
+from posthog.hogql.property import ast
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
+from posthog.hogql_compat import action_to_expr, property_to_expr
 from posthog.models.team.team import Team
 
 from products.actions.backend.models.action import Action

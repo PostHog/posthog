@@ -52,10 +52,10 @@ from posthog.hogql.errors import ExposedHogQLError, ImpossibleASTError, QueryErr
 from posthog.hogql.hogqlx import convert_tag_to_hx
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_and_print_ast, prepare_ast_for_printing, print_prepared_ast, to_printed_hogql
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_compat import property_to_expr
 from posthog.models import PropertyDefinition
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
@@ -2605,7 +2605,7 @@ class TestPrinter(BaseTest):
             "hogql_val_8": "Bool",
         }
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_ai_trace_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_trace_id gets special treatment for bloom filter index optimization"""
 
@@ -2681,7 +2681,7 @@ class TestPrinter(BaseTest):
             sql,
         )
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_ai_session_id_optimizations(self, mock_get_mat_col):
         """Test that $ai_session_id gets special treatment for bloom filter index optimization"""
 
@@ -2732,7 +2732,7 @@ class TestPrinter(BaseTest):
         )
         self.assertNotIn("ifNull(in", sql)
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_materialized_property_through_column_aliased_table(self, mock_get_mat_col):
         # A property read through a column-renamed table (`FROM events AS e (...)`, a ColumnAliasedTableType) must still
         # resolve to its materialized column. Property resolution has to unwrap that table type to reach the real table; if
@@ -2749,7 +2749,7 @@ class TestPrinter(BaseTest):
         self.assertIn("mat_foo", sql)
         self.assertNotIn("JSONExtractRaw(events.properties", sql)
 
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_deep_key_materialized_read_prints_shared_json_extract_shape(self, mock_get_mat_col):
         # Reading properties.foo.bar through materialized column mat_foo extracts key "bar" from the column value.
         # That extract must print exactly what `json_extract_trim_quotes` (kafka_engine.py) builds — the one
@@ -4633,11 +4633,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert f"less(parseDateTime64BestEffortOrNull(events.{mat_col.name}," in printed
         assert f"less(events.{mat_col.name}," not in printed
 
-    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_materialized_column_range_comparison_uses_typed_numeric_source(
-        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
-    ) -> None:
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_numeric_source(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         PropertyDefinition.objects.create(
@@ -4656,8 +4653,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(Float64)",
             has_minmax_index=True,
         )
-        mock_resolution_get_mat_col.return_value = mock_mat_col
-        mock_planner_get_mat_col.return_value = mock_mat_col
+        mock_get_mat_col.return_value = mock_mat_col
 
         printed = self._expr("properties.numeric_test_prop < 5")
 
@@ -4665,11 +4661,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "mat_numeric_test_prop" in printed
         assert "accurateCastOrNull" not in printed
 
-    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_materialized_column_range_comparison_uses_typed_datetime_source(
-        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
-    ) -> None:
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_uses_typed_datetime_source(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         PropertyDefinition.objects.create(
@@ -4688,8 +4681,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Nullable(DateTime64(6, 'UTC'))",
             has_minmax_index=True,
         )
-        mock_resolution_get_mat_col.return_value = mock_mat_col
-        mock_planner_get_mat_col.return_value = mock_mat_col
+        mock_get_mat_col.return_value = mock_mat_col
 
         printed = self._expr("properties.datetime_test_prop < '2024-01-15'")
 
@@ -4698,11 +4690,8 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
         assert "toDateTime64(" in printed
         assert "parseDateTime64BestEffortOrNull" not in printed
 
-    @patch("posthog.hogql.property_planner.get_materialized_column_for_property")
-    @patch("posthog.hogql.transforms.clickhouse_property_resolution.get_materialized_column_for_property")
-    def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(
-        self, mock_resolution_get_mat_col, mock_planner_get_mat_col
-    ) -> None:
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
+    def test_materialized_column_range_comparison_skips_non_nullable_numeric_source(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 
         PropertyDefinition.objects.create(
@@ -4721,8 +4710,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             column_type="Float64",
             has_minmax_index=True,
         )
-        mock_resolution_get_mat_col.return_value = mock_mat_col
-        mock_planner_get_mat_col.return_value = mock_mat_col
+        mock_get_mat_col.return_value = mock_mat_col
 
         printed = self._expr("properties.numeric_test_prop < 5")
 
@@ -5589,7 +5577,7 @@ class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
             printed = self._expr("JSONExtractString(properties, 'test_prop')")
             assert printed == f"nullIf(nullIf(events.{mat_col.name}, ''), 'null')"
 
-    @patch("posthog.hogql.transforms.property_types.get_materialized_column_for_property")
+    @patch("posthog.hogql_django_provider.get_materialized_column_for_property")
     def test_jsonextractstring_not_rewritten_for_non_string_mat_column(self, mock_get_mat_col) -> None:
         from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
 

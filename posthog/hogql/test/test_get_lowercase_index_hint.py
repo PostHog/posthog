@@ -19,12 +19,13 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.filters import HogQLFilters
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
-from posthog.hogql.property import _LowercaseIndexRewriter, get_lowercase_index_hint
+from posthog.hogql.property import _LowercaseIndexRewriter
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.visitor import clear_locations
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.hogql_compat import get_lowercase_index_hint
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
 

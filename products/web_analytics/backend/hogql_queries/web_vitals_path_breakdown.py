@@ -10,9 +10,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import get_property_type, property_to_expr
+from posthog.hogql.property import get_property_type
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.hogql_compat import property_to_expr
 from posthog.queries.trends.util import PROPERTY_MATH_FUNCTIONS
 
 from products.web_analytics.backend.hogql_queries.web_analytics_query_runner import WebAnalyticsQueryRunner

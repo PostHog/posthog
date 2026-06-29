@@ -23,10 +23,10 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
-from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
+from posthog.hogql_compat import action_to_expr
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
 from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA

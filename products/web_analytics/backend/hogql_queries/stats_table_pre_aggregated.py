@@ -9,7 +9,8 @@ from posthog.hogql.database.schema.channel_type import (
     wrap_with_null_if_empty,
 )
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import property_to_expr
+
+from posthog.hogql_compat import property_to_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (

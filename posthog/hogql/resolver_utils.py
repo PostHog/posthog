@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import DataProvider
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -237,19 +238,12 @@ def ast_to_query_node(expr: ast.Expr | ast.HogQLXTag):
         raise SyntaxError(f'Expression of type "{type(expr).__name__}". Can\'t convert to constant.')
 
 
-def expand_hogqlx_query(node: ast.HogQLXTag, team_id: Optional[int]):
+def expand_hogqlx_query(node: ast.HogQLXTag, data: DataProvider):
     from posthog.hogql.visitor import clone_expr
-
-    from posthog.hogql_queries.query_runner import get_query_runner
-    from posthog.models import Team
-
-    if team_id is None:
-        raise ResolutionError("team_id is required to convert a query tag to a query", start=node.start, end=node.end)
 
     try:
         query_node = ast_to_query_node(node)
-        runner = get_query_runner(query_node, Team.objects.get(pk=team_id))
-        query = clone_expr(runner.to_query(), clear_locations=True)
+        query = clone_expr(data.expand_query(query_node), clear_locations=True)
         return query
     except Exception as e:
         raise ResolutionError(f"Error parsing query tag: {e}", start=node.start, end=node.end)

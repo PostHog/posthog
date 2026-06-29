@@ -10,6 +10,7 @@ from posthog.clickhouse.workload import Workload
 if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
+    from posthog.hogql.data_provider import DataProvider, RestrictedProperty
     from posthog.hogql.database.database import Database
     from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
@@ -55,6 +56,11 @@ class HogQLContext:
     # Set ONLY when running in a context without a user (e.g., internal data imports, schema introspection).
     # Every call site that sets this MUST include an inline comment explaining why.
     bypass_warehouse_access_control: bool = False
+
+    # The engine's data port — answers mid-compile data questions (property types,
+    # cohorts, catalogs). Defaults to the ORM-backed provider built from team/team_id;
+    # inject a fake to compile without a database.
+    data_provider: Optional["DataProvider"] = None
 
     # Virtual database we're querying, will be populated from team_id if not present
     database: Optional["Database"] = None
@@ -123,7 +129,7 @@ class HogQLContext:
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
-    restricted_properties: Optional[set[tuple[str, int]]] = None
+    restricted_properties: "Optional[set[RestrictedProperty]]" = None
 
     # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
     # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
@@ -192,9 +198,27 @@ class HogQLContext:
 
     @cached_property
     def project_id(self) -> int:
+        if self.data_provider is not None:
+            return self.data.team_context.project_id
+
         from posthog.models import Team
 
         if not self.team and not self.team_id:
             raise ValueError("Either team or team_id must be set to determine project_id")
         team = self.team or Team.objects.only("project_id").get(id=self.team_id)
         return team.project_id
+
+    @property
+    def data(self) -> "DataProvider":
+        # WEAK POINT — the lazy default. A context is plain data and shouldn't build its own
+        # provider; this exists only so the many callers that pass team_id (not a provider) keep
+        # working, and it's the one place the engine still reaches into the Django layer. The
+        # intended refactor: inject the provider at the execution entry points (HogQLQueryExecutor
+        # and the handful of direct compilers) and delete this default, leaving DjangoDataProvider
+        # as one injected implementation among others. Kept deferred so importing the engine
+        # doesn't pull the Django provider onto the module-load path until then.
+        if self.data_provider is None:
+            from posthog.hogql_django_provider import DjangoDataProvider  # noqa: PLC0415
+
+            self.data_provider = DjangoDataProvider(team=self.team, team_id=self.team_id, user=self.user)
+        return self.data_provider

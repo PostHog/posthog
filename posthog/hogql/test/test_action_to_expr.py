@@ -4,9 +4,10 @@ from posthog.test.base import BaseTest, _create_event
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr, parse_select
-from posthog.hogql.property import action_to_expr, steps_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clear_locations
+
+from posthog.hogql_compat import action_to_expr, steps_to_expr
 
 from products.actions.backend.models.action import Action, ActionStepJSON
 

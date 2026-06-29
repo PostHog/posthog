@@ -23,10 +23,10 @@ import posthoganalytics
 from posthog.schema import EventPropertyFilter, PropertyOperator, SessionsV2JoinMode
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.transforms.preaggregated_table_transformation import is_integer_timezone
 
 from posthog import redis
+from posthog.hogql_compat import property_to_expr
 from posthog.models import Team
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (

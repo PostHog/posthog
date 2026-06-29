@@ -1,11 +1,12 @@
 import dataclasses
-from typing import Optional, TypeVar, cast
+from typing import Optional, TypeVar
 
 from dateutil.parser import isoparse
 
 from posthog.schema import HogQLFilters, SessionPropertyFilter
 
 from posthog.hogql import ast
+from posthog.hogql.data_provider import DataProvider
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import Table
 from posthog.hogql.database.schema.ai_events import AiEventsTable
@@ -17,14 +18,12 @@ from posthog.hogql.database.schema.sessions_v2 import SessionsTableV2
 from posthog.hogql.database.schema.sessions_v3 import SessionsTableV3
 from posthog.hogql.database.schema.spans import TraceSpansTable
 from posthog.hogql.errors import QueryError
-from posthog.hogql.property import property_to_expr
+from posthog.hogql.property import property_to_expr_core
 from posthog.hogql.visitor import CloningVisitor
 
-from posthog.models import Team
 from posthog.utils import relative_date_parse
 
 T = TypeVar("T", bound=ast.Expr)
-DEFAULT_TEAM = cast(Team, None)
 
 
 @dataclasses.dataclass
@@ -33,22 +32,22 @@ class CompareOperationWrapper:
     skip: bool = False
 
 
-def replace_filters(node: T, filters: Optional[HogQLFilters], team: Team, database: Optional[Database] = None) -> T:
-    if database is None:
-        database = Database.create_for(team=team)
-    return ReplaceFilters(filters, team, database).visit(node)
+def replace_filters_core(
+    node: T, filters: Optional[HogQLFilters], data: DataProvider, database: Optional[Database] = None
+) -> T:
+    return ReplaceFilters(filters, data, database).visit(node)
 
 
 class ReplaceFilters(CloningVisitor):
     def __init__(
         self,
         filters: Optional[HogQLFilters],
-        team: Team = DEFAULT_TEAM,
+        data: DataProvider,
         database: Optional[Database] = None,
     ):
         super().__init__()
         self.filters = filters
-        self.team = team
+        self.data = data
         self.database = database
         self.selects: list[ast.SelectQuery] = []
         self.compare_operations: list[CompareOperationWrapper] = []
@@ -129,12 +128,12 @@ class ReplaceFilters(CloningVisitor):
                         raise QueryError(
                             "Can only use session properties in a filter when selecting from only the sessions table."
                         )
-                    exprs.append(property_to_expr(session_properties, self.team, scope="session"))
-                    exprs.append(property_to_expr(non_session_properties, self.team, scope="event"))
+                    exprs.append(property_to_expr_core(session_properties, self.data, scope="session"))
+                    exprs.append(property_to_expr_core(non_session_properties, self.data, scope="event"))
                 elif found_groups:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="group"))
+                    exprs.append(property_to_expr_core(self.filters.properties, self.data, scope="group"))
                 else:
-                    exprs.append(property_to_expr(self.filters.properties, self.team, scope="event"))
+                    exprs.append(property_to_expr_core(self.filters.properties, self.data, scope="event"))
 
             timestamp_field = ast.Field(chain=["$start_timestamp"])
             if found_events or found_logs or found_traces:
@@ -147,9 +146,9 @@ class ReplaceFilters(CloningVisitor):
                 try:
                     parsed_date = isoparse(dateTo)
                     if parsed_date.tzinfo is None:
-                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
+                        parsed_date = parsed_date.replace(tzinfo=self.data.team_context.timezone_info)
                 except ValueError:
-                    parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
+                    parsed_date = relative_date_parse(dateTo, self.data.team_context.timezone_info)
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.Lt,
@@ -164,9 +163,9 @@ class ReplaceFilters(CloningVisitor):
                 try:
                     parsed_date = isoparse(dateFrom)
                     if parsed_date.tzinfo is None:
-                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
+                        parsed_date = parsed_date.replace(tzinfo=self.data.team_context.timezone_info)
                 except ValueError:
-                    parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
+                    parsed_date = relative_date_parse(dateFrom, self.data.team_context.timezone_info)
                 exprs.append(
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.GtEq,
@@ -176,8 +175,8 @@ class ReplaceFilters(CloningVisitor):
                 )
 
             if self.filters.filterTestAccounts:
-                for prop in self.team.test_account_filters or []:
-                    exprs.append(property_to_expr(prop, self.team))
+                for prop in self.data.team_context.test_account_filters or []:
+                    exprs.append(property_to_expr_core(prop, self.data))
 
             if len(exprs) == 0:
                 return ast.Constant(value=True)
@@ -198,9 +197,9 @@ class ReplaceFilters(CloningVisitor):
                 try:
                     parsed_date = isoparse(dateFrom)
                     if parsed_date.tzinfo is None:
-                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
+                        parsed_date = parsed_date.replace(tzinfo=self.data.team_context.timezone_info)
                 except ValueError:
-                    parsed_date = relative_date_parse(dateFrom, self.team.timezone_info)
+                    parsed_date = relative_date_parse(dateFrom, self.data.team_context.timezone_info)
 
                 return ast.Constant(value=parsed_date)
             else:
@@ -220,9 +219,9 @@ class ReplaceFilters(CloningVisitor):
                 try:
                     parsed_date = isoparse(dateTo)
                     if parsed_date.tzinfo is None:
-                        parsed_date = parsed_date.replace(tzinfo=self.team.timezone_info)
+                        parsed_date = parsed_date.replace(tzinfo=self.data.team_context.timezone_info)
                 except ValueError:
-                    parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
+                    parsed_date = relative_date_parse(dateTo, self.data.team_context.timezone_info)
                 return ast.Constant(value=parsed_date)
             else:
                 compare_op_wrapper.skip = True

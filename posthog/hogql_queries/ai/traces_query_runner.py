@@ -20,10 +20,10 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_TRACES_LIMIT_EXPORT, LimitContext
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.hogql_compat import property_to_expr
 from posthog.hogql_queries.ai.sentiment_evaluations import (
     EMPTY_SENTIMENT_EVALUATION_LOOKUP,
     SentimentEvaluationLookup,

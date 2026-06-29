@@ -91,8 +91,8 @@ def compile_hogql_to_ducklake_sql(
     from posthog.hogql.database.database import Database
     from posthog.hogql.parser import parse_select
     from posthog.hogql.printer.utils import prepare_and_print_ast
-    from posthog.hogql.variables import replace_variables
 
+    from posthog.hogql_compat import replace_variables
     from posthog.models.team.team import Team
 
     parsed = parse_select(query.query)

@@ -3,8 +3,8 @@ from typing import TypeGuard
 from posthog.schema import PropertyGroupFilter, PropertyGroupFilterValue
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_compat import property_to_expr
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.types import AnyPropertyFilter
 

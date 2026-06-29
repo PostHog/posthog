@@ -14,8 +14,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.database.schema.channel_type import wrap_with_null_if_empty
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_compat import property_to_expr
 
 from products.web_analytics.backend.hogql_queries.pre_aggregated.properties import STATS_TABLE_SUPPORTED_FILTERS
 from products.web_analytics.backend.hogql_queries.pre_aggregated.query_builder import (

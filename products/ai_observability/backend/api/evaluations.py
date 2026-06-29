@@ -778,11 +778,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         conditions = serializer.validated_data.get("conditions", [])
 
         from posthog.hogql import ast
-        from posthog.hogql.property import property_to_expr
         from posthog.hogql.query import execute_hogql_query
 
         from posthog.cdp.validation import compile_hog
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+        from posthog.hogql_compat import property_to_expr
         from posthog.models.team import Team
 
         try:

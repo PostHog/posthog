@@ -1,5 +1,4 @@
 import re
-from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, cast
 
@@ -22,6 +21,7 @@ from posthog.schema import HogQLQueryModifiers
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.data_provider import MaterializedColumnInfo, RestrictedProperty
 from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -44,17 +44,6 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
-
-
-@dataclass
-class FakeMaterializedColumn:
-    name: str
-    is_nullable: bool
-    type: str
-    has_minmax_index: bool = False
-    has_bloom_filter_index: bool = False
-    has_ngram_lower_index: bool = False
-    has_bloom_filter_lower_index: bool = False
 
 
 def _normalize_snapshot_sql(sql: str) -> str:
@@ -128,7 +117,7 @@ class TestPropertyTypes(BaseTest):
     def _plan_where_comparison(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> PropertyComparisonPlan:
         context, resolved = self._resolve_select(select, restricted_properties=restricted_properties)
         comparison = cast(ast.CompareOperation, resolved.where)
@@ -139,7 +128,7 @@ class TestPropertyTypes(BaseTest):
     def _resolve_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         """Resolve types and build the property-swapper registry without preparing further.
 
@@ -159,7 +148,7 @@ class TestPropertyTypes(BaseTest):
     def _prepare_select(
         self,
         select: str,
-        restricted_properties: set[tuple[str, int]] | None = None,
+        restricted_properties: set[RestrictedProperty] | None = None,
     ) -> tuple[HogQLContext, ast.SelectQuery]:
         expr = parse_select(select)
         context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
@@ -196,14 +185,14 @@ class TestPropertyTypes(BaseTest):
         assert plan.minmax_blocker == PropertyMinmaxBlocker.SOURCE_TYPE_DIFFERS_FROM_PROPERTY_TYPE
 
     def test_property_comparison_planner_allows_numeric_minmax_when_source_type_matches(self) -> None:
-        fake_column = FakeMaterializedColumn(
+        fake_column = MaterializedColumnInfo(
             name="mat_$screen_width",
             is_nullable=True,
             type="Nullable(Float64)",
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch("posthog.hogql_django_provider.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison("select count() from events where properties.$screen_width < 5")
 
         assert plan.access.source.kind == PropertySourceKind.MATERIALIZED_COLUMN
@@ -244,14 +233,14 @@ class TestPropertyTypes(BaseTest):
             name="event_time_prop",
             defaults={"property_type": "DateTime"},
         )
-        fake_column = FakeMaterializedColumn(
+        fake_column = MaterializedColumnInfo(
             name="mat_event_time_prop",
             is_nullable=True,
             type="Nullable(DateTime64(6, 'UTC'))",
             has_minmax_index=True,
         )
 
-        with patch("posthog.hogql.property_planner.get_materialized_column_for_property", return_value=fake_column):
+        with patch("posthog.hogql_django_provider.get_materialized_column_for_property", return_value=fake_column):
             plan = self._plan_where_comparison(
                 "select count() from events where properties.event_time_prop < '2024-01-01'"
             )

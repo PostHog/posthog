@@ -13,8 +13,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.property import property_to_expr
 
+from posthog.hogql_compat import property_to_expr
 from posthog.models.team.team import Team
 
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import (

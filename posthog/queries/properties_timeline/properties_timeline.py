@@ -6,10 +6,10 @@ from posthog.schema import HogQLQueryModifiers, PersonsOnEventsMode
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.property import action_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.constants import TREND_FILTER_TYPE_ACTIONS
+from posthog.hogql_compat import action_to_expr
 from posthog.models.entity import Entity
 from posthog.models.filters.properties_timeline_filter import PropertiesTimelineFilter
 from posthog.models.group.group import Group

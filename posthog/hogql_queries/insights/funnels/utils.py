@@ -13,9 +13,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import apply_path_cleaning
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
+from posthog.hogql_compat import apply_path_cleaning
 from posthog.models.team.team import Team
 from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 

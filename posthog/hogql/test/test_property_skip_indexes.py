@@ -34,10 +34,10 @@ from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.observability import HogQLTypeObservability
 from posthog.hogql.printer import prepare_and_print_ast
-from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
+from posthog.hogql_compat import property_to_expr
 from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
 
 from products.event_definitions.backend.models.property_definition import PropertyType

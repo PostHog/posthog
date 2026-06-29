@@ -36,7 +36,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.events import EventsGroupSubTable, EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
 from posthog.hogql.database.schema.persons import PersonsTable
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.functions.mapping import ALL_EXPOSED_FUNCTION_NAMES
 from posthog.hogql.parser import parse_expr, parse_program, parse_select, parse_string_template
 from posthog.hogql.resolver import resolve_types, resolve_types_from_table
@@ -569,7 +569,9 @@ def get_hogql_autocomplete(
                 try:
                     select_ast = cast(
                         ast.SelectQuery,
-                        replace_filters(cast(ast.SelectQuery, select_ast), query.filters, team, database=database),
+                        replace_filters_core(
+                            cast(ast.SelectQuery, select_ast), query.filters, context.data, database=database
+                        ),
                     )
                 except Exception:
                     pass

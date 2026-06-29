@@ -43,9 +43,7 @@ from posthog.hogql.type_system import (
 from posthog.hogql.utils import ilike_matches, like_matches
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.clickhouse.materialized_columns import TablesWithMaterializedColumns, get_materialized_column_for_property
 from posthog.clickhouse.property_groups import property_groups
-from posthog.models.property import PropertyName, TableColumn
 from posthog.schema_enums import MaterializationMode, PropertyGroupsMode
 
 # In non-nullable materialized columns these stored strings are treated as NULL.
@@ -129,11 +127,7 @@ def resolve_materialized_property_source(
     field_name = field.name
 
     # 1) static materialized column (mat_* / pmat_*)
-    materialized_column = get_materialized_column_for_property(
-        cast(TablesWithMaterializedColumns, table_name),
-        cast(TableColumn, field_name),
-        cast(PropertyName, property_name),
-    )
+    materialized_column = context.data.materialized_column(table_name, field_name, property_name)
     if materialized_column is not None:
         return MaterializedPropertySource(
             kind="materialized_column",

@@ -22,9 +22,9 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import action_to_expr, property_to_expr
 
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
+from posthog.hogql_compat import action_to_expr, property_to_expr
 from posthog.hogql_queries.insights.trends.aggregation_operations import ALLOWED_SESSION_MATH_PROPERTIES
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team

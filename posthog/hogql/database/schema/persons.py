@@ -1,7 +1,5 @@
 from typing import Optional, Self, cast
 
-import posthoganalytics
-
 from posthog.hogql import ast
 from posthog.hogql.ast import And, CompareOperation, CompareOperationOp, Field, JoinExpr, SelectQuery
 from posthog.hogql.base import Expr
@@ -29,7 +27,6 @@ from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import CloningVisitor, clone_expr
 
-from posthog.models.organization import Organization
 from posthog.schema_enums import PersonsArgMaxVersion
 
 PERSONS_FIELDS: dict[str, FieldOrTable] = {
@@ -255,28 +252,7 @@ def join_with_persons_table(
         raise ResolutionError("No fields requested from persons table")
     join_expr = ast.JoinExpr(table=select_from_persons_table(join_to_add, context, node))
 
-    organization: Organization | None = context.team.organization if context.team else None
-    if organization is None:
-        raise ResolutionError("Organization is required to join with persons table")
-    # TODO: @raquelmsmith: Remove flag check and use left join for all once deletes are caught up
-    use_inner_join = (
-        posthoganalytics.feature_enabled(
-            "personless-events-not-supported",
-            str(context.team.uuid),
-            groups={"organization": str(organization.id)},
-            group_properties={
-                "organization": {
-                    "id": str(organization.id),
-                    "created_at": organization.created_at,
-                }
-            },
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
-        if organization and context.team
-        else False
-    )
-    if use_inner_join:
+    if context.data.persons_join_uses_inner_join():
         join_expr.join_type = "INNER JOIN"
     else:
         join_expr.join_type = "LEFT JOIN"

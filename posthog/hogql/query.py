@@ -37,7 +37,7 @@ from posthog.hogql.direct_connection import (
 from posthog.hogql.direct_sql import DirectQueryRequest, ensure_single_direct_statement, get_adapter
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
 from posthog.hogql.feature_extractor import extract_hogql_features
-from posthog.hogql.filters import replace_filters
+from posthog.hogql.filters import replace_filters_core
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -47,7 +47,6 @@ from posthog.hogql.resolver import Resolver
 from posthog.hogql.resolver_utils import extract_base_table_types, extract_select_queries
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
-from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
 from posthog.hogql.warehouse_warnings import record_warnings
 
@@ -56,6 +55,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_compat import replace_variables
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl
@@ -171,8 +171,8 @@ class HogQLQueryExecutor:
                         timings=self.timings,
                         bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
                     )
-                self.select_query = replace_filters(
-                    self.select_query, self.filters, self.team, database=self.context.database
+                self.select_query = replace_filters_core(
+                    self.select_query, self.filters, self.context.data, database=self.context.database
                 )
 
             if finder.placeholder_fields or finder.placeholder_expressions:

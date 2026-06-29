@@ -19,14 +19,9 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.parser import parse_expr
-from posthog.hogql.property import (
-    get_property_key,
-    get_property_operator,
-    get_property_type,
-    get_property_value,
-    property_to_expr,
-)
+from posthog.hogql.property import get_property_key, get_property_operator, get_property_type, get_property_value
 
+from posthog.hogql_compat import property_to_expr
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.settings.data_stores import is_web_analytics_events_prefilter_team
 

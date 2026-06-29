@@ -20,9 +20,9 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
-from posthog.hogql.variables import replace_variables
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_compat import replace_variables
 from posthog.models import Team, User
 
 from products.endpoints.backend.constants import (
