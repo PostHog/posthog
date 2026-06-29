@@ -1055,7 +1055,15 @@ AnalyzeChunksWorkflow, ReviewPerspectivesWorkflow, ValidateIssuesWorkflow]` + `A
   perspective + validate). Bias `CHUNKING_SYSTEM_PROMPT` / `prompts/chunking/` toward fewer, larger chunks — a small
   PR should usually be one chunk; pairs with the conditional "skip chunking below a size threshold" gate. Pure
   prompt/heuristic tuning; measure chunk count vs PR size.
-- **API viewset + frontend** to browse reviews (`/improving-drf-endpoints`).
+- **Surface findings that can't be positioned on a diff line (not scheduled).** A valid finding on a **changed
+  file but an unchanged line** (e.g. `email.py:240` when the PR's diff only touches 220–227) survives scope-cleaning
+  (its file is in the diff) but is **silently dropped at publish**: `_find_valid_comment_position` requires the
+  finding's start line to be one of the diff's changed lines, so no inline comment is built and `publish_review`
+  returns `posted=False` (nothing posted). Observed on #66456 — 2 legitimate `should_fix` findings on `email.py:240`
+  (transaction rollback, row-lock hold) were lost this way. Find a way to still post these line-less findings:
+  e.g. a file-level review comment (GitHub's `subject_type=file`), anchoring to the nearest changed line in the
+  finding's range, or rolling them into a "Findings outside the changed lines" section of the review body instead of
+  dropping them. Weigh the noise trade-off (off-diff findings are more likely to be context the author didn't touch).
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
 
@@ -1692,11 +1700,13 @@ consumer is the future UI button, so it's deferred until the ReviewHog skills **
 Signals inbox); editing + reset are API/MCP-only for now. Building the "see + edit + reset my review skills"
 surface is its own step, and is what "reset to canonical" rides in with.
 
-##### ⭐ NEXT IMPLEMENTATION — per-user perspective ENABLEMENT (DECIDED 2026-06-29, design locked, not yet built)
+##### ✅ BUILT 2026-06-29 — per-user perspective ENABLEMENT (users can author + run custom perspectives)
 
-This supersedes the old "per-user not chosen" note. Per-user **skill ownership** stays off (skills remain
-team-level, edited in place as above), but **which perspectives run is per-USER**, mirroring Signals scouts'
-`SignalScoutConfig` enable/disable. Everything below is the settled, grounded design — implement as the next step.
+Per-user **skill ownership** stays off (skills remain team-level, edited in place as above), but **which
+perspectives run is per-USER**, mirroring Signals scouts' `SignalScoutConfig` enable/disable. A user authors a
+custom perspective (any `review-hog-perspective-*` skill, via the skills API/MCP) and enables it via the config
+API; the review then fans out over that user's enabled set. The settled design is below; **see "As built" at the
+end of this subsection for the few places the implementation deviated from this sketch.**
 
 **What a perspective is.** Any team `LLMSkill` named `review-hog-perspective-*` (the prefix is the **sole** marker,
 exactly like `signals-scout-*`). **Canonical and custom are handled identically — no branching anywhere.** The only
@@ -1705,8 +1715,10 @@ perspective" is just a prefixed team skill a user creates (skills API/MCP now; U
 100% copy of a canonical. Skills stay team-level. The validator (`review-hog-validation-criteria`) stays a **single
 team-level** skill — enablement is **perspectives only**.
 
-**Config model (mirror `SignalScoutConfig`, minus the clock).** New `ReviewPerspectiveConfig(UUIDModel,
-TeamScopedRootMixin)` in `products/review_hog/backend/models.py`:
+**Config model (mirror `SignalScoutConfig`, minus the clock).** Shipped as **`ReviewSkillConfig`** (renamed from
+the originally-sketched `ReviewPerspectiveConfig` so the one table also holds the future per-user validator —
+discriminated by skill-name prefix; see the validator next-step below) `(UUIDModel, TeamScopedRootMixin)` in
+`products/review_hog/backend/models.py`:
 
 - `team` FK, `user` FK, `skill_name` CharField(max_length=200), `enabled` BooleanField(default=True,
   db_default=True), `created_at`/`updated_at`. Unique `(team, user, skill_name)`. **No extra fields** (user: skill
@@ -1720,7 +1732,7 @@ makemigrations review_hog`).
   (`created_by` is audit-only and reassigns on edit). We add the `user` dimension scouts lack.
 
 **Default-on-start seeding (per-user `register_missing` analogue).** `register_missing_perspective_configs(team,
-user)` in `lazy_seed.py`: for each **canonical** skill_name, `ReviewPerspectiveConfig.objects.for_team(team.id)
+user)`: for each **canonical** skill_name, `ReviewSkillConfig.objects.for_team(team.id)
 .get_or_create(team_id=…, user_id=…, skill_name=…, defaults={"enabled": True})` — pass `team_id` explicitly in
 both filter + create (the fail-closed `for_team().get_or_create()` does not inject it, per CLAUDE.md). Auto-enables
 **only the canonicals** (this is the one allowed canonical/custom difference: "auto-added on the start"); customs
@@ -1742,7 +1754,7 @@ resolve the PR author separately for perspective selection.
 
 **Loader change** — `load_perspectives_for_run(team_id, acting_user_id)` (`skill_loader.py:50`): after
 `register_missing_perspective_configs`, read the user's enabled set
-`ReviewPerspectiveConfig.objects.for_team(team_id).filter(user_id=acting_user_id, enabled=True)
+`ReviewSkillConfig.objects.for_team(team_id).filter(user_id=acting_user_id, enabled=True)
 .values_list("skill_name", flat=True)`; resolve each to its live `LLMSkill` (latest, non-deleted) →
 `LoadedPerspective`. `pass_number` = **per-run index** (`enumerate` over the user's enabled perspectives,
 deterministically ordered, e.g. sorted by skill_name) — NOT the enum ordinal. `source_perspective` carried as the
@@ -1780,10 +1792,69 @@ NOT auto-seeded); loader (returns only the user's enabled set; `source_perspecti
 `source_perspective` from the skill incl. a **custom** perspective with no enum entry; author-resolution gate
 (mapped ⇒ their set; unmapped ⇒ no review); toggle rejects disabling the last.
 
+**As built (deviations from the sketch above — read these before extending):**
+
+- **`register_missing_perspective_configs` + `load_perspectives_for_run` both live in `skill_loader.py`, not
+  `lazy_seed.py`.** Putting seeding in `lazy_seed` would have created a circular import (`lazy_seed` already imports
+  the prefix constants from `skill_loader`). Co-locating in `skill_loader` — the perspective-resolution module —
+  avoids the cycle and keeps seeding next to the loader that calls it. The loader calls `register_missing` itself,
+  so it is self-contained (a cold user always gets the canonicals on the first resolve). This mirrors Signals, where
+  `register_missing_configs` lives in its own `config_registry.py`, not `lazy_seed.py`.
+- **`source_perspective` is stamped at REVIEW time, not in `combine_issues`.** `review_chunk_activity` sets
+  `issue.source_perspective = input.skill_name` on each issue before persisting the `perspective_result` (which
+  round-trips it). `combine_issues` only re-stamps `issue.id` now and **preserves** the already-stamped
+  `source_perspective` — it no longer imports `PerspectiveType` at all. This is cleaner and more robust than the
+  sketched "combine gets a `pass_number → skill_name` map": no map threading, no acting-user in the combine
+  activity, and the skill name is captured by the exact activity that ran the skill (immune to a mid-run config
+  change). `PerspectiveType` is demoted to the canonical-seed list (`CANONICAL_PERSPECTIVE_SKILL_NAMES = names of
+PERSPECTIVES`); the obsolete `test_registry_order_matches_perspective_type_enum` was deleted.
+- **The author gate is its own activity, `resolve_acting_user_activity`, run in the parent right after fetch
+  (before any sandbox spend).** `fetch` returns `author_login` on `ReviewMeta`; the resolve activity maps it via
+  `resolve_org_github_login_to_users` (or returns an explicit override). The workflow bails (`return report_id`)
+  when it resolves to None. An `acting_user_id: int | None` was added to `ReviewPRWorkflowInputs` (and threaded
+  through `client.py`): the cloud trigger leaves it None (resolve the author); the **CLI/eval pins it to
+  `--user-id`** so an eval run applies a known user's perspectives against any PR (the PR author need not be a
+  PostHog user). This is an explicit, exercised override, not dead fallback code.
+- **The toggle viewset is `scope_object = "INTERNAL"` (session/UI-only, not MCP/PAK), keyed by `skill_name`.**
+  `ReviewPerspectiveConfigViewSet` at `/api/projects/:team_id/review_hog/perspectives` exposes `list` (the full
+  perspective menu joined with the user's enable state — canonicals seed enabled, an un-toggled custom shows
+  disabled) and `partial_update` (PATCH `…/{skill_name}/ {enabled}`), which **upserts** the config row so enabling a
+  freshly authored custom works in one call. Min-1 is enforced at the viewset (reject disabling the last enabled)
+  with the loader (`NoEnabledPerspectivesError`) as the backstop. The viewset floor is **best-effort** (count +
+  write, no row lock — same posture as Signals' scout config viewset); a rare concurrent double-disable that slips
+  through fails loudly at the loader rather than producing a wrong review. Deliberately not hard-guarded with a
+  transaction/`select_for_update` — that's overengineering for a borderline single-user race.
+- **Known edge — a dangling enabled config (custom skill deleted but its config left enabled) raises
+  `PerspectiveSkillNotFoundError` and fails the run, uniformly with a missing canonical.** This honors the locked
+  "enabled-but-missing-skill ⇒ raise, no canonical/custom branching" decision (the viewset validates skill existence
+  at enable time, so this only happens if a skill is archived after being enabled). If this proves too harsh, a
+  uniform soft-skip + the min-1 floor is the obvious follow-up.
+
 **Still deferred (own steps):** the ReviewHog skills **UI** (add / enable-disable perspectives, edit, reset-to-
 canonical) — API/MCP only for now; the **"reset to canonical"** force-re-pull (above) ships with that UI; a future
 per-PR coordinator step that picks _which_ of the enabled perspectives best fit a given PR (the user's "what
 perspectives make sense for this PR").
+
+##### ⏭ NEXT — per-user custom validators (one active at a time) — NOT BUILT, marked for the step after
+
+The same move as perspectives, applied to the **validator**, **reusing the same `ReviewSkillConfig` table** (the
+model was renamed generic for exactly this). The validator rows carry the `review-hog-validation-*` prefix; the
+prefix is the only thing that distinguishes them from perspective rows — no `kind` column. One structural
+difference the user called out: a review runs **exactly one** validator (the bar for "does this issue matter"), so
+this is a **single-active selection per user**, not a multi-enable set. The cardinality difference is **app-level
+logic, not a table change**: a "select" endpoint sets the chosen validation row `enabled=True` and flips the user's
+other validation rows off (one `UPDATE`), exactly as the perspective min-1 floor is enforced in app code. A user
+authors a custom `review-hog-validation-*` skill (any content) and selects which one validates their reviews;
+absent any enabled validation row, the canonical `review-hog-validation-criteria` is the default (so no min-1 floor
+needed — there's always a fallback). Build shape: `load_validation_skill_for_run(team_id, acting_user_id)` reads
+the user's single enabled `review-hog-validation-*` row (else the canonical default), replacing today's
+team-latest-by-name resolve; a `register_missing_validation_config` analogue seeds the canonical validator enabled;
+the toggle is a validation-prefix branch in the existing config viewset (enabling a validator flips the others off)
+or a sibling action. Reuse the acting-user resolution already built (same `resolve_acting_user_activity` result
+threads into validation). Validator skills stay team-level and editable exactly like perspectives; the output
+schema (`IssueValidation`) stays fixed. If the DB should _guarantee_ one active validator, a partial unique index
+(`UNIQUE(team,user) WHERE validation-prefix AND enabled`) is the option — but app-level matches perspectives. Not
+started.
 
 The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against
