@@ -8,9 +8,54 @@ from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFin
 from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issues_review import LineRange
-from products.review_hog.backend.reviewer.persistence import load_valid_findings
+from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
 
 logger = logging.getLogger(__name__)
+
+
+def publish_persisted_review(
+    *,
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    run_index: int,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    token: str,
+) -> bool:
+    """Publish an already-computed review for `report_id` at `head_sha`, idempotently. Returns whether it posted.
+
+    The DB-driven publish path shared by the workflow's publish activity and the standalone
+    `publish_review` management command — no recompute, no sandbox. Skips if this exact head was
+    already published (so a re-trigger / re-run can't double-post or re-fire the one-time promo),
+    rebuilds the inline comments from this run's valid findings against the snapshot diff, and records
+    the published-head watermark only on a real post (a no-op turn must not block a later publish at
+    the same head). Reads the DB, so callers run it off the event loop.
+    """
+    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
+    if report.published_head_sha == head_sha:
+        logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
+        return False
+    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
+    pr_files = snapshot.pr_files if snapshot is not None else []
+    posted = publish_review(
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        team_id=team_id,
+        report_id=report_id,
+        run_index=run_index,
+        pr_files=pr_files,
+        token=token,
+        head_sha=head_sha,
+        # The alpha promo comment is posted once per report (first real publish), not every turn.
+        post_promo=report.published_head_sha is None,
+    )
+    if posted:
+        report.published_head_sha = head_sha
+        report.save(update_fields=["published_head_sha", "updated_at"])
+    return posted
 
 
 def _review_marker(report_id: str, head_sha: str) -> str:
