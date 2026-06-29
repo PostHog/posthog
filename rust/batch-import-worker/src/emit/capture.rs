@@ -1,4 +1,5 @@
 use std::{
+    io::{self, Write},
     sync::Mutex,
     time::{Duration, Instant},
 };
@@ -106,11 +107,12 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         let txn_elapsed = self.start.elapsed();
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
 
-        // Split oversized chunks across multiple requests so we stay under capture's
-        // 10 MiB body limit. Re-sending a chunk on retry is already safe (events carry
-        // stable UUIDs and route through historical migration, which dedupes), so a
-        // partial failure here just re-sends the whole chunk and downstream dedupes the
-        // overlap.
+        // Split into sub-batches under capture's 10 MiB body limit. Capture rejects an
+        // over-limit batch without producing anything to Kafka, so the size failure this
+        // prevents never half-commits a chunk. Capture does not dedupe by UUID alone (events
+        // without a source id get a fresh UUID per parse): if a later sub-batch fails after
+        // earlier ones were accepted, the offset rollback re-sends the whole chunk and
+        // re-delivers the accepted events — bounded over-delivery we accept over skipping data.
         let batches = split_into_byte_limited_batches(events)?;
 
         info!(
@@ -209,13 +211,13 @@ fn serialized_len(event: &Event) -> Result<usize, Error> {
 
 struct ByteCountWriter(usize);
 
-impl std::io::Write for ByteCountWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+impl Write for ByteCountWriter {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         self.0 += buf.len();
         Ok(buf.len())
     }
 
-    fn flush(&mut self) -> std::io::Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
