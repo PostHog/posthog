@@ -327,6 +327,18 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             ({ conversions, started }): number => (started > 0 ? conversions / started : 0),
         ],
 
+        // Only surface the conversion tiles when a goal is actually configured — without one the
+        // backend never emits conversion metrics/events, so the tiles would always read empty.
+        hasConversionGoal: [
+            (s) => [s.workflow],
+            (workflow): boolean => {
+                const filters = workflow.conversion?.filters
+                const hasPropertyGoal = Array.isArray(filters) && filters.length > 0
+                const hasEventGoal = (workflow.conversion?.events?.length ?? 0) > 0
+                return hasPropertyGoal || hasEventGoal
+            },
+        ],
+
         convertedUsersUrl: [
             (s) => [s.getDateRangeAbsolute, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
             (getDateRangeAbsolute, id): string => {

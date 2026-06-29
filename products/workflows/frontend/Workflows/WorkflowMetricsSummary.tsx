@@ -36,6 +36,7 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
         conversionStats,
         conversionStatsLoading,
         convertedUsersUrl,
+        hasConversionGoal,
     } = useValues(workflowMetricsSummaryLogic(props))
 
     const emailMetricsColumns: LemonTableColumns<EmailMetricRow> = useMemo(
@@ -107,6 +108,9 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                     </div>
                 </div>
                 {summaryMetricKeys.map((summaryMetric) => {
+                    if (summaryMetric === 'converted' && !hasConversionGoal) {
+                        return null
+                    }
                     const metric = WORKFLOW_SUMMARY_METRICS[summaryMetric]
                     const metricName = metricNameBySummaryMetric[summaryMetric]
                     const timeSeries =
@@ -139,29 +143,31 @@ export function WorkflowMetricsSummary({ onSelectAction, ...props }: WorkflowMet
                         />
                     )
                 })}
-                <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
-                    <div className="flex flex-col h-full">
-                        <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
-                            Conversion rate
-                        </LemonLabel>
-                        <div className="flex flex-1 items-center justify-center">
-                            {conversionStatsLoading ? (
-                                <SpinnerOverlay />
-                            ) : conversionStats.started === 0 ? (
-                                <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
-                            ) : (
-                                <div className="text-6xl text-muted-foreground mb-2">
-                                    {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
-                                </div>
+                {hasConversionGoal && (
+                    <div className="flex flex-1 flex-col relative border rounded p-3 bg-surface-primary min-w-[16rem]">
+                        <div className="flex flex-col h-full">
+                            <LemonLabel info="Share of started workflow runs that recorded a conversion (Converted ÷ Started) over the selected date range.">
+                                Conversion rate
+                            </LemonLabel>
+                            <div className="flex flex-1 items-center justify-center">
+                                {conversionStatsLoading ? (
+                                    <SpinnerOverlay />
+                                ) : conversionStats.started === 0 ? (
+                                    <LemonLabel className="text-muted text-md mb-2">No workflows started</LemonLabel>
+                                ) : (
+                                    <div className="text-6xl text-muted-foreground mb-2">
+                                        {`${(Math.min(conversionRate, 1) * 100).toFixed(1)}%`}
+                                    </div>
+                                )}
+                            </div>
+                            {!conversionStatsLoading && conversionStats.conversions > 0 && (
+                                <Link to={convertedUsersUrl} className="text-xs text-center">
+                                    View converted users
+                                </Link>
                             )}
                         </div>
-                        {!conversionStatsLoading && conversionStats.conversions > 0 && (
-                            <Link to={convertedUsersUrl} className="text-xs text-center">
-                                View converted users
-                            </Link>
-                        )}
                     </div>
-                </div>
+                )}
             </div>
 
             <LemonTable
