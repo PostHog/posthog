@@ -8569,6 +8569,26 @@ After component`,
         expect(onChange.mock.calls.at(-1)?.[0]).toContain('title="Weekly signups"')
     })
 
+    it('discards the title edit on Escape without persisting', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />',
+                onChange,
+            })
+        )
+        const titleInput = container.querySelector(
+            'input.MarkdownNotebook__component-toolbar-title--input'
+        ) as HTMLInputElement
+
+        titleInput.focus()
+        fireEvent.change(titleInput, { target: { value: 'Scratch title' } })
+        fireEvent.keyDown(titleInput, { key: 'Escape' })
+
+        expect(onChange).not.toHaveBeenCalled()
+        expect(titleInput.value).toEqual('')
+    })
+
     it('shows the saved component title read-only in view mode', () => {
         const { container } = render(
             createElement(MarkdownNotebook, {

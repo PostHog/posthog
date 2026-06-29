@@ -6,6 +6,7 @@ import {
     ReactNode,
     memo,
     useMemo,
+    useRef,
     useState,
 } from 'react'
 
@@ -112,6 +113,9 @@ export function NotebookComponentShell({
         [componentPanels, showEditPanel, showViewPanel]
     )
     const [titleDraft, setTitleDraft] = useState<string | null>(null)
+    // Escape blurs the input, which fires commitTitle synchronously before the titleDraft
+    // state update lands — this ref lets commitTitle see the cancel intent in that same tick
+    const cancellingTitleRef = useRef(false)
     const titleInputValue = titleDraft ?? userTitle
     const titleContent = (
         <>
@@ -185,6 +189,10 @@ export function NotebookComponentShell({
         })
     }
     const commitTitle = (): void => {
+        if (cancellingTitleRef.current) {
+            cancellingTitleRef.current = false
+            return
+        }
         if (titleDraft === null) {
             return
         }
@@ -200,6 +208,7 @@ export function NotebookComponentShell({
             event.currentTarget.blur()
         } else if (event.key === 'Escape') {
             event.preventDefault()
+            cancellingTitleRef.current = true
             setTitleDraft(null)
             event.currentTarget.blur()
         }
