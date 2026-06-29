@@ -624,6 +624,9 @@ importers:
       '@posthog/products-batch-exports':
         specifier: workspace:*
         version: link:../products/batch_exports
+      '@posthog/products-billing-alerts':
+        specifier: workspace:*
+        version: link:../products/billing_alerts
       '@posthog/products-business-knowledge':
         specifier: workspace:*
         version: link:../products/business_knowledge
@@ -2691,7 +2694,29 @@ importers:
 
   products/batch_exports: {}
 
-  products/billing_alerts: {}
+  products/billing_alerts:
+    dependencies:
+      '@posthog/icons':
+        specifier: '*'
+        version: 0.37.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@posthog/lemon-ui':
+        specifier: '*'
+        version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+      '@types/react':
+        specifier: 18.3.27
+        version: 18.3.27
+      kea:
+        specifier: 'catalog:'
+        version: 4.0.0-pre.5(react@18.3.1)
+      kea-loaders:
+        specifier: 'catalog:'
+        version: 3.1.1(kea@4.0.0-pre.5(react@18.3.1))
+      react:
+        specifier: 18.3.1
+        version: 18.3.1
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
 
   products/business_knowledge:
     dependencies:

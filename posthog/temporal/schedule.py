@@ -41,7 +41,6 @@ from posthog.temporal.alerts.schedule import (
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
-from posthog.temporal.billing_alerts.schedule import create_schedule_due_billing_alert_checks_schedule
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
@@ -74,6 +73,7 @@ from posthog.temporal.warehouse_sources_queue_partition_management.schedule impo
 )
 from posthog.temporal.weekly_digest.types import WeeklyDigestInput
 
+from products.billing_alerts.backend.temporal.schedule import create_schedule_due_billing_alert_checks_schedule
 from products.business_knowledge.backend.temporal.schedule import create_business_knowledge_refresh_coordinator_schedule
 from products.conversations.backend.temporal.schedule import create_support_reply_coordinator_schedule
 from products.engineering_analytics.backend.facade.temporal import create_github_job_logs_coordinator_schedule

@@ -78,6 +78,7 @@
         "@posthog/products-alerts": "workspace:*",
         "@posthog/products-annotations": "workspace:*",
         "@posthog/products-batch-exports": "workspace:*",
+        "@posthog/products-billing-alerts": "workspace:*",
         "@posthog/products-business-knowledge": "workspace:*",
         "@posthog/products-cohorts": "workspace:*",
         "@posthog/products-conversations": "workspace:*",

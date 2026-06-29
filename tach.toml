@@ -727,7 +727,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(billing_alerts|customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -745,6 +745,16 @@ from = [
 # Experiments is the first isolated product to register a Temporal workflow, so the canonical interface
 # doesn't cover the registration surface yet. Narrowly expose the symbols core imports (worker registration,
 # schedule registration, and the worker interceptor) rather than widening every isolated product's surface.
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_billing_alerts_schedule",
+]
+from = [
+    "products.billing_alerts",
+]
 
 [[interfaces]]
 expose = [

@@ -1,7 +1,11 @@
 import type { AlertingWizardStep } from 'lib/components/Alerting'
 
-import type { BillingAlertConfigurationStateEnumApi, MetricEnumApi } from '~/generated/core/api.schemas'
+import type {
+    BillingAlertConfigurationStateEnumApi,
+    MetricEnumApi,
+} from 'products/billing_alerts/frontend/generated/api.schemas'
 
+import { BILLING_ALERT_NUMBER_FIELDS } from './billingAlertFields'
 import { BillingAlertWizardStep } from './billingAlertsLogic'
 import type { BillingAlertConfiguration, BillingAlertDestinationKey } from './billingAlertsLogic'
 
@@ -37,27 +41,7 @@ export const BILLING_ALERT_DESTINATIONS: {
     },
 ]
 
-export type BillingAlertNumericFormKey =
-    | 'minimum_value'
-    | 'baseline_window_days'
-    | 'evaluation_delay_hours'
-    | 'check_interval_hours'
-    | 'cooldown_hours'
-
-export const BILLING_ALERT_NUMBER_FIELDS: {
-    key: BillingAlertNumericFormKey
-    label: string
-    min: number
-    max?: number
-    suffix?: string
-    prefixSpend?: boolean
-}[] = [
-    { key: 'minimum_value', label: 'Minimum current value', min: 0, prefixSpend: true },
-    { key: 'baseline_window_days', label: 'Baseline window', min: 1, max: 90, suffix: 'days' },
-    { key: 'evaluation_delay_hours', label: 'Evaluation delay', min: 0, max: 72, suffix: 'hours' },
-    { key: 'check_interval_hours', label: 'Check interval', min: 1, max: 24, suffix: 'hours' },
-    { key: 'cooldown_hours', label: 'Cooldown', min: 0, max: 720, suffix: 'hours' },
-]
+export { BILLING_ALERT_NUMBER_FIELDS }
 
 export function metricLabel(metric: MetricEnumApi | undefined): string {
     return metric === 'usage' ? 'Usage' : 'Spend'

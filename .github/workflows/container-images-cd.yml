@@ -351,7 +351,7 @@ jobs:
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker
               run: |
-                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^products/billing_alerts/|^posthog/temporal/billing_alerts|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
+                  if git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^products/billing_alerts/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/usage_report|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$|^posthog/clickhouse/migrations/'; then
                       echo "changed=true" >> $GITHUB_OUTPUT
                   else
                       echo "changed=false" >> $GITHUB_OUTPUT

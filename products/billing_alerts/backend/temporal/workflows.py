@@ -9,21 +9,22 @@ import temporalio.common
 import temporalio.workflow
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
-from posthog.temporal.billing_alerts.activities import (
+from posthog.temporal.common.base import PostHogWorkflow
+
+from products.billing_alerts.backend.temporal.activities import (
     discover_due_billing_alerts_activity,
     evaluate_billing_alert_batch_activity,
     notify_billing_alert_events_activity,
 )
-from posthog.temporal.billing_alerts.retry_policy import (
+from products.billing_alerts.backend.temporal.retry_policy import (
     BILLING_ALERT_EVALUATE_RETRY_POLICY,
     BILLING_ALERT_NOTIFY_RETRY_POLICY,
 )
-from posthog.temporal.billing_alerts.types import (
+from products.billing_alerts.backend.temporal.types import (
     BillingAlertBatchWorkflowInputs,
     EvaluateBillingAlertBatchActivityInputs,
     NotifyBillingAlertEventsActivityInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
 
 BILLING_ALERT_BATCH_SIZE = 50
 BILLING_ALERT_BATCH_EXECUTION_TIMEOUT = dt.timedelta(minutes=70)

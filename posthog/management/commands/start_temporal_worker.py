@@ -37,10 +37,6 @@ from posthog.temporal.backfill_group_type_created_at import (
     ACTIVITIES as BACKFILL_GROUP_TYPE_CREATED_AT_ACTIVITIES,
     WORKFLOWS as BACKFILL_GROUP_TYPE_CREATED_AT_WORKFLOWS,
 )
-from posthog.temporal.billing_alerts import (
-    ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
-    WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
-)
 from posthog.temporal.cleanup_property_definitions import (
     ACTIVITIES as CLEANUP_PROPDEFS_ACTIVITIES,
     WORKFLOWS as CLEANUP_PROPDEFS_WORKFLOWS,
@@ -172,6 +168,10 @@ from posthog.temporal.weekly_digest import (
 from products.batch_exports.backend.temporal import (
     ACTIVITIES as BATCH_EXPORTS_ACTIVITIES,
     WORKFLOWS as BATCH_EXPORTS_WORKFLOWS,
+)
+from products.billing_alerts.backend.temporal import (
+    ACTIVITIES as BILLING_ALERTS_ACTIVITIES,
+    WORKFLOWS as BILLING_ALERTS_WORKFLOWS,
 )
 from products.business_knowledge.backend.temporal import (
     ACTIVITIES as BUSINESS_KNOWLEDGE_ACTIVITIES,

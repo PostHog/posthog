@@ -20,7 +20,7 @@ NOW = datetime(2026, 6, 23, 12, 0, tzinfo=UTC)
 
 class TestBillingAlertNotifications(BaseTest):
     def _alert(self) -> BillingAlertConfiguration:
-        return BillingAlertConfiguration.objects.unscoped().create(
+        return BillingAlertConfiguration.objects.create(
             organization_id=self.organization.id,
             team_id=self.team.id,
             created_by_id=self.user.id,
@@ -35,7 +35,7 @@ class TestBillingAlertNotifications(BaseTest):
         alert: BillingAlertConfiguration,
         kind: str = BillingAlertEvent.Kind.FIRING,
     ) -> BillingAlertEvent:
-        return BillingAlertEvent.objects.unscoped().create(
+        return BillingAlertEvent.objects.create(
             alert=alert,
             team_id=alert.team_id,
             kind=kind,
@@ -93,7 +93,8 @@ class TestBillingAlertNotifications(BaseTest):
         destination = self._destination(alert, template_id)
 
         with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
-            dispatched = dispatch_billing_alert_event(event, now=NOW)
+            with self.captureOnCommitCallbacks(execute=True):
+                dispatched = dispatch_billing_alert_event(event, now=NOW)
 
         event.refresh_from_db()
         alert.refresh_from_db()
@@ -123,7 +124,8 @@ class TestBillingAlertNotifications(BaseTest):
         self._destination(alert, "template-slack", destination_event_kind)
 
         with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
-            assert dispatch_billing_alert_event(event, now=NOW) == 1
+            with self.captureOnCommitCallbacks(execute=True):
+                assert dispatch_billing_alert_event(event, now=NOW) == 1
 
         produced_event = produce.call_args.kwargs["event"]
         assert produced_event.event == EVENT_KIND_CONFIG[destination_event_kind].event_id
@@ -134,7 +136,8 @@ class TestBillingAlertNotifications(BaseTest):
         destination = self._destination(alert, "template-slack")
 
         with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
-            assert dispatch_billing_alert_event(event, now=NOW) == 1
+            with self.captureOnCommitCallbacks(execute=True):
+                assert dispatch_billing_alert_event(event, now=NOW) == 1
             assert dispatch_billing_alert_event(event, now=NOW) == 0
 
         assert produce.call_count == 1
@@ -145,9 +148,7 @@ class TestBillingAlertNotifications(BaseTest):
         alert = self._alert()
         event = self._event(alert)
         destination = self._destination(alert, "template-slack")
-        BillingAlertEvent.objects.unscoped().filter(id=event.id).update(
-            targets_notified={"hog_functions": [str(destination.id)]}
-        )
+        BillingAlertEvent.objects.filter(id=event.id).update(targets_notified={"hog_functions": [str(destination.id)]})
 
         with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
             assert dispatch_billing_alert_event(event, now=NOW) == 0
@@ -159,12 +160,13 @@ class TestBillingAlertNotifications(BaseTest):
         event = self._event(alert)
         self._destination(alert, "template-slack")
 
-        with patch(
-            "products.billing_alerts.backend.logic.notifications.produce_internal_event",
-            side_effect=RuntimeError("kafka unavailable"),
-        ):
-            with self.assertRaises(RuntimeError):
-                dispatch_billing_alert_event(event, now=NOW)
+        with self.assertRaises(RuntimeError):
+            with patch(
+                "products.billing_alerts.backend.logic.notifications.produce_internal_event",
+                side_effect=RuntimeError("kafka unavailable"),
+            ):
+                with self.captureOnCommitCallbacks(execute=True):
+                    dispatch_billing_alert_event(event, now=NOW)
 
         event.refresh_from_db()
         alert.refresh_from_db()

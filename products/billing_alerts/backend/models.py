@@ -9,6 +9,7 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.organization import Organization
+from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 
 MAX_FAILURES_BEFORE_BROKEN = 5
@@ -104,6 +105,12 @@ class BillingAlertConfiguration(UUIDModel):
             raise ValidationError({"check_interval_hours": "Must be at least 1."})
         if self.minimum_value < 0:
             raise ValidationError({"minimum_value": "Must be greater than or equal to 0."})
+        if self.team_id:
+            team_organization_id = (
+                Team.objects.filter(id=self.team_id).values_list("organization_id", flat=True).first()
+            )
+            if team_organization_id is not None and team_organization_id != self.organization_id:
+                raise ValidationError({"team": "Execution team must belong to the billing alert organization."})
 
         if self.threshold_type == self.ThresholdType.RELATIVE_INCREASE:
             if self.threshold_percentage is None:
