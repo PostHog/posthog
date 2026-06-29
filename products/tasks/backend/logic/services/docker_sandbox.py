@@ -721,6 +721,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
         # rewrite it the same way POSTHOG_API_URL is for Docker sandboxes.
@@ -739,6 +740,7 @@ class DockerSandbox(SandboxBase):
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
@@ -748,7 +750,7 @@ class DockerSandbox(SandboxBase):
             f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         # agentsh injects HTTP_PROXY pointing at a per-session egress proxy port; undici
@@ -798,6 +800,8 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -845,9 +849,20 @@ class DockerSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            repo_ready_file=repo_ready_file,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
+
+        if not wait_for_health:
+            result = self.execute(command, timeout_seconds=30)
+            if result.exit_code != 0:
+                raise SandboxExecutionError(
+                    "Agent-server process failed to launch",
+                    {"sandbox_id": self.id, "stderr": result.stderr, "exit_code": str(result.exit_code)},
+                    cause=RuntimeError(result.stderr or "launch command returned non-zero exit"),
+                )
+            return
 
         if self._launch_and_check(command):
             logger.info(f"Agent-server started on port {self._host_port}")
@@ -879,6 +894,7 @@ class DockerSandbox(SandboxBase):
                 allowed_domains=allowed_domains,
                 event_ingest_token=event_ingest_token,
                 event_ingest_url=event_ingest_url,
+                repo_ready_file=repo_ready_file,
             )
             if self._launch_and_check(command):
                 logger.info(f"Agent-server started on port {self._host_port} (without --baseBranch)")
@@ -892,6 +908,21 @@ class DockerSandbox(SandboxBase):
             {"sandbox_id": self.id, "log": log_result.stdout},
             cause=RuntimeError("Health check failed after retries"),
         )
+
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
+        if self._wait_for_health_check(max_attempts=240):
+            logger.info(f"Agent-server ready on port {self._host_port}")
+            return
+        log_result = self.execute("cat /tmp/agent-server.log 2>/dev/null || echo 'No log file'", timeout_seconds=5)
+        logger.warning(f"Agent-server health check failed for sandbox {self.id}. Log output:\n{log_result.stdout}")
+        raise SandboxExecutionError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, "log": log_result.stdout},
+            cause=RuntimeError("Health check failed after retries"),
+        )
+
+    def mark_repo_ready(self, repo_ready_file: str) -> None:
+        self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
         if allowed_domains is not None:
