@@ -98,6 +98,33 @@ describe('replayScannerLogic', () => {
         })
     })
 
+    describe('appendClassifierTags', () => {
+        it('merges suggested tags into the vocabulary, deduping case-insensitively and trimming', async () => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['checkout', 'pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+            await expectLogic(logic, () => {
+                logic.actions.appendClassifierTags(['Checkout', '  billing ', 'pricing', '', 'account'])
+            }).toMatchValues({
+                scanner: expect.objectContaining({
+                    scanner_config: expect.objectContaining({ tags: ['checkout', 'pricing', 'billing', 'account'] }),
+                }),
+            })
+        })
+
+        it('is a no-op for non-classifier scanners', async () => {
+            // Default scanner is a monitor — appending classifier tags must not add a tags field.
+            await expectLogic(logic, () => logic.actions.appendClassifierTags(['x'])).toMatchValues({
+                scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
+            })
+        })
+    })
+
     describe('submit intent', () => {
         it('advance intent routes to /triggers without calling the API', async () => {
             router.actions.push('/replay-vision/new/configure')

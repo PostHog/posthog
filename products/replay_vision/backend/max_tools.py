@@ -89,6 +89,28 @@ DRAFT_PROMPT_TOOL_DESCRIPTION = dedent("""
     """).strip()
 
 
+SUGGEST_CLASSIFIER_TAGS_TOOL_DESCRIPTION = dedent("""
+    Use this tool to suggest a tag vocabulary for the Replay Vision *classifier* scanner the user is
+    currently configuring, then fill the tags into their configuration form.
+
+    # When to use
+    - The user is configuring a classifier scanner and asks you to suggest, propose, or fill in relevant tags
+    - The user describes what they want to categorize and wants a starting tag vocabulary for it
+
+    # How to choose good classifier tags
+    A classifier assigns each session one or more tags from a fixed vocabulary. Good tags are:
+    - distinct categories along the single dimension the scanner's prompt describes
+    - short, lowercase, human-readable labels (e.g. "checkout", "pricing", "account_settings")
+    - collectively broad enough to cover the common cases, without overlapping each other
+    Base them on the scanner's prompt and current vocabulary. Aim for a focused set (typically 4-8 tags);
+    avoid near-duplicates and vague catch-alls like "other".
+
+    # After choosing
+    Call this tool with the finished list of tags — it adds them to the tag vocabulary in the form the user
+    is editing (existing tags are kept). Then briefly explain the categories so the user can refine them.
+    """).strip()
+
+
 SUMMARIZE_SUMMARIES_TOOL_DESCRIPTION = dedent("""
     Use this tool to reason across the per-session summaries produced by a Replay Vision *summarizer* scanner.
 
@@ -190,6 +212,59 @@ class DraftReplayVisionScannerPromptTool(MaxTool):
         return "Drafted a scanner prompt and filled it into the configuration form.", {
             "prompt": cleaned,
             "scanner_type": resolved_type if resolved_type in VALID_SCANNER_TYPES else None,
+        }
+
+    @database_sync_to_async
+    def _is_enabled(self) -> bool:
+        return is_replay_vision_enabled(self._user, self._team)
+
+
+# Hard cap on suggested tags so a runaway model can't flood the vocabulary form.
+_MAX_SUGGESTED_TAGS = 25
+
+
+class SuggestClassifierTagsArgs(BaseModel):
+    tags: list[str] = Field(
+        description="The suggested classifier tag vocabulary to fill into the configuration form — "
+        "short lowercase labels, one per category.",
+    )
+
+
+class SuggestReplayVisionClassifierTagsTool(MaxTool):
+    name: str = "suggest_replay_vision_classifier_tags"
+    description: str = SUGGEST_CLASSIFIER_TAGS_TOOL_DESCRIPTION
+    args_schema: type[BaseModel] = SuggestClassifierTagsArgs
+    context_prompt_template: str = (
+        "The user is editing the configuration for a Replay Vision classifier scanner. "
+        "Its current prompt is:\n{current_prompt}\n\nIts current tag vocabulary is: {current_tags}"
+    )
+
+    def get_required_resource_access(self) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        # Suggesting writes into the scanner's configuration form, which requires editor access.
+        return [("session_recording", "editor")]
+
+    async def _arun_impl(self, tags: list[str]) -> tuple[str, dict[str, Any]]:
+        if not await self._is_enabled():
+            return "Replay Vision is not enabled for this project.", {"error": "not_enabled"}
+
+        # Trim, drop blanks, and case-insensitively dedup while preserving the model's order, then cap.
+        seen: set[str] = set()
+        cleaned: list[str] = []
+        for tag in tags:
+            trimmed = tag.strip()
+            key = trimmed.lower()
+            if not trimmed or key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(trimmed)
+        cleaned = cleaned[:_MAX_SUGGESTED_TAGS]
+
+        if not cleaned:
+            return "No tags to apply. Please provide at least one tag.", {"error": "empty_tags"}
+
+        # Artifact is consumed by the frontend callback, which merges these into the tag vocabulary field.
+        return f"Suggested {len(cleaned)} classifier tags and filled them into the configuration form.", {
+            "tags": cleaned,
         }
 
     @database_sync_to_async

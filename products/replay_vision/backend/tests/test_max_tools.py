@@ -11,8 +11,10 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from products.replay_vision.backend.max_tools import (
+    _MAX_SUGGESTED_TAGS,
     DraftReplayVisionScannerPromptTool,
     SearchReplayVisionObservationsTool,
+    SuggestReplayVisionClassifierTagsTool,
     _ObservationFilters,
 )
 from products.replay_vision.backend.models.replay_observation import (
@@ -80,6 +82,51 @@ class TestDraftReplayVisionScannerPromptTool(BaseTest):
     async def test_gated_off_when_product_disabled(self):
         with patch(_FLAG_PATH, return_value=False):
             content, artifact = await self._tool()._arun_impl(prompt="Did checkout fail?")
+
+        assert artifact["error"] == "not_enabled"
+        assert "not enabled" in content
+
+
+class TestSuggestReplayVisionClassifierTagsTool(BaseTest):
+    def _tool(self) -> SuggestReplayVisionClassifierTagsTool:
+        config: RunnableConfig = {"configurable": {"team": self.team, "user": self.user}}
+        return SuggestReplayVisionClassifierTagsTool(team=self.team, user=self.user, config=config)
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_trims_and_dedups_tags(self):
+        with patch(_FLAG_PATH, return_value=True):
+            content, artifact = await self._tool()._arun_impl(
+                tags=["Checkout", "  pricing  ", "checkout", "", "pricing", "account"]
+            )
+
+        # Trimmed, blanks dropped, first-occurrence kept on a case-insensitive dedup.
+        assert artifact["tags"] == ["Checkout", "pricing", "account"]
+        assert "filled them into the configuration form" in content
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_caps_number_of_tags(self):
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool()._arun_impl(tags=[f"tag_{i}" for i in range(_MAX_SUGGESTED_TAGS + 10)])
+
+        assert len(artifact["tags"]) == _MAX_SUGGESTED_TAGS
+
+    @parameterized.expand([("empty_list", []), ("only_blanks", ["", "   "])])
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_rejects_when_no_usable_tags(self, _name, tags):
+        with patch(_FLAG_PATH, return_value=True):
+            _, artifact = await self._tool()._arun_impl(tags=tags)
+
+        assert artifact["error"] == "empty_tags"
+        assert "tags" not in artifact
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_gated_off_when_product_disabled(self):
+        with patch(_FLAG_PATH, return_value=False):
+            content, artifact = await self._tool()._arun_impl(tags=["checkout"])
 
         assert artifact["error"] == "not_enabled"
         assert "not enabled" in content

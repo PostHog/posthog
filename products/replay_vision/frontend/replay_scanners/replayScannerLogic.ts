@@ -220,6 +220,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
+        appendClassifierTags: (tags: string[]) => ({ tags }),
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -694,6 +695,28 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     scanner_type: scannerType,
                     scanner_config: defaultConfigForType(scannerType),
                 } as ReplayScanner)
+            },
+
+            // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
+            appendClassifierTags: ({ tags }) => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                const existing = scanner.scanner_config.tags ?? []
+                const seen = new Set(existing.map((t) => t.trim().toLowerCase()))
+                const merged = [...existing]
+                for (const tag of tags) {
+                    const trimmed = tag.trim()
+                    const key = trimmed.toLowerCase()
+                    if (key && !seen.has(key)) {
+                        seen.add(key)
+                        merged.push(trimmed)
+                    }
+                }
+                if (merged.length !== existing.length) {
+                    actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
             },
 
             // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags

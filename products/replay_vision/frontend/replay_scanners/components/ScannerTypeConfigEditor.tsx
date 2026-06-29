@@ -11,7 +11,7 @@ import { useMaxTool } from 'scenes/max/useMaxTool'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { replayScannerLogic } from '../replayScannerLogic'
-import { SummarizerScannerConfig, scannerTypeLabel } from '../types'
+import { ClassifierScannerConfig, SummarizerScannerConfig, scannerTypeLabel } from '../types'
 
 const SUMMARIZER_LENGTH_OPTIONS: { value: SummarizerScannerConfig['length']; label: string }[] = [
     { value: 'short', label: 'Short (1-2 sentences)' },
@@ -82,6 +82,69 @@ function ScannerPromptField({
     )
 }
 
+/** Tag-vocabulary field with a Max entry point that suggests relevant tags and merges them into the vocabulary. */
+function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
+    const logic = replayScannerLogic({ id: scannerId })
+    const { scanner } = useValues(logic)
+    const { appendClassifierTags } = useActions(logic)
+
+    const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
+
+    const onSuggestedTags = useCallback(
+        (toolOutput: { tags?: string[]; error?: string }) => {
+            if (!toolOutput?.error && toolOutput?.tags?.length) {
+                appendClassifierTags(toolOutput.tags)
+            }
+        },
+        [appendClassifierTags]
+    )
+
+    const { openMax } = useMaxTool({
+        identifier: 'suggest_replay_vision_classifier_tags',
+        active: !!scanner,
+        context: {
+            current_prompt: config?.prompt || '',
+            current_tags: config?.tags ?? [],
+        },
+        contextDescription: scanner
+            ? { text: `${scannerTypeLabel(scanner.scanner_type)} scanner`, icon: iconForType('session_replay') }
+            : undefined,
+        initialMaxPrompt: 'Suggest relevant tags for this classifier',
+        callback: onSuggestedTags,
+    })
+
+    return (
+        <div className="space-y-2">
+            <div className="flex items-center justify-between gap-2">
+                <label className="text-sm font-medium">Tag vocabulary</label>
+                {openMax && (
+                    <LemonButton
+                        size="xsmall"
+                        type="secondary"
+                        icon={<IconAI />}
+                        onClick={() => openMax()}
+                        data-attr="replay-vision-suggest-tags-with-ai"
+                    >
+                        Suggest tags with PostHog AI
+                    </LemonButton>
+                )}
+            </div>
+            <LemonField name="scanner_config.tags">
+                {({ value, onChange }) => (
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        placeholder="Type a tag and press enter..."
+                        value={(value as string[]) ?? []}
+                        onChange={onChange}
+                        options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
+                    />
+                )}
+            </LemonField>
+        </div>
+    )
+}
+
 export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): JSX.Element {
     const { scanner } = useValues(replayScannerLogic({ id: scannerId }))
 
@@ -137,18 +200,7 @@ export function ScannerTypeConfigEditor({ scannerId }: { scannerId: string }): J
                     scannerId={scannerId}
                     placeholder="Categorize this session by its primary user intent."
                 />
-                <LemonField name="scanner_config.tags" label="Tag vocabulary">
-                    {({ value, onChange }) => (
-                        <LemonInputSelect
-                            mode="multiple"
-                            allowCustomValues
-                            placeholder="Type a tag and press enter..."
-                            value={(value as string[]) ?? []}
-                            onChange={onChange}
-                            options={((value as string[]) ?? []).map((t) => ({ key: t, label: t }))}
-                        />
-                    )}
-                </LemonField>
+                <ClassifierTagsField scannerId={scannerId} />
                 <LemonField name="scanner_config.multi_label">
                     {({ value, onChange }) => (
                         <div className="flex items-center gap-2">
