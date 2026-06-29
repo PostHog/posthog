@@ -225,6 +225,27 @@ export const removeEmptySensitiveValues = (fields: SourceFieldConfig[], valueObj
     }
 }
 
+export const clonePayloadPreservingFiles = (value: unknown): unknown => {
+    if (value instanceof File) {
+        return value
+    }
+
+    if (Array.isArray(value)) {
+        return value.map((item) => clonePayloadPreservingFiles(item))
+    }
+
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(
+            Object.entries(value as Record<string, unknown>).map(([key, nestedValue]) => [
+                key,
+                clonePayloadPreservingFiles(nestedValue),
+            ])
+        )
+    }
+
+    return value
+}
+
 // Run a per-schema API action across many schemas; returns how many failed.
 export async function runBulkSchemaAction(
     schemas: ExternalDataSourceSchema[],
@@ -622,7 +643,7 @@ export const sourceSettingsLogic = kea<sourceSettingsLogicType>([
                 })
             },
             submit: async ({ payload = {}, description, prefix, access_method }) => {
-                const sanitizedPayload = JSON.parse(JSON.stringify(payload)) as Record<string, any>
+                const sanitizedPayload = clonePayloadPreservingFiles(payload) as Record<string, any>
                 if (values.sourceFieldConfig?.fields) {
                     removeEmptySensitiveValues(values.sourceFieldConfig.fields, sanitizedPayload)
                 }
