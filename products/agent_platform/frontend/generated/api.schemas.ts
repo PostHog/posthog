@@ -1223,6 +1223,46 @@ export interface AgentRevisionSystemPromptResponseApi {
     system_prompt: string
 }
 
+/**
+ * Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox.
+ */
+export type DryRunToolRequestApiMockSecrets = { [key: string]: string }
+
+/**
+ * Body shape for POST /revisions/<id>/tools/<tool_id>/dry_run/.
+ *
+ * Executes the persisted compiled.js once in the janitor's single-shot
+ * sandbox with caller-supplied args + a stubbed ctx. No real secrets
+ * leave Django — `mock_secrets` is a `{name → opaque nonce}` map the
+ * sandbox plumbs into `ctx.secrets.ref(name)` so the tool body returns
+ * something deterministic to the author.
+ */
+export interface DryRunToolRequestApi {
+    /** Synthetic args the tool's `actions.default` is called with. Free-form JSON; the sandbox doesn't validate against the tool's `args_schema` — that's the author's responsibility to keep in sync. */
+    args: unknown
+    /** Optional `{secret_name → placeholder_string}` map. The string is returned verbatim by `ctx.secrets.ref(name)` inside the tool. The real secret value never enters the sandbox. */
+    mock_secrets?: DryRunToolRequestApiMockSecrets
+}
+
+export interface AgentRevisionDryRunToolErrorApi {
+    /** Stable error code: `timeout`, `secret_not_provisioned`, `tool_invoke_failed`, etc. */
+    code: string
+    /** One-line human-readable detail. */
+    message: string
+}
+
+export interface AgentRevisionDryRunToolResponseApi {
+    /** True when the tool's `actions.default` returned without throwing. False when the tool threw or the sandbox rejected the invocation (the structured `error` describes which). */
+    ok: boolean
+    /** Echo of the tool id from the URL. */
+    tool_id: string
+    /** Present on success — the value the tool's `actions.default` returned. */
+    result?: unknown
+    error?: AgentRevisionDryRunToolErrorApi
+    /** Wall-clock duration of the invocation, including sandbox acquire + release. Always present. */
+    duration_ms: number
+}
+
 export interface AgentRevisionValidationErrorApi {
     code: string
     message: string

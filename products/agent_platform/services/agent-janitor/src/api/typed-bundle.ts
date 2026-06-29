@@ -23,6 +23,7 @@
  */
 
 import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 
 import {
@@ -34,15 +35,17 @@ import {
     RESOURCE_ID_REGEX,
     RevisionState,
     RevisionStore,
+    SandboxPool,
     skillBodyPath,
     skillCompanionPath,
     syncBundleToStore,
+    toolCapabilitiesPath,
     toolCompiledPath,
+    toolSchemaPath,
     TypedBundleSchema,
     TypedSkillSchema,
     TypedSpecSchema,
     TypedToolSchema,
-    toolCapabilitiesPath,
     writeToolSourceAndSchema,
 } from '@posthog/agent-shared'
 
@@ -85,7 +88,35 @@ const TypedBundlePutBodySchema = TypedBundleSchema.omit({ skills: true })
 export interface TypedBundleRouterOpts {
     revisions: RevisionStore
     bundles: BundleStore
+    /**
+     * Single-shot sandbox pool for `POST /tools/:tool_id/dry_run`. Same
+     * `selectSandboxPool` impl the runner uses; lifecycle is per-call
+     * (acquire → invoke → release) rather than per-session. Omitted →
+     * the dry-run route 503s.
+     */
+    sandboxes?: SandboxPool
+    /** Wall-clock cap per dry-run invocation (ms). Default: 10 000. */
+    dryRunWallMs?: number
+    /** Memory cap per dry-run sandbox (MB). Default: 256. */
+    dryRunMemoryMb?: number
 }
+
+const DEFAULT_DRY_RUN_WALL_MS = 10_000
+const DEFAULT_DRY_RUN_MEMORY_MB = 256
+
+const DryRunBodySchema = z.object({
+    /** Synthetic args the tool's `actions.default` is called with. */
+    args: z.unknown(),
+    /**
+     * Optional `{secret_name → opaque_nonce}` map plumbed into the
+     * sandbox the same way the runner injects nonces during a real
+     * session. The plaintext value never enters the sandbox, so the
+     * stub only needs *some* string the tool's `ctx.secrets.ref(name)`
+     * can return. Authors typically pass placeholder strings here just
+     * to confirm the tool runs without throwing `secret not provisioned`.
+     */
+    mock_secrets: z.record(z.string(), z.string()).optional(),
+})
 
 /**
  * Build the router that owns the typed-bundle endpoints. Mounted by the main
@@ -323,6 +354,129 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             }
             await deleteToolFiles(req.params.id, opts.bundles, idCheck.data)
             res.json({ ok: true, tool_id: idCheck.data })
+        })
+    )
+
+    // ─── POST /tools/:tool_id/dry_run  (single-shot sandbox execution) ──
+    //
+    // Runs the persisted compiled.js once with caller-supplied args + a
+    // stubbed ctx (mock nonces only — no real secrets ever leave Django).
+    // Per-call lifecycle (acquire → invoke → release) so we don't carry
+    // session-shaped sandbox state. May split out into `agent-exec` later
+    // if execution duties grow enough to crowd out CRUD.
+    router.post(
+        '/tools/:tool_id/dry_run',
+        asyncHandler(async (req, res) => {
+            const idCheck = ResourceIdParamSchema.safeParse(req.params.tool_id)
+            if (!idCheck.success) {
+                res.status(400).json({ error: 'invalid_resource_id', issues: idCheck.error.issues })
+                return
+            }
+            if (!opts.sandboxes) {
+                res.status(503).json({ error: 'sandbox_pool_not_configured' })
+                return
+            }
+            if (!(await assertDraft(opts, req.params.id, res))) {
+                return
+            }
+            const parsed = DryRunBodySchema.safeParse(req.body)
+            if (!parsed.success) {
+                res.status(400).json({ error: 'invalid_request', issues: parsed.error.issues })
+                return
+            }
+            const toolId = idCheck.data
+
+            // Confirm the tool exists in the bundle. We could load and pass
+            // through the sandbox, but the explicit check produces a 404
+            // instead of a cryptic `tool_not_found` runtime error.
+            const compiledPath = toolCompiledPath(toolId)
+            const compiledJs = await opts.bundles.readText(req.params.id, compiledPath).catch(() => null)
+            if (compiledJs === null) {
+                res.status(404).json({ error: 'tool_not_found', tool_id: toolId })
+                return
+            }
+            const schemaText = await opts.bundles.readText(req.params.id, toolSchemaPath(toolId)).catch(() => '{}')
+            let schemaJson: unknown = {}
+            try {
+                schemaJson = JSON.parse(schemaText)
+            } catch {
+                // Schema is informational at the sandbox boundary; carry on.
+                schemaJson = {}
+            }
+
+            // We need a teamId for the AcquireOpts contract; the dry-run is
+            // tied to the revision's owning team. Revisions don't carry
+            // team_id directly — resolve it through the parent application.
+            const rev = await opts.revisions.getRevisionRaw(req.params.id)
+            if (!rev) {
+                res.status(404).json({ error: 'revision_not_found' })
+                return
+            }
+            const app = await opts.revisions.getApplication(rev.application_id)
+            if (!app) {
+                res.status(404).json({ error: 'application_not_found' })
+                return
+            }
+
+            const wallMs = opts.dryRunWallMs ?? DEFAULT_DRY_RUN_WALL_MS
+            const memoryMb = opts.dryRunMemoryMb ?? DEFAULT_DRY_RUN_MEMORY_MB
+            const sessionId = `dry-run-${randomUUID()}`
+            const startedAt = Date.now()
+
+            try {
+                const sandbox = await opts.sandboxes.acquireForSession({
+                    sessionId,
+                    teamId: app.team_id,
+                    tools: [
+                        {
+                            id: toolId,
+                            compiledJs,
+                            schemaJson,
+                        },
+                    ],
+                    nonces: parsed.data.mock_secrets ?? {},
+                    sessionTimeoutMs: wallMs,
+                    limits: { wallMs, memoryMb },
+                })
+                try {
+                    const invokeResult = await sandbox.invoke({
+                        toolId,
+                        action: 'default',
+                        args: parsed.data.args,
+                        timeoutMs: wallMs,
+                    })
+                    const durationMs = Date.now() - startedAt
+                    if (invokeResult.ok) {
+                        res.json({
+                            ok: true,
+                            tool_id: toolId,
+                            result: invokeResult.result,
+                            duration_ms: durationMs,
+                        })
+                    } else {
+                        res.json({
+                            ok: false,
+                            tool_id: toolId,
+                            error: invokeResult.error,
+                            duration_ms: durationMs,
+                        })
+                    }
+                } finally {
+                    await opts.sandboxes.release(sessionId).catch(() => {
+                        // Sandbox release is best-effort cleanup; the sweep
+                        // reaper catches anything we miss. Don't let a slow
+                        // release surface as a request failure.
+                    })
+                }
+            } catch (err) {
+                const durationMs = Date.now() - startedAt
+                res.status(500).json({
+                    ok: false,
+                    tool_id: toolId,
+                    error: { code: 'sandbox_invoke_failed', message: (err as Error).message },
+                    duration_ms: durationMs,
+                })
+            }
         })
     )
 
