@@ -820,12 +820,40 @@ class TestRedshiftSourceNonRetryableErrors:
         [
             "Source column type changed",
             "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
+            'connection failed: connection to server at "10.0.0.1", port 5439 failed: server does not support SSL, but SSL was required',
         ],
     )
     def test_widened_integer_column_errors_are_non_retryable(self, error_msg):
         non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
+
+
+class TestRedshiftValidateCredentials:
+    def test_server_without_ssl_returns_friendly_error_without_capturing(self, mocker):
+        # We always connect with sslmode=require, so a server that doesn't support SSL is a
+        # host/port misconfiguration on the customer's side — surface guidance, don't report it.
+        config = _make_config()
+        source = RedshiftSource()
+        mocker.patch.object(source, "ssh_tunnel_is_valid", return_value=(True, None))
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        mocker.patch.object(
+            source,
+            "get_schemas",
+            side_effect=psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
+                "server does not support SSL, but SSL was required"
+            ),
+        )
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source.capture_exception"
+        )
+
+        ok, error = source.validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert error is not None and "does not support SSL" in error
+        capture.assert_not_called()
 
 
 class TestRedshiftSourceForPipeline:
