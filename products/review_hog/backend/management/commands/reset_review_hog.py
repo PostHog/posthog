@@ -4,7 +4,7 @@ Postgres is the single source of truth for a review (there is no on-disk store),
 command is the entire "clean state" story while iterating: it deletes every `ReviewReportArtefact`
 (findings, verdicts, commit snapshots, and the `chunk_set` / `chunk_analysis` / `perspective_result`
 working state the DB-driven resume reads back), every `ReviewReport`, and every
-`ReviewPerspectiveConfig` (per-user perspective enablement) — across all teams. Wiping the configs
+`ReviewSkillConfig` (per-user review-skill enablement) — across all teams. Wiping the configs
 resets every user to the default 3 canonical perspectives, re-seeded on their next run.
 
 Local iteration helper only — refuses to run unless `DEBUG=True`.
@@ -15,12 +15,12 @@ from typing import Any
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
-from products.review_hog.backend.models import ReviewPerspectiveConfig, ReviewReport, ReviewReportArtefact
+from products.review_hog.backend.models import ReviewReport, ReviewReportArtefact, ReviewSkillConfig
 
 
 class Command(BaseCommand):
     help = (
-        "Wipe all ReviewHog DB state (every ReviewReport + ReviewReportArtefact + ReviewPerspectiveConfig, "
+        "Wipe all ReviewHog DB state (every ReviewReport + ReviewReportArtefact + ReviewSkillConfig, "
         "across all teams). DEBUG only."
     )
 
@@ -47,7 +47,7 @@ class Command(BaseCommand):
         # managers would otherwise raise without a team context (CLAUDE.md cross-team escape hatch).
         artefacts = ReviewReportArtefact.objects.unscoped()
         reports = ReviewReport.objects.unscoped()
-        configs = ReviewPerspectiveConfig.objects.unscoped()
+        configs = ReviewSkillConfig.objects.unscoped()
         artefact_count = artefacts.count()
         report_count = reports.count()
         config_count = configs.count()
@@ -58,7 +58,7 @@ class Command(BaseCommand):
 
         summary = (
             f"{report_count} ReviewReport(s), {artefact_count} ReviewReportArtefact(s), "
-            f"and {config_count} ReviewPerspectiveConfig(s)"
+            f"and {config_count} ReviewSkillConfig(s)"
         )
 
         if dry_run:
