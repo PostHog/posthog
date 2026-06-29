@@ -11,7 +11,7 @@ export POSTHOG_TELEMETRY_OPT_OUT=1
 
 # lint-staged ignores deleted files, so guard historical Django migration
 # deletions directly. Runs before the flox branch below, which exec's away.
-.github/scripts/check-no-deleted-migrations.sh --staged || exit 1
+python3 .github/scripts/check_no_deleted_migrations.py --staged || exit 1
 
 # Activate Flox environment if available and not already active
 # This ensures lint-staged commands work in GUI Git clients (GitHub Desktop, etc.)

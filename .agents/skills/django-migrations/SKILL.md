@@ -16,7 +16,7 @@ If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
 
 ## Never delete a migration file
 
-Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNNN_*.py` already on master, even an app's `0001_initial.py`, even to "undo" a schema change — is not.** Deleting the file undoes nothing: the table and its constraints stay in every database where the migration ran, fresh databases never recreate them, and the "Migration Risk Analysis" CI job re-flags the file as a phantom new migration on every open PR that predates the deletion. A pre-commit hook and the `check-deleted-migrations` CI job (`.github/scripts/check-no-deleted-migrations.sh`) block this. Genuinely intentional, reviewed deletions — a product/app move, a revert, a squash — are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`, never by disabling the guard.
+Adding migrations is fine. **Deleting a historical one — any `*/migrations/NNNN_*.py` already on master, even an app's `0001_initial.py`, even to "undo" a schema change — is not.** Deleting the file undoes nothing: the table and its constraints stay in every database where the migration ran, fresh databases never recreate them, and the "Migration Risk Analysis" CI job re-flags the file as a phantom new migration on every open PR that predates the deletion. A pre-commit hook and the `check-deleted-migrations` CI job (`.github/scripts/check_no_deleted_migrations.py`) block this. Genuinely intentional, reviewed deletions — a product/app move, a revert, a squash — are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`, never by disabling the guard.
 
 **If a task asks you to delete a migration file, stop and flag it instead.**
 

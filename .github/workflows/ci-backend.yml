@@ -1031,7 +1031,7 @@ jobs:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   sparse-checkout: |
-                      .github/scripts/check-no-deleted-migrations.sh
+                      .github/scripts/check_no_deleted_migrations.py
                       .github/scripts/migration-deletion-allowlist.txt
                   sparse-checkout-cone-mode: false
             - name: Fail if a historical migration file was deleted
@@ -1057,7 +1057,7 @@ jobs:
                       echo "::warning::gh api attempt ${attempt} failed; retrying" >&2
                       sleep $((attempt * 5))
                   done
-                  printf '%s\n' "$removed" | .github/scripts/check-no-deleted-migrations.sh --stdin
+                  printf '%s\n' "$removed" | python3 .github/scripts/check_no_deleted_migrations.py --stdin
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline

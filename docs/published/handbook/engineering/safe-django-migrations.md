@@ -212,7 +212,7 @@ class Migration(migrations.Migration):
 
 Removing a product (`products/<name>/`) is the phased table drop above — once per model — plus app teardown. It is **not** a folder delete.
 
-**Do not "remove" a table by deleting its migration file.** A pre-commit hook and the `check-deleted-migrations` CI job (`.github/scripts/check-no-deleted-migrations.sh`) block deleting any migration that exists on master; genuinely intentional, reviewed deletions (a product move, a revert, a squash) are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`. Deleting the file drops nothing:
+**Do not "remove" a table by deleting its migration file.** A pre-commit hook and the `check-deleted-migrations` CI job (`.github/scripts/check_no_deleted_migrations.py`) block deleting any migration that exists on master; genuinely intentional, reviewed deletions (a product move, a revert, a squash) are acknowledged in `.github/scripts/migration-deletion-allowlist.txt`. Deleting the file drops nothing:
 
 - The table and its FK constraints stay in every database where the migration already ran.
 - The `django_migrations` rows linger as orphans — harmless (Django ignores migrations for apps not in `INSTALLED_APPS`) but never cleaned up.
