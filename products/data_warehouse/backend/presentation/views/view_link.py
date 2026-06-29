@@ -207,7 +207,11 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
         serializer.is_valid(raise_exception=True)
 
         join = DataWarehouseJoin(**request.data)
-        database = serializer._database(self.team_id)
+        # is_valid() builds and caches the database via the serializer's lazy fallback;
+        # fall back to an explicit build to stay correct if that ever stops happening.
+        database = serializer.context.get("database") or Database.create_for(
+            team_id=self.team_id, user=cast(User, request.user)
+        )
 
         source_table_name = serializer.validated_data["source_table_name"]
         source_table = database.get_table(source_table_name)
