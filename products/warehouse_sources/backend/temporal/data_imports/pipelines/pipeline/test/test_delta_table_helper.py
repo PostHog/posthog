@@ -437,6 +437,47 @@ class TestIncrementalBatchDeduplication:
         assert final.column("name").to_pylist() == ["second_copy"]
 
 
+class TestSchemaMismatchFallbackPreservesPartitioning:
+    """The SchemaMismatchError fallback must preserve the table's partitioning layout.
+
+    Previously the fallback retried with partition_by=None, leaving the partition key as
+    a plain data column while partition_columns=[] in metadata. Subsequent writes that
+    derived partitioning from column presence then failed with:
+        "Specified table partitioning does not match table partitioning"
+    """
+
+    @pytest.mark.asyncio
+    async def test_schema_mismatch_fallback_keeps_partitioning(self, tmp_path: Path) -> None:
+        delta_path = str(tmp_path / "table")
+
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table({"id": pa.array([1]), PARTITION_KEY: pa.array(["p0"])}),
+            partition_by=PARTITION_KEY,
+        )
+        dt = deltalake.DeltaTable(delta_path)
+        assert dt.metadata().partition_columns == [PARTITION_KEY]
+
+        helper = _make_local_helper(delta_path)
+
+        batch = pa.table(
+            {
+                "id": pa.array([2]),
+                "new_col": pa.array(["x"]),
+                PARTITION_KEY: pa.array(["p0"]),
+            }
+        )
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type="full_refresh",
+            should_overwrite_table=True,
+            primary_keys=None,
+        )
+
+        assert result.metadata().partition_columns == [PARTITION_KEY]
+
+
 class TestRealignDecimalBuffers:
     """delta-rs aborts the worker on 8-byte-aligned Decimal128 buffers; we realign them
     to pyarrow's 64-byte allocator before any Delta write. See delta-io/delta-rs#3884."""

@@ -423,7 +423,7 @@ class DeltaTableHelper:
                     _write_deltalake,
                     delta_table,
                     data,
-                    partition_by=None,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
                     mode=mode,
                     schema_mode="overwrite",
                     commit_properties=commit_properties,
