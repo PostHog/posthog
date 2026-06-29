@@ -39,8 +39,6 @@ from products.data_warehouse.backend.facade.sources import (
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
-)
-from products.data_warehouse.backend.direct_snowflake import (
     DIRECT_SNOWFLAKE_CATALOG_OPTION,
     DIRECT_SNOWFLAKE_SCHEMA_OPTION,
     DIRECT_SNOWFLAKE_TABLE_OPTION,

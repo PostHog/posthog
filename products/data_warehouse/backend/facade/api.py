@@ -63,6 +63,7 @@ _LAZY = {
     "get_postgres_source_location": "postgres_helpers",
     "reconcile_postgres_schemas": "postgres_helpers",
     "reproject_direct_postgres_table": "postgres_helpers",
+    "reconcile_snowflake_schemas": "snowflake_helpers",
     "HogQLQueryFixerTool": "hogql_fixer_ai",
     "hide_direct_mysql_table": "direct_mysql",
     "upsert_direct_mysql_table": "direct_mysql",

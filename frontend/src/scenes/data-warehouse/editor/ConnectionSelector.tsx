@@ -111,7 +111,6 @@ function toLemonSelectOption(option: ConnectionSelectOption): LemonSelectOption<
     return {
         value: option.value as string,
         label: option.label,
-        disabled: option.disabled,
         icon,
         sideAction: option.managementUrl
             ? {
