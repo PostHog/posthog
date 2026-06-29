@@ -80,6 +80,10 @@ class DuckgresBatchConsumerAdapter:
     executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
+    # Advisory locks are session-scoped: the lock acquired during fetch_and_lock
+    # must be verified/released on the same connection, so groups share the poll
+    # connection. Migrating duckgres to leases is tracked separately.
+    per_group_connections: bool = False
 
     def __init__(self) -> None:
         self._team_ids: list[int] | None = None
