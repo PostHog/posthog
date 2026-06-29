@@ -265,7 +265,15 @@ const CohortPropertyFilter = z.object({
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
 
 const RecordingPropertyFilter = z.object({
-    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
+    key: z.union([
+        DurationType,
+        z.literal('snapshot_source'),
+        z.literal('visited_page'),
+        z.literal('comment_text'),
+        z.literal('click_count'),
+        z.literal('keypress_count'),
+        z.literal('mouse_activity_count'),
+    ]),
     label: z.string().optional(),
     operator: PropertyOperator,
     type: z.literal('recording').default('recording'),
