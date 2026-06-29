@@ -409,7 +409,7 @@ class BigCommerceSourceConfig(config.Config):
 
 @config.config
 class BigMailerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

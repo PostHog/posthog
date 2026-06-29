@@ -59,6 +59,7 @@ the row lists both.
 | azure_devops      | HTTP                        | requests                                                        | ✅                          |
 | bamboohr          | HTTP                        | requests                                                        | ✅                          |
 | beamer            | HTTP                        | requests                                                        | ✅                          |
+| bigmailer         | HTTP                        | requests                                                        | ✅                          |
 | bigquery          | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads          | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | braintree         | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -307,7 +308,6 @@ doesn't conflict with concurrent PRs.
 - babelforce
 - basecamp
 - bigcommerce
-- bigmailer
 - bitly
 - blogger
 - bluetally
