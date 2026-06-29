@@ -661,6 +661,19 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("not both", str(response.content))
 
+    @parameterized.expand(
+        [
+            ("distinct_ids_dict", {"distinct_ids": {"0": "anonymous_id"}}),
+            ("ids_dict", {"ids": {"0": str(uuid4())}}),
+            ("distinct_ids_string", {"distinct_ids": "anonymous_id"}),
+            ("ids_string", {"ids": str(uuid4())}),
+        ]
+    )
+    def test_bulk_delete_rejects_non_list_values(self, _name, payload):
+        """A malformed body (non-list ids/distinct_ids) must return 400, not a 500"""
+        response = self.client.post(f"/api/person/bulk_delete/", payload)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_bulk_delete_no_matching_persons(self):
         response = self.client.post(
             f"/api/person/bulk_delete/",
