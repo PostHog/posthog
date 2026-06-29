@@ -63,6 +63,10 @@
             "id": "@posthog/memory-write"
         },
         {
+            "kind": "native",
+            "id": "@posthog/web-search"
+        },
+        {
             "kind": "client",
             "id": "focus_tab",
             "description": "Open one of the agent detail tabs in the read panel: overview, configuration, connections, sessions, memory. Use BEFORE a corresponding read so the user's panel transitions in parallel. ALWAYS pass `slug` \u2014 `focus_*` calls never infer the target agent from the user's current page (the user navigates while you're thinking; relying on URL state silently misroutes). Returns { focused: true } or { focused: false, reason } if follow-mode is off; `unhandled_client_tool` / `client_tool_timeout` outside PostHog Code \u2014 degrade to text.",

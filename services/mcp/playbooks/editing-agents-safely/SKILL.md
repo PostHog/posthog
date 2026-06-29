@@ -59,7 +59,7 @@ Choose the right verb:
 | `posthog__agent-applications-revisions-spec-update`         | Replace the whole `spec` at once (a large rewrite)                                                        | Easy — overwrites the spec                 |
 | `posthog__agent-applications-revisions-agent-md-update`     | Overwrite `agent.md` (the system prompt)                                                                  | Easy — re-write                            |
 | `posthog__llm-skills-search` / `posthog__llm-skills-create` | Find or author a skill in the llma-skill store                                                            | Easy — the store keeps every version       |
-| `posthog__agent-applications-revisions-skill-refs-update`      | Set which store skills the draft pins (`skill_refs`)                                                      | Easy — re-set the list; nothing is deleted |
+| `posthog__agent-applications-revisions-skill-refs-update`   | Set which store skills the draft pins (`skill_refs`)                                                      | Easy — re-set the list; nothing is deleted |
 | `posthog__agent-applications-revisions-tools-update`        | Upsert one custom tool (source + schema)                                                                  | Easy — re-write                            |
 | `posthog__agent-applications-revisions-tools-destroy`       | Delete one custom tool                                                                                    | **Hard** — content gone unless you have it |
 

@@ -184,15 +184,15 @@ provider + scopes.
 The authoring surface is **typed resources, not file paths**. You
 never write a path; you upsert a typed object via one of these calls:
 
-| Resource       | Tool                                                    | Body shape                                             |
-| -------------- | ------------------------------------------------------- | ------------------------------------------------------ |
-| System prompt  | `posthog__agent-applications-revisions-agent-md-update` | `{ content }`                                          |
-| Spec           | `posthog__agent-applications-revisions-partial-update`  | `{ spec }` (author-facing slice — no skills/tools)     |
-| Author a skill | `posthog__llm-skills-create`                            | `{ name, description, body, files? }` (in the store)   |
-| Find skills    | `posthog__llm-skills-search`                            | `{ search? }`                                          |
-| Pin skills     | `posthog__agent-applications-revisions-skill-refs-update`  | `{ skill_refs: [{ from_template, alias, version? }] }` |
-| One tool       | `posthog__agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`                 |
-| Delete tool    | `posthog__agent-applications-revisions-tools-destroy`   | (no body)                                              |
+| Resource       | Tool                                                      | Body shape                                             |
+| -------------- | --------------------------------------------------------- | ------------------------------------------------------ |
+| System prompt  | `posthog__agent-applications-revisions-agent-md-update`   | `{ content }`                                          |
+| Spec           | `posthog__agent-applications-revisions-partial-update`    | `{ spec }` (author-facing slice — no skills/tools)     |
+| Author a skill | `posthog__llm-skills-create`                              | `{ name, description, body, files? }` (in the store)   |
+| Find skills    | `posthog__llm-skills-search`                              | `{ search? }`                                          |
+| Pin skills     | `posthog__agent-applications-revisions-skill-refs-update` | `{ skill_refs: [{ from_template, alias, version? }] }` |
+| One tool       | `posthog__agent-applications-revisions-tools-update`      | `{ description, args_schema, source }`                 |
+| Delete tool    | `posthog__agent-applications-revisions-tools-destroy`     | (no body)                                              |
 
 **`spec.skills[]` and `spec.tools[]` are server-derived at freeze.**
 You can't write them via `partial-update`. The janitor scans the typed

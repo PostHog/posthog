@@ -190,6 +190,22 @@ class JanitorUpstreamError(APIException):
                 if parts:
                     joined = "; ".join(parts)
                     msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
+            # Zod-validation rejects (typed-bundle PUTs: spec/agent_md/skill_refs/
+            # tools) -> issues=[{message, path:[...]}] with `error=invalid_request`.
+            # Surface `message [path]` so the caller sees the offending field, not
+            # just the opaque code.
+            issues = e.body.get("issues")
+            if isinstance(issues, list) and issues:
+                issue_parts: list[str] = []
+                for iss in issues:
+                    if not isinstance(iss, dict) or not isinstance(iss.get("message"), str):
+                        continue
+                    path = iss.get("path")
+                    loc = ".".join(str(p) for p in path) if isinstance(path, list) and path else ""
+                    issue_parts.append(f"{iss['message']} [{loc}]" if loc else iss["message"])
+                if issue_parts:
+                    joined = "; ".join(issue_parts)
+                    msg = f"{msg}: {joined}" if isinstance(msg, str) else joined
             detail_str: str = msg if isinstance(msg, str) else json.dumps(e.body)
         elif isinstance(e.body, str):
             detail_str = e.body
@@ -571,6 +587,7 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         "list",
         "retrieve",
         "models",
+        "spec_schema",
         "sessions_list",
         "sessions_retrieve",
         "session_logs",
