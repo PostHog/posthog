@@ -268,3 +268,20 @@ class InvestigationResult:
     evidence: InvestigationEvidence
     confidence: str  # "high" | "medium" | "low"
     narrative: str
+
+
+@dataclass(frozen=True, slots=True)
+class IncidentContext:
+    """Structured context from a fired alert (or a manual "this looks wrong"),
+    so an investigation never has to parse a timestamp out of prose. `fired_at`
+    is an explicit UTC instant; the anomaly window is derived as
+    [fired_at - lookback, fired_at + leadout], and `service_name` scopes the
+    investigation to the implicated service.
+    """
+
+    metric_name: str
+    fired_at: dt.datetime
+    lookback: dt.timedelta = dt.timedelta(minutes=15)
+    leadout: dt.timedelta = dt.timedelta(minutes=15)
+    service_name: str | None = None
+    companions: tuple[CompanionMetric, ...] = ()
