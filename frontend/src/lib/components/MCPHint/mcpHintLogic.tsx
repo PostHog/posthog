@@ -8,8 +8,6 @@ import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -54,8 +52,6 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             ['featureFlags'],
             sidePanelStateLogic,
             ['sidePanelOpen', 'selectedTab'],
-            sceneLogic,
-            ['sceneId'],
         ],
         actions: [userLogic, ['updateUser'], eventUsageLogic, ['reportMCPHintShown', 'reportMCPHintDismissed']],
     })),
@@ -122,12 +118,14 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             (localOptOut: boolean, user: UserType | null): boolean => Boolean(localOptOut || user?.hide_mcp_hints),
         ],
         userRole: [(s) => [s.user], (user: UserType | null): string | null => user?.role_at_organization ?? null],
-        // Whether the in-product Max AI chat is currently visible — either pinned in the side panel
-        // (the floating Max button also opens it here) or the full-screen Max scene.
+        // Whether the in-product Max AI chat is currently visible. We only check the side panel (the
+        // floating Max button opens it here too): hints fire from product scenes after an action, and
+        // those scenes are never the full-screen Max scene — so checking it would add nothing while
+        // pulling sceneLogic into a circular import.
         isMaxOpen: [
-            (s) => [s.sidePanelOpen, s.selectedTab, s.sceneId],
-            (sidePanelOpen: boolean, selectedTab: SidePanelTab | null, sceneId: string | null): boolean =>
-                (sidePanelOpen && selectedTab === SidePanelTab.Max) || sceneId === Scene.Max,
+            (s) => [s.sidePanelOpen, s.selectedTab],
+            (sidePanelOpen: boolean, selectedTab: SidePanelTab | null): boolean =>
+                sidePanelOpen && selectedTab === SidePanelTab.Max,
         ],
     }),
     listeners(({ values, actions }) => ({
