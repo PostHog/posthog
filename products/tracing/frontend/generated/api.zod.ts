@@ -743,3 +743,52 @@ export const TracingSpansTreeCreateBody = /* @__PURE__ */ zod.object({
         })
         .describe('The span call-tree aggregation query to execute.'),
 })
+
+export const tracingViewsCreateBodyNameMax = 400
+
+export const TracingViewsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingViewsCreateBodyNameMax)
+        .describe('Human-readable name shown in the saved views list.'),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.'
+        ),
+    pinned: zod.boolean().optional().describe('Whether the view is pinned for quick access.'),
+})
+
+export const tracingViewsUpdateBodyNameMax = 400
+
+export const TracingViewsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingViewsUpdateBodyNameMax)
+        .describe('Human-readable name shown in the saved views list.'),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.'
+        ),
+    pinned: zod.boolean().optional().describe('Whether the view is pinned for quick access.'),
+})
+
+export const tracingViewsPartialUpdateBodyNameMax = 400
+
+export const TracingViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(tracingViewsPartialUpdateBodyNameMax)
+        .optional()
+        .describe('Human-readable name shown in the saved views list.'),
+    filters: zod
+        .record(zod.string(), zod.unknown())
+        .optional()
+        .describe(
+            'Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.'
+        ),
+    pinned: zod.boolean().optional().describe('Whether the view is pinned for quick access.'),
+})
