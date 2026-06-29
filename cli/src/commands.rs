@@ -5,6 +5,7 @@ use clap::{Parser, Subcommand};
 use tracing::{debug, error, warn};
 
 use crate::{
+    agents::AgentsCommand,
     api_proxy,
     download::SymbolSetsSubcommand,
     dsym::DsymSubcommand,
@@ -25,6 +26,11 @@ pub struct Cli {
     /// Disable non-zero exit codes on errors. Use with caution.
     #[arg(long, default_value = "false")]
     no_fail: bool,
+
+    /// Enable experimental commands (currently `agents`). Pass before the subcommand
+    /// (`posthog-cli --experimental agents ...`) or set `POSTHOG_CLI_EXPERIMENTAL`.
+    #[arg(long, env = "POSTHOG_CLI_EXPERIMENTAL", default_value = "false")]
+    experimental: bool,
 
     /// Skip SSL certificate verification when talking to the PostHog API. Use only with
     /// self-signed certificates.
@@ -119,6 +125,12 @@ pub enum Commands {
     Exp {
         #[command(subcommand)]
         cmd: ExpCommand,
+    },
+
+    #[command(hide = true, about = "Deploy + sync code-level agents (experimental)")]
+    Agents {
+        #[command(subcommand)]
+        cmd: AgentsCommand,
     },
 
     #[command(about = "Upload a directory of bundled chunks to PostHog")]
@@ -266,6 +278,13 @@ impl Cli {
     }
 
     fn run_impl(self) -> Result<(), CapturedError> {
+        if matches!(self.command, Commands::Agents { .. }) && !self.experimental {
+            return Err(anyhow::anyhow!(
+                "`agents` is experimental — re-run with --experimental (or POSTHOG_CLI_EXPERIMENTAL=1)"
+            )
+            .into());
+        }
+
         if self.dry_run {
             if let Some(kind) = dry_run_skipped_command(&self.command) {
                 warn!(
@@ -413,6 +432,9 @@ impl Cli {
                     }
                 },
             },
+            Commands::Agents { cmd } => {
+                cmd.run()?;
+            }
         }
 
         if INVOCATION_CONTEXT.get().is_some() {
@@ -567,6 +589,28 @@ mod tests {
             &dry_run_args,
             |_| false
         ));
+    }
+
+    #[test]
+    fn agents_is_off_by_default_and_gated_behind_experimental() {
+        // Without the flag, `experimental` parses false — run_impl gates on this.
+        let cli = Cli::try_parse_from(["posthog-cli", "agents", "list", "dir"]).unwrap();
+        assert!(!cli.experimental);
+        assert!(matches!(cli.command, Commands::Agents { .. }));
+
+        // The flag must precede the subcommand (it is not a clap global).
+        let cli = Cli::try_parse_from(["posthog-cli", "--experimental", "agents", "list", "dir"])
+            .unwrap();
+        assert!(cli.experimental);
+    }
+
+    #[test]
+    fn agents_deploy_dry_run_is_independent_of_top_level_flag() {
+        // `agents deploy --dry-run` sets only the subcommand preview flag, like `exp endpoints`.
+        let cli =
+            Cli::try_parse_from(["posthog-cli", "agents", "deploy", "dir", "--dry-run"]).unwrap();
+        assert!(!cli.dry_run);
+        assert_eq!(dry_run_skipped_command(&cli.command), None);
     }
 
     #[test]

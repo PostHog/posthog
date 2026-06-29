@@ -230,6 +230,10 @@ impl PHClient {
         &self.config.env_id
     }
 
+    pub fn get_host(&self) -> &String {
+        &self.config.host
+    }
+
     fn create_request(&self, method: Method, url: Url) -> RequestBuilder {
         let headers = self.build_headers();
         debug!("building request for {method} {url}");

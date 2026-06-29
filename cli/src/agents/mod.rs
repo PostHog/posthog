@@ -26,6 +26,8 @@ use serde_json::{json, Map, Value};
 use sha2::{Digest, Sha256};
 use walkdir::WalkDir;
 
+use crate::invocation_context::context;
+
 pub use deploy::deploy_agents;
 pub use list::list_agents;
 pub use pull::pull_agents;
@@ -44,6 +46,32 @@ pub(crate) fn debug_error<E: std::fmt::Display>(debug: bool, error: &E) {
     if debug {
         eprintln!("  {} {}", "Error:".red(), error);
     }
+}
+
+// ── platform reads (shared by deploy + pull) ─────────────────────────────────
+
+/// GET a project-scoped path and parse the JSON body. Non-2xx is already an Err.
+pub(crate) fn get_json(path: &str, debug: bool) -> Result<Value> {
+    let client = &context().client;
+    debug_request(debug, "GET", path);
+    let resp = client
+        .send_get(client.project_url(path)?, |req| req)
+        .inspect_err(|e| debug_error(debug, e))?;
+    resp.json()
+        .with_context(|| format!("parsing response for {path}"))
+}
+
+/// The application id whose slug matches, or None if no such application exists.
+pub(crate) fn find_application(slug: &str, debug: bool) -> Result<Option<String>> {
+    let payload = get_json("agent_applications/", debug).context("listing applications")?;
+    let Some(results) = payload.get("results").and_then(Value::as_array) else {
+        return Ok(None);
+    };
+    Ok(results
+        .iter()
+        .find(|a| a.get("slug").and_then(Value::as_str) == Some(slug))
+        .and_then(|a| a.get("id").and_then(Value::as_str))
+        .map(str::to_string))
 }
 
 // ── command surface ──────────────────────────────────────────────────────────
@@ -174,11 +202,18 @@ pub fn select_bundles(bundles: &[PathBuf], selectors: &[String]) -> Result<Vec<P
     for sel in selectors {
         let matches: Vec<&PathBuf> = bundles
             .iter()
-            .filter(|b| slug_of(b).map(|s| s == *sel || s.contains(sel)).unwrap_or(false))
+            .filter(|b| {
+                slug_of(b)
+                    .map(|s| s == *sel || s.contains(sel))
+                    .unwrap_or(false)
+            })
             .collect();
         if matches.is_empty() {
             let known: Vec<String> = bundles.iter().filter_map(|b| slug_of(b)).collect();
-            anyhow::bail!("no bundle matches selector \"{sel}\"; known: {}", known.join(", "));
+            anyhow::bail!(
+                "no bundle matches selector \"{sel}\"; known: {}",
+                known.join(", ")
+            );
         }
         for m in matches {
             if !chosen.contains(m) {
@@ -197,14 +232,16 @@ pub fn slug_of(root: &Path) -> Option<String> {
 pub fn load_bundle(root: &Path) -> Result<LoadedBundle> {
     let slug = slug_of(root).context("bundle has no directory name")?;
     let spec: Value = serde_json::from_str(
-        &std::fs::read_to_string(root.join("spec.json")).with_context(|| format!("reading spec.json for {slug}"))?,
+        &std::fs::read_to_string(root.join("spec.json"))
+            .with_context(|| format!("reading spec.json for {slug}"))?,
     )
     .with_context(|| format!("parsing spec.json for {slug}"))?;
 
     let mut files: HashMap<String, String> = HashMap::new();
     files.insert(
         "agent.md".to_string(),
-        std::fs::read_to_string(root.join("agent.md")).with_context(|| format!("reading agent.md for {slug}"))?,
+        std::fs::read_to_string(root.join("agent.md"))
+            .with_context(|| format!("reading agent.md for {slug}"))?,
     );
 
     let skills_dir = root.join("skills");
@@ -309,15 +346,24 @@ pub fn posthog_mcp_url_for_host(host: &str) -> String {
 /// Apply local-dev overrides to a clone of the spec: per-trigger auth modes and
 /// MCP URL rewrites. Production deploys pass no overrides (the spec is untouched
 /// except the region MCP rewrite for `posthog`-authed MCPs).
-pub fn apply_spec_overrides(raw: &Value, host: &str, auth_mode: Option<&str>, mcp_url: Option<&str>) -> Result<Value> {
+pub fn apply_spec_overrides(
+    raw: &Value,
+    host: &str,
+    auth_mode: Option<&str>,
+    mcp_url: Option<&str>,
+) -> Result<Value> {
     let mut spec = raw.clone();
 
     let auth_override: Option<Value> = match auth_mode {
         None => None,
         Some("shared_secret") => {
-            anyhow::bail!("--auth-mode shared_secret needs a header/secret_ref; use the bundle's modes")
+            anyhow::bail!(
+                "--auth-mode shared_secret needs a header/secret_ref; use the bundle's modes"
+            )
         }
-        Some("public") => Some(json!({ "modes": [{ "type": "public", "acknowledge_public_exposure": true }] })),
+        Some("public") => {
+            Some(json!({ "modes": [{ "type": "public", "acknowledge_public_exposure": true }] }))
+        }
         Some(other) => Some(json!({ "modes": [{ "type": other }] })),
     };
     if let Some(triggers) = spec.get_mut("triggers").and_then(Value::as_array_mut) {
@@ -326,12 +372,17 @@ pub fn apply_spec_overrides(raw: &Value, host: &str, auth_mode: Option<&str>, mc
                 .get("type")
                 .and_then(Value::as_str)
                 .is_some_and(|ty| DECLARATIVE_TRIGGERS.contains(&ty));
-            let Some(obj) = t.as_object_mut() else { continue };
+            let Some(obj) = t.as_object_mut() else {
+                continue;
+            };
             if is_declarative {
                 if let Some(o) = &auth_override {
                     obj.insert("auth".to_string(), o.clone());
                 } else if !obj.contains_key("auth") {
-                    obj.insert("auth".to_string(), json!({ "modes": [{ "type": "posthog_internal" }] }));
+                    obj.insert(
+                        "auth".to_string(),
+                        json!({ "modes": [{ "type": "posthog_internal" }] }),
+                    );
                 }
             } else {
                 obj.remove("auth");
@@ -342,9 +393,14 @@ pub fn apply_spec_overrides(raw: &Value, host: &str, auth_mode: Option<&str>, mc
     let region_mcp = posthog_mcp_url_for_host(host);
     if let Some(mcps) = spec.get_mut("mcps").and_then(Value::as_array_mut) {
         for m in mcps.iter_mut() {
-            let provider_is_posthog =
-                m.get("auth").and_then(|a| a.get("provider")).and_then(Value::as_str) == Some("posthog");
-            let Some(obj) = m.as_object_mut() else { continue };
+            let provider_is_posthog = m
+                .get("auth")
+                .and_then(|a| a.get("provider"))
+                .and_then(Value::as_str)
+                == Some("posthog");
+            let Some(obj) = m.as_object_mut() else {
+                continue;
+            };
             if let Some(url) = mcp_url {
                 obj.insert("url".to_string(), json!(url));
             } else if provider_is_posthog {
