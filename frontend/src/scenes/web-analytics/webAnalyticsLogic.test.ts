@@ -353,12 +353,7 @@ describe('webAnalyticsLogic URL restoration', () => {
         ['geography_tab', { geography_tab: 'MAP' }, () => logic.values._geographyTab, 'MAP'],
         ['active_hours_tab', { active_hours_tab: 'UNIQUE' }, () => logic.values._activeHoursTab, 'UNIQUE'],
         ['path_cleaning', { path_cleaning: 'false' }, () => logic.values._isPathCleaningEnabled, false],
-        [
-            'filter_test_accounts',
-            { filter_test_accounts: 'true' },
-            () => logic.values.shouldFilterTestAccounts,
-            true,
-        ],
+        ['filter_test_accounts', { filter_test_accounts: 'true' }, () => logic.values.shouldFilterTestAccounts, true],
         ['include_host_path', { include_host_path: 'true' }, () => logic.values.includeHostPath, true],
         ['percentile', { percentile: 'p99' }, () => logic.values.webVitalsPercentile, 'p99'],
         // domain and device_type are owned by the connected webAnalyticsFilterLogic, so these also lock
@@ -406,7 +401,8 @@ describe('webAnalyticsLogic URL restoration', () => {
         router.actions.push('/web/bots')
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(router.values.location.pathname).toBe('/web')
+        // The pathname is project-prefixed in tests (e.g. /project/997/web); assert we left the bots route.
+        expect(router.values.location.pathname.endsWith('/web')).toBe(true)
     })
 
     it('defaults the bots tab to the last day when the URL carries no date', async () => {
@@ -421,12 +417,13 @@ describe('webAnalyticsLogic URL restoration', () => {
         expect(logic.values.dateFilter.dateFrom).toBe('-1d')
     })
 
-    it.each<[string, () => void, string, string]>([
+    // kea-router parses search values, so booleans round-trip as booleans (include_host_path -> true).
+    it.each<[string, () => void, string, unknown]>([
         ['setDeviceTab', () => logic.actions.setDeviceTab('BROWSER'), 'device_tab', 'BROWSER'],
         ['setSourceTab', () => logic.actions.setSourceTab('REFERRING_DOMAIN'), 'source_tab', 'REFERRING_DOMAIN'],
         ['setPathTab', () => logic.actions.setPathTab('INITIAL_PATH'), 'path_tab', 'INITIAL_PATH'],
         ['setGeographyTab', () => logic.actions.setGeographyTab('MAP'), 'geography_tab', 'MAP'],
-        ['setIncludeHostPath', () => logic.actions.setIncludeHostPath(true), 'include_host_path', 'true'],
+        ['setIncludeHostPath', () => logic.actions.setIncludeHostPath(true), 'include_host_path', true],
     ])('mirrors %s back into the URL via actionToUrl', async (_name, act, key, expected) => {
         act()
         await expectLogic(logic).toFinishAllListeners()
