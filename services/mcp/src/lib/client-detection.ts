@@ -88,6 +88,11 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // Poke is an LLM-driven assistant that renders text, not MCP Apps UI, so it
     // wants the same single-exec mode as the coding agents.
     'poke',
+    // Grok (xAI) — both Grok Build (the terminal coding agent) and the grok.com
+    // assistant connect custom MCP servers and render text rather than MCP Apps
+    // UI, so they benefit from the same single-exec mode and formatted-text
+    // rendering as the other coding agents.
+    'grok',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
