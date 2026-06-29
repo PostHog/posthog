@@ -28,7 +28,7 @@ from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
-from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY
+from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, _job_should_retry
 from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
@@ -117,7 +117,10 @@ _BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
 
 
 def _query_job_should_retry(exc: Exception) -> bool:
-    return _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or DEFAULT_JOB_RETRY._predicate(exc)
+    # Defer to the library's own default predicate for the reasons it already covers; importing it
+    # directly (rather than reading the private `Retry._predicate`) means a library rename fails
+    # loudly at import instead of silently dropping that default coverage.
+    return _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _job_should_retry(exc)
 
 
 BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
