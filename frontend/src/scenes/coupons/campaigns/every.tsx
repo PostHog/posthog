@@ -56,7 +56,6 @@ export const everyCampaign: CampaignConfig = {
     ],
     eligibilityCriteria: [
         'Active EVERY Goodie Bag annual subscriber',
-        'Organization admin or owner in PostHog',
         'Active paid subscription to PostHog',
         `Organizations with a paid PostHog invoice before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} qualify only for credits toward PostHog's AI products`,
     ],
