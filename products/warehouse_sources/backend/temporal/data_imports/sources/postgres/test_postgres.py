@@ -1114,6 +1114,18 @@ class TestIsConnectionLimitError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 'FATAL:  too many connections for role "reader"'
             ),
+            # Supabase/Supavisor session-mode pooler saturation — the pooler is momentarily out of
+            # client slots and recovers as connections free up, so the in-process reconnect must
+            # retry it rather than escape and fail the whole sync. Both observed wordings share the
+            # stable "max clients reached" phrase; the pool_size/code prefix is volatile.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL: MaxClientsInSessionMode: max clients reached"
+            ),
         ],
     )
     def test_connection_limit_errors_are_detected(self, error):

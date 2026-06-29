@@ -208,16 +208,21 @@ _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
 # clients already" once max_connections is reached, "remaining connection slots are reserved for
 # roles with the SUPERUSER attribute" once only the superuser_reserved_connections slots remain,
-# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. All three are
-# transient capacity conditions on the customer's database — a slot frees the moment another
-# connection closes — so a fresh connect after a short backoff usually succeeds. Retried in-process
-# on the read/sync connect path (see `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`);
-# kept retryable and intentionally NOT added to `get_non_retryable_errors` for the same reason as
-# pooler saturation (see source.py).
+# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. Supabase's
+# Supavisor session-mode pooler reports its own client-slot exhaustion as "(EMAXCONNSESSION) max
+# clients reached in session mode" (and the older "MaxClientsInSessionMode: max clients reached") —
+# every client slot the pooler exposes is in use, so it refuses the new connection until one frees.
+# All are transient capacity conditions on the customer's database/pooler — a slot frees the moment
+# another connection closes — so a fresh connect after a short backoff usually succeeds. Retried
+# in-process on the read/sync connect path (see `_is_dropped_or_connect_timeout` /
+# `_connect_with_dropped_retry`); kept retryable and intentionally NOT added to
+# `get_non_retryable_errors` for the same reason (see source.py). The volatile pool_size number and
+# the "(EMAXCONNSESSION)" code prefix are excluded — match the stable "max clients reached" phrase.
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
+    "max clients reached",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
