@@ -96,8 +96,12 @@ class JobLogsEmitter:
             emitted += 1
         return emitted
 
-    def flush(self, timeout_millis: int = 5000) -> None:
-        self._provider.force_flush(timeout_millis=timeout_millis)
+    def flush(self, timeout_millis: int = 5000) -> bool:
+        # A timed-out flush drops buffered records at the SDK level — surface it, don't report success.
+        flushed = self._provider.force_flush(timeout_millis=timeout_millis)
+        if not flushed:
+            logger.warning("github_ci_logs_flush_timeout", timeout_millis=timeout_millis)
+        return flushed
 
     def __enter__(self) -> "JobLogsEmitter":
         return self

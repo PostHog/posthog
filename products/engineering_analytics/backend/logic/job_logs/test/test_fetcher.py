@@ -35,3 +35,21 @@ def test_raises_on_unexpected_error(requests_mock):
     requests_mock.get(_URL, status_code=500, text="boom")
     with pytest.raises(requests.HTTPError):
         fetch_job_log("PostHog/posthog", 123, "tok")
+
+
+@pytest.mark.parametrize(
+    "bad_repo",
+    [
+        "PostHog/posthog/contents/secret?ref=main",  # extra path + query steers to another endpoint
+        "../../other/repo",  # traversal
+        "PostHog/posthog#frag",
+        "owner",  # no slash
+        "owner/repo/extra",  # too many segments
+    ],
+)
+def test_rejects_unsafe_repo_path(requests_mock, bad_repo):
+    # repo is team-writable; a crafted value must be rejected before the authenticated request is
+    # built, so it can't fetch a different GitHub endpoint with the installation token.
+    with pytest.raises(ValueError):
+        fetch_job_log(bad_repo, 123, "tok")
+    assert not requests_mock.called

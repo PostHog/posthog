@@ -25,6 +25,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models.integration import _is_safe_github_repo_path
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -39,6 +40,9 @@ logger = structlog.get_logger(__name__)
 # re-scanning without a separate "already fetched" store.
 DEFAULT_LOOKBACK = timedelta(hours=2)
 _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards the table identifier
+# Cap total jobs returned per tick — the activity hands them back as one Temporal payload (~2 MiB
+# limit), so an incident across many sources mustn't return an unbounded list.
+MAX_DISCOVERED_JOBS = 2000
 
 
 def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[str, Any]]:
@@ -62,6 +66,25 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
+def _github_source_params(source: ExternalDataSource) -> tuple[int, str] | None:
+    """``(integration_id, repo)`` from a GitHub source's job_inputs, or None if unusable.
+
+    job_inputs is team-writable, so guard its shape: a non-dict ``auth_method`` or a repo that isn't a
+    plain ``owner/repo`` (which would steer the authenticated fetch elsewhere) yields None, not a crash.
+    """
+    job_inputs = source.job_inputs or {}
+    auth_method = job_inputs.get("auth_method")
+    auth = auth_method if isinstance(auth_method, dict) else {}
+    integration_id = auth.get("github_integration_id")
+    repo = job_inputs.get("repository")
+    if not integration_id or not isinstance(repo, str) or not _is_safe_github_repo_path(repo):
+        return None
+    try:
+        return int(integration_id), repo
+    except (TypeError, ValueError):
+        return None
+
+
 def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     sources = (
@@ -70,33 +93,39 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         .select_related("team")
     )
     for source in sources.iterator():
-        auth = (source.job_inputs or {}).get("auth_method") or {}
-        integration_id = auth.get("github_integration_id")
-        repo = (source.job_inputs or {}).get("repository")
+        params = _github_source_params(source)
         prefix = source.prefix or ""
-        if not integration_id or not repo or not _PREFIX.match(prefix):
+        if params is None or not _PREFIX.match(prefix):
             continue
+        integration_id, repo = params
         try:
-            rows = _query_failed_jobs(source.team, prefix, cutoff_iso)
+            # Row handling stays inside the try so a single bad row (e.g. a null job_id) skips this
+            # source rather than failing discovery for every team.
+            for row in _query_failed_jobs(source.team, prefix, cutoff_iso):
+                job_id = row.get("job_id")
+                if job_id is None:
+                    continue
+                found.append(
+                    dataclasses.asdict(
+                        FetchJobLogInputs(
+                            team_id=source.team_id,
+                            integration_id=integration_id,
+                            repo=repo,
+                            job_id=int(job_id),
+                            run_id=row.get("run_id"),
+                            branch=row.get("branch"),
+                            conclusion=row.get("conclusion"),
+                        )
+                    )
+                )
+                if len(found) >= MAX_DISCOVERED_JOBS:
+                    logger.warning("github_job_logs_discovery_capped", cap=MAX_DISCOVERED_JOBS)
+                    return found
         except Exception:
             # A source whose jobs table isn't synced (most teams don't enable the workflow_jobs
             # schema) or a transient query error shouldn't fail the whole sweep — skip it.
             logger.warning("github_job_logs_discovery_skipped_source", source_id=str(source.id), exc_info=True)
             continue
-        for row in rows:
-            found.append(
-                dataclasses.asdict(
-                    FetchJobLogInputs(
-                        team_id=source.team_id,
-                        integration_id=int(integration_id),
-                        repo=repo,
-                        job_id=int(row["job_id"]),
-                        run_id=row.get("run_id"),
-                        branch=row.get("branch"),
-                        conclusion=row.get("conclusion"),
-                    )
-                )
-            )
     return found
 
 
