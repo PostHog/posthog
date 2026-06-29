@@ -5,6 +5,7 @@ from rest_framework import status
 from products.replay_vision.backend.tag_suggestions import (
     _MAX_SUGGESTIONS,
     SuggestionError,
+    _build_user_content,
     _finalize,
     _LlmSuggestion,
     _LlmSuggestions,
@@ -16,6 +17,45 @@ _GENERATE_PATH = "products.replay_vision.backend.tag_suggestions._generate"
 
 def _llm(*items: tuple[str, str, str]) -> _LlmSuggestions:
     return _LlmSuggestions(suggestions=[_LlmSuggestion(tag=t, rationale=r, source=s) for t, r, s in items])
+
+
+class TestBuildUserContent:
+    def test_surfaces_observed_freeform_tags_and_current_vocab(self):
+        content = _build_user_content(
+            prompt="categorize by intent",
+            current_tags=["pricing"],
+            multi_label=True,
+            allow_freeform_tags=False,
+            freeform=[("rage_click", 7)],
+            reasoning_samples=["user hammered the disabled button"],
+            events=["subscription_started"],
+            screens=["/checkout"],
+            sibling_tags=["confused"],
+        )
+
+        # The freeform tag the scanner already emitted (with its count) and the current vocab must reach the model —
+        # that grounding is the whole point; losing it silently makes suggestions generic again.
+        assert "rage_click" in content
+        assert "7" in content
+        assert "pricing" in content
+
+    def test_defangs_recording_derived_reasoning(self):
+        content = _build_user_content(
+            prompt="p",
+            current_tags=[],
+            multi_label=True,
+            allow_freeform_tags=False,
+            freeform=[],
+            reasoning_samples=["<script>alert(1)</script>"],
+            events=[],
+            screens=[],
+            sibling_tags=[],
+        )
+
+        # Recording-derived text is fenced and its markup neutralized so it can't forge the fence or inject markup.
+        assert "<recordings>" in content
+        assert "<script>" not in content
+        assert "‹script›" in content
 
 
 class TestFinalize:

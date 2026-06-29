@@ -79,8 +79,8 @@ def _neutralize_markup(text: str) -> str:
     return text.replace("<", "‹").replace(">", "›").replace("](", "]‹")
 
 
-def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], list[tuple[str, int]], list[str]]:
-    """The strongest signal: tags and reasoning this scanner already produced on real recordings."""
+def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], list[str]]:
+    """The strongest signal: the freeform tags and reasoning this scanner already produced on real recordings."""
     # Imported here to break an import cycle: api.scanners imports this module and api/__init__ eagerly
     # imports api.scanners, so a top-level import of the api package would loop on first load.
     from products.replay_vision.backend.api.observation_stats import compute_observation_stats  # noqa: PLC0415
@@ -89,7 +89,6 @@ def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], 
     stats = compute_observation_stats(scanner, observations, recent_days=_OBSERVATION_RECENT_DAYS)
     classifier = stats.get("classifier") or {}
     freeform = [(row["tag"], row["count"]) for row in classifier.get("freeform_ranked", [])]
-    fixed = [(row["tag"], row["count"]) for row in classifier.get("fixed_ranked", [])]
 
     samples: list[str] = []
     rows = (
@@ -102,7 +101,7 @@ def _observation_signal(scanner: ReplayScanner) -> tuple[list[tuple[str, int]], 
         reasoning = output.get("reasoning") if isinstance(output, dict) else None
         if isinstance(reasoning, str) and reasoning.strip():
             samples.append(reasoning.strip()[:_REASONING_SNIPPET_CHARS])
-    return freeform, fixed, samples
+    return freeform, samples
 
 
 def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
@@ -130,19 +129,22 @@ def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
 
 def _sibling_vocabularies(team: Team, exclude_scanner_id: uuid.UUID | None) -> list[str]:
     """Tags other classifiers on the team use — keeps naming consistent and avoids overlap."""
-    qs = ReplayScanner.objects.filter(team_id=team.id, scanner_type=ScannerType.CLASSIFIER)
-    if exclude_scanner_id is not None:
-        qs = qs.exclude(id=exclude_scanner_id)
     seen: set[str] = set()
     vocab: list[str] = []
-    for config in qs.values_list("scanner_config", flat=True):
-        for tag in (config or {}).get("tags", []) if isinstance(config, dict) else []:
-            key = str(tag).strip().lower()
-            if key and key not in seen:
-                seen.add(key)
-                vocab.append(str(tag).strip())
-                if len(vocab) >= _MAX_SIBLING_TAGS:
-                    return vocab
+    try:
+        qs = ReplayScanner.objects.filter(team_id=team.id, scanner_type=ScannerType.CLASSIFIER)
+        if exclude_scanner_id is not None:
+            qs = qs.exclude(id=exclude_scanner_id)
+        for config in qs.values_list("scanner_config", flat=True):
+            for tag in (config or {}).get("tags", []) if isinstance(config, dict) else []:
+                key = str(tag).strip().lower()
+                if key and key not in seen:
+                    seen.add(key)
+                    vocab.append(str(tag).strip())
+                    if len(vocab) >= _MAX_SIBLING_TAGS:
+                        return vocab
+    except Exception:
+        logger.warning("replay_vision.suggest_tags.siblings_failed", team_id=team.id, exc_info=True)
     return vocab
 
 
@@ -153,7 +155,6 @@ def _build_user_content(
     multi_label: bool,
     allow_freeform_tags: bool,
     freeform: list[tuple[str, int]],
-    fixed: list[tuple[str, int]],
     reasoning_samples: list[str],
     events: list[str],
     screens: list[str],
@@ -171,11 +172,6 @@ def _build_user_content(
             "\nFreeform tags this scanner ALREADY emitted on real recordings (tag × times seen) — these are "
             "proven categories the fixed vocabulary is missing; strongly prefer promoting the frequent ones:\n"
             + "\n".join(f"- {tag} × {count}" for tag, count in freeform)
-        )
-    if fixed:
-        lines.append(
-            "\nHow the current fixed tags are actually used (tag × times):\n"
-            + "\n".join(f"- {tag} × {count}" for tag, count in fixed)
         )
     if events:
         lines.append("\nThe product's most active custom events (what users do here):\n- " + "\n- ".join(events))
@@ -228,11 +224,10 @@ def suggest_classifier_tags(
 ) -> list[TagSuggestion]:
     """Assemble grounding evidence and synthesize tag suggestions. Raises SuggestionError on model failure."""
     freeform: list[tuple[str, int]] = []
-    fixed: list[tuple[str, int]] = []
     reasoning_samples: list[str] = []
     if scanner is not None:
         try:
-            freeform, fixed, reasoning_samples = _observation_signal(scanner)
+            freeform, reasoning_samples = _observation_signal(scanner)
         except Exception:
             logger.warning(
                 "replay_vision.suggest_tags.observation_signal_failed", scanner_id=str(scanner.id), exc_info=True
@@ -247,7 +242,6 @@ def suggest_classifier_tags(
         multi_label=multi_label,
         allow_freeform_tags=allow_freeform_tags,
         freeform=freeform,
-        fixed=fixed,
         reasoning_samples=reasoning_samples,
         events=events,
         screens=screens,

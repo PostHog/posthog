@@ -516,6 +516,7 @@ class SuggestTagsRequestSerializer(serializers.Serializer):
         child=serializers.CharField(max_length=200),
         required=False,
         default=list,
+        max_length=200,
         help_text="The current tag vocabulary, so suggestions never duplicate a tag the user already has.",
     )
     multi_label = serializers.BooleanField(
