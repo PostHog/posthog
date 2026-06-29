@@ -2,17 +2,21 @@
 
 Reads a configured view via HogQL, matches each row to an account by external_id, and writes the
 selected column as that account's custom property value (through set_custom_property_value).
-Persisting the outcome and auto-disabling sources is the caller's (facade/Temporal) concern.
-Called by facade/api.py.
+`run_custom_property_sync` is the entrypoint the Celery task calls: it runs the sync and persists
+the outcome (success/failure, auto-disable) onto the sources.
 """
 
 import dataclasses
 from typing import Any
 from uuid import UUID
 
+from django.db import transaction
+from django.utils import timezone
+
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
 from products.customer_analytics.backend.logic.custom_property_values import (
@@ -23,6 +27,10 @@ from products.customer_analytics.backend.logic.custom_property_values import (
 from products.customer_analytics.backend.models import Account, CustomPropertySource
 
 _WRITE_CONFLICT_RETRIES = 3
+
+# Mirrors data_modeling's CONSECUTIVE_TIMEOUTS_TO_PAUSE: auto-disable a source that keeps failing.
+MAX_CONSECUTIVE_SYNC_FAILURES = 5
+_MAX_ERROR_LENGTH = 500
 
 
 @dataclasses.dataclass
@@ -111,3 +119,60 @@ def _read_view(team: Team, view_name: str, columns: list[str]) -> list:
         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
     )
     return execute_hogql_query(query, team=team).results or []
+
+
+def record_sync_outcome(
+    *,
+    team_id: int,
+    saved_query_id: str | UUID,
+    view_found: bool = True,
+    run_failed: bool = False,
+    run_error: str | None = None,
+    source_errors: dict[str, str] | None = None,
+) -> None:
+    """Persist a sync run's outcome onto every enabled source for the view.
+
+    Clean success resets the failure streak; a missing view disables immediately; a whole-run
+    failure or a per-source column error increments the streak and auto-disables at the cap.
+    """
+    source_errors = source_errors or {}
+    sources = CustomPropertySource.objects.for_team(team_id).filter(saved_query_id=saved_query_id, is_enabled=True)
+    now = timezone.now()
+    with transaction.atomic():
+        for source in sources:
+            source.last_synced_at = now
+            if not view_found:
+                source.last_sync_error = "View not found"
+                source.is_enabled = False
+            elif run_failed or str(source.id) in source_errors:
+                error = run_error if run_failed else source_errors[str(source.id)]
+                source.last_sync_error = (error or "Sync failed")[:_MAX_ERROR_LENGTH]
+                source.consecutive_failures += 1
+                if source.consecutive_failures >= MAX_CONSECUTIVE_SYNC_FAILURES:
+                    source.is_enabled = False
+            else:
+                source.last_sync_error = None
+                source.consecutive_failures = 0
+            source.save()
+
+
+def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> SyncResult:
+    """Run one sync and persist its outcome. The Celery task's entrypoint.
+
+    On a hard failure the outcome is recorded (so the failure streak/auto-disable still advance)
+    and the error is captured, then re-raised so the run shows as failed.
+    """
+    try:
+        result = sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id)
+    except Exception as e:
+        record_sync_outcome(team_id=team_id, saved_query_id=saved_query_id, run_failed=True, run_error=str(e))
+        capture_exception(e)
+        raise
+
+    record_sync_outcome(
+        team_id=team_id,
+        saved_query_id=saved_query_id,
+        view_found=result.view_found,
+        source_errors=result.source_errors,
+    )
+    return result
