@@ -18,6 +18,10 @@ class ReviewPRWorkflowInputs:
     `publish` is the per-run gate that replaces the old global `PUBLISH_REVIEW_ENABLED`: the cloud
     label trigger sets it true (post the review back to the PR); the eval CLI defaults it false.
     Defaults to false so any caller that forgets it cannot accidentally post to GitHub.
+
+    `acting_user_id` overrides whose enabled perspectives drive the review. The cloud trigger leaves
+    it None (the workflow resolves the PR author after fetch, and skips the review if the author isn't
+    a PostHog org user); the eval CLI sets it explicitly to test a known user's perspectives.
     """
 
     team_id: int
@@ -27,6 +31,7 @@ class ReviewPRWorkflowInputs:
     repo: str
     pr_number: int
     publish: bool = False
+    acting_user_id: int | None = None
 
     @property
     def repository(self) -> str:

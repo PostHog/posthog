@@ -30,7 +30,9 @@ logger = logging.getLogger(__name__)
 _PARENT_RETRY = RetryPolicy(maximum_attempts=2)
 
 
-def _build_inputs(*, pr_url: str, team_id: int, user_id: int, publish: bool) -> tuple[ReviewPRWorkflowInputs, str]:
+def _build_inputs(
+    *, pr_url: str, team_id: int, user_id: int, publish: bool, acting_user_id: int | None
+) -> tuple[ReviewPRWorkflowInputs, str]:
     """Parse the PR URL, validate the team, and build the workflow inputs + deterministic id.
 
     `owner` / `repo` / `pr_number` are parsed here so the workflow stays free of the GitHub-URL
@@ -41,19 +43,32 @@ def _build_inputs(*, pr_url: str, team_id: int, user_id: int, publish: bool) -> 
     Team.objects.get(id=team_id)  # fail fast if the team doesn't exist
 
     inputs = ReviewPRWorkflowInputs(
-        team_id=team_id, user_id=user_id, pr_url=pr_url, owner=owner, repo=repo, pr_number=pr_number, publish=publish
+        team_id=team_id,
+        user_id=user_id,
+        pr_url=pr_url,
+        owner=owner,
+        repo=repo,
+        pr_number=pr_number,
+        publish=publish,
+        acting_user_id=acting_user_id,
     )
     workflow_id = review_pr_workflow_id(team_id=team_id, owner=owner, repo=repo, pr_number=pr_number)
     return inputs, workflow_id
 
 
-def execute_review_pr_workflow(*, pr_url: str, team_id: int, user_id: int, publish: bool = False) -> str:
+def execute_review_pr_workflow(
+    *, pr_url: str, team_id: int, user_id: int, publish: bool = False, acting_user_id: int | None = None
+) -> str:
     """Start `ReviewPRWorkflow`, block until it completes, and return the `ReviewReport` id.
 
     `team_id` / `user_id` are explicit identity (the team the review persists under; the user the
     sandbox tasks run as). `publish` defaults off so a CLI run never posts unless asked.
+    `acting_user_id` pins whose enabled perspectives drive the review (the eval passes the run user
+    so it doesn't depend on the PR author being a PostHog user).
     """
-    inputs, workflow_id = _build_inputs(pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish)
+    inputs, workflow_id = _build_inputs(
+        pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish, acting_user_id=acting_user_id
+    )
 
     # `sync_connect` is @async_to_sync, so call it from sync code (outside any running loop); the
     # blocking workflow execution then runs inside `asyncio.run`.
@@ -74,18 +89,24 @@ def execute_review_pr_workflow(*, pr_url: str, team_id: int, user_id: int, publi
     )
 
 
-def start_review_pr_workflow(*, pr_url: str, team_id: int, user_id: int, publish: bool) -> str:
+def start_review_pr_workflow(
+    *, pr_url: str, team_id: int, user_id: int, publish: bool, acting_user_id: int | None = None
+) -> str:
     """Start `ReviewPRWorkflow` without blocking and return the workflow id.
 
     For the production label trigger: the request thread returns immediately while the review runs
     in the worker. `publish` is required (the caller decides explicitly). Safe to call from a
     synchronous DRF action — `sync_connect()` is `@async_to_sync` and the start is wrapped likewise.
+    `acting_user_id` defaults None so the workflow resolves the PR author itself (the trigger has not
+    fetched the PR, so it cannot know the author).
 
     Re-triggering the same PR while a review is in flight (e.g. a push fires `synchronize`) joins the
     running workflow via `USE_EXISTING` rather than raising `WorkflowAlreadyStartedError` — so the
     endpoint never 500s on a normal push. (Re-reviewing a mid-flight new head is the loop's job.)
     """
-    inputs, workflow_id = _build_inputs(pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish)
+    inputs, workflow_id = _build_inputs(
+        pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish, acting_user_id=acting_user_id
+    )
 
     client = sync_connect()
     logger.info(f"Starting ReviewPRWorkflow {workflow_id} on {settings.VIDEO_EXPORT_TASK_QUEUE} (publish={publish})")
