@@ -1,5 +1,12 @@
 //! Run compiled cohort-filter bytecode through `hogvm::sync_execute`, coercing the result to the
 //! boolean Stage 1 needs (matching the Node consumer's `execResult?.result ?? false`).
+//!
+//! The hot path reuses one [`CohortEvaluator`] across an event's whole condition fan-out: the STL
+//! context and the event globals are set once, and only the program is swapped per condition, so the
+//! ~⅔ of per-evaluation CPU that used to go to rebuilding the [`ExecutionContext`] and deep-cloning
+//! the globals is paid once per event instead of once per condition.
+
+use std::sync::Arc;
 
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use metrics::counter;
@@ -8,11 +15,8 @@ use tracing::debug;
 
 use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
 
-/// HogVM `RETURN` opcode. See [`evaluate_detailed`] for why it is appended to every program.
-const OP_RETURN: i64 = 38;
-
-/// The classified outcome of evaluating one program; [`evaluate`] collapses this to a `bool` but
-/// the variants preserve *why* a non-match happened.
+/// The classified outcome of evaluating one program; [`CohortEvaluator::evaluate`] collapses this to
+/// a `bool` but the variants preserve *why* a non-match happened.
 #[derive(Debug)]
 pub enum EvalOutcome {
     Matched(bool),
@@ -21,43 +25,91 @@ pub enum EvalOutcome {
     VmError(VmError),
 }
 
-/// Evaluate `bytecode` against `globals`, returning the detailed [`EvalOutcome`].
+/// A reusable evaluator owning one [`ExecutionContext`]. Globals are set once per event (shared by
+/// every condition), and the program is swapped per condition — both in place, so the STL tables and
+/// the globals tree are built/parsed once per event rather than once per condition.
 ///
-/// Cohort bytecode ends with its root comparison op and no `RETURN`. The Rust VM treats running
-/// off the end as `EndOfProgram`; appending a `RETURN` recovers the Python/Node semantic. A
-/// program already ending in `RETURN` finishes first, so the append is safe for both shapes.
-pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
-    let mut with_return = Vec::with_capacity(bytecode.len() + 1);
-    with_return.extend_from_slice(bytecode);
-    with_return.push(Value::from(OP_RETURN));
+/// Coercing comparisons (cross-type ordering + epoch temporal ordering/equality) match the
+/// Python/TS/ClickHouse reference; this is opt-in, so other `hogvm` consumers (e.g. cymbal) keep
+/// strict comparisons.
+pub struct CohortEvaluator {
+    context: ExecutionContext,
+}
 
-    // PERF: `with_defaults` rebuilds the full STL (~26 closures + 2 HashMaps + the hog module
-    // symbol table) on every call — once per conditionHash per event. Reuse is blocked by the
-    // shared `hogvm` API: `NativeFunction` is `Box<dyn Fn>` (not `Clone`), `ExecutionContext`
-    // owns its tables, and there is no program setter, so a thread_local context can't swap
-    // programs in place without a shared-crate change. `with_globals` also takes ownership, so
-    // the full globals JSON is cloned per condition. Flamegraph before optimizing.
-    let program = match Program::new(with_return) {
-        Ok(program) => program,
-        Err(error) => return classify_failure(error),
-    };
-    // Coercing comparisons (cross-type ordering + epoch temporal ordering/equality) match the
-    // Python/TS/ClickHouse reference. Opt in here only — other consumers (e.g. cymbal) keep
-    // strict comparisons.
-    let context = ExecutionContext::with_defaults(program)
-        .with_globals(globals)
-        .with_coercing_comparisons();
+impl Default for CohortEvaluator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
-    match sync_execute(&context, false) {
+impl CohortEvaluator {
+    pub fn new() -> Self {
+        // A bare header is a valid program; `set_program` replaces it before the first evaluation,
+        // so the seed is never executed. `with_defaults` is now an `Arc` bump of the static STL.
+        let seed = Program::new(vec![Value::from("_H"), Value::from(1)])
+            .expect("a bare bytecode header is a valid program");
+        let context = ExecutionContext::with_defaults(seed).with_coercing_comparisons();
+        Self { context }
+    }
+
+    /// Move `globals` into the reused context (no clone). Every subsequent `evaluate*` reads it until
+    /// the next call. Globals are a pure function of the event, so one call serves a whole event's
+    /// condition fan-out.
+    pub fn set_globals(&mut self, globals: Value) {
+        self.context.set_globals(globals);
+    }
+
+    /// Evaluate one condition's bytecode against the current globals, coercing failures and non-bool
+    /// results to `false` and emitting a per-class metric so a silently-failing cohort stays
+    /// observable. `bytecode` must be `RETURN`-terminated (the loader appends it).
+    pub fn evaluate(&mut self, bytecode: Arc<Vec<Value>>) -> bool {
+        outcome_to_bool(self.evaluate_detailed(bytecode))
+    }
+
+    /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`].
+    pub fn evaluate_detailed(&mut self, bytecode: Arc<Vec<Value>>) -> EvalOutcome {
+        // `from_shared` clones the `Arc`, not the opcode vector, so swapping programs is a refcount
+        // bump rather than a per-condition copy.
+        let program = match Program::from_shared(bytecode) {
+            Ok(program) => program,
+            Err(error) => return classify_failure(error),
+        };
+        self.context.set_program(program);
+        run(&self.context)
+    }
+}
+
+/// Run `context` to completion, collapsing the VM result to an [`EvalOutcome`]. `unwrap_or(false)`
+/// mirrors the Node `?? false` coercion of a non-bool result.
+fn run(context: &ExecutionContext) -> EvalOutcome {
+    match sync_execute(context, false) {
         Ok(result) => EvalOutcome::Matched(result.as_bool().unwrap_or(false)),
         Err(failure) => classify_failure(failure.error),
     }
 }
 
-/// Hot-path wrapper: coerces failures and non-bool results to `false`, emitting a per-class metric
-/// so a silently-failing cohort stays observable.
+/// One-shot evaluation building a fresh context. Retained for the parity test and any single-shot
+/// caller; the hot path uses [`CohortEvaluator`] to avoid the per-condition context rebuild.
+/// `bytecode` must already be `RETURN`-terminated, exactly as the catalog loader leaves it.
+pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
+    let program = match Program::new(bytecode.to_vec()) {
+        Ok(program) => program,
+        Err(error) => return classify_failure(error),
+    };
+    let context = ExecutionContext::with_defaults(program)
+        .with_globals(globals)
+        .with_coercing_comparisons();
+    run(&context)
+}
+
+/// One-shot `bool` wrapper over [`evaluate_detailed`].
 pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
-    match evaluate_detailed(bytecode, globals) {
+    outcome_to_bool(evaluate_detailed(bytecode, globals))
+}
+
+/// Collapse an [`EvalOutcome`] to `bool`, emitting a per-class metric on failure.
+fn outcome_to_bool(outcome: EvalOutcome) -> bool {
+    match outcome {
         EvalOutcome::Matched(matched) => matched,
         EvalOutcome::UnknownFunction(name) => {
             // `name` is bytecode-derived from user cohort filters; keep it out of the metric label
@@ -98,6 +150,9 @@ mod tests {
     const OP_FALSE: i64 = 30;
     const OP_INTEGER: i64 = 33;
     const OP_STRING: i64 = 32;
+    // The loader (`bytecode_array`) appends this; the single-shot `evaluate*` helpers no longer do,
+    // so these fixtures terminate explicitly, mirroring the bytecode the catalog actually holds.
+    const OP_RETURN: i64 = 38;
 
     fn header() -> Vec<Value> {
         vec![json!("_H"), json!(1)]
@@ -105,7 +160,7 @@ mod tests {
 
     #[test]
     fn true_literal_coerces_to_true() {
-        let bc = [header(), vec![json!(OP_TRUE)]].concat();
+        let bc = [header(), vec![json!(OP_TRUE), json!(OP_RETURN)]].concat();
         assert!(matches!(
             evaluate_detailed(&bc, json!({})),
             EvalOutcome::Matched(true)
@@ -114,7 +169,7 @@ mod tests {
 
     #[test]
     fn false_literal_coerces_to_false() {
-        let bc = [header(), vec![json!(OP_FALSE)]].concat();
+        let bc = [header(), vec![json!(OP_FALSE), json!(OP_RETURN)]].concat();
         assert!(matches!(
             evaluate_detailed(&bc, json!({})),
             EvalOutcome::Matched(false)
@@ -123,7 +178,11 @@ mod tests {
 
     #[test]
     fn non_boolean_result_coerces_to_false() {
-        let bc = [header(), vec![json!(OP_INTEGER), json!(42)]].concat();
+        let bc = [
+            header(),
+            vec![json!(OP_INTEGER), json!(42), json!(OP_RETURN)],
+        ]
+        .concat();
         assert!(matches!(
             evaluate_detailed(&bc, json!({})),
             EvalOutcome::Matched(false)
@@ -132,9 +191,9 @@ mod tests {
     }
 
     #[test]
-    fn compiled_style_bytecode_without_trailing_return_still_evaluates() {
-        // Guard the appended-RETURN bridge: cohort bytecode ends without RETURN, which the Rust VM
-        // would reject with EndOfProgram; evaluate_detailed must append one.
+    fn compiled_style_bytecode_evaluates() {
+        // Compiled cohort bytecode reads a global and compares it; the loader terminates it with
+        // RETURN (appended here), which the Rust VM needs to return the comparison result.
         let bc = [
             header(),
             vec![
@@ -145,6 +204,7 @@ mod tests {
                 json!(OP_GET_GLOBAL),
                 json!(1),
                 json!(OP_EQ),
+                json!(OP_RETURN),
             ],
         ]
         .concat();
@@ -218,12 +278,55 @@ mod tests {
         bc.extend_from_slice(&right);
         bc.extend_from_slice(&left);
         bc.push(json!(OP_LT));
+        bc.push(json!(OP_RETURN));
 
         let globals =
             |signup: Value| json!({ "person": { "properties": { "signup_date": signup } } });
         assert!(evaluate(&bc, globals(json!("2024-09-09 08:30:00"))));
         assert!(!evaluate(&bc, globals(json!("2027-09-09 08:30:00"))));
         assert!(!evaluate(&bc, json!({ "person": { "properties": {} } })));
+    }
+
+    #[test]
+    fn reused_evaluator_matches_a_fresh_context_per_eval() {
+        // The reuse optimization (set_globals/set_program in place) must be observationally identical
+        // to building a fresh context per eval: no globals or program may leak across calls. Programs
+        // and globals are interleaved so a stale-globals or un-swapped-program leak would diverge.
+        let email_eq = {
+            let mut bc = header();
+            bc.extend_from_slice(&[json!(OP_STRING), json!("a@b.com")]);
+            bc.extend_from_slice(&push_person_property("email"));
+            bc.extend_from_slice(&[json!(OP_EQ), json!(OP_RETURN)]);
+            bc
+        };
+        let num_gt = {
+            let mut bc = header();
+            bc.extend_from_slice(&[json!(OP_STRING), json!("10")]);
+            bc.extend_from_slice(&push_person_property("bc_num"));
+            bc.extend_from_slice(&[json!(OP_GT), json!(OP_RETURN)]);
+            bc
+        };
+        let g_match = json!({ "person": { "properties": { "email": "a@b.com", "bc_num": 20 } } });
+        let g_miss = json!({ "person": { "properties": { "email": "x@y.com", "bc_num": 5 } } });
+
+        let cases: [(&Vec<Value>, &Value); 5] = [
+            (&email_eq, &g_match),
+            (&num_gt, &g_match),
+            (&email_eq, &g_miss),
+            (&num_gt, &g_miss),
+            (&email_eq, &g_match),
+        ];
+
+        let mut evaluator = CohortEvaluator::new();
+        for (bytecode, globals) in cases {
+            evaluator.set_globals(globals.clone());
+            let reused = evaluator.evaluate(Arc::new(bytecode.clone()));
+            let fresh = evaluate(bytecode, globals.clone());
+            assert_eq!(
+                reused, fresh,
+                "reused evaluator diverged from a fresh per-eval context",
+            );
+        }
     }
 
     #[test]
@@ -234,6 +337,7 @@ mod tests {
         bc.extend_from_slice(&[json!(OP_STRING), json!("10")]);
         bc.extend_from_slice(&push_person_property("bc_num"));
         bc.push(json!(OP_GT));
+        bc.push(json!(OP_RETURN));
 
         let globals = |num: Value| json!({ "person": { "properties": { "bc_num": num } } });
         assert!(evaluate(&bc, globals(json!(20))));

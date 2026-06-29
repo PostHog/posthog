@@ -7,7 +7,7 @@
 use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use metrics::{counter, histogram};
 use tokio::sync::mpsc;
@@ -55,6 +55,13 @@ use crate::workers::sweep_callback::{sweep_evict, EvictionAction, SweepDropReaso
 const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
+
+/// Cooperative-yield cadence inside the worker fold. `handle_event` is fully synchronous, so a
+/// backlog of CPU-bound events would hold the runtime thread between channel receives — starving the
+/// heartbeat, commit, and consume tasks under saturation (the crash-loop's enabling condition).
+/// Yielding on a wall-clock interval (rather than a fixed message count) adapts to per-event cost
+/// across catalogs of very different sizes.
+const WORKER_YIELD_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct Stage1Worker {
     partition_id: u16,
@@ -116,12 +123,15 @@ async fn run_worker(
     let mut queue = EvictionQueue::<Stage1Key>::new();
     // No-op for a cold partition (bloom-filtered scan finds nothing to schedule).
     if durable_restore {
-        rebuild_eviction_queue(partition_id, &store, &mut queue);
+        rebuild_eviction_queue(partition_id, &store, &mut queue).await;
     }
     // In-memory resume cursors; loss on rebalance is benign (GC re-scans from the start).
     let mut gc_cursor = MergeGcCursor::default();
     let mut stage2_gc_cursor = Stage2GcCursor::default();
 
+    // Persists across batches: a worker that keeps receiving buffered batches would otherwise only
+    // yield via Tokio's coarse coop budget, holding the thread for many CPU-bound events.
+    let mut last_yield = Instant::now();
     while let Some(batch) = receiver.recv().await {
         let last_updated = now_last_updated();
         let mut buffer = OutputBuffer::new();
@@ -268,6 +278,13 @@ async fn run_worker(
                         );
                     }
                 }
+            }
+
+            // Release the runtime thread periodically so a CPU-bound event backlog can't starve the
+            // heartbeat/commit/consume tasks (the C3 enabling mechanism for C1/C2).
+            if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
+                tokio::task::yield_now().await;
+                last_yield = Instant::now();
             }
         }
 
@@ -771,7 +788,7 @@ async fn handle_sweep(
 /// stored deadline. Skips `PersonProperty` variants (no time-based eviction) and `i64::MAX` deadlines
 /// (permanent). Corrupt records are counted and skipped — the event path re-derives them. A scan error
 /// stops early; new events reschedule any missing keys.
-fn rebuild_eviction_queue(
+async fn rebuild_eviction_queue(
     partition_id: u16,
     store: &CohortStore,
     queue: &mut EvictionQueue<Stage1Key>,
@@ -808,6 +825,9 @@ fn rebuild_eviction_queue(
         if page_len < REBUILD_SCAN_PAGE {
             break;
         }
+        // 64 workers re-seed concurrently on a crash-restart; yield between pages so the boot scan
+        // doesn't re-saturate the runtime before the consume loop can even start.
+        tokio::task::yield_now().await;
     }
     if rebuilt > 0 {
         counter!(EVICTION_QUEUE_REBUILT_KEYS_TOTAL, "partition" => partition_id.to_string())

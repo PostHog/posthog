@@ -367,6 +367,13 @@ mod tests {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
     }
 
+    /// The stored form of [`behavioral_bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
+    fn behavioral_bytecode_loaded() -> Vec<Value> {
+        let mut bc = behavioral_bytecode().as_array().unwrap().clone();
+        bc.push(json!(38));
+        bc
+    }
+
     /// A `performed_event` leaf on `$pageview` with a tunable window.
     fn behavioral_performed_event(time_value: i64) -> Value {
         json!({
@@ -516,7 +523,7 @@ mod tests {
             .by_condition_to_bytecode
             .get(&HASH)
             .expect("bytecode captured under the conditionHash");
-        assert_eq!(bytecode.as_ref(), behavioral_bytecode().as_array().unwrap());
+        assert_eq!(bytecode.as_ref(), &behavioral_bytecode_loaded());
     }
 
     #[test]

@@ -7,6 +7,7 @@
 //! [`AppliedOffsets`](crate::stage1::state::AppliedOffsets) on each `cf_stage1` record.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use dashmap::DashMap;
 
@@ -56,6 +57,11 @@ pub enum MarkOutcome {
 #[derive(Debug, Default)]
 pub struct OffsetTracker {
     partitions: DashMap<i32, PartitionProgress>,
+    /// Monotonic count of [`mark_processed`](OffsetTracker::mark_processed) calls — the liveness
+    /// signal the progress-gated heartbeat reads. It advances whenever any worker finishes a batch,
+    /// independent of commit cadence and partition churn (unlike a sum over `processed_offset`,
+    /// which a [`forget_partition`](OffsetTracker::forget_partition) would lower).
+    progress: AtomicU64,
 }
 
 impl OffsetTracker {
@@ -84,6 +90,9 @@ impl OffsetTracker {
         let mut progress = self.partitions.entry(partition).or_default();
         let capped = next_offset.min(progress.dispatched_offset);
         progress.processed_offset = progress.processed_offset.max(capped);
+        // Bump the liveness counter on every call: a worker reaching this point has just completed a
+        // batch, which is exactly the forward progress the heartbeat gates on.
+        self.progress.fetch_add(1, Ordering::Relaxed);
         if capped < next_offset {
             MarkOutcome::CappedAheadOfDispatch
         } else {
@@ -158,6 +167,21 @@ impl OffsetTracker {
 
     pub fn partition_count(&self) -> usize {
         self.partitions.len()
+    }
+
+    /// Monotonic liveness counter — see [`progress`](PartitionProgress) field docs. Read by the
+    /// progress-gated heartbeat to tell a busy-but-advancing pod from a true stall.
+    pub fn progress(&self) -> u64 {
+        self.progress.load(Ordering::Relaxed)
+    }
+
+    /// Whether any tracked partition has dispatched work not yet processed (`processed < dispatched`).
+    /// `false` means the workers are fully caught up, so a frozen [`progress`](Self::progress) is the
+    /// expected idle state — not a deadlock — and the heartbeat keeps the pod alive.
+    pub fn has_pending_work(&self) -> bool {
+        self.partitions
+            .iter()
+            .any(|entry| entry.value().processed_offset < entry.value().dispatched_offset)
     }
 }
 
@@ -265,6 +289,45 @@ mod tests {
         assert_eq!(tracker.committed_offset(7), Some(150));
         tracker.mark_committed(7, 200);
         assert_eq!(tracker.committed_offset(7), Some(200));
+    }
+
+    #[test]
+    fn progress_advances_on_every_processed_mark_including_replays() {
+        let tracker = OffsetTracker::new();
+        assert_eq!(tracker.progress(), 0);
+        tracker.mark_dispatched(0, 10);
+
+        let _ = tracker.mark_processed(0, 5);
+        let after_first = tracker.progress();
+        assert!(
+            after_first > 0,
+            "a processed mark advances the liveness counter"
+        );
+
+        // A non-advancing replay still means the worker loop turned, so it counts as liveness.
+        let _ = tracker.mark_processed(0, 3);
+        assert!(
+            tracker.progress() > after_first,
+            "even a replay (no offset advance) bumps progress",
+        );
+    }
+
+    #[test]
+    fn has_pending_work_is_dispatched_ahead_of_processed() {
+        let tracker = OffsetTracker::new();
+        assert!(!tracker.has_pending_work(), "an empty tracker is idle");
+
+        tracker.mark_dispatched(0, 10);
+        assert!(
+            tracker.has_pending_work(),
+            "dispatched-but-unprocessed is pending work",
+        );
+
+        let _ = tracker.mark_processed(0, 10);
+        assert!(
+            !tracker.has_pending_work(),
+            "fully processed up to the dispatch ceiling is idle",
+        );
     }
 
     #[test]

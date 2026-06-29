@@ -689,6 +689,11 @@ impl EventDispatcher {
         self.tracker.as_ref()
     }
 
+    /// An owned handle on the offset tracker, for the progress-gated heartbeat task.
+    pub(crate) fn tracker_handle(&self) -> Arc<OffsetTracker> {
+        self.tracker.clone()
+    }
+
     fn owned_committable_offsets(&self) -> HashMap<i32, i64> {
         self.tracker
             .committable_offsets()
@@ -741,7 +746,9 @@ fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<
 /// Uses a raw `StreamConsumer` with manual commit because the per-partition `OffsetTracker`
 /// commits a `TopicPartitionList` that the `common-kafka` wrapper can't express.
 pub struct CohortStreamEventsConsumer {
-    consumer: StreamConsumer<CohortConsumerContext>,
+    /// `Arc` so the decoupled commit task can share it with the consume loop; `recv` and `commit`
+    /// run concurrently on the same consumer, which rdkafka supports.
+    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     topic: String,
     dispatcher: Arc<EventDispatcher>,
     handle: Handle,
@@ -772,7 +779,7 @@ impl CohortStreamEventsConsumer {
         restore_manifest: Option<OffsetManifest>,
     ) -> Self {
         Self {
-            consumer,
+            consumer: Arc::new(consumer),
             topic,
             dispatcher,
             handle,
@@ -785,13 +792,31 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    /// Run until the lifecycle handle signals shutdown. Commit is deadline-driven, not a `select!`
-    /// arm, to avoid cancelling an in-flight `consume_batch` and dropping buffered events.
+    /// Run until the lifecycle handle signals shutdown.
+    ///
+    /// Offset commit (C2) and the liveness heartbeat (C1) run on their own interval tasks rather than
+    /// inline in this loop, so a CPU-saturated consume loop or worker backlog can no longer block
+    /// either: offsets keep advancing (a restart resumes near the live edge) and the heartbeat keeps
+    /// firing while the workers make progress. Both observe the same shutdown signal and are awaited
+    /// before the final synchronous commit.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
-        let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
+        // C2: decoupled offset-commit task.
+        let commit_task = tokio::spawn(run_commit_loop(
+            self.consumer.clone(),
+            self.dispatcher.clone(),
+            self.topic.clone(),
+            self.offset_commit_interval,
+            self.handle.clone(),
+        ));
+        // C1: progress-gated liveness heartbeat task.
+        let heartbeat_task = tokio::spawn(run_heartbeat_loop(
+            self.dispatcher.tracker_handle(),
+            self.handle.clone(),
+        ));
+
         // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
         let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
@@ -829,20 +854,17 @@ impl CohortStreamEventsConsumer {
                         continue;
                     }
                     self.handle_outcome(outcome).await;
-                    let now = tokio::time::Instant::now();
-                    if now >= commit_deadline {
-                        fsync_then_commit(
-                            self.dispatcher.store(),
-                            &self.consumer,
-                            self.dispatcher.tracker(),
-                            self.dispatcher.owned_committable_offsets(),
-                            &self.topic,
-                            CommitMode::Async,
-                        );
-                        commit_deadline = now + self.offset_commit_interval;
-                    }
                 }
             }
+        }
+
+        // The shutdown signal that broke the loop also stops the helper tasks; await them before the
+        // final synchronous commit so no commit races it.
+        if let Err(err) = commit_task.await {
+            warn!(error = %err, "offset-commit task did not exit cleanly");
+        }
+        if let Err(err) = heartbeat_task.await {
+            warn!(error = %err, "heartbeat task did not exit cleanly");
         }
 
         let tracker = self.dispatcher.shutdown().await;
@@ -952,10 +974,10 @@ impl CohortStreamEventsConsumer {
 
         self.dispatcher.dispatch(outcome.events).await;
 
+        // Liveness is reported by the progress-gated heartbeat task (C1), not here: a consume loop
+        // that keeps turning while the workers are wedged must not mask the stall.
         if outcome.transport_error {
             tokio::time::sleep(RECV_ERROR_BACKOFF).await;
-        } else {
-            self.handle.report_healthy();
         }
     }
 
@@ -1092,6 +1114,75 @@ pub(crate) fn fsync_then_commit<C: ConsumerContext>(
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
     commit_offsets(consumer, tracker, offsets, topic, mode);
+}
+
+/// Cadence of the progress-gated liveness heartbeat. Comfortably inside the consumer's 60 s liveness
+/// deadline (registered in `main.rs`), so many heartbeats fire before the watchdog could trip.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
+
+/// C2 — the decoupled offset-commit task. On a fixed interval it flushes the store's WAL and commits
+/// the owned committable offsets, independent of the consume loop's forward progress. A starved or
+/// slow consume loop no longer blocks offset advancement, so a restart resumes near the live edge
+/// instead of re-chewing the uncommitted backlog. Exits on the shared shutdown signal.
+async fn run_commit_loop(
+    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
+    dispatcher: Arc<EventDispatcher>,
+    topic: String,
+    interval: Duration,
+    handle: Handle,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            _ = handle.shutdown_recv() => break,
+            _ = ticker.tick() => {
+                fsync_then_commit(
+                    dispatcher.store(),
+                    &consumer,
+                    dispatcher.tracker(),
+                    dispatcher.owned_committable_offsets(),
+                    &topic,
+                    CommitMode::Async,
+                );
+            }
+        }
+    }
+}
+
+/// C1 — the progress-gated liveness heartbeat task. It reports healthy only while the workers make
+/// forward progress (the [`OffsetTracker`] liveness counter advances) *or* there is no backlog to
+/// process. A busy-but-advancing pod stays alive; a genuine stall (backlog present, no progress)
+/// stops heartbeating and the lifecycle watchdog self-kills — the intended fail-stop. Paired with the
+/// worker yields (C3), this fires even when the workers are CPU-bound. Exits on the shutdown signal.
+async fn run_heartbeat_loop(tracker: Arc<OffsetTracker>, handle: Handle) {
+    let mut ticker = tokio::time::interval(HEARTBEAT_INTERVAL);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut last_progress = tracker.progress();
+    // Report healthy once up front so the component isn't flagged stalled before the first batch.
+    handle.report_healthy();
+    loop {
+        tokio::select! {
+            biased;
+            _ = handle.shutdown_recv() => break,
+            _ = ticker.tick() => {
+                let progress = tracker.progress();
+                if should_report_healthy(progress, last_progress, tracker.has_pending_work()) {
+                    last_progress = progress;
+                    handle.report_healthy();
+                }
+            }
+        }
+    }
+}
+
+/// The heartbeat gate: report healthy when the workers advanced since the last tick, **or** when
+/// there is no backlog. The second clause is load-bearing — without it an idle pod (no events, so no
+/// progress) would be read as stalled and self-killed. A genuine stall is backlog-present *and*
+/// no-progress, which alone returns `false`.
+fn should_report_healthy(progress: u64, last_progress: u64, has_pending_work: bool) -> bool {
+    progress != last_progress || !has_pending_work
 }
 
 #[cfg(test)]
@@ -1260,6 +1351,18 @@ mod tests {
     fn build_commit_tpl_for_no_offsets_is_empty() {
         let tpl = build_commit_tpl("cohort_stream_events", &HashMap::new());
         assert_eq!(tpl.count(), 0);
+    }
+
+    #[test]
+    fn heartbeat_gate_distinguishes_a_stall_from_idle_and_progress() {
+        // Workers advanced since the last tick → healthy, regardless of backlog.
+        assert!(should_report_healthy(5, 4, true));
+        assert!(should_report_healthy(5, 4, false));
+        // A genuine stall — backlog present, no progress — is the ONLY case that withholds the
+        // heartbeat so the watchdog self-kills.
+        assert!(!should_report_healthy(4, 4, true));
+        // No progress but also no backlog (idle pod): must stay healthy, never self-kill.
+        assert!(should_report_healthy(4, 4, false));
     }
 
     fn manifest_for(topic: &str, committed: &[(i32, i64)]) -> OffsetManifest {

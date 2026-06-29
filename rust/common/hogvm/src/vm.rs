@@ -119,12 +119,16 @@ impl<'a> HogVM<'a> {
                     return Err(VmError::UnknownGlobal("".to_string()));
                 }
 
-                if let Some(found) = get_json_nested(&self.context.globals, &chain, self)? {
+                // `self.context` is a `Copy` `&ExecutionContext`; copying it out decouples the
+                // globals borrow from `self`, so the borrowed `found` can outlive the lookup and
+                // still leave `self` free for the `&mut self` `json_to_hog` needs.
+                let context = self.context;
+                if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
                     let val = self.json_to_hog(found)?;
                     self.push_stack(val)?;
                 } else if let Ok(closure) = self.get_fn_reference(&chain) {
                     self.push_stack(closure)?;
-                } else if get_json_nested(&self.context.globals, &chain[..1], self)?.is_some() {
+                } else if get_json_nested(&context.globals, &chain[..1], self)?.is_some() {
                     // If the first element of the chain is a global, push null onto the stack, e.g.
                     // if a program is looking for "properties.blah", and "properties" exists, but
                     // "blah" doesn't, push null onto the stack.
@@ -855,22 +859,25 @@ impl<'a> HogVM<'a> {
     // This is a function on the VM, rather than being standalone, because hog values don't really
     // exist outside of the context of a VM (and specifically a heap). It could be a function on the
     // heap itself, though.
-    pub fn json_to_hog(&mut self, json: JsonValue) -> Result<HogValue, VmError> {
+    pub fn json_to_hog(&mut self, json: &JsonValue) -> Result<HogValue, VmError> {
         self.json_to_hog_impl(json, 0)
     }
 
-    fn json_to_hog_impl(&mut self, current: JsonValue, depth: usize) -> Result<HogValue, VmError> {
+    fn json_to_hog_impl(&mut self, current: &JsonValue, depth: usize) -> Result<HogValue, VmError> {
         if depth > MAX_JSON_SERDE_DEPTH {
             return Err(VmError::OutOfResource(
                 "json->hog deserialization depth".to_string(),
             ));
         };
 
+        // Borrow the json tree and clone only the scalar leaves we actually keep (numbers/strings),
+        // rather than cloning the whole subtree up front. Containers are walked by reference and
+        // rebuilt directly onto the heap.
         match current {
             JsonValue::Null => Ok(HogLiteral::Null.into()),
-            JsonValue::Bool(b) => Ok(HogLiteral::Boolean(b).into()),
-            JsonValue::Number(n) => Ok(HogLiteral::Number(n.into()).into()),
-            JsonValue::String(s) => Ok(HogLiteral::String(s).into()),
+            JsonValue::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),
+            JsonValue::Number(n) => Ok(HogLiteral::Number(n.clone().into()).into()),
+            JsonValue::String(s) => Ok(HogLiteral::String(s.clone()).into()),
             JsonValue::Array(arr) => {
                 let mut values = Vec::new();
                 for value in arr {
@@ -883,7 +890,7 @@ impl<'a> HogVM<'a> {
             JsonValue::Object(obj) => {
                 let mut map = HashMap::new();
                 for (key, value) in obj {
-                    map.insert(key, self.json_to_hog_impl(value, depth + 1)?);
+                    map.insert(key.clone(), self.json_to_hog_impl(value, depth + 1)?);
                 }
                 let to_emplace = HogLiteral::Object(map);
                 let ptr = self.heap.emplace(to_emplace)?;

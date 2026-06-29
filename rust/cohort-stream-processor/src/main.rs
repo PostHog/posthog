@@ -48,8 +48,14 @@ fn main() -> Result<()> {
     let config = Config::init_from_env()
         .context("Failed to load configuration from environment variables")?;
 
-    let runtime = tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
+    let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
+    runtime_builder.enable_all();
+    // Cap worker threads to the configured CPU limit. Left unset, Tokio sizes the pool to the node's
+    // core count, which a 2-core CFS limit then throttles into thread thrashing.
+    if config.tokio_worker_threads > 0 {
+        runtime_builder.worker_threads(config.tokio_worker_threads);
+    }
+    let runtime = runtime_builder
         .build()
         .context("Failed to build tokio runtime")?;
 
