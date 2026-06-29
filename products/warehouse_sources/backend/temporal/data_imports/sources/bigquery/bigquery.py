@@ -369,8 +369,6 @@ def bigquery_client(
 @contextlib.contextmanager
 def bigquery_storage_read_client(credentials: google_auth_credentials.Credentials):
     """Manage a BigQuery Storage client."""
-    # The credentials are now passed as an argument to bigquery_client,
-    # so the service_account.Credentials.from_service_account_info block is no longer needed here.
     # Build the credential-bearing gRPC channel ourselves, wrap it in the tracked
     # interceptors, then hand it to the transport. Passing a `channel` makes the
     # transport ignore credentials, so they must already be baked into the channel
@@ -507,7 +505,6 @@ def validate_bigquery_credentials(
     dataset_project_id: str | None,
     location: str | None,
 ) -> tuple[bool, str | None]:
-    # Apply normalizations from incoming branch for relevant identifiers
     dataset_id = _normalize_identifier(dataset_id)
     dataset_project_id = _normalize_identifier(dataset_project_id) if dataset_project_id else dataset_project_id
     location = _normalize_identifier(location) if location else location
