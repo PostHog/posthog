@@ -20,6 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ProcessBatchFn,
     _group_by_key,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+    blocked_schema_ids as compute_blocked_schema_ids,
+    run_backfill_planner,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
     duckgres_sink_team_ids,
 )
@@ -54,6 +58,16 @@ SINK_OLDEST_ELIGIBLE_AGE_SECONDS = Gauge(
     "Queue retention permanently drops batches after RETENTION_DAYS — alert well before that.",
     multiprocess_mode="livemax",
 )
+SINK_BLOCKED_BACKLOG = Gauge(
+    "duckgres_sink_blocked_backlog",
+    "Delta-succeeded batches held back because their schema is not yet primed (backfill pending/in-flight)",
+    multiprocess_mode="livemax",
+)
+SINK_BLOCKED_OLDEST_AGE_SECONDS = Gauge(
+    "duckgres_sink_blocked_oldest_age_seconds",
+    "Age of the oldest blocked batch — approaching queue retention means the post-backfill handoff will gap",
+    multiprocess_mode="livemax",
+)
 SINK_SUPERSEDED_BATCHES_TOTAL = Gauge(
     "duckgres_sink_superseded_batches",
     "Batches retired because a newer replace-run made their work obsolete (last sweep)",
@@ -66,11 +80,18 @@ class DuckgresBatchConsumerAdapter:
     executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
+    # Advisory locks are session-scoped: the lock acquired during fetch_and_lock
+    # must be verified/released on the same connection, so groups share the poll
+    # connection. Migrating duckgres to leases is tracked separately.
+    per_group_connections: bool = False
 
     def __init__(self) -> None:
         self._team_ids: list[int] | None = None
         self._team_ids_fetched_at: float | None = None
         self._last_maintenance_at = 0.0
+        # None = not yet computed; the fetch claims nothing until the first
+        # successful planner pass so unprimed schemas can't sneak live batches in.
+        self._blocked_schema_ids: list[str] | None = None
 
     async def _enabled_team_ids(self) -> list[int] | None:
         """Cached duckgres-enabled team set; keeps the previous set on app-DB errors."""
@@ -101,9 +122,24 @@ class DuckgresBatchConsumerAdapter:
         if superseded:
             logger.info("duckgres_superseded_obsolete_batches", count=superseded)
 
-        backlog, oldest_age = await DuckgresBatchQueue.get_backlog_stats(conn, team_ids=team_ids)
+        backlog, oldest_age, blocked, blocked_age = await DuckgresBatchQueue.get_backlog_stats(
+            conn, team_ids=team_ids, blocked_schema_ids=self._blocked_schema_ids
+        )
         SINK_ELIGIBLE_BACKLOG.set(backlog)
         SINK_OLDEST_ELIGIBLE_AGE_SECONDS.set(oldest_age or 0.0)
+        SINK_BLOCKED_BACKLOG.set(blocked)
+        SINK_BLOCKED_OLDEST_AGE_SECONDS.set(blocked_age or 0.0)
+
+        try:
+            # Backfill planner: bootstrap/plan/reconcile schema priming, then
+            # refresh the live-batch block list it derives from.
+            await sync_to_async(run_backfill_planner, thread_sensitive=False)(team_ids)
+            self._blocked_schema_ids = await sync_to_async(compute_blocked_schema_ids, thread_sensitive=False)(team_ids)
+        except Exception as e:
+            # An app-DB blip must not crash the poll loop; keep the previous
+            # block list (or keep claiming nothing if we never had one).
+            logger.exception("duckgres_backfill_planner_failed")
+            capture_exception(e)
 
     async def fetch_and_lock(
         self,
@@ -111,18 +147,29 @@ class DuckgresBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> list[PendingBatch]:
+        # The duckgres sink coordinates via session advisory locks, not leases:
+        # owner_token / lease_ttl_seconds are part of the shared adapter contract
+        # but unused here.
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
             return []
 
         await self._run_maintenance(conn, team_ids)
 
+        if self._blocked_schema_ids is None:
+            # Planner has not succeeded yet: claiming live batches now could
+            # write partial history for unprimed schemas. Wait for it.
+            return []
+
         return await DuckgresBatchQueue.get_delta_succeeded_and_lock(
             conn,
             limit=limit,
             retry_backoff_base_seconds=retry_backoff_base_seconds,
             team_ids=team_ids,
+            blocked_schema_ids=self._blocked_schema_ids,
         )
 
     async def unlock(
@@ -130,8 +177,18 @@ class DuckgresBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
         await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches)
+
+    async def release_all_owned(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        # Duckgres holds session advisory locks; release them all on graceful shutdown.
+        await conn.execute("SELECT pg_advisory_unlock_all()")
 
     async def update_status(
         self,
@@ -174,8 +231,22 @@ class DuckgresBatchConsumerAdapter:
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
         return await DuckgresBatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+
+    async def renew_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        # Duckgres ownership is the session advisory lock (checked by verify_advisory_lock),
+        # which has no TTL to renew; report ownership retained.
+        return True
 
     async def get_stale_executing(
         self,

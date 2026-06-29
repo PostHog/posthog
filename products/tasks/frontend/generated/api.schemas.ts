@@ -878,6 +878,7 @@ export type TaskRunCreateRequestSchemaApi =
  * * `artifact` - artifact
  * * `tree_snapshot` - tree_snapshot
  * * `user_attachment` - user_attachment
+ * * `skill_bundle` - skill_bundle
  */
 export type TaskRunArtifactTypeEnumApi = (typeof TaskRunArtifactTypeEnumApi)[keyof typeof TaskRunArtifactTypeEnumApi]
 
@@ -889,7 +890,61 @@ export const TaskRunArtifactTypeEnumApi = {
     Artifact: 'artifact',
     TreeSnapshot: 'tree_snapshot',
     UserAttachment: 'user_attachment',
+    SkillBundle: 'skill_bundle',
 } as const
+
+/**
+ * * `user` - user
+ * * `repo` - repo
+ * * `marketplace` - marketplace
+ * * `codex` - codex
+ */
+export type SkillSourceEnumApi = (typeof SkillSourceEnumApi)[keyof typeof SkillSourceEnumApi]
+
+export const SkillSourceEnumApi = {
+    User: 'user',
+    Repo: 'repo',
+    Marketplace: 'marketplace',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `zip` - zip
+ */
+export type BundleFormatEnumApi = (typeof BundleFormatEnumApi)[keyof typeof BundleFormatEnumApi]
+
+export const BundleFormatEnumApi = {
+    Zip: 'zip',
+} as const
+
+export interface TaskRunArtifactMetadataApi {
+    /**
+     * Name of the local skill included in a skill_bundle artifact.
+     * @maxLength 255
+     */
+    skill_name: string
+    /** Local source for the uploaded skill bundle, such as user or repo.
+     *
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex */
+    skill_source: SkillSourceEnumApi
+    /**
+     * SHA-256 hex digest of the uploaded skill bundle bytes.
+     * @pattern ^[a-f0-9]{64}$
+     */
+    content_sha256: string
+    /** Archive format used for the local skill bundle.
+     *
+     * * `zip` - zip */
+    bundle_format: BundleFormatEnumApi
+    /**
+     * Version of the local skill bundle metadata schema.
+     * @minimum 1
+     */
+    schema_version: number
+}
 
 export interface TaskStagedArtifactFinalizeUploadApi {
     /** Stable identifier returned by the staged prepare upload endpoint */
@@ -907,7 +962,8 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -924,6 +980,8 @@ export interface TaskStagedArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskStagedArtifactsFinalizeUploadRequestApi {
@@ -944,6 +1002,8 @@ export interface TaskRunArtifactResponseApi {
     size?: number
     /** Optional MIME type */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
     /** S3 object key for the artifact */
     storage_path: string
     /** Timestamp when the artifact was uploaded */
@@ -969,7 +1029,8 @@ export interface TaskStagedArtifactPrepareUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -987,6 +1048,8 @@ export interface TaskStagedArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskStagedArtifactsPrepareUploadRequestApi {
@@ -1019,6 +1082,8 @@ export interface TaskStagedArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
     /** S3 object key reserved for the staged artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */
@@ -1321,7 +1386,8 @@ export interface TaskRunArtifactUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1340,6 +1406,8 @@ export interface TaskRunArtifactUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskRunArtifactsUploadRequestApi {
@@ -1376,7 +1444,8 @@ export interface TaskRunArtifactFinalizeUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1393,6 +1462,8 @@ export interface TaskRunArtifactFinalizeUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskRunArtifactsFinalizeUploadRequestApi {
@@ -1419,7 +1490,8 @@ export interface TaskRunArtifactPrepareUploadApi {
      * * `output` - output
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
-     * * `user_attachment` - user_attachment */
+     * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle */
     type: TaskRunArtifactTypeEnumApi
     /**
      * Optional source label for the artifact, such as agent_output or user_attachment
@@ -1437,6 +1509,8 @@ export interface TaskRunArtifactPrepareUploadApi {
      * @maxLength 255
      */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
 }
 
 export interface TaskRunArtifactsPrepareUploadRequestApi {
@@ -1457,6 +1531,8 @@ export interface TaskRunArtifactPrepareUploadResponseApi {
     size: number
     /** Optional MIME type */
     content_type?: string
+    /** Optional structured metadata for special artifact types, such as skill bundles. */
+    metadata?: TaskRunArtifactMetadataApi
     /** S3 object key reserved for the artifact */
     storage_path: string
     /** Presigned POST expiry in seconds */

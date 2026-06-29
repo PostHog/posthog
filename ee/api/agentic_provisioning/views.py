@@ -1939,7 +1939,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
     try:
-        team.reset_token_and_save(user=user, is_impersonated_session=False)
+        # Bearer flow resolves the token outside DRF, so read impersonation off the token directly.
+        team.reset_token_and_save(user=user, is_impersonated_session=access_token.impersonated_by_id is not None)
     except Exception:
         capture_exception(additional_properties={"team_id": team_id})
         _capture_provisioning_event("credential_rotation", "failed", team_id=team_id)

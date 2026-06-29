@@ -6,6 +6,9 @@ from typing import Any
 import psycopg
 from psycopg.rows import dict_row
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.batch_kind import (
+    LIVE_BATCH_SQL_PREDICATE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BATCH_TABLE,
     PARTITION_PRUNING_INTERVAL,
@@ -20,6 +23,35 @@ DUCKGRES_STATUS_VIEW = "v_latest_source_batch_duckgres_status"
 DUCKGRES_APPLY_TABLE = "sourcebatchduckgresapply"
 
 DUCKGRES_ADVISORY_LOCK_NAMESPACE = 0x44475300  # "DGS\0" in hex
+
+# Structured classification key written into duckgres status error_response by
+# every terminal-retire writer. Consumers (the backfill reconciler) dispatch on
+# this, not on error-message prose.
+RETIRE_KIND_SUPERSEDED_BY_REPLACE = "superseded_by_replace"
+
+# A LIVE batch held back because its schema's history is not yet primed.
+# Replace-head runs bypass the block: they rebuild the table from scratch, so
+# applying them to an unprimed schema is always safe — and they are the
+# healing path for schemas parked in NEEDS_RESYNC. Single definition, used by
+# both the eligibility gate and the backlog split. Expects %(blocked_schema_ids)s.
+BLOCKED_LIVE_BATCH_CONDITION = f"""(
+                            %(blocked_schema_ids)s::varchar[] IS NOT NULL
+                            AND b.schema_id = ANY(%(blocked_schema_ids)s)
+                            AND {LIVE_BATCH_SQL_PREDICATE}
+                            AND NOT EXISTS (
+                                SELECT 1
+                                FROM {BATCH_TABLE} bh
+                                WHERE bh.run_uuid = b.run_uuid
+                                    AND bh.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
+                                    AND bh.batch_index = 0
+                                    AND bh.is_final_batch = false
+                                    AND bh.is_resume = false
+                                    AND (
+                                        bh.sync_type = 'full_refresh'
+                                        OR (bh.sync_type = 'incremental' AND bh.is_first_ever_sync)
+                                    )
+                            )
+                        )"""
 
 # Shared CTE prelude for eligibility queries (note the trailing comma — callers
 # append their own CTEs/SELECT). Expects a %(team_ids)s bigint[] parameter
@@ -54,7 +86,8 @@ ELIGIBILITY_CTES = f"""run_starts AS MATERIALIZED (
                         AND dgs3.job_state = 'failed'
                 ),
                 incomplete_runs AS MATERIALIZED (
-                    SELECT old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at
+                    SELECT old.team_id, old.schema_id, old.run_uuid, rs_ir.started_at,
+                           bool_or((old.metadata->>'duckgres_backfill') IS NOT NULL) AS is_backfill_run
                     FROM {BATCH_TABLE} old
                     JOIN {DELTA_STATUS_VIEW} ods ON old.id = ods.batch_id
                     JOIN run_starts rs_ir ON rs_ir.run_uuid = old.run_uuid
@@ -81,6 +114,7 @@ class DuckgresBatchQueue:
         limit: int = 50,
         retry_backoff_base_seconds: int = 0,
         team_ids: list[int] | None = None,
+        blocked_schema_ids: list[str] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -93,6 +127,10 @@ class DuckgresBatchQueue:
         ``team_ids`` restricts eligibility to duckgres-enabled teams (None = no
         filter, for tests/dev). The sink must never claim batches for orgs without
         a Duckgres deployment — they would burn retries and fail runs for nothing.
+
+        ``blocked_schema_ids`` excludes LIVE batches for schemas whose history is
+        not yet primed into duckgres (backfill pending/in-flight) — the schema's
+        own backfill-run batches (metadata.duckgres_backfill) pass through.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -116,6 +154,7 @@ class DuckgresBatchQueue:
                     WHERE
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
+                        AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
                         AND (
                             dgs.batch_id IS NULL
@@ -164,15 +203,28 @@ class DuckgresBatchQueue:
                                 )
                                 AND a.id IS NULL
                         )
-                        AND NOT EXISTS (
+                        AND (
                             -- Cross-run head-of-line: an older non-failed run of this
-                            -- schema still has unapplied data batches.
-                            SELECT 1
-                            FROM incomplete_runs ir
-                            WHERE ir.team_id = b.team_id
-                                AND ir.schema_id = b.schema_id
-                                AND ir.run_uuid <> b.run_uuid
-                                AND (ir.started_at, ir.run_uuid) < (rs_b.started_at, b.run_uuid)
+                            -- schema still has unapplied data batches. Applies to LIVE
+                            -- batches only: a backfill run is ordered manually —
+                            -- batches provably contained in its Delta snapshot are
+                            -- pre-applied at plan time, and anything not contained must
+                            -- apply AFTER the swap, so it must not gate the chunks. Live
+                            -- batches still queue behind the backfill run itself via
+                            -- this same check.
+                            NOT EXISTS (
+                                SELECT 1
+                                FROM incomplete_runs ir
+                                WHERE ir.team_id = b.team_id
+                                    AND ir.schema_id = b.schema_id
+                                    AND ir.run_uuid <> b.run_uuid
+                                    AND (ir.started_at, ir.run_uuid) < (rs_b.started_at, b.run_uuid)
+                                    -- A backfill chunk ignores older LIVE runs (see above)
+                                    -- but still orders behind an older backfill run, so
+                                    -- two generations can never interleave on the
+                                    -- staging table.
+                                    AND ({LIVE_BATCH_SQL_PREDICATE} OR ir.is_backfill_run)
+                            )
                         )
                     ORDER BY b.created_at ASC, b.batch_index ASC, b.is_final_batch ASC
                     LIMIT %(limit)s
@@ -185,7 +237,12 @@ class DuckgresBatchQueue:
                 )
                 ORDER BY c.created_at ASC, c.batch_index ASC, c.is_final_batch ASC
                 """,
-                {"limit": limit, "backoff": retry_backoff_base_seconds, "team_ids": team_ids},
+                {
+                    "limit": limit,
+                    "backoff": retry_backoff_base_seconds,
+                    "team_ids": team_ids,
+                    "blocked_schema_ids": blocked_schema_ids,
+                },
             )
             rows = await cur.fetchall()
         return [PendingBatch(**row) for row in rows]
@@ -262,7 +319,7 @@ class DuckgresBatchQueue:
                     v.batch_id,
                     'failed',
                     0,
-                    jsonb_build_object('error', 'superseded by newer replace run ' || v.superseded_by)
+                    jsonb_build_object('error', 'superseded by newer replace run ' || v.superseded_by, 'kind', '{RETIRE_KIND_SUPERSEDED_BY_REPLACE}')
                 FROM victims v
                 """,
                 {"team_ids": team_ids},
@@ -274,19 +331,24 @@ class DuckgresBatchQueue:
         conn: psycopg.AsyncConnection[Any],
         *,
         team_ids: list[int] | None = None,
-    ) -> tuple[int, float | None]:
-        """(count, oldest age seconds) of delta-succeeded, unapplied, non-failed data batches.
+        blocked_schema_ids: list[str] | None = None,
+    ) -> tuple[int, float | None, int, float | None]:
+        """(eligible_count, eligible_oldest_age, blocked_count, blocked_oldest_age).
 
-        This is the sink's lag signal: both silent-loss modes (7-day queue
-        retention, permanently failed runs) are time-bounded, so alerting needs
-        the age of the oldest batch the sink still owes.
+        Eligible = delta-succeeded, unapplied, non-failed data batches the sink
+        can claim now — the lag/alert signal (7-day retention and permanent run
+        failure are time-bounded loss modes). Blocked = the same but held back
+        by an unprimed schema; reported separately so weeks of backfill cannot
+        pin the alert gauge while still being visible.
         """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 WITH {ELIGIBILITY_CTES}
                 backlog AS (
-                    SELECT b.created_at
+                    SELECT
+                        b.created_at,
+                        {BLOCKED_LIVE_BATCH_CONDITION} AS is_blocked
                     FROM {BATCH_TABLE} b
                     JOIN {DELTA_STATUS_VIEW} ds ON b.id = ds.batch_id
                     LEFT JOIN {DUCKGRES_APPLY_TABLE} a
@@ -301,15 +363,23 @@ class DuckgresBatchQueue:
                         AND a.id IS NULL
                         AND b.run_uuid NOT IN (SELECT run_uuid FROM failed_runs)
                 )
-                SELECT count(*), EXTRACT(EPOCH FROM now() - min(created_at))
+                SELECT
+                    count(*) FILTER (WHERE NOT is_blocked),
+                    EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE NOT is_blocked)),
+                    count(*) FILTER (WHERE is_blocked),
+                    EXTRACT(EPOCH FROM now() - min(created_at) FILTER (WHERE is_blocked))
                 FROM backlog
                 """,
-                {"team_ids": team_ids},
+                {"team_ids": team_ids, "blocked_schema_ids": blocked_schema_ids},
             )
             row = await cur.fetchone()
-        count = int(row[0]) if row else 0
-        oldest_age = float(row[1]) if row and row[1] is not None else None
-        return count, oldest_age
+
+        def _age(v: Any) -> float | None:
+            return float(v) if v is not None else None
+
+        if row is None:
+            return 0, None, 0, None
+        return int(row[0]), _age(row[1]), int(row[2]), _age(row[3])
 
     @staticmethod
     async def update_status(

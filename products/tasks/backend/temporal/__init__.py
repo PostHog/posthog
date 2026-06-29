@@ -16,6 +16,7 @@ from .create_snapshot.activities import (
 )
 from .create_snapshot.workflow import CreateSnapshotForRepositoryWorkflow
 from .process_task.activities import (
+    await_agent_server_ready,
     checkout_branch_in_sandbox,
     cleanup_sandbox,
     clone_repository_in_sandbox,
@@ -27,6 +28,8 @@ from .process_task.activities import (
     get_sandbox_for_repository,
     get_task_processing_context,
     inject_fresh_tokens_on_resume,
+    launch_agent_server,
+    mark_repo_ready,
     post_slack_update,
     prepare_sandbox_for_repository,
     read_sandbox_logs,
@@ -66,6 +69,9 @@ ACTIVITIES = [
     create_resume_snapshot,
     send_followup_to_sandbox,
     start_agent_server,
+    launch_agent_server,
+    await_agent_server_ready,
+    mark_repo_ready,
     read_sandbox_logs,
     cleanup_sandbox,
     emit_progress_activity,
