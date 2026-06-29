@@ -9,6 +9,7 @@ import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUr
 import { AuthorizedUrlListType } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -321,6 +322,9 @@ interface StepDef {
     skippable?: boolean
     /** Step provides its own primary action (e.g. plan picks), so suppress the footer Continue. */
     hideContinue?: boolean
+    /** Tailwind `max-w-*` for the card on this step. Defaults to `max-w-xl`; wider steps (e.g. billing
+     * with side-by-side plan cards) opt into more room. */
+    maxWidth?: string
 }
 
 const STEPS: StepDef[] = [
@@ -328,9 +332,21 @@ const STEPS: StepDef[] = [
     { id: 'install', title: 'Install PostHog', Content: InstallStep },
     { id: 'sources', title: 'Turn on your sources', Content: SourcesStep, skippable: true },
     { id: 'warehouse', title: 'Connect your data', Content: ContextWarehouseStep, skippable: true },
-    { id: 'billing', title: 'Pick a plan', Content: ContextBillingStep, skippable: true, hideContinue: true },
+    {
+        id: 'billing',
+        title: 'Pick a plan',
+        Content: ContextBillingStep,
+        skippable: true,
+        hideContinue: true,
+        maxWidth: 'max-w-3xl',
+    },
     { id: 'invite', title: 'Invite your team', Content: ContextInviteStep, skippable: true },
 ]
+
+// The card: chrome (sm+ panel; full-bleed on mobile) plus the content flex-column. Width varies per
+// step via StepDef.maxWidth — LegacyOnboarding just provides the backdrop + logo.
+const CARD_CLASSES =
+    'relative w-full flex flex-col gap-5 overflow-hidden p-0 transition-[max-width] duration-300 sm:max-h-[calc(100dvh-7rem)] sm:p-8 md:p-10 sm:bg-surface-primary sm:rounded-xl sm:shadow-md sm:border sm:border-primary'
 
 export function ContextOnboarding(): JSX.Element {
     const { completeContextOnboarding } = useActions(onboardingLogic)
@@ -368,9 +384,9 @@ export function ContextOnboarding(): JSX.Element {
     const goBack = (): void => goToStep(Math.max(0, stepIndex - 1))
 
     return (
-        // flex-1 + min-h-0 lets this fill the capped card (sm+) so the middle can scroll; on mobile the
-        // card isn't height-bounded, so it just flows.
-        <div className="flex flex-col gap-5 flex-1 min-h-0">
+        // This div is the card: chrome + per-step width. On sm+ it's capped to the viewport so the middle
+        // scrolls internally; on mobile the chrome drops and content flows (the page scrolls).
+        <div className={cn(CARD_CLASSES, step.maxWidth ?? 'max-w-xl')}>
             {/* Pinned header: back button + progress share one row. Equal-width side slots keep the
                 progress dots centered in the card regardless of whether the back button is shown. */}
             <div className="shrink-0 flex flex-col items-center gap-4">

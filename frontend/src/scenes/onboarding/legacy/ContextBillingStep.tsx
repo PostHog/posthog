@@ -109,12 +109,12 @@ function PlanChoice({
     }
 
     return (
-        <div className="flex flex-col gap-4">
-            <p className="text-sm text-muted m-0">
+        <div className="flex flex-wrap gap-3">
+            <p className="text-sm text-muted m-0 w-full">
                 Start free, no card required. You only pay for usage past the monthly free tier on each tool.
             </p>
 
-            <div className="flex flex-col gap-3 p-4 border border-primary rounded-lg">
+            <div className="flex flex-1 basis-72 flex-col gap-3 p-4 border border-primary rounded-lg">
                 <div className="flex items-baseline justify-between gap-2">
                     <p className="m-0 text-base font-semibold">Free</p>
                     <p className="m-0 text-sm text-muted">$0 / month</p>
@@ -123,12 +123,19 @@ function PlanChoice({
                 <p className="m-0 text-xs text-muted">
                     Usage pauses at the free tier instead of charging you. Good for trying things out.
                 </p>
-                <LemonButton type="secondary" fullWidth center onClick={onContinue} data-attr="context-onboarding-free">
+                <LemonButton
+                    type="secondary"
+                    fullWidth
+                    center
+                    onClick={onContinue}
+                    className="mt-auto"
+                    data-attr="context-onboarding-free"
+                >
                     Continue on free
                 </LemonButton>
             </div>
 
-            <div className="flex flex-col gap-3 p-4 border-2 border-accent rounded-lg">
+            <div className="flex flex-1 basis-72 flex-col gap-3 p-4 border-2 border-accent rounded-lg">
                 <div className="flex items-baseline justify-between gap-2">
                     <div>
                         <p className="m-0 text-base font-semibold">Pay-as-you-go</p>
@@ -153,6 +160,7 @@ function PlanChoice({
                     status="alt"
                     fullWidth
                     center
+                    className="mt-auto"
                     loading={subscribing}
                     disabledReason={subscribing ? 'Opening payment…' : undefined}
                     disableClientSideRouting
