@@ -105,11 +105,15 @@ const ticketActionsMapping: Record<
             }
         }
         if (before && !after) {
-            // The same set→null change happens for a manual unsnooze and for the
-            // system wake task auto-expiring the snooze — tell them apart by actor.
-            return {
-                description: [logItem?.user ? <>removed snooze</> : <>snooze expired – reopened</>],
+            // The same set→null change happens for a manual unsnooze and the system
+            // wake task auto-expiring the snooze — tell them apart by actor. Only claim
+            // "reopened" when the expiry actually flipped the ticket back to open; a
+            // snooze on an already-resolved ticket clears without reopening it.
+            if (logItem?.user) {
+                return { description: [<>removed snooze</>] }
             }
+            const reopened = (logItem?.detail?.changes ?? []).some((c) => c.field === 'status' && c.after === 'open')
+            return { description: [reopened ? <>snooze expired – reopened</> : <>snooze expired</>] }
         }
         return {
             description: [

@@ -59,4 +59,15 @@ describe('ticketActivityDescriber', () => {
         expect(text).toContain('snooze expired')
         expect(text).toContain('reopened')
     })
+
+    it('describes a system snooze-expiry with no status change as "snooze expired" (not reopened)', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: { merge: null, trigger: null, name: 'Ticket #3', changes: [snoozeCleared] },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('snooze expired')
+        expect(text).not.toContain('reopened')
+    })
 })
