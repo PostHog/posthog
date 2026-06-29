@@ -46,15 +46,17 @@ MAX_DISCOVERED_JOBS = 2000
 
 
 def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[str, Any]]:
-    # created_at is an ISO-8601 string column, so a lexical comparison against the cutoff is
-    # chronological for GitHub's fixed format. The table name is a trusted identifier (validated
-    # prefix + fixed suffix); user values flow through the placeholder, never the f-string.
+    # Window on completed_at (when the job finished), not created_at: a queued or long-running job
+    # can be created well before it fails, and a created_at window would miss it. completed_at is an
+    # ISO-8601 string and is always set for a failed (completed) job, so a lexical comparison against
+    # the cutoff is chronological. The table name is a trusted identifier (validated prefix + fixed
+    # suffix); user values flow through the placeholder, never the f-string.
     table = f"{prefix}github_workflow_jobs"
     sql = f"""
         SELECT id AS job_id, run_id, head_branch AS branch, conclusion
         FROM {table}
-        WHERE conclusion = 'failure' AND created_at > {{cutoff}}
-        ORDER BY created_at DESC
+        WHERE conclusion = 'failure' AND completed_at > {{cutoff}}
+        ORDER BY completed_at DESC
         LIMIT 500
     """
     with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
