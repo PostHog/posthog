@@ -3331,10 +3331,19 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         response = self._patch(schema, [{"column": "geom", "operator": "=", "value": "x"}])
         assert response.status_code == 400
 
-    def test_row_filters_rejected_for_direct_postgres_source(self):
+    @parameterized.expand(
+        [
+            ("postgres", ExternalDataSourceType.POSTGRES),
+            ("mysql", ExternalDataSourceType.MYSQL),
+            ("snowflake", ExternalDataSourceType.SNOWFLAKE),
+        ]
+    )
+    def test_row_filters_rejected_for_direct_query_sources(self, _name, source_type):
+        # No direct-query executor enforces row filters (they all read the table live), so accepting
+        # a filter for any direct engine would silently leave excluded rows visible.
         source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceType.POSTGRES,
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
         )
@@ -3346,7 +3355,7 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         )
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
-        assert "not supported for direct Postgres" in str(response.json())
+        assert "not supported for direct-query sources" in str(response.json())
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

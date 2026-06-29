@@ -29,6 +29,15 @@ DIRECT_SNOWFLAKE_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 # with no LIMIT. HogQL-authored queries already carry a LIMIT from the printer.
 DIRECT_SNOWFLAKE_MAX_ROWS = 1_000_000
 RAW_SNOWFLAKE_READ_ONLY_ERROR = "Raw Snowflake queries must be read-only SELECT statements."
+RAW_SNOWFLAKE_BLOCKED_FUNCTION_ERROR = "This Snowflake function is not allowed in direct queries."
+
+# Functions that parse as a plain SELECT but breach the read-only / session-isolation boundary,
+# so the single-SELECT gate alone isn't enough. SYSTEM$* are admin / side-effecting (e.g.
+# SYSTEM$CANCEL_QUERY); RESULT_SCAN + LAST_QUERY_ID can read another request's result set off a
+# reused session. HogQL-authored SQL never emits these — only the raw passthrough path can — so
+# block them there. Quoted identifiers tokenize as strings, not names, so a column legitimately
+# named e.g. "result_scan" is unaffected.
+_RAW_SNOWFLAKE_BLOCKED_FUNCTIONS = frozenset({"RESULT_SCAN", "LAST_QUERY_ID"})
 DIRECT_SNOWFLAKE_ROW_CAP_ERROR = f"Snowflake query returned more than {DIRECT_SNOWFLAKE_MAX_ROWS:,} rows. Add a LIMIT clause."
 
 # A Snowflake account identifier is either the org-account form (`orgname-account_name`)
@@ -112,6 +121,10 @@ def ensure_read_only_raw_snowflake_statement(sql: str) -> str:
             raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
         if token.ttype in sqlparse_tokens.DML and token.value.upper() != "SELECT":
             raise ExposedHogQLError(RAW_SNOWFLAKE_READ_ONLY_ERROR)
+        if token.ttype in sqlparse_tokens.Name:
+            name = token.value.upper()
+            if name.startswith("SYSTEM$") or name in _RAW_SNOWFLAKE_BLOCKED_FUNCTIONS:
+                raise ExposedHogQLError(RAW_SNOWFLAKE_BLOCKED_FUNCTION_ERROR)
     return sql
 
 

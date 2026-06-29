@@ -240,6 +240,11 @@ class TestDirectSnowflakeQuery(APIBaseTest):
             # Writes smuggled into an otherwise SELECT-classified statement.
             ("write_in_subquery", "SELECT * FROM (DELETE FROM CUSTOMER RETURNING C_ID)"),
             ("write_in_cte", "WITH x AS (INSERT INTO CUSTOMER VALUES (1) RETURNING C_ID) SELECT * FROM x"),
+            # Side-effecting / session-leaking functions that parse as a plain SELECT.
+            ("system_function", "SELECT SYSTEM$CANCEL_QUERY('01a-b-c')"),
+            ("system_function_lower", "SELECT system$wait(1)"),
+            ("result_scan", "SELECT * FROM TABLE(RESULT_SCAN(LAST_QUERY_ID(-3)))"),
+            ("last_query_id", "SELECT LAST_QUERY_ID()"),
         ]
     )
     def test_raw_query_rejects_non_select(self, _name: str, query: str):
@@ -268,6 +273,8 @@ class TestDirectSnowflakeQuery(APIBaseTest):
             ("udf_call", "SELECT my_udf(C_ID) FROM CUSTOMER"),
             # A write keyword inside a string literal must not trip the token scan.
             ("write_word_in_string", "SELECT C_ID FROM CUSTOMER WHERE C_STATUS = 'DELETE'"),
+            # A quoted identifier matching a blocked function name is a column, not a call.
+            ("quoted_blocked_name_column", 'SELECT "result_scan" FROM CUSTOMER'),
         ]
     )
     def test_raw_query_allows_read_only_selects(self, _name: str, query: str):

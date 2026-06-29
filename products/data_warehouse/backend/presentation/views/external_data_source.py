@@ -54,6 +54,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
+from products.data_warehouse.backend.direct_snowflake import upsert_direct_snowflake_table
 from products.data_warehouse.backend.facade.api import (
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
@@ -95,7 +96,6 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
-from products.data_warehouse.backend.direct_snowflake import upsert_direct_snowflake_table
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
 from products.data_warehouse.backend.snowflake_helpers import reconcile_snowflake_schemas
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
@@ -1911,7 +1911,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
 
             if row_filters is not None:
                 if reason := unsupported_row_filter_reason(
-                    is_direct_postgres=new_source_model.is_direct_postgres, is_cdc=sync_type == "cdc"
+                    is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
                     new_source_model.delete()
                     return Response(
