@@ -305,8 +305,15 @@ export function Query<Q extends Node>(props: QueryProps<Q>): JSX.Element | null 
         component = <DataNode attachTo={props.attachTo} query={query} cachedResults={props.cachedResults} />
     }
 
+    // Let the ErrorBoundary recover on a data refresh. PostHogErrorBoundary has no reset path, so once
+    // it catches (e.g. the `removeChild` NotFoundError that browser extensions trigger during
+    // reconciliation) the fallback stays mounted until the boundary is unmounted. Resetting on the
+    // query / filter overrides means a filter or tab change clears the error and lets the tile recover
+    // instead of staying stuck on the pink error box.
+    const errorBoundaryResetKey = JSON.stringify([query, filtersOverride ?? null, variablesOverride ?? null])
+
     return (
-        <ErrorBoundary>
+        <ErrorBoundary resetKeys={[errorBoundaryResetKey]}>
             <>
                 {queryContext.showQueryEditor ? (
                     <>
