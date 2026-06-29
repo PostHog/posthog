@@ -50,6 +50,7 @@ import {
     PgRevisionStore,
     PgSandboxInstanceStore,
     PgSessionQueue,
+    PgSkillStore,
     PgTeamApiKeyResolver,
     RedisSessionEventBus,
     RoutingAnalyticsSink,
@@ -261,6 +262,12 @@ async function main(): Promise<void> {
         'memory.s3.enabled'
     )
 
+    // Resolves `source: 'store'` skills live from the skill store on the MAIN
+    // PostHog DB (where `llm_analytics_llmskill` lives), scoped to the running
+    // revision's team. `@posthog/load-skill` reads through this for store skills;
+    // bundled skills come straight from the bundle.
+    const skillStore = new PgSkillStore(posthogDb)
+
     // Per-session credential broker — same shape ingress writes to.
     // Required for any non-public auth mode (e.g. the concierge's
     // oauth/pat). Construction throws if encryption isn't configured —
@@ -368,6 +375,7 @@ async function main(): Promise<void> {
         maxOutputTokens: config.maxOutputTokens,
         memoryStore,
         tabularStore,
+        skillStore,
         // Per-principal identity linking (spec.identity_providers): reuse the
         // same agent DB + encryption the credential broker uses.
         identityCredentials,

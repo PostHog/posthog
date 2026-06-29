@@ -213,6 +213,32 @@
             }
         }
     ],
+    "skills": [
+        {
+            "id": "auditing-the-fleet",
+            "path": "skills/auditing-the-fleet/SKILL.md",
+            "source": "bundle",
+            "description": "The fleet-wide audit — sweep every agent, mine recent sessions for failures/anomalies, classify root causes, and branch a DRAFT proposal per fix (never freeze/promote); write a report to memory. Load when asked to audit all agents or what's underperforming."
+        },
+        {
+            "id": "safety-and-boundaries",
+            "path": "skills/safety-and-boundaries/SKILL.md",
+            "source": "bundle",
+            "description": "Hard rules — what the Agent Builder MUST NOT do regardless of user request. Load IMMEDIATELY if a request feels like it crosses into raw-secret handling, unprompted promotion, irreversible deletion, or impersonation of another user."
+        },
+        {
+            "id": "using-the-console-ui",
+            "path": "skills/using-the-console-ui/SKILL.md",
+            "source": "bundle",
+            "description": "How to drive PostHog Code's read panel as the user works with you — focus_* etiquette, when to call toast, how to handle 'follow mode' being off. Load when the session client kind is `posthog-code`."
+        },
+        {
+            "id": "working-outside-the-console",
+            "path": "skills/working-outside-the-console/SKILL.md",
+            "source": "bundle",
+            "description": "Operating without a UI — MCP / IDE / Slack mode. How to compensate for missing client tools, how to be useful in a text-only chat. Load when the session client kind is NOT `posthog-code`."
+        }
+    ],
     "mcps": [
         {
             "id": "posthog",
@@ -232,7 +258,7 @@
                 "agent-applications-revisions-clone-from-create",
                 "agent-applications-revisions-partial-update",
                 "agent-applications-revisions-agent-md-update",
-                "agent-applications-revisions-skill-refs-set",
+                "agent-applications-revisions-skill-refs-update",
                 "llm-skills-search",
                 "llm-skills-create",
                 "agent-applications-revisions-tools-update",

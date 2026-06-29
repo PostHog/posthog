@@ -76,6 +76,7 @@ import {
     SessionEventKind,
     SessionInputsStore,
     SLACK_BOT_TOKEN_KEY,
+    SkillStore,
     SlackStatusReporter,
     slackTextFromContent,
     TabularStore,
@@ -183,6 +184,12 @@ export interface RunSessionDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Skill store for `source: 'store'` skills — threaded into `AgentToolDeps`
+     * → `ToolContext.resolveStoreSkill` so `@posthog/load-skill` resolves store
+     * skills live. Wired in prod from a `PgSkillStore` over the main PostHog DB.
+     */
+    skillStore?: SkillStore
     /** Web-search provider chain for @posthog/web-search; empty → tool gated out. */
     webSearchProviders?: readonly WebSearchProvider[]
     /**
@@ -470,6 +477,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             log,
             memoryStore: deps.memoryStore,
             tabularStore: deps.tabularStore,
+            skillStore: deps.skillStore,
             webSearchProviders: deps.webSearchProviders,
             dispatchClientTool,
             emitClientToolCall: async (callId, toolId, args) => {

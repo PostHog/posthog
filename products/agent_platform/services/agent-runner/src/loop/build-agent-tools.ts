@@ -41,6 +41,7 @@ import {
     MemoryStore,
     TabularStore,
     Sandbox,
+    SkillStore,
     ToolContext,
     WebSearchProvider,
 } from '@posthog/agent-shared'
@@ -124,6 +125,14 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Skill store for `source: 'store'` skills — `@posthog/load-skill` resolves
+     * them live (latest or pinned version) scoped to the session's team. A
+     * `PgSkillStore` over the MAIN PostHog DB in prod; the harness passes a
+     * fake. Absent → `load-skill` surfaces a clear error for store skills
+     * (bundled skills still work).
+     */
+    skillStore?: SkillStore
     /**
      * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
      * `ToolContext`; an empty/absent chain also gates the tool out of the
@@ -551,7 +560,19 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         secret: (name) => deps.secrets[name],
         secretAllowedHosts: (name) => getSecretAllowedHosts(deps.rev.spec, name),
         log: deps.log,
-        skillIndex: deps.rev.spec.skills.map((s) => ({ id: s.id, description: s.description, path: s.path })),
+        skillIndex: deps.rev.spec.skills.map((s) => ({
+            id: s.id,
+            description: s.description,
+            path: s.path,
+            source: s.source,
+            from_template: s.from_template,
+            version: s.version,
+        })),
+        // Resolve `source: 'store'` skills live from the skill store, scoped to
+        // this session's team. Absent when the runner has no store DB wired.
+        resolveStoreSkill: deps.skillStore
+            ? (name, version, file) => deps.skillStore!.resolve(deps.session.team_id, name, version, file)
+            : undefined,
         readBundleFile: async (path: string): Promise<string | null> => {
             // `null` is the "file genuinely absent" signal (load-skill renders
             // it as "not found in the bundle"). An operational failure —

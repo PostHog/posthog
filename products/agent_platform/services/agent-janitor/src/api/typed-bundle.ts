@@ -79,7 +79,12 @@ const SpecPutBodySchema = z.object({
     spec: TypedSpecSchema,
 })
 
-const TypedBundlePutBodySchema = TypedBundleSchema.omit({ skills: true })
+// Full typed bundle, skills INCLUDED. Bundled skills (`source: 'bundle'`) are
+// authored inline and shipped in the agent's own bundle, so the bulk PUT writes
+// their `skills/<id>/SKILL.md`. (Companion files go via the single
+// `PUT /skills/:id` endpoint — the bulk shape carries bodies only.) Store skills
+// are NOT here: they're referenced via `skill_refs` and resolved live at runtime.
+const TypedBundlePutBodySchema = TypedBundleSchema
 
 export interface TypedBundleRouterOpts {
     revisions: RevisionStore
@@ -149,8 +154,11 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
                 await opts.bundles.write(req.params.id, toolCompiledPath(tool.id), result.compiled_js!)
             }
 
-            // Persist the author-facing spec onto agent_revision.spec.
-            // skills/tools stay empty at this layer — derived at freeze.
+            // Persist the author-facing spec onto agent_revision.spec. The
+            // spec's skills[]/tools[] stay empty here — they're DERIVED at
+            // freeze from the bundle's skill folders + tool dirs (and store
+            // refs are appended from skill_refs). The skill BODIES were written
+            // to the bundle by syncBundleToStore above.
             await persistAuthorSpec(opts, req.params.id, payload.spec)
 
             res.json({ ok: true })

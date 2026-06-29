@@ -13,38 +13,36 @@ here and run `tsx services/mcp/scripts/copy-instructions.ts` (CI does this too).
 
 ## Three homes for agent guidance — don't confuse them
 
-Agent-platform instructional content lives in exactly one of three places,
-chosen by **what the content is for**. Putting a piece in the wrong home is how
-the concierge ended up with the same docs bundled _and_ in the MCP.
+Agent-platform instructional content lives in one of three places, chosen by
+**what the content is for**.
 
-|                   | **Kernel skills**                                                                                                                                                                             | **MCP playbooks** (here)                                                       | **Skill store**                                                      |
+|                   | **Bundled skills**                                                                                                                                                                            | **MCP playbooks** (here)                                                       | **Skill store**                                                       |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| **What**          | The concierge's own runtime behaviour, **coupled to the platform architecture** — its `focus_*` client tools, runtime client-kind modes, the principal/safety model, the fleet-audit workflow | Reusable knowledge about the **authoring tools** — how to build/operate agents | **Team-authored** reusable agent runtime skills                      |
-| **Why this home** | Must move in lockstep with the implementation; identical across every account; **cannot drift in the DB**                                                                                     | Platform docs of the live tool surface; version with the MCP                   | Content that is _supposed_ to vary per team                          |
-| **Home**          | **Code** — `products/agent_platform/backend/kernel_skills/`; injected into the bundle at freeze, like the framework preamble                                                                  | **Code** — this dir; served via `agent-resolve-resource`                       | **DB** — the llma-skill store; `skill_refs` → materialized at freeze |
-| **Consumer**      | The concierge itself                                                                                                                                                                          | Anyone building agents (human, IDE, _or the concierge_)                        | Any team agent                                                       |
+| **What**          | An agent's own runtime behaviour shipped with it — e.g. the concierge's `focus_*` client tools, client-kind modes, principal/safety model, fleet-audit workflow                               | Reusable knowledge about the **authoring tools** — how to build/operate agents | **Team-authored** reusable agent runtime skills                       |
+| **Why this home** | Owned by the agent; for a code-seeded agent, in lockstep with the implementation                                                                                                             | Platform docs of the live tool surface; version with the MCP                   | Content that is _supposed_ to vary per team; edit once, used live     |
+| **Home**          | The agent's own bundle (`skills/<id>/SKILL.md`, `source: 'bundle'`); read via `@posthog/load-skill`                                                                                           | **Code** — this dir; served via `agent-resolve-resource`                       | **DB** — the llma-skill store; `skill_refs` (`source: 'store'`), resolved LIVE at load |
+| **Consumer**      | The agent that ships it                                                                                                                                                                       | Anyone building agents (human, IDE, _or the concierge_)                        | Any team agent                                                        |
 
 **The discriminator:** _reusable platform knowledge_ → MCP playbook; _this
-deployed agent's runtime behaviour_ → kernel skill; _content meant to vary per
-team_ → store skill.
+agent's own runtime behaviour_ → bundled skill; _content meant to vary per team_
+→ store skill.
 
-**Why kernel can't be a store skill (the drift argument):** if
-`safety-and-boundaries` or `using-the-console-ui` were a per-team `skill_refs`
-store skill, an account could freeze an agent against a stale copy while the
-platform's actual enforcement / client-tool set moved on — the agent would then
-_describe a platform it isn't running on_. Kernel content is code-locked so that
-can't happen. The store is **only** for content meant to diverge per team.
+**Bundled vs store (the drift argument):** a code-seeded agent like the
+concierge ships its safety/console/audit skills **in its own bundle**, so they
+move with the code and can't drift per account. The store is for content meant to
+diverge per team — and is resolved LIVE at load time, so a team edit propagates
+to its agents without a re-freeze (pin a `version` to opt out).
 
-**Why a playbook isn't a kernel skill:** the concierge _builds_ agents, so it
+**Why a playbook isn't a bundled skill:** the concierge _builds_ agents, so it
 needs builder knowledge the same way Claude Code does — by fetching it from the
 MCP. Builder playbooks are not bundled into any agent; they're fetched on demand
 with `agent-resolve-resource`, which is also why they can carry a live
 scope-aware tool surface that a static bundled file never could.
 
-## The four kernel skills
+## The four concierge bundled skills
 
-These live in the concierge bundle, **not** here:
-`safety-and-boundaries`, `using-the-console-ui`, `working-outside-the-console`,
-`auditing-the-fleet`. A playbook here must not tell the reader to "load" one of
-them (a generic MCP consumer has no such bundled file) — state the relevant fact
-inline instead.
+These live in the concierge bundle (`examples/agent-builder/skills/`), **not**
+here: `safety-and-boundaries`, `using-the-console-ui`,
+`working-outside-the-console`, `auditing-the-fleet`. A playbook here must not
+tell the reader to "load" one of them (a generic MCP consumer has no such
+bundled file) — state the relevant fact inline instead.

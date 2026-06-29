@@ -43,6 +43,7 @@ import {
     LogSink,
     MemoryStore,
     modelPolicyToList,
+    SkillStore,
     TabularStore,
     WebSearchProvider,
     RevisionStore,
@@ -170,6 +171,8 @@ export interface WorkerDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for `@posthog/table-*` tools; same S3 config as memory. */
     tabularStore?: TabularStore
+    /** Skill store for `source: 'store'` skills; resolved live per session by `@posthog/load-skill`. */
+    skillStore?: SkillStore
     /**
      * Web-search provider chain for `@posthog/web-search`, built from
      * AGENT_WEB_SEARCH_* config at boot. Threaded onto each session's
@@ -589,6 +592,7 @@ export class Worker {
                     : undefined,
                 memoryStore: this.deps.memoryStore,
                 tabularStore: this.deps.tabularStore,
+                skillStore: this.deps.skillStore,
                 webSearchProviders: this.deps.webSearchProviders,
                 credentialBroker: this.deps.credentialBroker,
                 identityCredentials: this.deps.identityCredentials,

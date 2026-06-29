@@ -80,11 +80,24 @@ export interface ToolContext {
      */
     readBundleFile?: (path: string) => Promise<string | null>
     /**
-     * Available skills for this revision — `{ id, description, path }`.
-     * Populated when `spec.skills` is non-empty. `@posthog/load-skill` uses
-     * this to validate the requested skill id before fetching its body.
+     * Available skills for this revision (from `spec.skills`). `@posthog/load-skill`
+     * validates the id and branches on `source`: `'bundle'` (or absent) reads
+     * `path` via `readBundleFile`; `'store'` resolves live via `resolveStoreSkill`.
      */
-    skillIndex?: ReadonlyArray<{ id: string; description?: string; path: string }>
+    skillIndex?: ReadonlyArray<{
+        id: string
+        description?: string
+        path?: string
+        source?: 'bundle' | 'store'
+        from_template?: string
+        version?: number
+    }>
+    /**
+     * Resolve a `source: 'store'` skill LIVE from the skill store, scoped to the
+     * session's `teamId` (a `PgSkillStore` in the runner). Null when missing;
+     * throws (retryable) on an operational failure. Absent → store skills error.
+     */
+    resolveStoreSkill?: (name: string, version?: number, file?: string) => Promise<string | null>
     /**
      * S3-backed memory store, scoped at call time to the session's
      * (teamId, applicationId). Optional — when absent the memory tools

@@ -190,7 +190,7 @@ never write a path; you upsert a typed object via one of these calls:
 | Spec           | `posthog__agent-applications-revisions-partial-update`  | `{ spec }` (author-facing slice — no skills/tools)     |
 | Author a skill | `posthog__llm-skills-create`                            | `{ name, description, body, files? }` (in the store)   |
 | Find skills    | `posthog__llm-skills-search`                            | `{ search? }`                                          |
-| Pin skills     | `posthog__agent-applications-revisions-skill-refs-set`  | `{ skill_refs: [{ from_template, alias, version? }] }` |
+| Pin skills     | `posthog__agent-applications-revisions-skill-refs-update`  | `{ skill_refs: [{ from_template, alias, version? }] }` |
 | One tool       | `posthog__agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`                 |
 | Delete tool    | `posthog__agent-applications-revisions-tools-destroy`   | (no body)                                              |
 
@@ -284,10 +284,10 @@ by tweaking the export style; the contract is `{actions: {default:
 fn}}` and nothing else.
 
 Use the **single-resource** typed PUTs (`tools-update`,
-`agent-md-update`) and `skill-refs-set` for individual edits. There is
+`agent-md-update`) and `skill-refs-update` for individual edits. There is
 no bulk bundle-replace verb — edit the one resource that changed rather
 than rewriting the whole bundle. Skills are authored in the store
-(`llm-skills-create`) and pinned with `skill-refs-set`, never inline.
+(`llm-skills-create`) and pinned with `skill-refs-update`, never inline.
 
 ## Phase 6 — validate
 

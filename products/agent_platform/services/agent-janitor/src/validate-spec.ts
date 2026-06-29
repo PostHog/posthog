@@ -307,6 +307,11 @@ async function checkSecretHostBindings(
 ): Promise<void> {
     const targets: ScanTarget[] = [{ path: 'agent.md', pointer: 'agent.md' }]
     for (const [i, skill] of rev.spec.skills.entries()) {
+        // Store skills carry no bundle file (resolved live at runtime) — nothing
+        // to scan here; only bundled skills have a `path`.
+        if (!skill.path) {
+            continue
+        }
         targets.push({ path: skill.path, pointer: `spec.skills[${i}].path` })
     }
     // dedupe (pointer, name) so a secret referenced many times in one file

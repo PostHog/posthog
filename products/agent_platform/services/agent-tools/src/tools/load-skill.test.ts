@@ -8,6 +8,15 @@ function ctxWith(readBundleFile: ToolContext['readBundleFile']): ToolContext {
     return { skillIndex: SKILL_INDEX, readBundleFile, log: () => {} } as unknown as ToolContext
 }
 
+const STORE_INDEX = [
+    { id: 'research', source: 'store' as const, from_template: 'research-store', description: 'x' },
+    { id: 'pinned', source: 'store' as const, from_template: 'pinned-store', version: 3, description: 'y' },
+]
+
+function ctxStore(resolveStoreSkill: ToolContext['resolveStoreSkill']): ToolContext {
+    return { skillIndex: STORE_INDEX, resolveStoreSkill, log: () => {} } as unknown as ToolContext
+}
+
 describe('resolveSkillFile', () => {
     it('resolves a companion file relative to the skill folder', () => {
         expect(resolveSkillFile('skills/research/SKILL.md', 'references/deep.md')).toBe(
@@ -82,5 +91,70 @@ describe('loadSkill.run', () => {
                 ctxWith(async () => '# body')
             )
         ).rejects.toThrow(/unknown skill id/)
+    })
+})
+
+describe('loadSkill.run — store skills', () => {
+    it('resolves a latest store skill via resolveStoreSkill (no version)', async () => {
+        const calls: unknown[] = []
+        const res = await loadSkill.run(
+            { id: 'research' },
+            ctxStore(async (name, version, file) => {
+                calls.push([name, version, file])
+                return '# store body'
+            })
+        )
+        expect(res).toEqual({ id: 'research', path: 'store://research-store@latest', body: '# store body' })
+        expect(calls).toEqual([['research-store', undefined, undefined]])
+    })
+
+    it('passes a pinned version through and reflects it in the path', async () => {
+        const res = await loadSkill.run(
+            { id: 'pinned' },
+            ctxStore(async (_n, version) => `# v${version}`)
+        )
+        expect(res.path).toBe('store://pinned-store@3')
+        expect(res.body).toBe('# v3')
+    })
+
+    it('resolves a companion file from the store', async () => {
+        const calls: unknown[] = []
+        const res = await loadSkill.run(
+            { id: 'research', file: 'references/api.md' },
+            ctxStore(async (n, v, f) => {
+                calls.push([n, v, f])
+                return '# api'
+            })
+        )
+        expect(res.path).toBe('store://research-store@latest/references/api.md')
+        expect(calls).toEqual([['research-store', undefined, 'references/api.md']])
+    })
+
+    it('rejects a traversing companion path before hitting the store', async () => {
+        const ctx = ctxStore(async () => {
+            throw new Error('should not be called')
+        })
+        await expect(loadSkill.run({ id: 'research', file: '../escape.md' }, ctx)).rejects.toThrow(/traversal/)
+    })
+
+    it('errors when the runner did not wire store access', async () => {
+        const ctx = { skillIndex: STORE_INDEX, log: () => {} } as unknown as ToolContext
+        await expect(loadSkill.run({ id: 'research' }, ctx)).rejects.toThrow(/did not wire store-skill access/)
+    })
+
+    it('reports a genuinely-absent store skill as not found', async () => {
+        await expect(
+            loadSkill.run(
+                { id: 'research' },
+                ctxStore(async () => null)
+            )
+        ).rejects.toThrow(/not found in the skill store/)
+    })
+
+    it('reports an operational store failure as retryable', async () => {
+        const ctx = ctxStore(async () => {
+            throw new Error('pg down')
+        })
+        await expect(loadSkill.run({ id: 'research' }, ctx)).rejects.toThrow(/transient error.*pg down.*Retry/s)
     })
 })

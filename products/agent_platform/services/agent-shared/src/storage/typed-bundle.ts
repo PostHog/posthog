@@ -317,7 +317,11 @@ export function stripDerivedSpecFields(spec: Record<string, unknown>): TypedSpec
 /**
  * Sync the bundle store to match the typed view. Used by `PUT /bundle`.
  * - Files matching the typed layout for resources NOT in the payload are
- *   deleted (full replace).
+ *   deleted (full replace) — agent.md, tools/, AND skills/.
+ * - Bundled skills (`source: 'bundle'`) are authored inline, so their
+ *   `skills/<id>/SKILL.md` bodies are written here. The bulk shape carries
+ *   bodies only; companion files come via the single `PUT /skills/:id`. Store
+ *   skills (`source: 'store'`) are never in the bundle — they're resolved live.
  * - The author-facing spec (`bundle.spec`) is returned for the caller to
  *   stamp onto `agent_revision.spec` — this helper doesn't touch Postgres.
  *
@@ -325,17 +329,11 @@ export function stripDerivedSpecFields(spec: Record<string, unknown>): TypedSpec
  *   - tool compilation (calling `compileAndWriteTool` per tool)
  *   - persisting `bundle.spec` onto the revision row
  */
-export async function syncBundleToStore(
-    revisionId: string,
-    store: BundleStore,
-    bundle: Omit<TypedBundle, 'skills'>
-): Promise<void> {
+export async function syncBundleToStore(revisionId: string, store: BundleStore, bundle: TypedBundle): Promise<void> {
     const entries = await store.list(revisionId)
     const existing = new Set(entries.map((e) => e.path))
 
-    // Build the set of paths we WILL write so we know what to delete. Skills are
-    // NOT managed here — they're materialized from the store at freeze and live
-    // only in the frozen bundle, so the full-replace never touches `skills/`.
+    // Build the set of paths we WILL write so we know what to delete.
     const willWrite = new Set<string>()
     willWrite.add(AGENT_MD_PATH)
     for (const tool of bundle.tools) {
@@ -343,21 +341,30 @@ export async function syncBundleToStore(
         willWrite.add(toolSchemaPath(tool.id))
         willWrite.add(toolCompiledPath(tool.id))
     }
+    for (const skill of bundle.skills) {
+        willWrite.add(skillBodyPath(skill.id))
+    }
 
     // Delete anything in the canonical layout that's NOT in the new payload.
     // We DON'T touch paths outside the canonical layout (future-resource buckets
-    // or legacy junk) and we DON'T touch `skills/` (freeze-owned).
+    // or legacy junk). Sweeping `skills/` makes the PUT a true full replace of
+    // bundled skills (a removed skill, and any stale companion of a re-written
+    // one, is dropped).
     for (const path of existing) {
         if (willWrite.has(path)) {
             continue
         }
-        if (path === AGENT_MD_PATH || path.startsWith('tools/')) {
+        if (path === AGENT_MD_PATH || path.startsWith('tools/') || path.startsWith('skills/')) {
             await store.delete(revisionId, path)
         }
     }
 
-    // Write agent.md. Tools are written by the caller after the compile step.
+    // Write agent.md + each bundled skill's SKILL.md. Tools are written by the
+    // caller after the compile step.
     await store.write(revisionId, AGENT_MD_PATH, bundle.agent_md)
+    for (const skill of bundle.skills) {
+        await store.write(revisionId, skillBodyPath(skill.id), skill.body)
+    }
 }
 
 /**

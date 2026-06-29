@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 
 from rest_framework.exceptions import ValidationError
 
-from products.agent_platform.backend.logic.skill_resolution import resolve_skill_ref, stamp_skill_provenance
+from products.agent_platform.backend.logic.skill_resolution import resolve_skill_ref
 from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 
 
@@ -72,14 +72,3 @@ class TestResolveSkillRef(BaseTest):
     def test_malformed_ref_fails_loud(self):
         with self.assertRaises(ValidationError):
             resolve_skill_ref(self.team, {"alias": "x"})
-
-    def test_stamp_provenance_matches_by_alias(self):
-        derived_spec = {"skills": [{"id": "triage", "path": "skills/triage/SKILL.md", "description": "d"}]}
-        stamp_skill_provenance(
-            derived_spec,
-            {"triage": {"from_template": "triage-helper", "version": 3, "source_version_id": "abc"}},
-        )
-        skill = derived_spec["skills"][0]
-        self.assertEqual(skill["from_template"], "triage-helper")
-        self.assertEqual(skill["version"], 3)
-        self.assertEqual(skill["source_version_id"], "abc")

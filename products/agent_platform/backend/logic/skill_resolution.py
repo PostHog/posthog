@@ -42,10 +42,6 @@ class ResolvedSkill:
     version: int
     source_version_id: str
 
-    def put_skill_payload(self) -> dict:
-        """The body for the janitor `PUT /revisions/:id/skills/:alias` call."""
-        return {"description": self.description, "body": self.body, "files": self.files}
-
 
 def assert_skill_refs_readable(
     team: Team,
@@ -135,18 +131,3 @@ def resolve_skill_ref(team: Team, ref: dict) -> ResolvedSkill:
         version=skill.version,
         source_version_id=str(skill.id),
     )
-
-
-def stamp_skill_provenance(derived_spec: dict, provenance_by_alias: dict[str, dict]) -> None:
-    """Merge freeze provenance onto the derived SkillRefs, matching by id == alias.
-
-    The janitor derives content-based skill refs (``{id, path, description}``)
-    where ``id`` is the bundle folder name — i.e. the alias we materialized the
-    skill under. This stamps ``from_template``/``version``/``source_version_id``
-    back on so the frozen spec records each store-sourced skill's provenance.
-    Mutates ``derived_spec`` in place.
-    """
-    for skill in derived_spec.get("skills") or []:
-        prov = provenance_by_alias.get(skill.get("id"))
-        if prov:
-            skill.update(prov)

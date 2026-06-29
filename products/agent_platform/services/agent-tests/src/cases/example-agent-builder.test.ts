@@ -38,16 +38,25 @@ describe('example: agent-builder bundle', () => {
         expect(() => AgentSpecSchema.parse(spec)).not.toThrow()
     })
 
-    it('carries NO inline skills — kernel skills are platform-injected, playbooks are MCP', async () => {
+    it('ships its 4 platform skills as bundled (source: bundle), each with a SKILL.md', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        // The author-facing bundle never carries skills. Kernel skills (the
-        // concierge's own runtime behaviour — safety, console UI, fleet audit)
-        // are injected from backend code at freeze (logic/kernel_skills.py), so
-        // they move in lockstep with the platform and can't drift per account.
-        // Builder playbooks (how to author/edit/wire-identity an agent) are served
-        // by the MCP `agent-resolve-resource`, fetched on demand. Neither is here.
-        expect(parsed.skills).toEqual([])
+        // The concierge's own runtime behaviour ships inline in its bundle (the
+        // code-seeded agent owns its skills — they move in lockstep with the
+        // platform). Builder playbooks (how to author/edit an agent) are still
+        // served by the MCP `agent-resolve-resource`, not here.
+        expect(parsed.skills.map((s) => s.id).sort()).toEqual([
+            'auditing-the-fleet',
+            'safety-and-boundaries',
+            'using-the-console-ui',
+            'working-outside-the-console',
+        ])
+        for (const s of parsed.skills) {
+            expect(s.source).toBe('bundle')
+            expect(s.path).toBe(`skills/${s.id}/SKILL.md`)
+            const body = await readFile(join(BUNDLE_ROOT, s.path as string), 'utf-8')
+            expect(body.length).toBeGreaterThan(200)
+        }
     })
 
     it('agent.md is present and non-trivial', async () => {

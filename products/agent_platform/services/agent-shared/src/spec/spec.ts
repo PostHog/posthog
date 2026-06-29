@@ -598,27 +598,26 @@ export const McpRefSchema = z.object({
 
 export const SkillRefSchema = z.object({
     id: z.string(),
-    path: z.string(),
-    /**
-     * Short summary shown in the system-prompt skill index. The model decides
-     * whether to call `@posthog/load-skill` based on this description, so it
-     * should describe WHAT the skill teaches the agent and WHEN to load it.
-     */
+    /** Bundle path (`skills/<id>/SKILL.md`) for a `source: 'bundle'` skill.
+     *  Omitted for store skills — they carry no bundle bytes. */
+    path: z.string().optional(),
+    /** One-line index summary the model uses to decide whether to load the skill.
+     *  For store skills it's a freeze-time snapshot (can drift from the live body). */
     description: z.string().optional(),
     /**
-     * Registry lineage for a skill pinned from an `AgentSkillTemplate`.
-     * Present on a draft spec; at freeze the Django side resolves
-     * `from_template` at the requested `version` (or latest), assembles the
-     * spec-compliant `skills/<alias>/SKILL.md` into the bundle, and stamps
-     * `id`/`path` from `alias`. These ride through on the frozen spec so the
-     * registry "Used by" view can correlate. The runner ignores them — it
-     * reads `id`/`path` only.
+     * Where the body comes from at runtime:
+     *   - `'bundle'` (default): shipped in the agent's bundle at `path`.
+     *   - `'store'`: NOT baked — `@posthog/load-skill` resolves it LIVE from the
+     *     skill store by `from_template` (pinned `version`, else latest), so a
+     *     store edit reaches running agents on the next load.
      */
+    source: z.enum(['bundle', 'store']).optional(),
+    /** Store lineage (`source: 'store'`). `from_template` = the store skill name
+     *  the resolver queries by; `version` pins (omit = latest); `source_version_id`
+     *  = immutable per-version id stamped at freeze when pinned; `alias` = `id`. */
     from_template: z.string().optional(),
     alias: z.string().optional(),
     version: z.number().int().min(1).optional(),
-    // Immutable per-version row id of the resolved store skill — the exact
-    // provenance anchor, stamped at freeze. Optional so older frozen specs parse.
     source_version_id: z.string().optional(),
 })
 
