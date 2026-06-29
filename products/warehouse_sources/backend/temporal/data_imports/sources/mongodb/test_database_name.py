@@ -147,3 +147,33 @@ class TestMongoValidateCredentialsOperationFailure:
         assert err == expected_message
         for leaked in forbidden:
             assert leaked not in (err or "")
+
+
+class TestMongoValidateCredentialsErrorTrackingNoise:
+    # Unescaped credentials are a user mistake we already surface an actionable message for, so
+    # they must not be reported to error tracking; genuinely unexpected errors still must be.
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_unescaped_credentials_not_reported(self, mock_get_collections, mock_capture):
+        mock_get_collections.side_effect = InvalidURI(
+            "Username and password must be escaped according to RFC 3986, use urllib.parse.quote_plus"
+        )
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+        mock_capture.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_unexpected_error_is_reported(self, mock_get_collections, mock_capture):
+        mock_get_collections.side_effect = Exception("some-internal-driver-detail")
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == _MONGO_CONNECT_FAILED_MESSAGE
+        mock_capture.assert_called_once()

@@ -310,6 +310,26 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
         logger.exception("signals_scout.emit_report: autostart failed", extra={"report_id": report_id})
 
 
+# Telemetry caps for the report content carried on the lifecycle events. The signal channel surfaces a
+# finding's content on `signal_emitted` (via `_telemetry_props_from_extra`); the report channel now does
+# the same so internal consumers (dashboards, alerts, CDP forwards) can act on a report's substance, not
+# just its ids/status. Summary gets a wider cap than the signal channel's 256 — that limit silently clips
+# real content — while still bounding the event payload.
+#
+# This is a deliberate, scoped exception to the signal channel's `extra`-passthrough policy (see the
+# `_telemetry_props_from_extra` comment in `facade/api.py`). That policy keeps the opaque `extra` blob to
+# truncated scalars because it can nest *uncurated* customer-derived content (raw SQL, replay history) the
+# scout never authored. These fields are the opposite: a curated, scout-authored report title/summary —
+# the deliberate product output — not an arbitrary nested blob. They're forwarded by name (no blob
+# passthrough) and length-capped here, which is what makes carrying them acceptable.
+_MAX_TELEMETRY_SUMMARY_LEN = 2000
+_MAX_TELEMETRY_TEXT_LEN = 1000
+
+
+def _clip(value: str | None, limit: int) -> str | None:
+    return value[:limit] if value is not None else None
+
+
 def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
     """Shared dimensions for the report-channel lifecycle events, mirroring the `signals_scout_run_*`
     events so the two join on `run_id` / `task_run_id` — a report event sits under the run that authored
@@ -323,13 +343,29 @@ def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
     }
 
 
-def _capture_report_emitted(*, team: Team, run: SignalScoutRun, result: EmitReportResult, evidence_count: int) -> None:
+def _capture_report_emitted(
+    *,
+    team: Team,
+    run: SignalScoutRun,
+    result: EmitReportResult,
+    evidence_count: int,
+    title: str,
+    summary: str,
+    actionability: str,
+    already_addressed: bool,
+    priority: str | None,
+    repository: str | None,
+) -> None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
     `signals_scout_run_finished`, fired once per `emit_report` call that reached a terminal outcome.
 
     `outcome` is the single dimension to segment the channel funnel on: `gate_skipped` (a preflight gate
     stopped the call before any report existed), `suppressed` (authored but the judge / actionability kept
-    it out of the inbox), or `surfaced` (landed in the inbox as READY / PENDING_INPUT). Keyed on the team
+    it out of the inbox), or `surfaced` (landed in the inbox as READY / PENDING_INPUT). The event also
+    carries the report's content (`title` / `summary` / `actionability` / `priority` / `repository` /
+    `safety_explanation`) — parity with the signal channel's `signal_emitted`, so internal consumers
+    (dashboards, alerts, CDP forwards) can act on a report's substance, not just its ids. Content rides
+    every outcome, including `gate_skipped` (it records what would have been authored). Keyed on the team
     and carrying the run / task ids so it joins to the run lifecycle events. Best-effort: a capture failure
     must never fail or mask the emit. Accesses `team.organization` — call on a sync thread."""
     if result.skipped_reason is not None:
@@ -345,6 +381,13 @@ def _capture_report_emitted(*, team: Team, run: SignalScoutRun, result: EmitRepo
         "outcome": outcome,
         "skipped_reason": result.skipped_reason,
         "evidence_count": evidence_count,
+        "title": title,
+        "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
+        "actionability": actionability,
+        "already_addressed": already_addressed,
+        "priority": priority,
+        "repository": repository,
+        "safety_explanation": _clip(result.safety_explanation, _MAX_TELEMETRY_TEXT_LEN),
     }
     try:
         posthoganalytics.capture(
@@ -360,16 +403,29 @@ def _capture_report_emitted(*, team: Team, run: SignalScoutRun, result: EmitRepo
         )
 
 
-def _capture_report_edited(*, team: Team, run: SignalScoutRun, result: EditReportResult) -> None:
+def _capture_report_edited(
+    *,
+    team: Team,
+    run: SignalScoutRun,
+    result: EditReportResult,
+    title: str | None,
+    summary: str | None,
+    note: str | None,
+) -> None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
-    `note_appended` distinguish a title/summary rewrite from a note-only append. Best-effort; never fails
-    the edit. Accesses `team.organization` — call on a sync thread."""
+    `note_appended` distinguish a title/summary rewrite from a note-only append; `title` / `summary` /
+    `note` carry the content the edit applied (each None when that field wasn't touched) — parity with the
+    emit event so a consumer sees *what* changed, not just that something did. Best-effort; never fails the
+    edit. Accesses `team.organization` — call on a sync thread."""
     properties = {
         **_report_event_base(run),
         "report_id": result.report_id,
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
+        "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
+        "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
+        "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
     }
     try:
         posthoganalytics.capture(
@@ -422,7 +478,16 @@ async def emit_report(
     if preflight is not None:
         result = _gate_skip_result(preflight)
         await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
-            team=team, run=run, result=result, evidence_count=len(evidence)
+            team=team,
+            run=run,
+            result=result,
+            evidence_count=len(evidence),
+            title=title,
+            summary=summary,
+            actionability=actionability,
+            already_addressed=already_addressed,
+            priority=priority,
+            repository=repository,
         )
         return result
 
@@ -460,7 +525,16 @@ async def emit_report(
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
     await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
-        team=team, run=run, result=result, evidence_count=len(evidence)
+        team=team,
+        run=run,
+        result=result,
+        evidence_count=len(evidence),
+        title=title,
+        summary=summary,
+        actionability=actionability,
+        already_addressed=already_addressed,
+        priority=priority,
+        repository=repository,
     )
     return result
 
@@ -500,7 +574,18 @@ def emit_report_sync(
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         result = _gate_skip_result(preflight)
-        _capture_report_emitted(team=team, run=run, result=result, evidence_count=len(evidence))
+        _capture_report_emitted(
+            team=team,
+            run=run,
+            result=result,
+            evidence_count=len(evidence),
+            title=title,
+            summary=summary,
+            actionability=actionability,
+            already_addressed=already_addressed,
+            priority=priority,
+            repository=repository,
+        )
         return result
 
     task_id = _resolve_task_id(run)
@@ -536,7 +621,18 @@ def emit_report_sync(
     if surfaced:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
-    _capture_report_emitted(team=team, run=run, result=result, evidence_count=len(evidence))
+    _capture_report_emitted(
+        team=team,
+        run=run,
+        result=result,
+        evidence_count=len(evidence),
+        title=title,
+        summary=summary,
+        actionability=actionability,
+        already_addressed=already_addressed,
+        priority=priority,
+        repository=repository,
+    )
     return result
 
 
@@ -581,7 +677,7 @@ def _do_edit_report(
     # title rewrite to its current value) must not claim the run touched the report.
     if updated_fields or note_appended:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
-    _capture_report_edited(team=team, run=run, result=result)
+    _capture_report_edited(team=team, run=run, result=result, title=title, summary=summary, note=append_note)
     return result
 
 

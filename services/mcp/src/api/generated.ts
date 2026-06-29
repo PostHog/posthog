@@ -12183,6 +12183,16 @@ export namespace Schemas {
     }
 
     /**
+     * * `zip` - zip
+     */
+    export type BundleFormatEnum = typeof BundleFormatEnum[keyof typeof BundleFormatEnum];
+
+
+    export const BundleFormatEnum = {
+      Zip: 'zip',
+    } as const;
+
+    /**
      * * `b2b` - B2B
      * * `b2c` - B2C
      * * `other` - Other
@@ -22456,7 +22466,7 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: ExternalDataSchemaRowFiltersItem[] | null;
-      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns: readonly ExternalDataSchemaAvailableColumnsItem[];
       /**
          * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
@@ -34163,6 +34173,51 @@ export namespace Schemas {
       Openai: 'openai',
     } as const;
 
+    /**
+     * * `user` - user
+     * * `repo` - repo
+     * * `marketplace` - marketplace
+     * * `codex` - codex
+     */
+    export type SkillSourceEnum = typeof SkillSourceEnum[keyof typeof SkillSourceEnum];
+
+
+    export const SkillSourceEnum = {
+      User: 'user',
+      Repo: 'repo',
+      Marketplace: 'marketplace',
+      Codex: 'codex',
+    } as const;
+
+    export interface TaskRunArtifactMetadata {
+      /**
+         * Name of the local skill included in a skill_bundle artifact.
+         * @maxLength 255
+         */
+      skill_name: string;
+      /** Local source for the uploaded skill bundle, such as user or repo.
+       *
+       * * `user` - user
+       * * `repo` - repo
+       * * `marketplace` - marketplace
+       * * `codex` - codex */
+      skill_source: SkillSourceEnum;
+      /**
+         * SHA-256 hex digest of the uploaded skill bundle bytes.
+         * @pattern ^[a-f0-9]{64}$
+         */
+      content_sha256: string;
+      /** Archive format used for the local skill bundle.
+       *
+       * * `zip` - zip */
+      bundle_format: BundleFormatEnum;
+      /**
+         * Version of the local skill bundle metadata schema.
+         * @minimum 1
+         */
+      schema_version: number;
+    }
+
     export interface TaskRunArtifactResponse {
       /** Stable identifier for the artifact within this run */
       id?: string;
@@ -34176,6 +34231,8 @@ export namespace Schemas {
       size?: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key for the artifact */
       storage_path: string;
       /** Timestamp when the artifact was uploaded */
@@ -37570,7 +37627,7 @@ export namespace Schemas {
          * @nullable
          */
       row_filters?: PatchedExternalDataSchemaRowFiltersItem[] | null;
-      /** Source-side column metadata (name, data type, nullable) discovered for this schema. Empty until the source has been refreshed via `refresh_schemas`. */
+      /** Column metadata (name, data type, nullable) for this schema. For SQL sources this is the source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back to the synced table's columns. Empty only before the first successful sync/refresh. */
       readonly available_columns?: readonly PatchedExternalDataSchemaAvailableColumnsItem[];
       /**
          * Lightweight parent-source summary (id, source_type, column-selection support, the requesting user's access level). Only populated on the single-schema retrieve endpoint — `null` elsewhere — so read-only views can render without fetching the full source and all its schemas.
@@ -46861,6 +46918,32 @@ export namespace Schemas {
       trigger?: TriggerEnum;
     }
 
+    export interface RecapHighlight {
+      /** Stable highlight identifier, e.g. 'milestone', 'rising_page', 'top_source'. */
+      id: string;
+      /** Emoji for the highlight. */
+      emoji: string;
+      /** Short headline for the highlight, e.g. 'Rising star page'. */
+      title: string;
+      /** The standout value, e.g. a page path or visitor count. */
+      value: string;
+      /** Supporting sentence for the highlight. */
+      detail: string;
+    }
+
+    export interface RecapPersona {
+      /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
+      id: string;
+      /** Display name for the persona, e.g. 'Traffic Magnet'. */
+      name: string;
+      /** Emoji representing the persona. */
+      emoji: string;
+      /** One-line explanation of why this persona was assigned this week. */
+      blurb: string;
+      /** Hex accent color for rendering the persona card. */
+      color: string;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -51386,6 +51469,7 @@ export namespace Schemas {
      * * `artifact` - artifact
      * * `tree_snapshot` - tree_snapshot
      * * `user_attachment` - user_attachment
+     * * `skill_bundle` - skill_bundle
      */
     export type TaskRunArtifactTypeEnum = typeof TaskRunArtifactTypeEnum[keyof typeof TaskRunArtifactTypeEnum];
 
@@ -51398,6 +51482,7 @@ export namespace Schemas {
       Artifact: 'artifact',
       TreeSnapshot: 'tree_snapshot',
       UserAttachment: 'user_attachment',
+      SkillBundle: 'skill_bundle',
     } as const;
 
     export interface TaskRunArtifactFinalizeUpload {
@@ -51416,7 +51501,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51433,6 +51519,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactPrepareUpload {
@@ -51449,7 +51537,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51467,6 +51556,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactPrepareUploadResponse {
@@ -51482,6 +51573,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key reserved for the artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -51519,7 +51612,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51538,6 +51632,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskRunArtifactsFinalizeUploadRequest {
@@ -51821,7 +51917,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51838,6 +51935,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUpload {
@@ -51854,7 +51953,8 @@ export namespace Schemas {
        * * `output` - output
        * * `artifact` - artifact
        * * `tree_snapshot` - tree_snapshot
-       * * `user_attachment` - user_attachment */
+       * * `user_attachment` - user_attachment
+       * * `skill_bundle` - skill_bundle */
       type: TaskRunArtifactTypeEnum;
       /**
          * Optional source label for the artifact, such as agent_output or user_attachment
@@ -51872,6 +51972,8 @@ export namespace Schemas {
          * @maxLength 255
          */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
     }
 
     export interface TaskStagedArtifactPrepareUploadResponse {
@@ -51887,6 +51989,8 @@ export namespace Schemas {
       size: number;
       /** Optional MIME type */
       content_type?: string;
+      /** Optional structured metadata for special artifact types, such as skill bundles. */
+      metadata?: TaskRunArtifactMetadata;
       /** S3 object key reserved for the staged artifact */
       storage_path: string;
       /** Presigned POST expiry in seconds */
@@ -52965,6 +53069,41 @@ export namespace Schemas {
       task_id: string;
       /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
       run_id: string;
+    }
+
+    export interface WebAnalyticsRecapResponse {
+      /** Unique visitors. */
+      visitors: NumericMetric;
+      /** Total pageviews. */
+      pageviews: NumericMetric;
+      /** Total sessions. */
+      sessions: NumericMetric;
+      /** Bounce rate (0–100). */
+      bounce_rate: NumericMetric;
+      /** Average session duration. */
+      avg_session_duration: DurationMetric;
+      /** Top 5 pages by unique visitors. */
+      top_pages: TopPage[];
+      /** Top 5 traffic sources by unique visitors. */
+      top_sources: TopSource[];
+      /** Goal conversions. */
+      goals: Goal[];
+      /** Link to the Web analytics dashboard for this project. */
+      dashboard_url: string;
+      /** The single weekly persona assigned from this week's data. */
+      persona: RecapPersona;
+      /** Up to three screenshot-worthy superlatives for the week. */
+      highlights: RecapHighlight[];
+      /** Human-readable period label, e.g. 'Last 7 days'. */
+      period_label: string;
+      /** First date included in the recap period, in the project timezone. */
+      period_start: string;
+      /** Final date included in the recap period, in the project timezone. */
+      period_end: string;
+      /** Name of the project this recap is for. */
+      project_name: string;
+      /** Canonical link to this project's weekly recap. */
+      recap_url: string;
     }
 
     export interface WeeklyDigestResponse {
@@ -58821,6 +58960,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type EnvironmentsWebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
     };
 
     export type EnvironmentsWebAnalyticsWeeklyDigestParams = {
@@ -66305,6 +66455,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
     };
 
     export type WebAnalyticsWeeklyDigestParams = {

@@ -194,7 +194,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             return level
         return MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
-    def _build_costs_from_precompute(self, date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
+    def _build_costs_from_precompute(
+        self, date_range: QueryDateRange
+    ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
         """Native-table cost source: ensure each source's cost rows are materialized at the grain
         matching the current drill-down (one lazy job per source), then read them with the SAME column
         contract `build_union_query_ast` produces — so `_build_campaign_cost_select` is unchanged.
@@ -230,18 +232,22 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             return None
 
         ttl_seconds = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+        # Per source: read the native table when it materializes, otherwise keep that one source on the
+        # live S3 union. A single unmaterializable/syncing source must not force every source back to S3.
         job_ids: list = []
+        s3_fallback_adapters: list[MarketingSourceAdapter] = []
         for adapter in mat_adapters:
             insert_query = adapter.build_materialization_query(adapter.get_source_id())
             if insert_query is None:
                 logger.info(
                     "marketing_costs_precompute",
-                    outcome="fallback_unmaterializable_source",
+                    outcome="source_fallback_unmaterializable",
                     team_id=self.team.pk,
                     grain=grain_value,
                     source_id=adapter.get_source_id(),
                 )
-                return None
+                s3_fallback_adapters.append(adapter)
+                continue
             result = ensure_precomputed(
                 team=self.team,
                 insert_query=insert_query,
@@ -253,14 +259,17 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             if not result.ready:
                 logger.info(
                     "marketing_costs_precompute",
-                    outcome="fallback_jobs_not_ready",
+                    outcome="source_fallback_jobs_not_ready",
                     team_id=self.team.pk,
                     grain=grain_value,
                     source_id=adapter.get_source_id(),
                 )
-                return None
+                s3_fallback_adapters.append(adapter)
+                continue
             job_ids.extend(result.job_ids)
+
         if not job_ids:
+            # Nothing materialized — let the caller read every source live, as before.
             logger.info(
                 "marketing_costs_precompute",
                 outcome="fallback_no_jobs",
@@ -270,8 +279,15 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
+        cost_sources: list[ast.SelectQuery | ast.SelectSetQuery] = [
+            self._costs_native_read_query(job_ids, grain, date_range)
+        ]
+        # Sources that couldn't materialize stay on the live S3 union so the dashboard stays complete.
+        if s3_fallback_adapters:
+            cost_sources.append(mat_factory.build_union_query_ast(s3_fallback_adapters))
+
         self._costs_precompute_used = True
-        self._costs_sources_materialized = len(mat_adapters)
+        self._costs_sources_materialized = len(mat_adapters) - len(s3_fallback_adapters)
         self._costs_grain = grain_value
         logger.info(
             "marketing_costs_precompute",
@@ -279,9 +295,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             team_id=self.team.pk,
             grain=grain_value,
             source_count=len(mat_adapters),
+            precompute_sources=len(mat_adapters) - len(s3_fallback_adapters),
+            s3_fallback_sources=len(s3_fallback_adapters),
             job_count=len(job_ids),
         )
-        return self._costs_native_read_query(job_ids, grain, date_range)
+        if len(cost_sources) == 1:
+            return cost_sources[0]
+        return ast.SelectSetQuery.create_from_queries(cost_sources, set_operator="UNION ALL")
 
     def _costs_native_read_query(
         self, job_ids: list, grain: MarketingAnalyticsDrillDownLevel, date_range: QueryDateRange
