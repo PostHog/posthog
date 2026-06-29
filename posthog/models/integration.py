@@ -3588,7 +3588,7 @@ class AwsS3Integration:
     aws_secret_access_key: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.AWS_S3.value:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
             raise S3CredentialIntegrationError(
                 f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
             )
@@ -3651,7 +3651,7 @@ class AwsS3Integration:
         # treated as a secret. The account id is non-sensitive and kept for display/debugging.
         return _create_unique_s3_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.AWS_S3.value,
+            kind=Integration.IntegrationKind.AWS_S3,
             name=name,
             config={"name": name, "aws_account_id": account_id},
             sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
@@ -3680,7 +3680,7 @@ class S3CompatibleIntegration:
     endpoint_url: str
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE.value:
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE:
             raise S3CredentialIntegrationError(
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
@@ -3713,7 +3713,7 @@ class S3CompatibleIntegration:
 
         return _create_unique_s3_integration(
             team_id=team_id,
-            kind=Integration.IntegrationKind.S3_COMPATIBLE.value,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE,
             name=name,
             config={"name": name, "endpoint_url": endpoint_url},
             sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),

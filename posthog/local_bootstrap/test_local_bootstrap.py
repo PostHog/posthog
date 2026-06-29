@@ -165,7 +165,7 @@ class TestWritePersonsToPostgres:
             cursor.execute("DELETE FROM posthog_persondistinctid WHERE team_id = %s", (self.TEAM_ID,))
             cursor.execute(f"DELETE FROM {settings.PERSON_TABLE_NAME} WHERE team_id = %s", (self.TEAM_ID,))
 
-    @pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
+    @pytest.mark.django_db()
     def test_writes_persons_and_links_distinct_ids_to_the_right_person(self):
         uuid_with_dids = "11111111-1111-1111-1111-111111111111"
         uuid_without_dids = "22222222-2222-2222-2222-222222222222"

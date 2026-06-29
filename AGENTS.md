@@ -162,7 +162,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Always invoke:**
 
 - `/improving-drf-endpoints` — any DRF viewset or serializer change
-- `/django-migrations` — any Django migration
+- `/django-migrations` — any Django migration, including deleting a model, table, column, or whole product/app (even when no migration file is written, e.g. removing a product folder)
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)

@@ -1149,6 +1149,14 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # run create/edit?" be a column lookup. Nullable with a `[]` db_default so the AddField stays
     # non-blocking on the populated table — new and historical rows both read `[]`.
     emitted_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # The `SignalReport` ids a run *mutated* via `edit_report` (rewrote title/summary and/or appended a
+    # note) — the edit-channel counterpart to `emitted_report_ids`. Deduped (set-membership, not a
+    # multiset): a run that edits the same report twice records it once, because the queryable question
+    # is "which reports did this run touch?", not "how many edits did it make" — that detail lives in the
+    # per-report artefact log. Distinct from `emitted_report_ids` because `edit_report` targets ANY inbox
+    # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
+    # with a `[]` db_default so the AddField stays non-blocking on the populated table.
+    edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

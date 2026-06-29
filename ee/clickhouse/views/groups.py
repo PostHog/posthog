@@ -10,7 +10,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -28,6 +27,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -499,7 +499,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity="create_group",
@@ -619,7 +619,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity=f"{create_or_update}_property",
@@ -728,7 +728,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity="update_property",

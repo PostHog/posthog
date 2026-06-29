@@ -308,7 +308,9 @@ class TestRecoverySweep:
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
         )
-        mock_unlock.assert_called_once_with(consumer._recovery_conn, batches=[stale_batch])
+        mock_unlock.assert_called_once_with(
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+        )
 
     @pytest.mark.asyncio
     async def test_fails_exhausted_stale_batch(self):
@@ -334,7 +336,7 @@ class TestRecoverySweep:
         mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_recovery_sweep_releases_probe_locks_on_error(self):
+    async def test_recovery_sweep_unlocks_on_error(self):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
 
@@ -357,7 +359,9 @@ class TestRecoverySweep:
         ):
             await consumer._recovery_sweep()
 
-        mock_unlock.assert_called_once_with(consumer._recovery_conn, batches=[stale_batch])
+        mock_unlock.assert_called_once_with(
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+        )
 
 
 class TestFailRun:
@@ -834,3 +838,81 @@ class TestOwnershipVerification:
 
         assert result is True
         mock_verify.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_stops_when_lease_renewal_fails(self):
+        # A lost lease (another pod reclaimed the group) must end the heartbeat so the
+        # group isn't double-processed while still re-stamping executing.
+        consumer = _make_consumer()
+        consumer._config.recovery_grace_seconds = 30  # heartbeat interval -> max(30/3, 10) = 10s
+        batch = _make_batch()
+        lock_conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+                new_callable=AsyncMock,
+                return_value=False,
+            ) as mock_renew,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            patch("asyncio.sleep", new_callable=AsyncMock),  # don't wait the real interval
+        ):
+            await consumer._batch_heartbeat(lock_conn, batch, attempt=1)
+
+        mock_renew.assert_awaited_once()
+        # Lease lost -> heartbeat returns before re-stamping executing.
+        mock_status.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_renews_lease_then_restamps_executing(self):
+        # The success path: a held lease is renewed and the executing-status grace
+        # window is refreshed on the same beat. update_status raising ends the loop.
+        consumer = _make_consumer()
+        consumer._config.recovery_grace_seconds = 30
+        batch = _make_batch()
+        lock_conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.renew_lease",
+                new_callable=AsyncMock,
+                return_value=True,
+            ) as mock_renew,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+                side_effect=Exception("stop the loop"),
+            ) as mock_status,
+            patch("asyncio.sleep", new_callable=AsyncMock),
+        ):
+            await consumer._batch_heartbeat(lock_conn, batch, attempt=2)
+
+        mock_renew.assert_awaited_once_with(
+            lock_conn,
+            team_id=batch.team_id,
+            schema_id=batch.schema_id,
+            owner_token=consumer._owner_token,
+            lease_ttl_seconds=consumer._lease_ttl_seconds,
+        )
+        mock_status.assert_awaited_once()
+
+
+class TestShutdown:
+    @pytest.mark.asyncio
+    async def test_close_releases_owned_leases(self):
+        consumer = _make_consumer()
+        main_conn = _make_healthy_conn()
+        consumer._conn = main_conn
+        consumer._recovery_conn = _make_healthy_conn()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.release_all_owned_leases",
+            new_callable=AsyncMock,
+        ) as mock_release:
+            await consumer._close()
+
+        mock_release.assert_awaited_once_with(main_conn, owner_token=consumer._owner_token)
+        main_conn.close.assert_awaited_once()

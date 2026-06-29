@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     enrich_table_semantics as enrich,
 )
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.enrich_table_semantics import (
+    _MAX_COLUMN_NAME_LENGTH,
     MAX_BUSINESS_CONTEXT_CHARS,
     MAX_PROMPT_CHARS,
     EnrichTableSemanticsInputs,
@@ -317,6 +318,14 @@ class TestColumnsFromTable:
         )
         names = {column["name"] for column in _columns_from_table(table)}
         assert names == {"id", "amount"}
+
+    def test_skips_columns_whose_name_exceeds_annotation_key_length(self):
+        # A column name longer than the annotation's varchar key can't be stored — including it would
+        # crash the whole table's enrichment with a DataError. It must be dropped, not enriched.
+        long_name = "a" * (_MAX_COLUMN_NAME_LENGTH + 1)
+        table = DataWarehouseTable(columns={"id": {"clickhouse": "String"}, long_name: {"clickhouse": "String"}})
+        names = {column["name"] for column in _columns_from_table(table)}
+        assert names == {"id"}
 
 
 class TestExtractJsonObject:
