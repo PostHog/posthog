@@ -12,6 +12,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { identifierToHuman } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import {
@@ -60,17 +61,15 @@ interface MountedSceneLogic {
 const generateTabId = (): string => crypto?.randomUUID?.()?.split('-')?.pop() || `${Date.now()}-${Math.random()}`
 
 /**
- * Homepage tab snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state),
- * ensures an id, and marks it pinned + inactive. Every other `SceneTab` field is kept so new fields
- * aren't forgotten; if a future field holds non-plain data, omit it here explicitly.
+ * Homepage snapshot for JSON persistence: strips `sceneParams` (deep/cyclic routing state) and
+ * ensures an id. Every other `SceneTab` field is kept so new fields aren't forgotten; if a future
+ * field holds non-plain data, omit it here explicitly.
  */
 const tabToPersistableSnapshot = (tab: SceneTab): SceneTab => {
     const { sceneParams: _omitSceneParams, ...rest } = tab
     return {
         ...rest,
         id: tab.id || generateTabId(),
-        pinned: true,
-        active: false,
     }
 }
 
@@ -677,7 +676,10 @@ export const sceneLogic = kea<sceneLogicType>([
                 let importedScene
                 try {
                     window.ESBUILD_LOAD_CHUNKS?.(sceneId)
-                    importedScene = await props.scenes[sceneId]()
+                    // Capture the importer in the narrowed scope; the early guard above ensures it's
+                    // defined, but that narrowing wouldn't flow into the retryImport closure.
+                    const importScene = props.scenes[sceneId]
+                    importedScene = await retryImport(() => importScene())
                 } catch (error: any) {
                     if (isChunkLoadError(error)) {
                         // Reloaded once in the last 20 seconds and now reloading again? Show network error

@@ -53,6 +53,7 @@
 import { Message } from 'node-rdkafka'
 
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import {
@@ -67,7 +68,6 @@ import {
 } from '~/ingestion/framework/results'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
 
 type BatchProcessingStep<T, U, R extends string = never> = (values: T[]) => Promise<PipelineResult<U, R>[]>
 

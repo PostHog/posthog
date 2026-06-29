@@ -49,6 +49,7 @@ from products.conversations.backend.models import (
 )
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
+from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
 from products.conversations.backend.slack import (
     get_slack_client,
     handle_member_joined_channel,
@@ -82,7 +83,7 @@ from products.conversations.backend.teams import (
 from products.conversations.backend.teams_attachments import extract_teams_graph_images
 from products.conversations.backend.teams_formatting import rich_content_to_teams_html
 
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, SUPPORT_SLACK_MAX_IMAGE_BYTES
+from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
@@ -425,7 +426,7 @@ def _read_image_bytes_for_slack_upload(team_id: int, image_url: str) -> bytes | 
         )
         return None
 
-    if len(payload) > SUPPORT_SLACK_MAX_IMAGE_BYTES:
+    if len(payload) > CONVERSATIONS_MAX_IMAGE_BYTES:
         logger.warning(
             "🖼️ slack_reply_image_too_large",
             team_id=team_id,

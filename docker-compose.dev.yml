@@ -471,7 +471,7 @@ services:
             - zookeeper
 
     kafka-init:
-        image: docker.redpanda.com/redpandadata/redpanda:v25.1.9
+        image: docker.io/redpandadata/redpanda:v25.1.9
         entrypoint: /bin/sh
         restart: 'no'
         command:

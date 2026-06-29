@@ -9,6 +9,16 @@ import {
 } from '~/common/persons/metrics'
 import { canTrimProperty } from '~/common/persons/person-property-utils'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
+import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '~/common/utils/db/db'
+import {
+    moveDistinctIdsCountHistogram,
+    personPropertiesSizeHistogram,
+    personUpdateVersionMismatchCounter,
+} from '~/common/utils/db/metrics'
+import { PostgresRouter, PostgresUse, TransactionClient } from '~/common/utils/db/postgres'
+import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '~/common/utils/db/utils'
+import { logger } from '~/common/utils/logger'
+import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '~/common/utils/utils'
 import { Properties } from '~/plugin-scaffold'
 import {
     InternalPerson,
@@ -20,16 +30,6 @@ import {
     Team,
     TeamId,
 } from '~/types'
-import { CreatePersonResult, MoveDistinctIdsResult, PersonPropertiesSize } from '~/utils/db/db'
-import {
-    moveDistinctIdsCountHistogram,
-    personPropertiesSizeHistogram,
-    personUpdateVersionMismatchCounter,
-} from '~/utils/db/metrics'
-import { PostgresRouter, PostgresUse, TransactionClient } from '~/utils/db/postgres'
-import { generateKafkaPersonUpdateMessage, sanitizeJsonbValue, unparsePersonPartial } from '~/utils/db/utils'
-import { logger } from '~/utils/logger'
-import { NoRowsUpdatedError, sanitizeSqlIdentifier } from '~/utils/utils'
 
 import {
     InternalPersonWithDistinctId,

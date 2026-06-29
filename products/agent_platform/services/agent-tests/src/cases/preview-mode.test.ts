@@ -1,9 +1,12 @@
 /**
- * Preview-mode e2e: a session created via the preview ingress path stamps
- * `agent_session.is_preview = true`, every `$ai_*` event the runner emits
- * carries `$agent_is_preview: true`, and the session runs against the DRAFT
- * revision it was addressed to (so per-revision secrets stay isolated from
- * the live revision).
+ * Preview-routing e2e: an authed caller can drive a NON-LIVE (draft) revision
+ * by addressing the `<slug>-<rev-hex>` URL with a valid `aud=agent-ingress.preview`
+ * JWT. A preview run is otherwise indistinguishable from a live run — it
+ * executes real tool calls and real side effects, persists real session state,
+ * and emits the same analytics — the only difference is which revision handles
+ * the request. There is no `is_preview` session marker and no side-effect
+ * suppression; this suite guards the routing + revision-scoped resume isolation
+ * that make previewing a draft safe to keep.
  *
  * The harness's `deployAgent` always promotes the revision to live, so the
  * test creates a SECOND revision directly via `c.revisions.createRevision`
@@ -24,7 +27,7 @@ import {
 
 import { buildCluster, closeSharedPool, Cluster, fauxText } from '../harness'
 
-describe('preview-mode: real e2e', () => {
+describe('preview-routing: real e2e', () => {
     let c: Cluster
 
     beforeEach(async () => {
@@ -39,7 +42,7 @@ describe('preview-mode: real e2e', () => {
         await closeSharedPool()
     })
 
-    it('preview run stamps is_preview on the session row and on every $ai_* event', async () => {
+    it('preview run resolves to and executes against the draft revision', async () => {
         c.setScript([fauxText('hi from draft')])
         // Live revision via the standard harness path — exists so the
         // resolver has a `live_revision_id` to compare against (the
@@ -84,28 +87,10 @@ describe('preview-mode: real e2e', () => {
         await c.drain()
         const session = await c.queue.get(sessionId)
         expect(session).not.toBeNull()
-        expect(session!.is_preview).toBe(true)
+        // Routed to the draft and ran for real — same analytics a live run emits.
         expect(session!.revision_id).toBe(draft.id)
-
-        // Every emitted analytics event for this session carries the marker.
-        // CollectingAnalyticsSink exposes both the raw `AnalyticsEvent` (which
-        // we type-stamp with `is_preview`) and the resolved `$ai_*` property
-        // bag — assert both so a regression on either side fails the test.
         const entries = c.analytics.forSession(sessionId)
         expect(entries.length).toBeGreaterThan(0)
-        for (const e of entries) {
-            expect(e.event.is_preview).toBe(true)
-            expect(e.properties.$agent_is_preview).toBe(true)
-        }
-    })
-
-    it('live run leaves is_preview false (regression guard against accidental flag flip)', async () => {
-        c.setScript([fauxText('hi from live')])
-        await c.deployAgent({ slug: 'preview-live-baseline' })
-        const res = await request(c.ingress).post('/agents/preview-live-baseline/run').send({ message: 'hi' })
-        await c.drain()
-        const session = await c.queue.get(res.body.session_id)
-        expect(session!.is_preview).toBe(false)
     })
 
     it('preview run resolves to the draft revision carrying its own encrypted_env (per-revision secrets)', async () => {
@@ -152,22 +137,20 @@ describe('preview-mode: real e2e', () => {
         await c.drain()
         const session = await c.queue.get(res.body.session_id)
         expect(session).not.toBeNull()
-        // Routed to the draft, marked preview — the runner's secret resolver
-        // reads the draft revision's `encrypted_env`, so the draft-only
-        // `FOO_API_KEY` is what this session ran with.
-        expect(session!.is_preview).toBe(true)
+        // Routed to the draft — the runner's secret resolver reads the draft
+        // revision's `encrypted_env`, so the draft-only `FOO_API_KEY` is what
+        // this session ran with.
         expect(session!.revision_id).toBe(draft.id)
     })
 
     it('preview run on the same external_key as a live session does not resume the live session', async () => {
-        // Regression guard: a preview-authed request must never resume a live
-        // session — the runner reads `is_preview` off the session row, so a
-        // shared `(application_id, external_key)` would otherwise drag a
-        // preview request into a `is_preview = false` row and fire live
-        // secrets + un-suppressed external writes. The fix scopes the resume
-        // lookup to the preview/live boundary; this case asserts the
-        // user-facing outcome (two distinct sessions, each with the right
-        // `is_preview` flag).
+        // Regression guard for revision-scoped resume: a preview-authed request
+        // routed to a draft must never resume a live session that happens to
+        // share an `(application_id, external_key)`. `findByExternalKey` scopes
+        // the lookup to `revision_id`, so the draft request opens its own
+        // session instead of dragging the author into the live thread. This
+        // asserts the user-facing outcome — two distinct sessions, each on the
+        // revision the request targeted.
         c.setScript([fauxText('live reply'), fauxText('preview reply')])
         const { application } = await c.deployAgent({ slug: 'preview-iso' })
 
@@ -212,22 +195,11 @@ describe('preview-mode: real e2e', () => {
         const previewSessionId = previewRes.body.session_id as string
         await c.drain()
 
-        // Distinct sessions, each correctly flagged.
+        // Distinct sessions, each on the revision its request targeted.
         expect(previewSessionId).not.toBe(liveSessionId)
         const liveSession = await c.queue.get(liveSessionId)
         const previewSession = await c.queue.get(previewSessionId)
-        expect(liveSession!.is_preview).toBe(false)
-        expect(previewSession!.is_preview).toBe(true)
+        expect(liveSession!.revision_id).toBe(application.live_revision_id)
         expect(previewSession!.revision_id).toBe(draft.id)
     })
-
-    // Output-adapter and tool-level preview-mode noop branches (slack reply
-    // relay, slack-post-message synthetic `ts`, slack-failure-notifier skip,
-    // `isPreviewSideEffect` helper) live behind simple session.is_preview
-    // checks and are exercised by their own per-service unit tests. An e2e
-    // case that wired up a real Slack tool with encrypted bot tokens, mocked
-    // the slack.com endpoint, and asserted on the absence of a request would
-    // duplicate that coverage without catching any new integration drift —
-    // the seam that's hard to keep right under refactor is the flag flowing
-    // through the queue + analytics, which the cases above cover.
 })

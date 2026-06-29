@@ -2,6 +2,7 @@ import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/produc
 
 import { DateTime } from 'luxon'
 
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { posthogFilterOutPlugin } from '../../../src/cdp/legacy-plugins/_transformations/posthog-filter-out-plugin/template'
@@ -12,7 +13,6 @@ import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-ou
 import { forSnapshot } from '../../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
 import { propertyFilterPlugin } from '../legacy-plugins/_transformations/property-filter-plugin/template'

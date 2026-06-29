@@ -5,6 +5,7 @@ import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -30,19 +31,30 @@ const TIME_RANGE_OPTIONS = [
     { label: '7d', hours: 168 },
 ]
 
+// Value is the metric_type, or "funnel:<orderType>" to also filter the funnel order.
+const METRIC_TYPE_OPTIONS = [
+    { value: '', label: 'All metric types' },
+    { value: 'mean', label: 'Mean' },
+    { value: 'funnel', label: 'Funnel (any order)' },
+    { value: 'funnel:ordered', label: 'Funnel: ordered' },
+    { value: 'funnel:unordered', label: 'Funnel: unordered' },
+    { value: 'funnel:strict', label: 'Funnel: strict' },
+    { value: 'ratio', label: 'Ratio' },
+    { value: 'retention', label: 'Retention' },
+]
+
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
     const {
         precomputationTeams,
         precomputationTeamsLoading,
         search,
-        visibleSlowestQueries,
+        slowestQueries,
         slowestQueriesLoading,
-        showSubQueries,
-        allQueriesHiddenAsSubQueries,
         hoursBack,
         teamIdFilter,
         experimentIdFilter,
+        metricTypeFilter,
     } = useValues(queryPerformanceLogic)
     const {
         setSearch,
@@ -51,7 +63,7 @@ export function QueryPerformance(): JSX.Element {
         loadSlowestQueries,
         setTeamIdFilter,
         setExperimentIdFilter,
-        setShowSubQueries,
+        setMetricTypeFilter,
     } = useActions(queryPerformanceLogic)
 
     if (!user?.is_staff) {
@@ -148,10 +160,20 @@ export function QueryPerformance(): JSX.Element {
         },
         {
             title: 'Duration (ms)',
-            dataIndex: 'execution_time',
-            width: 120,
+            width: 150,
             render: function Duration(_, item) {
-                return <span className="font-mono">{Math.round(item.execution_time)}</span>
+                // Headline is the total the user waited for (precompute builds + read); the read on its own
+                // is shown alongside when this query had sub-queries.
+                const total = Math.round(item.total_duration_ms ?? item.execution_time)
+                const hasSubQueries = item.sub_queries && item.sub_queries.length > 0
+                return (
+                    <div className="font-mono">
+                        <span>{total}</span>
+                        {hasSubQueries && (
+                            <span className="text-muted text-xs"> · read {Math.round(item.execution_time)}</span>
+                        )}
+                    </div>
+                )
             },
         },
         {
@@ -262,6 +284,39 @@ export function QueryPerformance(): JSX.Element {
         },
     ]
 
+    const subQueryColumns: LemonTableColumns<SlowestQuery> = [
+        {
+            title: 'Build',
+            width: 180,
+            render: function SubQueryBuild(_, item) {
+                return <LemonTag type="warning">build: {item.experiment_precompute_table || 'unknown'}</LemonTag>
+            },
+        },
+        {
+            title: 'Duration (ms)',
+            width: 120,
+            render: function SubQueryDuration(_, item) {
+                return <span className="font-mono">{Math.round(item.execution_time)}</span>
+            },
+        },
+        {
+            title: 'Status',
+            render: function SubQueryStatus(_, item) {
+                if (!item.exception) {
+                    return <LemonTag type="success">OK</LemonTag>
+                }
+                const firstLine = item.exception.split('\n')[0]
+                const preview = firstLine.length > 60 ? firstLine.slice(0, 60) + '…' : firstLine
+                return (
+                    <div className="flex items-center gap-1 min-w-0">
+                        <LemonTag type="danger">Error</LemonTag>
+                        <span className="font-mono text-xs text-danger truncate">{preview}</span>
+                    </div>
+                )
+            },
+        },
+    ]
+
     return (
         <SceneContent className="mt-4 pb-8">
             <SceneTitleSection
@@ -311,6 +366,13 @@ export function QueryPerformance(): JSX.Element {
                                         onChange={(value) => setExperimentIdFilter(value != null ? String(value) : '')}
                                         className="w-36"
                                     />
+                                    <LemonSelect
+                                        size="small"
+                                        value={metricTypeFilter}
+                                        onChange={(value) => setMetricTypeFilter(value ?? '')}
+                                        options={METRIC_TYPE_OPTIONS}
+                                        className="w-44"
+                                    />
                                     <LemonButton
                                         type="secondary"
                                         size="small"
@@ -319,39 +381,49 @@ export function QueryPerformance(): JSX.Element {
                                     >
                                         Refresh
                                     </LemonButton>
-                                    <LemonSwitch
-                                        label="Show sub-queries"
-                                        checked={showSubQueries}
-                                        onChange={setShowSubQueries}
-                                        size="small"
-                                        bordered
-                                    />
                                 </div>
                                 <LemonTable
                                     columns={slowestQueryColumns}
-                                    dataSource={visibleSlowestQueries}
+                                    dataSource={slowestQueries}
                                     loading={slowestQueriesLoading}
-                                    emptyState={
-                                        allQueriesHiddenAsSubQueries
-                                            ? 'All queries in this range are sub-queries — enable "Show sub-queries" to view them'
-                                            : 'No queries found in this time range'
-                                    }
+                                    emptyState="No queries found in this time range"
                                     pagination={{ pageSize: 20 }}
                                     className="overflow-visible! flex-none!"
                                     expandable={{
                                         expandedRowRender: function ExpandedQuery(item) {
                                             return (
-                                                <div className="p-2">
-                                                    {item.exception && (
-                                                        <div className="mb-2">
-                                                            <CodeSnippet
-                                                                language={Language.Text}
-                                                                thing="error"
-                                                                maxLinesWithoutExpansion={5}
-                                                            >
-                                                                {item.exception}
-                                                            </CodeSnippet>
+                                                <div className="flex flex-col gap-2 p-2">
+                                                    {item.sub_queries && item.sub_queries.length > 0 && (
+                                                        <div>
+                                                            <h4 className="mb-1">Sub-queries (precompute builds)</h4>
+                                                            <LemonTable
+                                                                size="small"
+                                                                columns={subQueryColumns}
+                                                                dataSource={item.sub_queries}
+                                                                expandable={{
+                                                                    expandedRowRender: function ExpandedSubQuery(sub) {
+                                                                        return (
+                                                                            <CodeSnippet
+                                                                                language={Language.SQL}
+                                                                                thing="query"
+                                                                                maxLinesWithoutExpansion={10}
+                                                                            >
+                                                                                {sub.query}
+                                                                            </CodeSnippet>
+                                                                        )
+                                                                    },
+                                                                }}
+                                                            />
                                                         </div>
+                                                    )}
+                                                    {item.exception && (
+                                                        <CodeSnippet
+                                                            language={Language.Text}
+                                                            thing="error"
+                                                            maxLinesWithoutExpansion={5}
+                                                        >
+                                                            {item.exception}
+                                                        </CodeSnippet>
                                                     )}
                                                     <CodeSnippet
                                                         language={Language.SQL}

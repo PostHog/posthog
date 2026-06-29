@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 import { Summary } from 'prom-client'
 
+import { HogFlow, HogFlowAction } from '~/cdp/schema/hogflow'
 import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
-import { HogFlow, HogFlowAction } from '~/schema/hogflow'
 
 export const findActionById = (hogFlow: HogFlow, id: string): HogFlowAction => {
     const action = hogFlow.actions.find((action) => action.id === id)

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Boot the multinode ClickHouse smoke-test stack in the background.
-# One ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions).
+# One ClickHouse server per logical cluster (data + ai_events + aux + ops + sessions + logs).
 # This is opt-in tooling for verifying migration routing — `bin/start` is unaffected.
 #
 
@@ -12,7 +12,7 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-SERVICES=(zookeeper kafka db redis7 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions)
+SERVICES=(zookeeper kafka db redis7 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
 
 case "${1:-up}" in
     up)
@@ -24,6 +24,7 @@ case "${1:-up}" in
         echo "  clickhouse-aux        localhost:9200 (HTTP 8125)"
         echo "  clickhouse-ops        localhost:9300 (HTTP 8126)"
         echo "  clickhouse-sessions   localhost:9400 (HTTP 8127)"
+        echo "  clickhouse-logs       localhost:9500 (HTTP 8128)"
         echo
         echo "To run migrations against this stack, set:"
         echo "  export MULTINODE_CLICKHOUSE=1"

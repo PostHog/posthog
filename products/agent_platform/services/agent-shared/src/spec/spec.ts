@@ -7,7 +7,22 @@
 
 import { z } from 'zod'
 
-export const ModelIdSchema = z.string().min(1)
+import type { TriggerMetadata } from '../runtime/trigger-metadata'
+
+/**
+ * Canonical model id: `<provider>/<model-id>` (e.g. `anthropic/claude-haiku-4-5`).
+ *
+ * Reject bare ids at authoring time so we don't freeze a revision the gateway
+ * can't serve. `resolveModel` / `acceptedModelIds` operate on the prefixed
+ * form; a bare `haiku-4-5` would pass `.min(1)` here, freeze, then fail the
+ * very first session with a 400 from the gateway. Mirror of
+ * `_AGENT_SPEC_JSON_SCHEMA_RAW.models.manual.models[].model.pattern` in
+ * `backend/logic/spec_schema.py` — keep the two in sync.
+ */
+export const ModelIdSchema = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'model id must be "<provider>/<model-id>"')
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
@@ -599,7 +614,10 @@ export const SkillRefSchema = z.object({
      */
     from_template: z.string().optional(),
     alias: z.string().optional(),
-    version: z.number().int().nonnegative().optional(),
+    version: z.number().int().min(1).optional(),
+    // Immutable per-version row id of the resolved store skill — the exact
+    // provenance anchor, stamped at freeze. Optional so older frozen specs parse.
+    source_version_id: z.string().optional(),
 })
 
 /**
@@ -668,6 +686,58 @@ export type AuthConfig = z.infer<typeof AuthConfigSchema>
  * opt into.
  */
 export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+
+/** One model in a manual priority list; per-entry `reasoning` overrides the spec default. */
+export const ModelEntrySchema = z.object({
+    model: ModelIdSchema,
+    reasoning: ReasoningEffortSchema.optional(),
+})
+
+/** Quality/cost level for `auto` policy; mapped to a maintained model list (below). */
+export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
+
+/**
+ * How the runner treats the priority list across a session's turns.
+ *
+ *  - `cost` (default): the first turn walks the list until a model answers, then
+ *    pins that model for the rest of the session — every later turn uses ONLY it,
+ *    no cross-model failover. One provider per session keeps its prompt cache warm
+ *    (cache reads are ~0.1–0.5× of full input), which dominates multi-turn cost.
+ *    The trade: if the pinned model goes down mid-session the turn fails (after
+ *    pi-ai's same-provider retries) rather than switching — switching a large
+ *    cached session to a cold provider re-reads the whole context at full price.
+ *  - `availability`: the runner still leads with the last-served model (sticky, so
+ *    it doesn't thrash) but DOES fail over to the next model on failure, trading
+ *    that cold-cache re-read for keeping the session alive.
+ */
+export const ModelOptimizeForSchema = z.enum(['cost', 'availability'])
+
+/** `auto`: platform resolves `level` to a priority-ordered list at runtime.
+ *  `manual`: author's explicit priority list.
+ *  `optimize_for` (both): session model stability vs. resilience — see above. */
+export const ModelPolicySchema = z.discriminatedUnion('mode', [
+    z.object({
+        mode: z.literal('auto'),
+        level: ModelLevelSchema.default('medium'),
+        reasoning: ReasoningEffortSchema.optional(),
+        optimize_for: ModelOptimizeForSchema.default('cost'),
+    }),
+    z.object({
+        mode: z.literal('manual'),
+        models: z.array(ModelEntrySchema).min(1),
+        optimize_for: ModelOptimizeForSchema.default('cost'),
+    }),
+])
+
+/** `auto` level → priority-ordered, cross-provider list (also the fallback chain).
+ *  The curated grouping layer over the gateway catalog: ids here MUST be
+ *  gateway-served. `validateModelLevels` (gateway-catalog.ts) guards that in
+ *  CI; the runner filters this against the live catalog at session start. */
+export const MODEL_POLICY_LEVELS: Record<z.infer<typeof ModelLevelSchema>, readonly string[]> = {
+    low: ['anthropic/claude-haiku-4-5', 'openai/gpt-5-mini'],
+    medium: ['anthropic/claude-sonnet-4-6', 'openai/gpt-5'],
+    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-pro'],
+}
 
 /**
  * Author-facing knobs for the framework-injected system-prompt preamble.
@@ -772,7 +842,8 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
 export const AgentSpecSchema = z.object({
-    model: ModelIdSchema,
+    /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
+    models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z.array(TriggerSchema).default([]),
     tools: z.array(ToolRefSchema).default([]),
     mcps: z.array(McpRefSchema).default([]),
@@ -787,13 +858,29 @@ export const AgentSpecSchema = z.object({
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
     }),
-    entrypoint: z.string().default('agent.md'),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
+export type ModelEntry = z.infer<typeof ModelEntrySchema>
+export type ModelLevel = z.infer<typeof ModelLevelSchema>
+export type ModelOptimizeFor = z.infer<typeof ModelOptimizeForSchema>
+export type ModelPolicy = z.infer<typeof ModelPolicySchema>
+
+/** Priority-ordered models the runner tries (primary first). Reasoning: per-entry → auto override → spec default. */
+export function modelPolicyToList(spec: Pick<AgentSpec, 'models' | 'reasoning'>): ModelEntry[] {
+    const policy = spec.models
+    if (policy.mode === 'manual') {
+        return policy.models.map((m) => ({ model: m.model, reasoning: m.reasoning ?? spec.reasoning }))
+    }
+    return MODEL_POLICY_LEVELS[policy.level].map((model) => ({
+        model,
+        reasoning: policy.reasoning ?? spec.reasoning,
+    }))
+}
+
 export type Trigger = z.infer<typeof TriggerSchema>
 export type TriggerType = Trigger['type']
 
@@ -1101,15 +1188,8 @@ export interface AgentSession {
      * `cron-trigger-scheduler.md` §6.
      */
     idempotency_key: string | null
-    /**
-     * Trigger-specific metadata stamped at enqueue time. Shape varies by
-     * trigger kind; for cron firings:
-     * `{ kind: 'cron', cron_name, schedule, fired_at }`. Read by the
-     * session-detail UI to render a "fired by `<cron_name>` at `<fired_at>`"
-     * badge. Stash-don't-parse — the runtime doesn't introspect this beyond
-     * forwarding it to the UI.
-     */
-    trigger_metadata: Record<string, unknown> | null
+    /** Trigger-specific metadata stamped at enqueue, discriminated on `kind`. */
+    trigger_metadata: TriggerMetadata | null
     /**
      * Session state. See the session-restart redesign for the contract:
      *
@@ -1171,18 +1251,6 @@ export interface AgentSession {
      * surfaces them in the chat UI / Slack thread.
      */
     pending_elevation_requests: PendingElevationRequest[]
-    /**
-     * Author iteration session — created via the preview ingress path (the
-     * Django-side preview-proxy, or a direct ingress call carrying a valid
-     * `aud=agent-ingress.preview` JWT). Output adapters (slack reply, webhook
-     * publish) noop instead of POSTing externally; the analytics sink tags
-     * `$ai_*` events with `preview: true` so production observability
-     * dashboards can filter author iteration noise. Cron is implicitly safe
-     * because the janitor only schedules off `live_revision_id`, so preview
-     * sessions never originate from cron. False for every session created via
-     * the live ingress path.
-     */
-    is_preview: boolean
     created_at: string
     updated_at: string
 }

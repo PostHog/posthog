@@ -26,7 +26,7 @@ nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/ingestion/pipelines/sessionreplay/ @PostHog/team-replay @PostHog/team-ingestion
 nodejs/src/cdp/ @PostHog/team-workflows
-nodejs/src/recording-rasterizer/ @PostHog/team-replay
+nodejs/src/session-replay/recording-rasterizer/ @PostHog/team-replay
 
 # CDP / Workflows - owned by @PostHog/team-workflows
 posthog/cdp/** @PostHog/team-workflows
@@ -94,7 +94,7 @@ frontend/src/scenes/FeatureFlagPermissions.tsx @PostHog/team-feature-flags
 posthog/tasks/early_access_feature.py @PostHog/team-feature-flags
 
 # Data warehouse - owned by @PostHog/team-data-stack
-posthog/temporal/data_imports/** @PostHog/team-warehouse-sources
+products/warehouse_sources/backend/temporal/data_imports/** @PostHog/team-warehouse-sources
 posthog/warehouse/** @PostHog/team-data-stack
 products/data_warehouse/** @PostHog/team-data-stack
 frontend/src/scenes/data-warehouse/** @PostHog/team-data-stack
@@ -142,7 +142,6 @@ frontend/src/scenes/audit-logs/ @PostHog/team-platform-features
 frontend/src/scenes/activity/ @PostHog/team-platform-features
 posthog/models/activity_logging/ @PostHog/team-platform-features
 frontend/src/scenes/approvals/ @PostHog/team-platform-features
-posthog/approvals/ @PostHog/team-platform-features
 frontend/src/scenes/resource-transfer/ @PostHog/team-platform-features
 posthog/api/resource_transfer.py @PostHog/team-platform-features
 posthog/models/resource_transfer/ @PostHog/team-platform-features
@@ -303,12 +302,12 @@ posthog/tasks/usage_report.py @PostHog/team-billing
 posthog/temporal/usage_report/ @PostHog/team-billing
 posthog/temporal/quota_limiting/ @PostHog/team-billing
 
-# Query performance - owned by @PostHog/team-query-performance
-posthog/queries/ @PostHog/team-query-performance
-posthog/caching/ @PostHog/team-query-performance
-posthog/hogql/database/schema/sessions*.py @PostHog/team-query-performance
-posthog/models/raw_sessions/** @PostHog/team-query-performance
-posthog/models/sessions/** @PostHog/team-query-performance
+# Query performance (merged into Analytics Platform) - owned by @PostHog/team-analytics-platform
+posthog/queries/ @PostHog/team-analytics-platform
+posthog/caching/ @PostHog/team-analytics-platform
+posthog/hogql/database/schema/sessions*.py @PostHog/team-analytics-platform
+posthog/models/raw_sessions/** @PostHog/team-analytics-platform
+posthog/models/sessions/** @PostHog/team-analytics-platform
 
 # Ingestion (persons identity pipeline) - owned by @PostHog/team-ingestion
 posthog/temporal/delete_persons/ @PostHog/team-ingestion

@@ -216,19 +216,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
-        # Flatten the query-param multidict to single values, matching the original `params.get(...)`.
         filters = {key: request.query_params.get(key) for key in request.query_params}
-        # internal/archived come from the validated query serializer (typed bool / choice).
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade.list_tasks(
+        tasks = tasks_facade._list_tasks_queryset(
             self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
         )
         page = self.paginate_queryset(tasks)
-        if page is not None:
-            return self.get_paginated_response(TaskSerializer(page, many=True).data)
-        return Response(TaskSerializer(tasks, many=True).data)
+        assert page is not None, "TaskViewSet list requires an active paginator"
+        return self.get_paginated_response(
+            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+        )
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -586,6 +585,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             repository=request.validated_data["repository"],
             github_integration_id=github_integration_id,
             branch=request.validated_data.get("branch"),
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
         )
         if result is None:
             return Response(status=status.HTTP_200_OK)

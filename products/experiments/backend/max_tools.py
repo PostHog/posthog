@@ -169,6 +169,8 @@ class CreateExperimentTool(MaxTool):
                 type=type,
                 parameters={
                     "feature_flag_variants": feature_flag_variants,
+                },
+                running_time_calculation={
                     "minimum_detectable_effect": 30,
                 },
                 event_source=EventSource.POSTHOG_AI,

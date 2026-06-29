@@ -14,7 +14,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from django.db.models import Prefetch, Q
 
 import structlog
-import posthoganalytics
 from opentelemetry import trace
 from pydantic import BaseModel, ConfigDict
 
@@ -143,18 +142,22 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team, WeekStartDay
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
+from products.data_warehouse.backend.facade.hogql import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    DataWarehouseTableColumns,
+    ExternalDataJob,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 # posthog.schema (the pydantic models) is runtime-imported inside serialize()/serialize_fields()
 # so it stays off django.setup(), where this module loads via the warehouse/data-modeling models.
@@ -173,7 +176,7 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 tracer = trace.get_tracer(__name__)
 
@@ -792,7 +795,7 @@ class Database(BaseModel):
             HogQLQuery,
         )
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -1066,7 +1069,7 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1089,7 +1092,7 @@ class Database(BaseModel):
         is_direct_query = connection_id is not None
 
         with timings.measure("feature_flags", emit_span=True):
-            is_managed_viewset_enabled = posthoganalytics.feature_enabled(
+            is_managed_viewset_enabled = feature_enabled_or_false(
                 "managed-viewsets",
                 str(team.uuid),
                 groups={
@@ -1131,7 +1134,7 @@ class Database(BaseModel):
                 team, user, user_access_control
             )
 
-        is_hogql_warehouse_access_control_enabled = posthoganalytics.feature_enabled(
+        is_hogql_warehouse_access_control_enabled = feature_enabled_or_false(
             "hogql-warehouse-access-control",
             str(team.uuid),
             groups={"organization": str(team.organization_id), "project": str(team.id)},
@@ -1307,7 +1310,7 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         team = sources.team
         team_id = team.pk

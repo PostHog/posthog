@@ -1,10 +1,15 @@
-import { type PublicKeyCredentialDescriptorJSON, startAuthentication } from '@simplewebauthn/browser'
+import {
+    browserSupportsWebAuthnAutofill,
+    type PublicKeyCredentialDescriptorJSON,
+    startAuthentication,
+} from '@simplewebauthn/browser'
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
+import { isWebKitBrowser } from 'lib/utils/dom'
 import { handleLoginRedirect, loginLogic } from 'scenes/authentication/login/loginLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { userLogic } from 'scenes/userLogic'
@@ -43,6 +48,7 @@ export const passkeyLogic = kea<passkeyLogicType>([
             params?: BeginPasskeyLoginParams
         ) => ({ allowCredentials, params }),
         startPasskeyAuthentication: true,
+        startConditionalPasskeyLogin: true,
         passkeyAuthenticationCancelled: true,
         reset: true,
     }),
@@ -127,10 +133,54 @@ export const passkeyLogic = kea<passkeyLogicType>([
             },
         ],
     })),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         beginPasskeyLogin: () => {
+            // Don't start a second passkey sign-in while one is already in flight (e.g. a
+            // double-clicked passkey button) — concurrent WebAuthn requests hang WebKit.
+            if (values.loginWithPasskeyLoading) {
+                return
+            }
             // After setting credentials in reducer, start the authentication
             actions.startPasskeyAuthentication()
+        },
+        startConditionalPasskeyLogin: async () => {
+            // WebKit-only. Safari/iOS freeze on the auto-modal, so there we offer passkeys via the
+            // email field's autofill instead
+            if (!isWebKitBrowser()) {
+                return
+            }
+            // Latch synchronously before the first await so a repeat trigger can't race past the guard.
+            if (cache.passkeyAutofillStarted) {
+                return
+            }
+            cache.passkeyAutofillStarted = true
+            if (!(await browserSupportsWebAuthnAutofill())) {
+                return
+            }
+            try {
+                const beginResponse = await api.create<PasskeyLoginBeginResponse>('api/webauthn/login/begin/')
+                const assertion = await startAuthentication({
+                    optionsJSON: {
+                        challenge: beginResponse.challenge,
+                        timeout: beginResponse.timeout,
+                        rpId: beginResponse.rpId,
+                        // Conditional UI must not constrain credentials — the browser offers whatever
+                        // discoverable passkeys exist for this site.
+                        allowCredentials: [],
+                        userVerification: beginResponse.userVerification as UserVerificationRequirement,
+                    },
+                    useBrowserAutofill: true,
+                })
+                await api.create('api/webauthn/login/complete/', assertion)
+                handleLoginRedirect()
+                window.location.reload()
+            } catch (e: unknown) {
+                // The autofill passkey prompt is routinely dismissed — the user types a password
+                // instead, or navigates away. Swallow those; surface anything genuinely wrong.
+                if (!isWebAuthnCancellation(e)) {
+                    actions.setGeneralError('passkey_error', getPasskeyErrorMessage(e))
+                }
+            }
         },
         startPasskeyAuthenticationSuccess: async () => {
             // The loader returns null on user cancellation to avoid surfacing
