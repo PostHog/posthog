@@ -20,6 +20,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
     PublishInput,
+    ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
     ValidateIssueInput,
@@ -48,11 +49,14 @@ def _stage_kwargs() -> dict:
     }
 
 
-async def _run_full_review_pr_workflow(*, publish: bool, already_published: bool = False) -> dict:
+async def _run_full_review_pr_workflow(
+    *, publish: bool, already_published: bool = False, acting_user_id: int | None = 3
+) -> dict:
     """Run `ReviewPRWorkflow` end-to-end with activity stand-ins; record what fanned out + published.
 
     `already_published` drives the fetch stand-in's `ReviewMeta.already_published` to exercise the
-    parent's early-exit gate (a re-trigger at an already-published head).
+    parent's early-exit gate (a re-trigger at an already-published head). `acting_user_id` drives the
+    resolve stand-in: None means the PR author maps to no PostHog user, so the parent skips the review.
     """
     split_calls: list[int] = []
     analyze_calls: list[int] = []
@@ -75,7 +79,12 @@ async def _run_full_review_pr_workflow(*, publish: bool, already_published: bool
             snapshotted=not already_published,
             already_published=already_published,
             new_comment_count=0,
+            author_login="octocat",
         )
+
+    @activity.defn(name="resolve_acting_user_activity")
+    async def resolve_acting_user(input) -> ResolveActingUserResult:
+        return ResolveActingUserResult(acting_user_id=acting_user_id)
 
     @activity.defn(name="sync_review_skills_activity")
     async def sync_skills(input) -> None:
@@ -148,6 +157,7 @@ async def _run_full_review_pr_workflow(*, publish: bool, already_published: bool
             activities=[
                 validate_integration,
                 fetch,
+                resolve_acting_user,
                 sync_skills,
                 gen_schemas,
                 split,
@@ -204,6 +214,20 @@ async def test_review_pr_workflow_early_exits_when_already_published():
     # A re-trigger at an already-published head: the gate returns the report id without running any
     # downstream stage — no re-chunk/analyze/review/dedup/validate and no re-publish.
     recorded = await _run_full_review_pr_workflow(publish=True, already_published=True)
+    assert recorded["result"] == "rep-1"
+    assert recorded["split"] == []
+    assert recorded["analyze"] == []
+    assert recorded["review"] == []
+    assert recorded["validate"] == []
+    assert recorded["publish"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
+    # The PR author isn't a PostHog org user → no perspectives apply → the gate returns the report id
+    # before any sandbox spend (no chunk/analyze/review/validate) and never publishes. Guards against
+    # the gate being dropped (which would review PRs from non-PostHog authors with an empty perspective set).
+    recorded = await _run_full_review_pr_workflow(publish=True, acting_user_id=None)
     assert recorded["result"] == "rep-1"
     assert recorded["split"] == []
     assert recorded["analyze"] == []

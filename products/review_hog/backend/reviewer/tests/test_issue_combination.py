@@ -2,7 +2,7 @@ from products.review_hog.backend.reviewer.models.issues_review import Issue, Iss
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
 
 
-def _issue(issue_id: str) -> Issue:
+def _issue(issue_id: str, source_perspective: str | None = None) -> Issue:
     return Issue(
         id=issue_id,
         title=f"Issue {issue_id}",
@@ -11,32 +11,37 @@ def _issue(issue_id: str) -> Issue:
         issue="A problem",
         suggestion="A fix",
         priority=IssuePriority.MUST_FIX,
+        source_perspective=source_perspective,
     )
 
 
 class TestCombineIssues:
-    def test_stamps_source_perspective_per_pass_and_flattens_in_key_order(self) -> None:
-        # Passes 1..3 map to PerspectiveType members in order; combine flattens sorted by (pass, chunk).
+    def test_preserves_review_time_source_perspective_and_flattens_in_key_order(self) -> None:
+        # source_perspective is stamped (to the skill name) by the review activity, NOT recomputed here —
+        # combine must preserve it while re-stamping ids and flattening sorted by (pass, chunk).
         perspective_results = {
-            (3, 5): IssuesReview(issues=[_issue("3-5-1")]),
-            (1, 5): IssuesReview(issues=[_issue("1-5-1"), _issue("1-5-2")]),
-            (2, 5): IssuesReview(issues=[_issue("2-5-1")]),
+            (3, 5): IssuesReview(issues=[_issue("a", "review-hog-perspective-performance-reliability")]),
+            (1, 5): IssuesReview(
+                issues=[
+                    _issue("b", "review-hog-perspective-logic-correctness"),
+                    _issue("c", "review-hog-perspective-logic-correctness"),
+                ]
+            ),
+            (2, 5): IssuesReview(issues=[_issue("d", "review-hog-perspective-contracts-security")]),
         }
 
         combined = combine_issues(perspective_results)
 
-        # Total count equals the sum of every review's issues.
         assert len(combined) == 4
         # Deterministic order: sorted by (pass_number, chunk_id), so pass 1 issues come first.
         assert [i.id for i in combined] == ["1-5-1", "1-5-2", "2-5-1", "3-5-1"]
-        # Each issue carries the perspective value for its pass number.
-        expected_perspective = {
-            "1-5-1": "Logic & Correctness",
-            "1-5-2": "Logic & Correctness",
-            "2-5-1": "Contracts & Security",
-            "3-5-1": "Performance & Reliability",
+        # Each issue keeps the skill name its review activity stamped (now keyed by the re-stamped id).
+        assert {i.id: i.source_perspective for i in combined} == {
+            "1-5-1": "review-hog-perspective-logic-correctness",
+            "1-5-2": "review-hog-perspective-logic-correctness",
+            "2-5-1": "review-hog-perspective-contracts-security",
+            "3-5-1": "review-hog-perspective-performance-reliability",
         }
-        assert {i.id: i.source_perspective for i in combined} == expected_perspective
 
     def test_orders_by_chunk_id_within_a_pass(self) -> None:
         # Within one pass, chunks flatten in ascending chunk_id order regardless of insertion order.
@@ -65,12 +70,6 @@ class TestCombineIssues:
         ids = [i.id for i in combined]
         assert ids == ["1-1-1", "2-1-1", "3-1-1", "3-1-2"]
         assert len(set(ids)) == len(ids)
-        assert {i.id: i.source_perspective for i in combined} == {
-            "1-1-1": "Logic & Correctness",
-            "2-1-1": "Contracts & Security",
-            "3-1-1": "Performance & Reliability",
-            "3-1-2": "Performance & Reliability",
-        }
 
     def test_empty_input_returns_empty_list(self) -> None:
         assert combine_issues({}) == []
