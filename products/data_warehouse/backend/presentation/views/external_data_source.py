@@ -54,7 +54,6 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from products.cdp.backend.facade.api import HogFunctionSerializer
 from products.cdp.backend.facade.models import HogFunction
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.direct_snowflake import upsert_direct_snowflake_table
 from products.data_warehouse.backend.facade.api import (
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
@@ -80,6 +79,7 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_mysql_schemas,
     reconcile_postgres_schemas,
     reconcile_refresh_name_substitutions as reconcile_postgres_refresh_name_substitutions,
+    reconcile_snowflake_schemas,
     source_namespace_is_blank,
     sync_cdc_extraction_schedule,
     sync_discover_schemas_schedule,
@@ -87,6 +87,7 @@ from products.data_warehouse.backend.facade.api import (
     trigger_external_data_source_workflow,
     upsert_direct_mysql_table,
     upsert_direct_postgres_table,
+    upsert_direct_snowflake_table,
 )
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import (
@@ -97,7 +98,6 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
-from products.data_warehouse.backend.snowflake_helpers import reconcile_snowflake_schemas
 from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
 from products.warehouse_sources.backend.facade.api import (
     mysql_columns_to_dwh_columns,

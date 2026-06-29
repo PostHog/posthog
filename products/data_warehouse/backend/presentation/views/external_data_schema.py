@@ -21,7 +21,6 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
-from products.data_warehouse.backend.direct_snowflake import hide_direct_snowflake_table
 from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
     create_and_register_webhook,
@@ -30,6 +29,7 @@ from products.data_warehouse.backend.facade.api import (
     get_postgres_source_location,
     hide_direct_mysql_table,
     hide_direct_postgres_table,
+    hide_direct_snowflake_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_xmin_enabled_for_team,
@@ -37,12 +37,12 @@ from products.data_warehouse.backend.facade.api import (
     reconcile_webhook_events,
     reproject_direct_mysql_table,
     reproject_direct_postgres_table,
+    reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.snowflake_helpers import reproject_direct_snowflake_table
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataJob,
     ExternalDataSchema,
