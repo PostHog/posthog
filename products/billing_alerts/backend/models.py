@@ -9,13 +9,12 @@ from django.db import models
 from django.db.models import Q
 
 from posthog.models.organization import Organization
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel
 
 MAX_FAILURES_BEFORE_BROKEN = 5
 
 
-class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
+class BillingAlertConfiguration(UUIDModel):
     class Metric(models.TextChoices):
         SPEND = "spend", "Spend"
         USAGE = "usage", "Usage"
@@ -32,13 +31,10 @@ class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
         SNOOZED = "snoozed", "Snoozed"
         BROKEN = "broken", "Broken"
 
-    all_teams = models.Manager()  # noqa: DJ012
-
     organization_id = models.UUIDField(db_index=True)
     team = models.ForeignKey(
         "posthog.Team",
         db_column="execution_team_id",
-        db_constraint=False,
         on_delete=models.CASCADE,
         related_name="+",
     )
@@ -76,7 +72,6 @@ class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
     updated_at = models.DateTimeField(auto_now=True, null=True, blank=True)
 
     class Meta:
-        default_manager_name = "all_teams"
         db_table = "billing_alerts_configuration"
         indexes = [
             models.Index(fields=["organization_id", "-created_at"], name="billing_alert_org_created_idx"),
@@ -121,7 +116,7 @@ class BillingAlertConfiguration(TeamScopedRootMixin, UUIDModel):
                 raise ValidationError({"threshold_value": "Must be greater than or equal to 0."})
 
 
-class BillingAlertEvent(TeamScopedRootMixin, UUIDModel):
+class BillingAlertEvent(UUIDModel):
     class Kind(models.TextChoices):
         CHECK = "check", "Check"
         FIRING = "firing", "Firing"
@@ -129,10 +124,8 @@ class BillingAlertEvent(TeamScopedRootMixin, UUIDModel):
         ERRORED = "errored", "Errored"
         BROKEN_CONFIG = "broken_config", "Broken config"
 
-    all_teams = models.Manager()  # noqa: DJ012
-
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
-    team = models.ForeignKey("posthog.Team", db_constraint=False, on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -164,7 +157,6 @@ class BillingAlertEvent(TeamScopedRootMixin, UUIDModel):
     payload = models.JSONField(default=dict)
 
     class Meta:
-        default_manager_name = "all_teams"
         db_table = "billing_alerts_event"
         indexes = [
             models.Index(fields=["team", "-created_at"], name="billing_event_team_ts_idx"),
