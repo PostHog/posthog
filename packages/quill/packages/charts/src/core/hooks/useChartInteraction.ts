@@ -193,25 +193,32 @@ export function useChartInteraction<Meta = unknown>({
             setHover(index, { x: mouseX, y: mouseY })
 
             if (index >= 0 && showTooltip) {
-                const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
-                // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
-                setTooltipCtx(
-                    buildTooltipContext(
-                        index,
-                        series,
-                        labels,
-                        labelToCoord ?? scales.x,
-                        scales.y,
-                        canvasBounds,
-                        resolveValue,
-                        scales.yAxes,
-                        interactionAxis,
-                        { x: mouseX, y: mouseY },
-                        effectivePositionResolve,
-                        scales.extent?.(labels[index]),
-                        scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
+                const cursor = { x: mouseX, y: mouseY }
+                // A non-interactive point (e.g. the empty headroom above a capped funnel track) shows
+                // no tooltip — mirrors the pointer-cursor and click gates so the dead zone is fully inert.
+                if (isPointInteractive && !isPointInteractive(cursor, index, scales)) {
+                    setTooltipCtx(null)
+                } else {
+                    const canvasBounds = canvasRef.current?.getBoundingClientRect() ?? new DOMRect()
+                    // Always propagate the result (including null) so tooltipCtx stays in sync with hoverIndex.
+                    setTooltipCtx(
+                        buildTooltipContext(
+                            index,
+                            series,
+                            labels,
+                            labelToCoord ?? scales.x,
+                            scales.y,
+                            canvasBounds,
+                            resolveValue,
+                            scales.yAxes,
+                            interactionAxis,
+                            cursor,
+                            effectivePositionResolve,
+                            scales.extent?.(labels[index]),
+                            scales.bandSlotAtCursor?.(labels[index], cursor)
+                        )
                     )
-                )
+                }
             }
         },
         [
@@ -229,6 +236,7 @@ export function useChartInteraction<Meta = unknown>({
             labelPositions,
             labelToCoord,
             interactionAxis,
+            isPointInteractive,
             setHover,
             setTooltipCtx,
         ]

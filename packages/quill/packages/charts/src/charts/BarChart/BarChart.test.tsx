@@ -418,6 +418,37 @@ describe('BarChart', () => {
             expect(onPointClick).not.toHaveBeenCalled()
         })
 
+        it('grouped capped track: interactive in the drop-off zone, fully inert in the headroom beyond trackMax', async () => {
+            // Single series capped at 50 on a fixed 0–100 axis: 0–20 fill, 20–50 drop-off track,
+            // 50–100 the empty headroom. Band-center x sits in the column.
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={[{ key: 'a', label: 'A', data: [20], trackMax: 50 }]}
+                    labels={['x']}
+                    theme={THEME}
+                    config={{ barLayout: 'grouped', bars: { track: true, valueDomain: [0, 100] } }}
+                    onPointClick={onPointClick}
+                />
+            )
+            const colX = dimensions.plotLeft + dimensions.plotWidth / 2
+            const yForValue = (value: number): number => dimensions.plotTop + dimensions.plotHeight * (1 - value / 100)
+
+            // Drop-off zone (value 35, between the bar top 20 and the cap 50): tooltip shows, click fires.
+            fireEvent.mouseMove(chart.element, { clientX: colX, clientY: yForValue(35) })
+            expect((await chart.waitForTooltip()).element.textContent).toBeTruthy()
+            fireEvent.click(chart.element)
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+
+            onPointClick.mockClear()
+
+            // Headroom beyond the cap (value 75): no tooltip (the user's pop-over) and no click.
+            fireEvent.mouseMove(chart.element, { clientX: colX, clientY: yForValue(75) })
+            await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
+            fireEvent.click(chart.element)
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
         describe('sparse-stacked horizontal (overlap layout)', () => {
             // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
             // its own dataIndex, every label is the same band. Smallest bar paints on top, so
