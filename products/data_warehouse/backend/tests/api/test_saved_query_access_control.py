@@ -8,7 +8,7 @@ from posthog.models.user import User
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 try:
     from ee.models.rbac.access_control import AccessControl

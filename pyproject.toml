@@ -579,17 +579,6 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
-    "products.data_warehouse.backend.presentation.views.column_statistics -> products.warehouse_sources.backend.models.column_statistics",
-    "products.data_warehouse.backend.presentation.views.column_statistics -> products.warehouse_sources.backend.models.table",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.batch_exports.backend.models.batch_export",
-    "products.data_warehouse.backend.presentation.views.data_warehouse -> products.cdp.backend.models.hog_functions.hog_function",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.cdp.backend.api.hog_function",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.cdp.backend.models.hog_functions.hog_function",
-    "products.data_warehouse.backend.presentation.views.external_data_source -> products.revenue_analytics.backend.joins",
-    "products.data_warehouse.backend.presentation.views.query_tab_state -> products.data_tools.backend.models.query_tab_state",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_tools.backend.models.datawarehouse_saved_query_folder",
-    "products.data_warehouse.backend.presentation.views.saved_query -> products.data_tools.backend.models.join",
-    "products.data_warehouse.backend.presentation.views.view_link -> products.data_tools.backend.models.join",
 ]
 
 [tool.ty.rules]
