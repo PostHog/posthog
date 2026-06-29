@@ -312,17 +312,29 @@ class TestPropertyTypes(BaseTest):
         )
         assert printed == self.snapshot
 
-    def test_timestamp_typed_ai_id_property_stays_string(self):
+    def test_property_type_override_beats_detected_type(self):
+        # A property whose values look like timestamps gets detected as DateTime, which would
+        # otherwise coerce it to parseDateTime64BestEffortOrNull. A caller-supplied String override
+        # keeps it a plain string.
         PropertyDefinition.objects.get_or_create(
             team=self.team,
             type=PropertyDefinition.Type.EVENT,
-            name="$ai_trace_id",
+            name="ts_like_id",
             defaults={"property_type": "DateTime"},
         )
-        printed = self._print_select("select properties.$ai_trace_id from events")
-        assert "parseDateTime64BestEffortOrNull" not in printed, printed
-        assert "toDateTime" not in printed, printed
-        assert "$ai_trace_id" in printed, printed
+
+        def _print(overrides: dict[str, str] | None) -> str:
+            query, _ = prepare_and_print_ast(
+                parse_select("select properties.ts_like_id from events"),
+                HogQLContext(team_id=self.team.pk, enable_select_queries=True, property_type_overrides=overrides),
+                "clickhouse",
+            )
+            return pretty_print_in_tests(query, self.team.pk)
+
+        assert "parseDateTime64BestEffortOrNull" in _print(None)
+        overridden = _print({"ts_like_id": "String"})
+        assert "parseDateTime64BestEffortOrNull" not in overridden, overridden
+        assert "toDateTime" not in overridden, overridden
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_resolve_property_types_person_raw(self):

@@ -31,19 +31,6 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
-# Always-string IDs that property-type detection can mis-classify as Datetime when their
-# values look timestamp-shaped, making PropertySwapper coerce them to parseDateTime64BestEffortOrNull.
-_AI_STRING_ID_PROPERTIES: frozenset[str] = frozenset(
-    {
-        "$ai_trace_id",
-        "$ai_session_id",
-        "$ai_parent_id",
-        "$ai_span_id",
-        "$ai_generation_id",
-        "$ai_experiment_id",
-    }
-)
-
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
     from posthog.models import PropertyDefinition
@@ -84,12 +71,15 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         else []
     )
 
+    type_overrides = context.property_type_overrides or {}
+
     event_properties: dict[str, dict[str, str | None]] = {}
     for prop_def in event_property_definitions:
         if not prop_def.property_type:
             continue
 
-        prop_type = "String" if prop_def.name in _AI_STRING_ID_PROPERTIES else prop_def.property_type
+        # A caller-supplied override wins over heuristic detection — see HogQLContext.property_type_overrides.
+        prop_type = type_overrides.get(prop_def.name, prop_def.property_type)
         prop_info: dict[str, str | None] = {"type": prop_type}
         slot = prop_def.materialized_column_slots.first()
         if slot:

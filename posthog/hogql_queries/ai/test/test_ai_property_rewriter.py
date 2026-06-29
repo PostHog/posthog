@@ -2,19 +2,21 @@ import pytest
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
-from posthog.hogql.transforms.property_types import _AI_STRING_ID_PROPERTIES
 
-from posthog.hogql_queries.ai.ai_property_rewriter import (
-    AI_PROPERTY_TO_COLUMN,
-    AiPropertyRewriter,
-    _rewrite_property_field,
+from posthog.hogql_queries.ai.ai_column_rewriter import (
+    _STRING_ID_COLUMNS,
+    AI_COLUMN_TO_PROPERTY,
+    EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES,
 )
+from posthog.hogql_queries.ai.ai_property_rewriter import AiPropertyRewriter, _rewrite_property_field
 
 
-class TestAiStringIdProperties:
-    def test_string_id_properties_are_known_ai_properties(self):
-        for prop_name in _AI_STRING_ID_PROPERTIES:
-            assert prop_name in AI_PROPERTY_TO_COLUMN, f"{prop_name} is not a known AI property"
+class TestEventsFallbackPropertyTypeOverrides:
+    def test_overrides_force_string_for_each_string_id_column(self):
+        assert _STRING_ID_COLUMNS <= set(AI_COLUMN_TO_PROPERTY), _STRING_ID_COLUMNS - set(AI_COLUMN_TO_PROPERTY)
+        assert EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES == {
+            AI_COLUMN_TO_PROPERTY[col]: "String" for col in _STRING_ID_COLUMNS
+        }
 
 
 class TestRewritePropertyField:
