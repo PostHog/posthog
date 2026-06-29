@@ -119,9 +119,8 @@ impl<'a> HogVM<'a> {
                     return Err(VmError::UnknownGlobal("".to_string()));
                 }
 
-                // `self.context` is a `Copy` `&ExecutionContext`; copying it out decouples the
-                // globals borrow from `self`, so the borrowed `found` can outlive the lookup and
-                // still leave `self` free for the `&mut self` `json_to_hog` needs.
+                // Copy out the `Copy` `&ExecutionContext` so the `found` borrow is tied to it, not to
+                // `self` — leaving `self` free for the `&mut self` `json_to_hog` call below.
                 let context = self.context;
                 if let Some(found) = get_json_nested(&context.globals, &chain, self)? {
                     let val = self.json_to_hog(found)?;
@@ -870,9 +869,8 @@ impl<'a> HogVM<'a> {
             ));
         };
 
-        // Borrow the json tree and clone only the scalar leaves we actually keep (numbers/strings),
-        // rather than cloning the whole subtree up front. Containers are walked by reference and
-        // rebuilt directly onto the heap.
+        // Clone only the scalar leaves (numbers/strings); containers are walked by reference and
+        // rebuilt onto the heap.
         match current {
             JsonValue::Null => Ok(HogLiteral::Null.into()),
             JsonValue::Bool(b) => Ok(HogLiteral::Boolean(*b).into()),

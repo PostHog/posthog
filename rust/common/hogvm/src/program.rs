@@ -6,8 +6,7 @@ use serde_json::{Number, Value as JsonValue};
 use crate::VmError;
 
 // A top-level hog program - functionally the body of a "main" function, if hog had such a thing.
-// `bytecode` is `Arc`-shared so a program built from already-shared bytecode (e.g. a catalog of
-// compiled cohort conditions) costs a refcount bump rather than copying the whole opcode vector.
+// `bytecode` is `Arc`-shared so building a program from shared bytecode is a refcount bump.
 pub struct Program {
     bytecode: Arc<Vec<JsonValue>>,
     version: u64,
@@ -31,9 +30,8 @@ impl Program {
         Self::from_shared(Arc::new(bytecode))
     }
 
-    /// Build a program from already-`Arc`-shared bytecode without copying it. Use this when the
-    /// bytecode is held in a shared catalog and evaluated repeatedly — the program holds a clone of
-    /// the `Arc`, so swapping programs into a reused context costs a refcount bump per evaluation.
+    /// Build a program from `Arc`-shared bytecode without copying it — for bytecode held in a shared
+    /// catalog and evaluated repeatedly.
     pub fn from_shared(bytecode: Arc<Vec<JsonValue>>) -> Result<Self, VmError> {
         if bytecode.is_empty() {
             return Err(VmError::InvalidBytecode(

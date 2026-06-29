@@ -16,8 +16,8 @@ use std::path::{Path, PathBuf};
 use cohort_stream_processor::hogvm::{evaluate_detailed, EvalOutcome};
 use serde_json::Value;
 
-/// HogVM `RETURN`. Fixtures store compiled bytecode without it (as Python emits); the catalog loader
-/// appends it, so the parity oracle runs the same RETURN-terminated shape the hot path does.
+/// HogVM `RETURN`. Fixtures store compiled bytecode without it; append it so the parity oracle runs
+/// the same RETURN-terminated shape the hot path does.
 const OP_RETURN: i64 = 38;
 
 /// A missing directory yields no fixtures (optional corpus); any other read/parse failure panics.
@@ -68,7 +68,6 @@ fn rust_executor_matches_python_oracle() {
         let bytecode = fixture["bytecode"]
             .as_array()
             .unwrap_or_else(|| panic!("fixture {path:?} `bytecode` must be an array"));
-        // Terminate with RETURN exactly as the catalog loader does.
         let mut bytecode = bytecode.clone();
         bytecode.push(Value::from(OP_RETURN));
         let globals = fixture["globals"].clone();

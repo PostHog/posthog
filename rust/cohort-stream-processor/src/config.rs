@@ -229,10 +229,8 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub offset_commit_interval_ms: u64,
 
-    /// Tokio runtime worker threads. `0` (the default) keeps Tokio's own default of
-    /// `available_parallelism()` — the *node's* core count, which under a CFS CPU limit spawns far
-    /// more threads than the limit and thrashes them. Set this to the pod's CPU limit so the runtime
-    /// matches the cgroup quota.
+    /// Tokio runtime worker threads. `0` (default) uses Tokio's `available_parallelism()` — the node's
+    /// core count, which thrashes under a CFS CPU limit. Set to the pod's CPU limit to match the quota.
     #[envconfig(default = "0")]
     pub tokio_worker_threads: usize,
 

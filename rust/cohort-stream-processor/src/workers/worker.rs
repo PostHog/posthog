@@ -56,11 +56,9 @@ const MAX_SWEEP_KEYS_PER_PASS: usize = 10_000;
 
 const REBUILD_SCAN_PAGE: usize = 10_000;
 
-/// Cooperative-yield cadence inside the worker fold. `handle_event` is fully synchronous, so a
-/// backlog of CPU-bound events would hold the runtime thread between channel receives — starving the
-/// commit task and the consume loop (which reports liveness inline) under saturation (the crash-loop's
-/// enabling condition). Yielding on a wall-clock interval (rather than a fixed message count) adapts
-/// to per-event cost across catalogs of very different sizes.
+/// Cooperative-yield cadence inside the worker fold. `handle_event` is synchronous, so a backlog of
+/// CPU-bound events would hold the runtime thread, starving the commit task and consume loop. A
+/// wall-clock interval adapts to per-event cost across catalogs of different sizes.
 const WORKER_YIELD_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct Stage1Worker {
@@ -129,8 +127,7 @@ async fn run_worker(
     let mut gc_cursor = MergeGcCursor::default();
     let mut stage2_gc_cursor = Stage2GcCursor::default();
 
-    // Persists across batches: a worker that keeps receiving buffered batches would otherwise only
-    // yield via Tokio's coarse coop budget, holding the thread for many CPU-bound events.
+    // Persists across batches so a stream of buffered batches still yields on the wall-clock interval.
     let mut last_yield = Instant::now();
     while let Some(batch) = receiver.recv().await {
         let last_updated = now_last_updated();
@@ -280,8 +277,6 @@ async fn run_worker(
                 }
             }
 
-            // Release the runtime thread periodically so a CPU-bound event backlog can't starve the
-            // commit task or the consume loop's inline liveness report (the C3 enabling mechanism).
             if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
                 tokio::task::yield_now().await;
                 last_yield = Instant::now();
@@ -825,8 +820,8 @@ async fn rebuild_eviction_queue(
         if page_len < REBUILD_SCAN_PAGE {
             break;
         }
-        // 64 workers re-seed concurrently on a crash-restart; yield between pages so the boot scan
-        // doesn't re-saturate the runtime before the consume loop can even start.
+        // Workers re-seed concurrently on restart; yield between pages so the boot scan doesn't
+        // saturate the runtime before the consume loop starts.
         tokio::task::yield_now().await;
     }
     if rebuilt > 0 {

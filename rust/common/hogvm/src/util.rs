@@ -113,10 +113,8 @@ fn like_to_regex(pattern: &str) -> String {
     result
 }
 
-/// Walk `chain` into `haystack`, borrowing the value it points at rather than cloning it. The
-/// returned reference is tied to `haystack`, so a caller that needs an owned value clones only the
-/// final subtree — not every node along the path. This is on the hot path of every `GET_GLOBAL`, so
-/// the avoided per-access deep clone of the globals `BTreeMap` is significant.
+/// Walk `chain` into `haystack`, returning a borrow tied to `haystack` (a caller needing an owned
+/// value clones only the final subtree). On the hot path of every `GET_GLOBAL`.
 pub fn get_json_nested<'h>(
     haystack: &'h Value,
     mut chain: &[HogValue],

@@ -1,10 +1,8 @@
 //! Run compiled cohort-filter bytecode through `hogvm::sync_execute`, coercing the result to the
 //! boolean Stage 1 needs (matching the Node consumer's `execResult?.result ?? false`).
 //!
-//! The hot path reuses one [`CohortEvaluator`] across an event's whole condition fan-out: the STL
-//! context and the event globals are set once, and only the program is swapped per condition, so the
-//! ~⅔ of per-evaluation CPU that used to go to rebuilding the [`ExecutionContext`] and deep-cloning
-//! the globals is paid once per event instead of once per condition.
+//! The hot path reuses one [`CohortEvaluator`] per event: the STL context and globals are set once
+//! and only the program is swapped per condition, amortizing the context build across all conditions.
 
 use std::sync::Arc;
 
@@ -25,13 +23,11 @@ pub enum EvalOutcome {
     VmError(VmError),
 }
 
-/// A reusable evaluator owning one [`ExecutionContext`]. Globals are set once per event (shared by
-/// every condition), and the program is swapped per condition — both in place, so the STL tables and
-/// the globals tree are built/parsed once per event rather than once per condition.
+/// A reusable evaluator owning one [`ExecutionContext`]: set globals once per event, swap the program
+/// per condition, both in place.
 ///
-/// Coercing comparisons (cross-type ordering + epoch temporal ordering/equality) match the
-/// Python/TS/ClickHouse reference; this is opt-in, so other `hogvm` consumers (e.g. cymbal) keep
-/// strict comparisons.
+/// Comparisons are coercing (cross-type ordering + epoch temporal ordering/equality) to match the
+/// Python/TS/ClickHouse reference; opt-in, so other `hogvm` consumers like cymbal keep strict ones.
 pub struct CohortEvaluator {
     context: ExecutionContext,
 }
@@ -44,17 +40,14 @@ impl Default for CohortEvaluator {
 
 impl CohortEvaluator {
     pub fn new() -> Self {
-        // A bare header is a valid program; `set_program` replaces it before the first evaluation,
-        // so the seed is never executed. `with_defaults` is now an `Arc` bump of the static STL.
+        // A bare header is a valid program; `set_program` replaces this seed before the first evaluation.
         let seed = Program::new(vec![Value::from("_H"), Value::from(1)])
             .expect("a bare bytecode header is a valid program");
         let context = ExecutionContext::with_defaults(seed).with_coercing_comparisons();
         Self { context }
     }
 
-    /// Move `globals` into the reused context (no clone). Every subsequent `evaluate*` reads it until
-    /// the next call. Globals are a pure function of the event, so one call serves a whole event's
-    /// condition fan-out.
+    /// Move `globals` into the reused context (no clone); one call serves a whole event's conditions.
     pub fn set_globals(&mut self, globals: Value) {
         self.context.set_globals(globals);
     }
@@ -68,8 +61,7 @@ impl CohortEvaluator {
 
     /// As [`Self::evaluate`] but returns the detailed [`EvalOutcome`].
     pub fn evaluate_detailed(&mut self, bytecode: Arc<Vec<Value>>) -> EvalOutcome {
-        // `from_shared` clones the `Arc`, not the opcode vector, so swapping programs is a refcount
-        // bump rather than a per-condition copy.
+        // `from_shared` clones the `Arc`, not the opcode vector, so swapping programs is just a refcount bump.
         let program = match Program::from_shared(bytecode) {
             Ok(program) => program,
             Err(error) => return classify_failure(error),
@@ -88,9 +80,8 @@ fn run(context: &ExecutionContext) -> EvalOutcome {
     }
 }
 
-/// One-shot evaluation building a fresh context. Retained for the parity test and any single-shot
-/// caller; the hot path uses [`CohortEvaluator`] to avoid the per-condition context rebuild.
-/// `bytecode` must already be `RETURN`-terminated, exactly as the catalog loader leaves it.
+/// One-shot evaluation building a fresh context (used by the parity test). `bytecode` must be
+/// `RETURN`-terminated, as the catalog loader leaves it.
 pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     let program = match Program::new(bytecode.to_vec()) {
         Ok(program) => program,
@@ -102,7 +93,6 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
     run(&context)
 }
 
-/// One-shot `bool` wrapper over [`evaluate_detailed`].
 pub fn evaluate(bytecode: &[Value], globals: Value) -> bool {
     outcome_to_bool(evaluate_detailed(bytecode, globals))
 }
@@ -150,8 +140,7 @@ mod tests {
     const OP_FALSE: i64 = 30;
     const OP_INTEGER: i64 = 33;
     const OP_STRING: i64 = 32;
-    // The loader (`bytecode_array`) appends this; the single-shot `evaluate*` helpers no longer do,
-    // so these fixtures terminate explicitly, mirroring the bytecode the catalog actually holds.
+    // Fixtures terminate explicitly with RETURN, mirroring what the catalog loader stores.
     const OP_RETURN: i64 = 38;
 
     fn header() -> Vec<Value> {
@@ -192,8 +181,6 @@ mod tests {
 
     #[test]
     fn compiled_style_bytecode_evaluates() {
-        // Compiled cohort bytecode reads a global and compares it; the loader terminates it with
-        // RETURN (appended here), which the Rust VM needs to return the comparison result.
         let bc = [
             header(),
             vec![
@@ -289,9 +276,8 @@ mod tests {
 
     #[test]
     fn reused_evaluator_matches_a_fresh_context_per_eval() {
-        // The reuse optimization (set_globals/set_program in place) must be observationally identical
-        // to building a fresh context per eval: no globals or program may leak across calls. Programs
-        // and globals are interleaved so a stale-globals or un-swapped-program leak would diverge.
+        // Interleave programs and globals so a stale-globals or un-swapped-program leak would diverge
+        // from a fresh-context-per-eval baseline.
         let email_eq = {
             let mut bc = header();
             bc.extend_from_slice(&[json!(OP_STRING), json!("a@b.com")]);

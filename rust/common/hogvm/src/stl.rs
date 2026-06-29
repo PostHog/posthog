@@ -353,8 +353,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let Some(res) = res else {
                     return Ok(HogLiteral::Null.into());
                 };
-                // `json` is a local haystack and `res` borrows into it; clone just the extracted
-                // subtree to hand `construct_free_standing` an owned value.
+                // `res` borrows into the local `json`; clone the extracted subtree for the owned
+                // value `construct_free_standing` needs.
                 construct_free_standing(res.clone(), 0)
             })),
         ),

@@ -11,10 +11,8 @@ use crate::{
     HogLiteral, HogValue,
 };
 
-/// The default native-function and symbol tables are a pure function of the process-static STL, so we
-/// build them once and hand every [`ExecutionContext::with_defaults`] an `Arc` bump instead of
-/// rebuilding the `HashMap`s (and re-cloning every hog-STL function's bytecode to flatten the symbol
-/// table) on every evaluation. This is the single largest per-evaluation cost in the cohort hot path.
+/// Default native-function and symbol tables, built once from the process-static STL and shared via
+/// `Arc` by every [`ExecutionContext::with_defaults`] so the maps aren't rebuilt per context.
 static DEFAULT_NATIVE_FNS: Lazy<Arc<HashMap<String, NativeFunction>>> =
     Lazy::new(|| Arc::new(stl_map()));
 static DEFAULT_SYMBOL_TABLE: Lazy<Arc<HashMap<Symbol, ExportedFunction>>> =
@@ -48,8 +46,8 @@ pub struct ExecutionContext {
     /// by epoch, and `Eq` compare two temporals by epoch — the ClickHouse/Python-TS-aligned semantics
     /// the realtime-cohort evaluator needs. Set via [`ExecutionContext::with_coercing_comparisons`].
     pub(crate) coerce_comparisons: bool,
-    // `Arc`-shared so cloning a default context (the common case) is a refcount bump, not a deep copy
-    // of the STL tables. Mutators take a copy-on-write path via `Arc::make_mut`.
+    // `Arc`-shared so cloning a default context is a refcount bump, not a deep copy; mutators
+    // copy-on-write via `Arc::make_mut`.
     native_fns: Arc<HashMap<String, NativeFunction>>,
     symbol_table: Arc<HashMap<Symbol, ExportedFunction>>, // Flattened symbol table of all imported hog modules
 }
@@ -91,7 +89,6 @@ impl ExecutionContext {
             max_heap_size: 1024 * 1024,
             max_steps: 10_000,
             coerce_comparisons: false,
-            // Refcount bumps of the process-static tables — see `DEFAULT_NATIVE_FNS`.
             native_fns: DEFAULT_NATIVE_FNS.clone(),
             symbol_table: DEFAULT_SYMBOL_TABLE.clone(),
         }
@@ -117,15 +114,12 @@ impl ExecutionContext {
         self
     }
 
-    /// Swap the globals on an existing context in place, so one context can be reused across a fan-out
-    /// of evaluations that share the same globals. Unlike [`Self::with_globals`], this moves `globals`
-    /// in without consuming/rebuilding the context (no STL-table churn).
+    /// Swap globals in place (no clone) so one context can be reused across evaluations sharing them.
     pub fn set_globals(&mut self, globals: JsonValue) {
         self.globals = globals;
     }
 
-    /// Swap the program on an existing context in place, the companion to [`Self::set_globals`] for
-    /// reusing one context across many programs (e.g. evaluating each condition in a catalog).
+    /// Swap the program in place to reuse one context across many programs (e.g. catalog conditions).
     pub fn set_program(&mut self, program: Program) {
         self.program = program;
     }

@@ -741,8 +741,8 @@ fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<
 /// Uses a raw `StreamConsumer` with manual commit because the per-partition `OffsetTracker`
 /// commits a `TopicPartitionList` that the `common-kafka` wrapper can't express.
 pub struct CohortStreamEventsConsumer {
-    /// `Arc` so the decoupled commit task can share it with the consume loop; `recv` and `commit`
-    /// run concurrently on the same consumer, which rdkafka supports.
+    /// `Arc` so the commit task and consume loop share one consumer; rdkafka supports concurrent
+    /// `recv` and `commit`.
     consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     topic: String,
     dispatcher: Arc<EventDispatcher>,
@@ -789,15 +789,13 @@ impl CohortStreamEventsConsumer {
 
     /// Run until the lifecycle handle signals shutdown.
     ///
-    /// Offset commit (C2) runs on its own interval task rather than inline in this loop, so a
-    /// CPU-saturated consume loop or worker backlog can no longer block offset advancement (a restart
-    /// resumes near the live edge). The task observes the same shutdown signal and is awaited before
-    /// the final synchronous commit. Liveness is reported inline from `handle_outcome`.
+    /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
+    /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
+    /// synchronous commit. Liveness is reported inline from `handle_outcome`.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
-        // C2: decoupled offset-commit task.
         let commit_task = tokio::spawn(run_commit_loop(
             self.consumer.clone(),
             self.dispatcher.clone(),
@@ -847,8 +845,7 @@ impl CohortStreamEventsConsumer {
             }
         }
 
-        // The shutdown signal that broke the loop also stops the commit task; await it before the
-        // final synchronous commit so no commit races it.
+        // Await the commit task before the final synchronous commit so the two don't race.
         if let Err(err) = commit_task.await {
             warn!(error = %err, "offset-commit task did not exit cleanly");
         }
@@ -1102,10 +1099,8 @@ pub(crate) fn fsync_then_commit<C: ConsumerContext>(
     commit_offsets(consumer, tracker, offsets, topic, mode);
 }
 
-/// C2 — the decoupled offset-commit task. On a fixed interval it flushes the store's WAL and commits
-/// the owned committable offsets, independent of the consume loop's forward progress. A starved or
-/// slow consume loop no longer blocks offset advancement, so a restart resumes near the live edge
-/// instead of re-chewing the uncommitted backlog. Exits on the shared shutdown signal.
+/// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
+/// of the consume loop so a stalled loop can't block offset advancement. Exits on shutdown.
 async fn run_commit_loop(
     consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     dispatcher: Arc<EventDispatcher>,

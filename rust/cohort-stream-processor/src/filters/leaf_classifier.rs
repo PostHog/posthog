@@ -11,11 +11,9 @@ use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::pick_state_variant;
 
-/// HogVM `RETURN` opcode. Cohort bytecode compiled by Python ends at its root comparison with no
-/// `RETURN`; the Rust VM treats running off the end as `EndOfProgram`. We append one `RETURN` here —
-/// once, at load, into the copy the catalog already makes — so every evaluation shares the same
-/// `Arc<Vec<Value>>` with no per-call bytecode copy. A program already ending in `RETURN` finishes at
-/// the first one, so the trailing opcode is inert if it is ever reached on already-terminated input.
+/// HogVM `RETURN` opcode, appended to each program at load. Python-compiled cohort bytecode ends at
+/// its root comparison with no `RETURN`, which the Rust VM would hit as `EndOfProgram`. A program
+/// already ending in `RETURN` stops at the first, so the appended one is inert.
 const OP_RETURN: i64 = 38;
 
 /// Why a leaf was dropped during parse. Used as the `reason` label on the skip counter.

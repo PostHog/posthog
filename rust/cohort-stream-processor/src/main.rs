@@ -50,8 +50,6 @@ fn main() -> Result<()> {
 
     let mut runtime_builder = tokio::runtime::Builder::new_multi_thread();
     runtime_builder.enable_all();
-    // Cap worker threads to the configured CPU limit. Left unset, Tokio sizes the pool to the node's
-    // core count, which a 2-core CFS limit then throttles into thread thrashing.
     if config.tokio_worker_threads > 0 {
         runtime_builder.worker_threads(config.tokio_worker_threads);
     }

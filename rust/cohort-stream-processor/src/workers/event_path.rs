@@ -167,8 +167,7 @@ pub fn process_event(
         None
     };
 
-    // One evaluator reused across this event's whole condition fan-out: globals are set once per
-    // kind below (moved in, not cloned), and only the program is swapped per condition.
+    // One evaluator reused across the event's conditions: globals set once per kind, program per condition.
     let mut evaluator = CohortEvaluator::new();
     let applies = collect_applies(filters, &mut evaluator, behavioral_globals, person_globals);
     if applies.is_empty() {
