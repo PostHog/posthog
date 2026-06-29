@@ -1,6 +1,8 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { createContext, type ReactNode, useContext, useEffect } from 'react'
 
+import { LemonDivider } from '@posthog/lemon-ui'
+
 import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
 import { OriginProduct } from '../types/taskTypes'
@@ -180,7 +182,8 @@ function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element
         return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
     }
     return (
-        <div data-attr="composer" className="border-t px-4 py-3">
+        <div data-attr="composer" className="px-4 pb-4">
+            <LemonDivider className="mt-0 mb-4" />
             <div className="mx-auto w-full max-w-180">{children}</div>
         </div>
     )

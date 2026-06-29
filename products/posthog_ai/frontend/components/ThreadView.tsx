@@ -73,7 +73,7 @@ export function ThreadView({
     const header = useMemo(
         () =>
             branch ? (
-                <VirtualizedThread.Row>
+                <VirtualizedThread.Row className={rowClassName}>
                     <ThreadHeader branch={branch} baseBranch={baseBranch} repo={repo} />
                 </VirtualizedThread.Row>
             ) : undefined,
@@ -89,7 +89,7 @@ export function ThreadView({
     const footer = useMemo(
         () =>
             showThinking || pullRequestUrl || showContextUsageFooter ? (
-                <VirtualizedThread.Row>
+                <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
                         showThinking={showThinking}
                         pullRequestUrl={pullRequestUrl}
