@@ -1419,7 +1419,7 @@ WAKE_SNOOZE_BATCH_SIZE = 100
 
 
 def _log_snooze_expired(ticket: Ticket, old_status: str, old_snoozed_until: datetime | None) -> None:
-    """Record the system snooze-expiry (and reopen, if it was on hold) in the activity log."""
+    """Record the system snooze-expiry (and reopen, unless already open) in the activity log."""
 
     changes = [
         Change(
@@ -1430,7 +1430,7 @@ def _log_snooze_expired(ticket: Ticket, old_status: str, old_snoozed_until: date
             action="changed",
         )
     ]
-    if old_status == Status.ON_HOLD:
+    if old_status != Status.OPEN:
         changes.append(Change(type="Ticket", field="status", before=old_status, after=Status.OPEN, action="changed"))
 
     try:
@@ -1471,7 +1471,9 @@ def wake_snoozed_tickets() -> None:
                 old_snoozed_until = ticket.snoozed_until
                 ticket.snoozed_until = None
 
-                if old_status == Status.ON_HOLD:
+                # An expiring snooze reopens the ticket regardless of its status, unless it's
+                # already open (then there's just the snooze to clear, no status change).
+                if old_status != Status.OPEN:
                     ticket.status = Status.OPEN
                     ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
                     try:

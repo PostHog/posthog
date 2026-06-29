@@ -288,10 +288,11 @@ class TestWakeSnoozedTickets(BaseTest):
         defaults.update(kwargs)
         return Ticket.objects.create_with_number(**defaults)
 
+    @parameterized.expand([(Status.ON_HOLD,), (Status.PENDING,), (Status.RESOLVED,), (Status.NEW,)])
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
-    def test_wakes_expired_on_hold_ticket(self, mock_capture):
+    def test_expired_snooze_reopens_ticket_from_any_status(self, start_status, mock_capture):
         ticket = self._make_ticket(
-            status=Status.ON_HOLD,
+            status=start_status,
             snoozed_until=timezone.now() - timedelta(minutes=5),
         )
 
@@ -300,21 +301,7 @@ class TestWakeSnoozedTickets(BaseTest):
         ticket.refresh_from_db()
         self.assertEqual(ticket.status, Status.OPEN)
         self.assertIsNone(ticket.snoozed_until)
-        mock_capture.assert_called_once_with(ticket, Status.ON_HOLD, Status.OPEN, actor_type="system")
-
-    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
-    def test_clears_snooze_but_preserves_resolved_status(self, mock_capture):
-        ticket = self._make_ticket(
-            status=Status.RESOLVED,
-            snoozed_until=timezone.now() - timedelta(minutes=5),
-        )
-
-        wake_snoozed_tickets()
-
-        ticket.refresh_from_db()
-        self.assertEqual(ticket.status, Status.RESOLVED)
-        self.assertIsNone(ticket.snoozed_until)
-        mock_capture.assert_not_called()
+        mock_capture.assert_called_once_with(ticket, start_status, Status.OPEN, actor_type="system")
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
     def test_ignores_future_snoozed_tickets(self, mock_capture):
@@ -391,13 +378,18 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertEqual(status_change["after"], Status.OPEN)
 
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
-    def test_wake_logs_snooze_clear_without_status_change(self, _):
+    def test_wake_clears_snooze_on_already_open_ticket_without_status_change(self, mock_capture):
         ticket = self._make_ticket(
-            status=Status.RESOLVED,
+            status=Status.OPEN,
             snoozed_until=timezone.now() - timedelta(minutes=5),
         )
 
         wake_snoozed_tickets()
+
+        ticket.refresh_from_db()
+        self.assertEqual(ticket.status, Status.OPEN)
+        self.assertIsNone(ticket.snoozed_until)
+        mock_capture.assert_not_called()
 
         activity = ActivityLog.objects.filter(
             team_id=self.team.id, scope="Ticket", item_id=str(ticket.id), activity="updated"
