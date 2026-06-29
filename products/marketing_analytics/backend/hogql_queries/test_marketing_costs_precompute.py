@@ -77,7 +77,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 date_range=DateRange(date_from=WIDE_FROM, date_to=WIDE_TO),
                 team=self.team,
                 interval=None,
-                now=datetime.now(),
+                now=datetime(2025, 1, 1),
             ),
             team=self.team,
             base_currency=self.team.base_currency or "USD",
