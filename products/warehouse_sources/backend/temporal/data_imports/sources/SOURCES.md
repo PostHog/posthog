@@ -100,6 +100,7 @@ the row lists both.
 | deel              | HTTP                        | requests                                                        | ✅                          |
 | delighted         | HTTP                        | requests                                                        | ✅                          |
 | dixa              | HTTP                        | requests                                                        | ✅                          |
+| docuseal          | HTTP                        | requests                                                        | ✅                          |
 | doit              | HTTP                        | requests                                                        | ✅                          |
 | drip              | HTTP                        | requests                                                        | ✅                          |
 | easypost          | HTTP                        | requests                                                        | ✅                          |
@@ -366,7 +367,6 @@ doesn't conflict with concurrent PRs.
 - ding_connect
 - display_video_360
 - dockerhub
-- docuseal
 - docusign
 - dolibarr
 - dremio
