@@ -11,12 +11,14 @@ export type GitHubRepositoryPickerProps = {
     integrationId: number
     value: string
     onChange: (value: string) => void
+    className?: string
 }
 
 export const GitHubRepositoryPicker = ({
     value,
     onChange,
     integrationId,
+    className,
 }: GitHubRepositoryPickerProps): JSX.Element => {
     const { options, loading } = useRepositories(integrationId)
 
@@ -29,6 +31,7 @@ export const GitHubRepositoryPicker = ({
             placeholder="Select a repository..."
             options={options}
             loading={loading}
+            className={className}
         />
     )
 }

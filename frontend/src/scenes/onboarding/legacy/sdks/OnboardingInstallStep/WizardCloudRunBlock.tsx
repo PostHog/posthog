@@ -105,18 +105,14 @@ export function WizardCloudRunBlock({
                 </LemonButton>
             ) : (
                 <div className="flex w-full flex-col gap-2">
-                    <div className={`flex items-center gap-1.5 text-xs text-muted ${hideHog ? 'justify-center' : ''}`}>
-                        <IconCheckCircle className="text-success" />
-                        <span>
-                            Connected{githubIntegration.display_name ? ` as ${githubIntegration.display_name}` : ''}
-                        </span>
-                    </div>
                     <div className="flex items-center gap-2">
-                        <div className="flex-1">
+                        <div className="relative flex-1">
+                            <IconPullRequest className="absolute left-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
                             <GitHubRepositoryPicker
                                 integrationId={githubIntegration.id}
                                 value={selectedRepository ?? ''}
                                 onChange={(repository) => setSelectedRepository(repository)}
+                                className="pl-7"
                             />
                         </div>
                         <LemonButton
@@ -129,6 +125,12 @@ export function WizardCloudRunBlock({
                         >
                             Open my pull request
                         </LemonButton>
+                    </div>
+                    <div className={`flex items-center gap-1.5 text-xs text-muted ${hideHog ? 'justify-center' : ''}`}>
+                        <IconCheckCircle className="text-success" />
+                        <span>
+                            Connected{githubIntegration.display_name ? ` to ${githubIntegration.display_name}` : ''}
+                        </span>
                     </div>
                 </div>
             )}
