@@ -27,6 +27,10 @@ from products.exports.backend.models.subscription import (
     Subscription,
     SubscriptionDelivery,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
+    AiReportResult,
+    QueryStepDiagnostic,
+)
 from products.exports.backend.temporal.subscriptions.types import (
     ProcessSubscriptionWorkflowInputs,
     SubscriptionTriggerType,
@@ -2643,3 +2647,166 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert patch_resp.status_code == status.HTTP_400_BAD_REQUEST, patch_resp.json()
         assert "prompt" in str(patch_resp.json()).lower(), patch_resp.json()
+
+    # --- PR H: re-plan, preview, and frozen query_plan read/write ---
+
+    def _valid_query_plan(self) -> dict:
+        return {
+            "overall_intent": "Weekly event growth",
+            "steps": [
+                {
+                    "description": "Daily event counts in the window",
+                    "query_type": "hogql",
+                    "hogql": "SELECT toDate(timestamp), count() FROM events WHERE {{date_range}} GROUP BY 1",
+                }
+            ],
+        }
+
+    def test_re_plan_clears_frozen_query_plan(self, mock_is_cloud, mock_flag, mock_sync):
+        # The whole point of re-plan: a frozen plan is cleared so the next run re-plans via the LLM.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(pk=sub_id).update(query_plan=self._valid_query_plan())
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/re-plan/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert Subscription.objects.get(pk=sub_id).query_plan is None
+
+    def test_re_plan_rejects_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("insight")
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/re-plan/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_re_plan_requires_query_access(self, mock_is_cloud, mock_flag, mock_sync):
+        # Same query-viewer RBAC gate as create/test-delivery — re-plan affects the AI pipeline's plan.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        self._restrict_query_access()
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/re-plan/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    @patch("ee.api.subscription.preview_ai_subscription_report")
+    def test_preview_returns_report_and_diagnostics_without_delivering(
+        self, mock_preview, mock_is_cloud, mock_flag, mock_sync
+    ):
+        # Preview must return the generated report + per-step diagnostics and NOT deliver: the start_workflow
+        # mock proves no Temporal delivery is dispatched, and we run the real (mocked) generation seam.
+        mock_client = self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        mock_client.start_workflow.reset_mock()  # ignore the create-time workflow
+        mock_preview.return_value = AiReportResult(
+            markdown="# Weekly report\nThings went well.",
+            diagnostics=(
+                QueryStepDiagnostic(description="Daily counts", hogql="SELECT 1", ok=True, error_type=None),
+                QueryStepDiagnostic(description="Errors", hogql="SELECT bad", ok=False, error_type="ExposedHogQLError"),
+            ),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        data = response.json()
+        assert data["report"] == "# Weekly report\nThings went well."
+        assert [d["ok"] for d in data["diagnostics"]] == [True, False]
+        assert data["diagnostics"][1]["error_type"] == "ExposedHogQLError"
+        mock_client.start_workflow.assert_not_called()
+
+    @patch("ee.api.subscription.preview_ai_subscription_report")
+    def test_preview_does_not_persist_query_plan(self, mock_preview, mock_is_cloud, mock_flag, mock_sync):
+        # Preview is read-only: even when the (mocked) generation reports a freshly-planned plan, the
+        # endpoint must not freeze it — re-plan/edit are the only write paths.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        mock_preview.return_value = AiReportResult(
+            markdown="# r",
+            diagnostics=(),
+            plan_to_persist=self._valid_query_plan(),
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert Subscription.objects.get(pk=sub_id).query_plan is None
+
+    def test_preview_rejects_non_ai_subscription(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("insight")
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_preview_requires_query_access(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        self._restrict_query_access()
+        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{sub_id}/preview/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+
+    def test_query_plan_readable_for_query_viewer(self, mock_is_cloud, mock_flag, mock_sync):
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        plan = self._valid_query_plan()
+        Subscription.objects.filter(pk=sub_id).update(query_plan=plan)
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["query_plan"]["overall_intent"] == plan["overall_intent"]
+
+    def test_query_plan_scrubbed_for_caller_without_query_access(self, mock_is_cloud, mock_flag, mock_sync):
+        # The plan carries generated HogQL (query-derived), so it must be scrubbed to null for a member
+        # without query access — mirroring the delivered-report scrubbing.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        Subscription.objects.filter(pk=sub_id).update(query_plan=self._valid_query_plan())
+        self._restrict_query_access()
+        response = self.client.get(f"/api/projects/{self.team.id}/subscriptions/{sub_id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["query_plan"] is None
+
+    def test_query_plan_write_persists_for_query_editor(self, mock_is_cloud, mock_flag, mock_sync):
+        # The owner (bypasses access controls → query editor) can edit the frozen plan.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        plan = self._valid_query_plan()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"query_plan": plan},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        stored = Subscription.objects.get(pk=sub_id).query_plan
+        assert stored["steps"][0]["hogql"] == plan["steps"][0]["hogql"]
+
+    def test_query_plan_write_rejected_without_query_editor(self, mock_is_cloud, mock_flag, mock_sync):
+        # A restricted member with only query "none" cannot edit the plan even though they could read a
+        # subscription — editing query content requires the stronger editor level.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        self._restrict_query_access()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"query_plan": self._valid_query_plan()},
+            format="json",
+        )
+        # The viewset's query-viewer gate fires first for an AI-subscription write, so this is 403.
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
+        assert Subscription.objects.get(pk=sub_id).query_plan is None
+
+    @parameterized.expand(
+        [
+            ("empty_steps", {"overall_intent": "x", "steps": []}),
+            ("missing_hogql", {"overall_intent": "x", "steps": [{"description": "d", "query_type": "hogql"}]}),
+            ("not_an_object", ["not", "a", "plan"]),
+        ]
+    )
+    def test_query_plan_write_rejects_invalid_shape(self, mock_is_cloud, mock_flag, mock_sync, _name, invalid_plan):
+        # The pydantic QueryPlan is the authoritative validator — a malformed plan is a 400, never a row
+        # the generation pipeline would later choke on as a permanent failure.
+        self._mock_temporal(mock_sync)
+        sub_id = self._create_subscription_for("ai_prompt")
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"query_plan": invalid_plan},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()

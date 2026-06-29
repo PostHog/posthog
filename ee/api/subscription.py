@@ -17,6 +17,7 @@ from drf_spectacular.utils import (
     extend_schema_field,
     extend_schema_view,
 )
+from pydantic import ValidationError as PydanticValidationError
 from rest_framework import exceptions, filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -36,7 +37,7 @@ from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
-from posthog.rate_limit import SubscriptionTestDeliveryThrottle
+from posthog.rate_limit import SubscriptionPreviewThrottle, SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.slo.context import SloSpec, slo_operation
 from posthog.slo.types import SloArea, SloOperation
@@ -49,6 +50,9 @@ from products.exports.backend.models.subscription import (
     attribute_subscription_saves,
     unsubscribe_using_token,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.delivery import preview_ai_subscription_report
+from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import AiReportResult
+from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import QueryPlan
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH as AI_PROMPT_MAX_LENGTH,
     PromptRejectedError,
@@ -128,6 +132,47 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class QueryPlanStepSerializer(serializers.Serializer):
+    # OpenAPI shape for one frozen plan step. The pydantic QueryPlan in the generation pipeline is the
+    # authoritative validator (enforced in QueryPlanField.to_internal_value); this mirrors it so the
+    # generated frontend types describe each step's fields.
+    description = serializers.CharField(help_text="One-sentence rationale for running this query step.")
+    query_type = serializers.ChoiceField(
+        choices=["hogql"], default="hogql", help_text="Query language for this step. MVP: always 'hogql'."
+    )
+    hogql = serializers.CharField(
+        help_text="The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor "
+        "substitutes with the run's window, so the plan stays window-agnostic."
+    )
+
+
+class QueryPlanSerializer(serializers.Serializer):
+    overall_intent = serializers.CharField(help_text="Plain-English summary of what the report will tell the user.")
+    steps = QueryPlanStepSerializer(many=True, help_text="Ordered query steps (1-3) the report runs and synthesizes.")
+
+
+@extend_schema_field(QueryPlanSerializer(allow_null=True))
+class QueryPlanField(serializers.JSONField):
+    """The frozen AI query plan (steps of {description, hogql}).
+
+    Readable for callers with query access (scrubbed to null otherwise — it carries generated HogQL,
+    query-derived just like the delivered report). Writable only by callers with query:editor access,
+    and the written value is validated against the authoritative pydantic `QueryPlan` schema so an
+    invalid shape or oversized/empty HogQL is rejected before it can be frozen.
+    """
+
+    def to_internal_value(self, data):
+        if data is None:
+            return None
+        try:
+            # The pydantic schema is the single source of truth for the plan shape and field bounds
+            # (step count, HogQL length, the hogql query_type). Round-trip through it so a written plan
+            # can never diverge from what the generation pipeline will accept when it reuses it.
+            return QueryPlan.model_validate(data).model_dump()
+        except PydanticValidationError as exc:
+            raise serializers.ValidationError(f"Invalid query plan: {exc.errors(include_url=False)}") from exc
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -158,6 +203,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "'dashboard' (snapshot of one dashboard), or 'ai_prompt' (LLM-generated report). "
             "Read-only — derived from the populated target (insight → insight, "
             "dashboard → dashboard, prompt → ai_prompt)."
+        ),
+    )
+    query_plan = QueryPlanField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report "
+            "runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers "
+            "without query access. Writable only by callers with query:editor access — editing it overrides "
+            "the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt."
         ),
     )
 
@@ -192,6 +247,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "invite_message",
             "summary_enabled",
             "summary_prompt_guide",
+            "query_plan",
         ]
         read_only_fields = [
             "id",
@@ -263,6 +319,24 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     def get_resource_name(self, obj: Subscription) -> Optional[str]:
         info = obj.resource_info
         return info.name if info else None
+
+    def _caller_query_access(self, level: str) -> bool:
+        # Resolve the caller's query RBAC level via the view's UserAccessControl (same source the viewset
+        # uses for the AI write gate). Fail closed when it can't be resolved — e.g. a serializer used
+        # outside a request — so query content is never exposed/written without a proven access level.
+        view = self.context.get("view")
+        user_access_control = getattr(view, "user_access_control", None)
+        if user_access_control is None:
+            return False
+        return bool(user_access_control.check_access_level_for_resource("query", level))
+
+    def to_representation(self, instance: Subscription) -> dict:
+        data = super().to_representation(instance)
+        # query_plan carries generated HogQL (query-derived, like the delivered report), so scrub it to
+        # null for callers without query access — mirroring the delivery serializer's report scrubbing.
+        if data.get("query_plan") is not None and not self._caller_query_access("viewer"):
+            data["query_plan"] = None
+        return data
 
     def _validate_insight_content(self, attrs: dict, existing: Optional[Subscription]) -> None:
         if not (attrs.get("insight") or (existing and existing.insight_id)):
@@ -349,6 +423,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if validate_for_resource_type is None:
             raise ValidationError({"resource_type": [f"Unsupported resource_type: {resource_type}."]})
         validate_for_resource_type(attrs, existing)
+
+        # Writing the frozen query plan overrides the AI-generated HogQL, so it is allowed only on AI
+        # subscriptions and only for callers with query:editor access (the field is already shape-validated
+        # against the pydantic QueryPlan in QueryPlanField). query:viewer is enough to read it (scrubbed in
+        # to_representation otherwise); editing query content requires the stronger editor level.
+        if "query_plan" in attrs:
+            if resource_type != Subscription.ResourceType.AI_PROMPT:
+                raise ValidationError({"query_plan": ["Only AI prompt subscriptions can set a query plan."]})
+            if attrs["query_plan"] is not None and not self._caller_query_access("editor"):
+                raise exceptions.PermissionDenied("You need query editor access to edit the query plan.")
 
         self._validate_dashboard_export_subscription(attrs)
 
@@ -768,6 +852,27 @@ def _subscription_is_ai_prompt(subscription_id: str | int, team_id: int) -> bool
     )
 
 
+class AIReportQueryDiagnosticSerializer(serializers.Serializer):
+    # Per-step query diagnostics persisted alongside the report markdown. Query-derived (the generated
+    # HogQL is here), so it is scrubbed for callers without query access — never shipped to recipients.
+    description = serializers.CharField(help_text="What this query step was meant to compute.")
+    hogql = serializers.CharField(help_text="The HogQL the assistant generated for this step.")
+    ok = serializers.BooleanField(help_text="Whether the query ran successfully.")
+    error_type = serializers.CharField(
+        allow_null=True, help_text="Exception class name when the query failed; null on success."
+    )
+
+
+class SubscriptionPreviewResponseSerializer(serializers.Serializer):
+    # Response shape for the preview action: the report that WOULD be delivered, plus the per-step query
+    # diagnostics — generated in-band, never sent to recipients. Same diagnostic shape the delivery
+    # history exposes, so the frontend reuses one renderer.
+    report = serializers.CharField(help_text="The report markdown the subscription would deliver, rendered in-band.")
+    diagnostics = AIReportQueryDiagnosticSerializer(
+        many=True, help_text="Per-step query diagnostics (generated HogQL + ok/error) for this preview run."
+    )
+
+
 @extend_schema_view(
     list=extend_schema(
         parameters=[
@@ -1033,16 +1138,107 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.M
 
         return Response(status=status.HTTP_202_ACCEPTED)
 
-
-class AIReportQueryDiagnosticSerializer(serializers.Serializer):
-    # Per-step query diagnostics persisted alongside the report markdown. Query-derived (the generated
-    # HogQL is here), so it is scrubbed for callers without query access — never shipped to recipients.
-    description = serializers.CharField(help_text="What this query step was meant to compute.")
-    hogql = serializers.CharField(help_text="The HogQL the assistant generated for this step.")
-    ok = serializers.BooleanField(help_text="Whether the query ran successfully.")
-    error_type = serializers.CharField(
-        allow_null=True, help_text="Exception class name when the query failed; null on success."
+    @extend_schema(
+        request=None,
+        responses={202: OpenApiResponse(description="Frozen query plan cleared; the next run re-plans via the LLM")},
     )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="re-plan",
+        # Scope is resolved dynamically in dangerously_get_required_scopes so AI subscriptions also require
+        # query:read; the RBAC query-viewer gate in check_permissions fires for this POST too.
+    )
+    def re_plan(self, request, **kwargs):
+        # Clear the frozen plan so the next generation re-plans from the prompt via the LLM and re-freezes.
+        # This is how an owner discards a stale/edited plan and pulls in newer planner prompts. Targeted
+        # (id, team_id) update — never a full save (which would re-emit activity-log / analytics signals).
+        subscription = self.get_object()
+        if subscription.deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not _subscription_is_ai_prompt(subscription.id, self.team_id):
+            return Response(
+                {"detail": "Only AI prompt subscriptions have a query plan to re-plan."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        Subscription.objects.filter(id=subscription.id, team_id=self.team_id).update(query_plan=None)
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_query_plan_re_planned",
+            properties={
+                **get_request_analytics_properties(request),
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+            },
+            groups=groups(None, subscription.team),
+        )
+        return Response(status=status.HTTP_202_ACCEPTED)
+
+    @extend_schema(
+        request=None,
+        responses={
+            200: SubscriptionPreviewResponseSerializer,
+            400: OpenApiResponse(description="Subscription is not an AI prompt subscription"),
+        },
+    )
+    @action(
+        methods=["POST"],
+        detail=True,
+        url_path="preview",
+        throttle_classes=[SubscriptionPreviewThrottle],
+        # Scope is resolved dynamically in dangerously_get_required_scopes so AI subscriptions also require
+        # query:read (preview runs the AI HogQL pipeline). A static required_scopes would short-circuit it.
+    )
+    def preview(self, request, **kwargs):
+        # Run the generation pipeline and return what WOULD be delivered — the report markdown and the
+        # per-step query diagnostics — WITHOUT delivering. No email/Slack send path is reachable from here
+        # (preview_ai_subscription_report only calls generate_ai_report), and the freshly-planned plan is
+        # deliberately not persisted, so a preview is fully side-effect-free.
+        subscription = self.get_object()
+        if subscription.deleted:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        if not _subscription_is_ai_prompt(subscription.id, self.team_id):
+            return Response(
+                {"detail": "Only AI prompt subscriptions can be previewed."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            result: AiReportResult = asyncio.run(preview_ai_subscription_report(subscription))
+        except PromptRejectedError as exc:
+            # User-fixable input (deleted creator, prompt fails sanitization, malformed stored plan) — a 400
+            # tells the owner exactly what to fix rather than surfacing as a 500.
+            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            capture_exception(exc)
+            return Response(
+                {"detail": "Failed to generate preview"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        posthoganalytics.capture(
+            distinct_id=str(request.user.distinct_id),
+            event="subscription_previewed",
+            properties={
+                **get_request_analytics_properties(request),
+                "subscription_id": subscription.id,
+                "team_id": subscription.team_id,
+                "failed_step_count": sum(1 for d in result.diagnostics if not d.ok),
+                "total_step_count": len(result.diagnostics),
+            },
+            groups=groups(None, subscription.team),
+        )
+
+        payload = {
+            "report": result.markdown,
+            "diagnostics": [
+                {"description": d.description, "hogql": d.hogql, "ok": d.ok, "error_type": d.error_type}
+                for d in result.diagnostics
+            ],
+        }
+        return Response(SubscriptionPreviewResponseSerializer(payload).data)
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
