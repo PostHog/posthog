@@ -194,12 +194,14 @@ jobs:
                   PRIMARY_DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog_persons' \
                   GRPC_ADDRESS='127.0.0.1:50051' \
                       ./target/debug/personhog-replica > /tmp/personhog-replica.log 2>&1 &
-                  echo "PERSONHOG_REPLICA_PID=$!" >> $GITHUB_ENV
+                  PERSONHOG_REPLICA_PID=$!
+                  echo "PERSONHOG_REPLICA_PID=$PERSONHOG_REPLICA_PID" >> $GITHUB_ENV
 
                   REPLICA_URL='http://127.0.0.1:50051' \
                   GRPC_ADDRESS='127.0.0.1:50052' \
                       ./target/debug/personhog-router > /tmp/personhog-router.log 2>&1 &
-                  echo "PERSONHOG_ROUTER_PID=$!" >> $GITHUB_ENV
+                  PERSONHOG_ROUTER_PID=$!
+                  echo "PERSONHOG_ROUTER_PID=$PERSONHOG_ROUTER_PID" >> $GITHUB_ENV
 
                   # gRPC has no HTTP readiness endpoint, so probe the listening port directly.
                   wait_for_grpc() {
