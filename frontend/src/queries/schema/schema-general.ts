@@ -4206,8 +4206,6 @@ export interface ExperimentParameters {
     minimum_detectable_effect?: number
     /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[]
     /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
     variant_notes?: Record<string, string>
 }

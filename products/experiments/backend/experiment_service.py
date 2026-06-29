@@ -53,7 +53,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
-    get_excluded_variants,
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -187,31 +186,6 @@ class ExperimentService:
                     "'key' to 'control'."
                 )
 
-        excluded_variants = parameters.get("excluded_variants")
-        if excluded_variants is None:
-            return
-
-        if not isinstance(excluded_variants, list) or not all(isinstance(v, str) for v in excluded_variants):
-            raise ValidationError("excluded_variants must be a list of strings")
-
-        if not excluded_variants:
-            return
-
-        # `parameters` is replaced wholesale on update (see update_experiment:
-        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
-        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
-        # otherwise the stored object would have no variants at all. Surface that
-        # explicitly rather than letting every key fall through to "unknown variants".
-        if not variants:
-            raise ValidationError(
-                "excluded_variants requires feature_flag_variants in the same request — "
-                "parameters are replaced as a whole on update, so send the full parameters object"
-            )
-
-        variant_keys = {v["key"] for v in variants}
-        baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
-        ExperimentService._validate_excluded_variant_keys(excluded_variants, variant_keys, baseline_key)
-
     @staticmethod
     def _validate_excluded_variant_keys(
         excluded_variants: list[str], variant_keys: Iterable[str], baseline_key: str
@@ -252,16 +226,6 @@ class ExperimentService:
             return
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ValidationError("excluded_variants must be a list of strings")
-
-    @staticmethod
-    def _merge_excluded_variants_into_parameters(parameters: dict | None, excluded_variants: list[str] | None) -> dict:
-        """Mirror the canonical excluded_variants into the legacy `parameters` blob."""
-        merged = dict(parameters or {})
-        if excluded_variants is None:
-            merged.pop("excluded_variants", None)
-        else:
-            merged["excluded_variants"] = list(excluded_variants)
-        return merged
 
     RUNNING_TIME_CALCULATION_KEYS = (
         "minimum_detectable_effect",
@@ -793,12 +757,6 @@ class ExperimentService:
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
         running_time_calculation = running_time_calculation or {}
-        # Dual-write for excluded_variants during the parameters deprecation window: the canonical
-        # column wins over legacy `parameters` when supplied; otherwise derive the column from `parameters`.
-        if excluded_variants is not None:
-            parameters = self._merge_excluded_variants_into_parameters(parameters, excluded_variants)
-        else:
-            excluded_variants = (parameters or {}).get("excluded_variants")
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -1346,7 +1304,7 @@ class ExperimentService:
                         experiment.start_date,
                         experiment.stats_config,
                         experiment.exposure_criteria,
-                        excluded_variants=get_excluded_variants(experiment),
+                        excluded_variants=experiment.excluded_variants or [],
                     ),
                 )
 
@@ -2198,9 +2156,8 @@ class ExperimentService:
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
-        # Validate excluded_variants on the canonical column path against the resolved flag
-        # variants — no feature_flag_variants resend required (the legacy
-        # `parameters.excluded_variants` path is still validated in the serializer).
+        # Validate excluded_variants against the resolved flag variants — no
+        # feature_flag_variants resend required.
         if "excluded_variants" in update_data:
             new_excluded = update_data["excluded_variants"]
             if new_excluded:
@@ -2221,16 +2178,13 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
-        # Canonical excluded_variants for fingerprints: prefer an explicit column update, then
-        # legacy parameters in the payload, then the stored canonical value. Computed here
-        # (before the dual-write below) so a new client PATCHing only excluded_variants still
-        # fingerprints with the new exclusions.
+        # Canonical excluded_variants for fingerprints: prefer an explicit column update,
+        # otherwise the stored canonical value. So a client PATCHing only excluded_variants
+        # still fingerprints with the new exclusions.
         if "excluded_variants" in update_data:
             excluded_variants = update_data["excluded_variants"]
-        elif "parameters" in update_data:
-            excluded_variants = (update_data["parameters"] or {}).get("excluded_variants")
         else:
-            excluded_variants = get_excluded_variants(experiment)
+            excluded_variants = experiment.excluded_variants or []
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -2259,17 +2213,6 @@ class ExperimentService:
         if experiment.is_draft and has_start_date:
             feature_flag.active = True
             feature_flag.save()
-
-        # --- excluded_variants dual-write -----------------------------------
-        # Mirror the canonical excluded_variants column into legacy `parameters`.
-        # The column wins when both are sent.
-        if "excluded_variants" in update_data:
-            update_data["parameters"] = self._merge_excluded_variants_into_parameters(
-                update_data.get("parameters", experiment.parameters),
-                update_data["excluded_variants"],
-            )
-        elif "parameters" in update_data:
-            update_data["excluded_variants"] = (update_data["parameters"] or {}).get("excluded_variants")
 
         # --- apply changes and save ----------------------------------------
         for attr, value in update_data.items():
