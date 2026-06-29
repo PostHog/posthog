@@ -70,6 +70,14 @@ def get_nested_value(obj, chain, nullish=False) -> Any:
                     return None
                 obj = obj[key]
         else:
+            if not isinstance(obj, dict):
+                # Descending into a non-object — e.g. an unresolved
+                # `{variables.foo}` placeholder that evaluated to a scalar or
+                # None — must not raise a raw AttributeError. Nullish access
+                # yields null; strict access raises a catchable HogVM error.
+                if nullish:
+                    return None
+                raise HogVMException(f"Can not get key {key} of a non-object value")
             obj = obj.get(key, None)
     return obj
 

@@ -121,6 +121,14 @@ class TestBytecodeExecute:
         chain = ["properties", "tuple", 3]
         assert get_nested_value(my_dict, chain) == "item3"
 
+    def test_nested_value_into_non_object_is_nullish(self):
+        # Descending into a non-object must not raise AttributeError. Regression:
+        # an unresolved `{variables.foo}` placeholder evaluates the chain
+        # ["variables", "foo"] against a scalar/None and used to crash here.
+        assert get_nested_value({"variables": 1}, ["variables", "foo"], nullish=True) is None
+        assert get_nested_value("scalar", ["foo"], nullish=True) is None
+        assert get_nested_value(None, ["foo", "bar"], nullish=True) is None
+
     def test_errors(self):
         try:
             execute_bytecode([_H, VERSION, op.TRUE, op.CALL_GLOBAL, "notAFunction", 1], {})
