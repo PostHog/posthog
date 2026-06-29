@@ -530,7 +530,25 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                 retry_policy=SUBSCRIPTION_DELIVER_RETRY_POLICY,
             )
             delivery_recipient_results = _to_recipient_dicts(deliver_result.recipient_results)
-            final_status = DeliveryStatus.COMPLETED
+
+            # A report whose every generated query failed computed no metrics — recording that as
+            # "completed" misrepresents an empty report, so mark it FAILED with the failure detail
+            # the delivery history surfaces on hover. Partial failures stay COMPLETED; their
+            # per-query diagnostics (generated HogQL + error type) live in content_snapshot for
+            # the delivery detail view.
+            if generate_result.all_queries_failed:
+                final_status = DeliveryStatus.FAILED
+                total = generate_result.total_step_count
+                detail = (
+                    f" ({', '.join(generate_result.query_error_types)})" if generate_result.query_error_types else ""
+                )
+                subject = "The query the AI generated" if total == 1 else f"All {total} queries the AI generated"
+                generation_error = {
+                    "message": f"{subject} failed to run{detail}, so the report could not be computed.",
+                    "type": "AIReportQueryFailure",
+                }
+            else:
+                final_status = DeliveryStatus.COMPLETED
 
         except Exception as e:
             # Preserve recipient outcomes carried in non-retryable delivery errors so the
@@ -555,7 +573,7 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
                             recipient_results=delivery_recipient_results or None,
                             error={"message": str(caught_error)[:500], "type": type(caught_error).__name__}
                             if caught_error
-                            else None,
+                            else generation_error,
                             finished=True,
                         ),
                         start_to_close_timeout=dt.timedelta(minutes=2),
