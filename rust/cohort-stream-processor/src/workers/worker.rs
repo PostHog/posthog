@@ -58,9 +58,9 @@ const REBUILD_SCAN_PAGE: usize = 10_000;
 
 /// Cooperative-yield cadence inside the worker fold. `handle_event` is fully synchronous, so a
 /// backlog of CPU-bound events would hold the runtime thread between channel receives — starving the
-/// heartbeat, commit, and consume tasks under saturation (the crash-loop's enabling condition).
-/// Yielding on a wall-clock interval (rather than a fixed message count) adapts to per-event cost
-/// across catalogs of very different sizes.
+/// commit task and the consume loop (which reports liveness inline) under saturation (the crash-loop's
+/// enabling condition). Yielding on a wall-clock interval (rather than a fixed message count) adapts
+/// to per-event cost across catalogs of very different sizes.
 const WORKER_YIELD_INTERVAL: Duration = Duration::from_millis(5);
 
 pub struct Stage1Worker {
@@ -281,7 +281,7 @@ async fn run_worker(
             }
 
             // Release the runtime thread periodically so a CPU-bound event backlog can't starve the
-            // heartbeat/commit/consume tasks (the C3 enabling mechanism for C1/C2).
+            // commit task or the consume loop's inline liveness report (the C3 enabling mechanism).
             if last_yield.elapsed() >= WORKER_YIELD_INTERVAL {
                 tokio::task::yield_now().await;
                 last_yield = Instant::now();
