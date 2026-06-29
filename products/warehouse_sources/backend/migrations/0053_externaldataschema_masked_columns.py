@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("warehouse_sources", "0051_warehousecolumnstatistics"),
-    ]
+    dependencies = [("warehouse_sources", "0052_backfill_google_ads_incremental_lookback")]
 
     operations = [
         migrations.AddField(
