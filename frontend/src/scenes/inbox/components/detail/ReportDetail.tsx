@@ -35,7 +35,7 @@ import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabil
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
-import { ConventionalCommitScopeTag } from '../cards/ReportCard'
+import { ConventionalCommitScopeTag, PrCiBadge } from '../cards/ReportCard'
 import { RightColumnSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
@@ -461,6 +461,11 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
         >
             {hasPr ? (
                 <RightColumnSection icon={<IconCode />} title="Diff">
+                    {report.implementation_pr_ci_status ? (
+                        <div className="mb-2">
+                            <PrCiBadge ciStatus={report.implementation_pr_ci_status} />
+                        </div>
+                    ) : null}
                     <PullRequestBanner prUrl={prFilesUrl(prUrl)} prRef={prRef} />
                 </RightColumnSection>
             ) : null}

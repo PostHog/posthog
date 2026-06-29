@@ -19,6 +19,7 @@ from products.replay_vision.backend.temporal.constants import (
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import IneligibleSessionError, IneligibleSessionKind
+from products.replay_vision.backend.temporal.masking import summarize_masking_config
 from products.replay_vision.backend.temporal.state import (
     StateActivitiesEnum,
     get_redis_state_client,
@@ -101,6 +102,16 @@ def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) ->
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
     team = Team.objects.get(pk=team_id)
+    # The rasterized video bakes in whatever the SDK masked at capture, so a heavily-redacted recording
+    # would have the scout reasoning over blanked-out frames. Skip the wholesale "total privacy" case
+    # outright; for lighter masking, carry a note into the prompt so the model doesn't treat masked
+    # regions as real content.
+    masking_summary, fully_masked = summarize_masking_config(team.session_recording_masking_config)
+    if fully_masked:
+        raise IneligibleSessionError(
+            "Team masks all on-screen text; the recording is too redacted for vision analysis",
+            kind=IneligibleSessionKind.PRIVACY_MASKED,
+        )
     events_obj = SessionReplayEvents()
     metadata = events_obj.get_metadata(session_id=session_id, team=team)
     if metadata is None:
@@ -175,6 +186,7 @@ def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:
             mouse_activity_count=metadata.get("mouse_activity_count"),
             start_url=metadata.get("first_url"),
             console_error_count=metadata.get("console_error_count"),
+            masking=masking_summary,
         ),
     )
 

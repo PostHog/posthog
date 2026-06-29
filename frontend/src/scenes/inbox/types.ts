@@ -17,6 +17,9 @@ export type SignalReportPriority = 'P0' | 'P1' | 'P2' | 'P3' | 'P4'
 /** Actionability judgment outcome. Mirrors desktop `SignalReportActionability`. */
 export type SignalReportActionability = 'immediately_actionable' | 'requires_human_input' | 'not_actionable'
 
+/** CI status of a report's implementation PR. Mirrors the backend `CodePrSnapshot.CiStatus`. */
+export type SignalReportCiStatus = 'passing' | 'failing' | 'pending' | 'none'
+
 /** Actionability values that represent a report worth acting on — drives the Reports tab filter and the Create PR gate. */
 export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
     'immediately_actionable',
@@ -47,6 +50,8 @@ export interface SignalReport {
     source_products?: string[]
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
+    /** CI status of the implementation PR once polled (passing/failing/pending/none), else null. */
+    implementation_pr_ci_status?: SignalReportCiStatus | null
     /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
     dismissal_reason?: string | null
     /** Free-form note from the latest dismissal artefact (when archived). */

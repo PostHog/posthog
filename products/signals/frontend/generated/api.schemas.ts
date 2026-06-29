@@ -107,6 +107,11 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly implementation_pr_url: string | null
+    /**
+     * CI status of the implementation PR (passing / failing / pending / none) once the PR has been polled, else null. Lets the inbox flag a red-CI auto-PR instead of presenting it as a finished fix.
+     * @nullable
+     */
+    readonly implementation_pr_ci_status: string | null
 }
 
 export interface PaginatedSignalReportListApi {

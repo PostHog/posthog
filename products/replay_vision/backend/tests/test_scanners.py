@@ -101,6 +101,22 @@ class TestPreamble:
         assert "- active_seconds: 180" in rendered
         assert "- click_count: 23" in rendered
 
+    def test_preamble_warns_about_masking_when_present(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner())
+        rendered = scanner.preamble(
+            team_name="Acme",
+            session_metadata={"active_seconds": 180, "masking": "text typed into input fields is masked"},
+        )
+        assert "<privacy_masking>" in rendered
+        assert "text typed into input fields is masked" in rendered
+        # The masking note drives a dedicated instruction, not just a generic metadata line.
+        assert "- masking:" not in rendered
+
+    def test_preamble_omits_masking_block_when_absent(self) -> None:
+        scanner = scanner_from_db(_build_replay_scanner())
+        rendered = scanner.preamble(team_name="Acme", session_metadata={"active_seconds": 180})
+        assert "<privacy_masking>" not in rendered
+
 
 class TestMonitorScanner:
     def test_scanner_from_db_picks_monitor_subclass(self) -> None:

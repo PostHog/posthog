@@ -126,6 +126,10 @@ def _make_scanner(**overrides) -> ReplayScanner:
     return ReplayScanner.objects.create(**defaults)
 
 
+def _set_team_masking(team_id: int, masking_config: dict | None) -> None:
+    Team.objects.filter(id=team_id).update(session_recording_masking_config=masking_config)
+
+
 def _make_observation(scanner: ReplayScanner, **overrides) -> ReplayObservation:
     defaults: dict = {
         "scanner": scanner,
@@ -918,6 +922,59 @@ class TestFetchSessionEventsActivity:
         assert exc_info.value.non_retryable is True
         assert exc_info.value.kind == "no_events"
         assert exc_info.value.details == ("no_events",)
+
+    @pytest.mark.asyncio
+    async def test_raises_ineligible_when_team_masks_all_text(self) -> None:
+        # "Total privacy" masking redacts every on-screen text node — the recording is too redacted to
+        # reason over, so the session is skipped before any ClickHouse fetch.
+        scanner = await sync_to_async(_make_scanner)()
+        await sync_to_async(_set_team_masking)(scanner.team_id, {"maskTextSelector": "*", "maskAllInputs": True})
+        observation_id = uuid.uuid4()
+        mock_obj = self._make_session_replay_events_mock({"duration": 300, "active_seconds": 200}, [])
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            with pytest.raises(IneligibleSessionError) as exc_info:
+                await fetch_session_events_activity(
+                    FetchSessionEventsInputs(
+                        observation_id=observation_id, team_id=scanner.team_id, session_id="sess-masked"
+                    )
+                )
+
+        assert exc_info.value.kind == "privacy_masked"
+        assert exc_info.value.details == ("privacy_masked",)
+        # The gate short-circuits before any recording metadata is fetched.
+        mock_obj.get_metadata.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_threads_masking_summary_into_metadata_for_partial_masking(self) -> None:
+        # Lighter masking (a narrow text selector) is analyzed, but the model is warned via the metadata
+        # so it doesn't narrate redacted regions as real content.
+        scanner = await sync_to_async(_make_scanner)()
+        await sync_to_async(_set_team_masking)(scanner.team_id, {"maskTextSelector": ".pii", "maskAllInputs": False})
+        observation_id = uuid.uuid4()
+        start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
+        end = dt.datetime(2026, 5, 12, 10, 5, 0, tzinfo=dt.UTC)
+        metadata = {"start_time": start, "end_time": end, "duration": 300, "active_seconds": 200}
+        mock_obj = self._make_session_replay_events_mock(
+            metadata, [(["event", "timestamp", "$session_id"], [("$pageview", start, "sess-1")])]
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.fetch_session_events.SessionReplayEvents",
+            return_value=mock_obj,
+        ):
+            await fetch_session_events_activity(
+                FetchSessionEventsInputs(observation_id=observation_id, team_id=scanner.team_id, session_id="sess-1")
+            )
+
+        redis_client = get_async_client(settings.REPLAY_VISION_REDIS_URL)
+        key = generate_state_key(label=StateActivitiesEnum.SESSION_EVENTS, state_id=str(observation_id))
+        stored = await get_data_class_from_redis(redis_client, key, target_class=ScannerLlmInputs)
+        assert stored is not None
+        assert stored.metadata.masking == "on-screen text matching the selector `.pii` is masked"
 
     @pytest.mark.asyncio
     async def test_requests_extra_fields_and_event_blocklist(self) -> None:

@@ -640,6 +640,53 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] is None
 
+    # --- implementation_pr_ci_status ---
+
+    def _create_pr_snapshot(self, pr_url: str, *, ci_status: str = "failing", number: int = 42):
+        CodePrSnapshot = apps.get_model("tasks", "CodePrSnapshot")
+        return CodePrSnapshot.objects.create(
+            team=self.team, pr_url=pr_url, number=number, state="open", ci_status=ci_status
+        )
+
+    def test_implementation_pr_ci_status_reflects_snapshot(self):
+        report = self._create_report()
+        pr_url = "https://github.com/org/repo/pull/42"
+        self._create_implementation_task_with_run(report, pr_url=pr_url)
+        self._create_pr_snapshot(pr_url, ci_status="failing")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_ci_status"] == "failing"
+
+    def test_retrieve_implementation_pr_ci_status_reflects_snapshot(self):
+        report = self._create_report()
+        pr_url = "https://github.com/org/repo/pull/42"
+        self._create_implementation_task_with_run(report, pr_url=pr_url)
+        self._create_pr_snapshot(pr_url, ci_status="passing")
+
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["implementation_pr_ci_status"] == "passing"
+
+    def test_implementation_pr_ci_status_null_when_pr_not_polled(self):
+        # PR exists but the code-workstreams poller hasn't snapshotted it yet — status stays unknown.
+        report = self._create_report()
+        self._create_implementation_task_with_run(report, pr_url="https://github.com/org/repo/pull/42")
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_ci_status"] is None
+
+    def test_implementation_pr_ci_status_null_when_no_pr(self):
+        report = self._create_report()
+
+        response = self.client.get(self._list_url())
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["implementation_pr_ci_status"] is None
+
     def test_implementation_pr_url_uses_latest_task_run(self):
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")

@@ -61,7 +61,10 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
 )
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.implementation_pr import (
+    fetch_implementation_pr_ci_statuses_for_reports,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
@@ -976,8 +979,12 @@ class SignalReportViewSet(
         except Exception:
             logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
             source_products_map = {}
+        implementation_pr_ci_status_map: dict[str, str] = {}
         try:
             implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            implementation_pr_ci_status_map = fetch_implementation_pr_ci_statuses_for_reports(
+                self.team.id, implementation_pr_url_map
+            )
         except Exception:
             logger.exception("signals.enriched_context.implementation_pr_url_failed", report_id=str(report.id))
             implementation_pr_url_map = {}
@@ -985,6 +992,7 @@ class SignalReportViewSet(
             **self.get_serializer_context(),
             "source_products_map": source_products_map,
             "implementation_pr_url_map": implementation_pr_url_map,
+            "implementation_pr_ci_status_map": implementation_pr_ci_status_map,
         }
 
     def retrieve(self, request, *args, **kwargs):
@@ -1091,11 +1099,15 @@ class SignalReportViewSet(
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
             implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            implementation_pr_ci_status_map = fetch_implementation_pr_ci_statuses_for_reports(
+                self.team.id, implementation_pr_url_map
+            )
 
         context = {
             **self.get_serializer_context(),
             "source_products_map": source_products_map,
             "implementation_pr_url_map": implementation_pr_url_map,
+            "implementation_pr_ci_status_map": implementation_pr_ci_status_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 

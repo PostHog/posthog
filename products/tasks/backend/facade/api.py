@@ -38,6 +38,7 @@ from products.tasks.backend.logic.code_workstreams.validation import validate_bi
 from products.tasks.backend.models import (
     CodeInvite,
     CodeInviteRedemption,
+    CodePrSnapshot,
     CodeWorkflowConfig,
     CodeWorkstream,
     SandboxEnvironment,
@@ -465,6 +466,21 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
         .distinct("task_id")
     )
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
+
+
+def get_ci_status_by_pr_url(team_id: int, pr_urls: Iterable[str]) -> dict[str, str]:
+    """Latest known CI status (a ``CodePrSnapshot.CiStatus`` value) per PR url, for ``team_id``.
+
+    Reads the ``CodePrSnapshot`` rows the code-workstreams poller upserts (one per ``(team, pr_url)``).
+    PRs with no snapshot yet — never polled, or no GitHub integration — are omitted, so the caller can
+    treat a missing entry as "CI status unknown". Lets other products gate on CI state without reaching
+    into tasks internals.
+    """
+    urls = [u for u in {str(u) for u in pr_urls} if u]
+    if not urls:
+        return {}
+    rows = CodePrSnapshot.objects.filter(team_id=team_id, pr_url__in=urls).values("pr_url", "ci_status")
+    return {row["pr_url"]: row["ci_status"] for row in rows}
 
 
 def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:

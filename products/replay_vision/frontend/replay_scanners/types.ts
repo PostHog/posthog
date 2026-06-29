@@ -16,7 +16,13 @@ export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
 
 export type EnabledFilter = 'enabled' | 'disabled'
 
-export type IneligibleKind = 'no_recording' | 'too_short' | 'too_inactive' | 'too_long' | 'no_events'
+export type IneligibleKind =
+    | 'no_recording'
+    | 'too_short'
+    | 'too_inactive'
+    | 'too_long'
+    | 'no_events'
+    | 'privacy_masked'
 
 const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: string }> = {
     no_recording: { label: 'No recording', description: 'No recording was found for this session.' },
@@ -24,6 +30,10 @@ const INELIGIBLE_KINDS: Record<IneligibleKind, { label: string; description: str
     too_inactive: { label: 'Too inactive', description: 'The session had too little active interaction to analyze.' },
     too_long: { label: 'Too long', description: 'The session was too long to analyze.' },
     no_events: { label: 'No events', description: 'The session had no events to analyze.' },
+    privacy_masked: {
+        label: 'Privacy masked',
+        description: 'The session was too heavily privacy-masked to analyze the recording.',
+    },
 }
 
 export type FailureKind =

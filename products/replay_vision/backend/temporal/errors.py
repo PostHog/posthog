@@ -16,6 +16,7 @@ class IneligibleSessionKind(StrEnum):
     TOO_INACTIVE = "too_inactive"
     TOO_LONG = "too_long"
     NO_EVENTS = "no_events"
+    PRIVACY_MASKED = "privacy_masked"
 
 
 class FailureKind(StrEnum):

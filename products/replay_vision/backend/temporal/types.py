@@ -154,6 +154,9 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
+    # Human-readable note about which parts of the recording are privacy-masked, when the team has
+    # masking configured. Surfaced to the model so it doesn't narrate redacted regions as real content.
+    masking: str | None = None
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""

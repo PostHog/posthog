@@ -37,3 +37,23 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str]) -> dict[str,
         if pr_url and report_id not in result:
             result[report_id] = pr_url
     return result
+
+
+def fetch_implementation_pr_ci_statuses_for_reports(team_id: int, pr_url_by_report: dict[str, str]) -> dict[str, str]:
+    """Map ``report_id`` -> CI status of its implementation PR, given the report→PR-url map.
+
+    Takes the map produced by `fetch_implementation_pr_urls_for_reports` so the inbox list endpoint —
+    which already has it — doesn't re-derive the report↔task association. The auto-suggested PR is
+    opened by the implementation agent and polled asynchronously by code-workstreams, so a report's CI
+    status only becomes known once that PR exists and has been polled; reports whose PR has no snapshot
+    yet are omitted (the inbox treats a missing status as unknown). Lets the inbox stop presenting a
+    red-CI auto-PR as a finished, clean fix.
+    """
+    if not pr_url_by_report:
+        return {}
+    ci_status_by_pr_url = tasks_facade.get_ci_status_by_pr_url(team_id, set(pr_url_by_report.values()))
+    return {
+        report_id: ci_status_by_pr_url[pr_url]
+        for report_id, pr_url in pr_url_by_report.items()
+        if pr_url in ci_status_by_pr_url
+    }

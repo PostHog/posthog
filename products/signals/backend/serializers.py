@@ -293,6 +293,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
+    implementation_pr_ci_status = serializers.SerializerMethodField(
+        help_text=(
+            "CI status of the implementation PR (passing / failing / pending / none) once the PR has been "
+            "polled, else null. Lets the inbox flag a red-CI auto-PR instead of presenting it as a finished fix."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -315,6 +321,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "is_suggested_reviewer",
             "source_products",
             "implementation_pr_url",
+            "implementation_pr_ci_status",
         ]
         read_only_fields = fields
 
@@ -412,6 +419,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return implementation_pr_url_map.get(str(obj.id))
         value = getattr(obj, "implementation_pr_url", None)
         return value if isinstance(value, str) else None
+
+    def get_implementation_pr_ci_status(self, obj: SignalReport) -> str | None:
+        ci_status_map: dict[str, str] | None = self.context.get("implementation_pr_ci_status_map")
+        if ci_status_map is not None:
+            return ci_status_map.get(str(obj.id))
+        return None
 
 
 class SignalReportArtefactSerializer(serializers.ModelSerializer):

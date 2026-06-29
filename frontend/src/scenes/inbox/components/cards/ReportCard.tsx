@@ -7,7 +7,7 @@ import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lem
 import { TZLabel } from 'lib/components/TZLabel'
 import { urls } from 'scenes/urls'
 
-import { InboxFlatListTabKey, SignalReport, SignalReportStatus } from '../../types'
+import { InboxFlatListTabKey, SignalReport, SignalReportCiStatus, SignalReportStatus } from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
     deriveHeadline,
@@ -118,6 +118,30 @@ function PrBadge({
     )
 }
 
+/**
+ * CI status of the implementation PR, shown beside the PR badge. Only the not-green states render —
+ * a passing (or not-yet-polled) PR shows nothing, so a red-CI auto-PR is flagged rather than reading
+ * as a finished, clean fix.
+ */
+const PR_CI_BADGE: Partial<Record<SignalReportCiStatus, { label: string; type: LemonTagType; tooltip: string }>> = {
+    failing: { label: 'CI failing', type: 'danger', tooltip: 'This pull request has failing CI checks' },
+    pending: { label: 'CI running', type: 'warning', tooltip: 'CI checks are still running on this pull request' },
+}
+
+export function PrCiBadge({ ciStatus }: { ciStatus?: SignalReportCiStatus | null }): JSX.Element | null {
+    const config = ciStatus ? PR_CI_BADGE[ciStatus] : undefined
+    if (!config) {
+        return null
+    }
+    return (
+        <Tooltip title={config.tooltip}>
+            <LemonTag type={config.type} size="small">
+                {config.label}
+            </LemonTag>
+        </Tooltip>
+    )
+}
+
 // ── ReportCard ────────────────────────────────────────────────────────────────
 
 /**
@@ -184,7 +208,8 @@ export function ReportCard({
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
             {hasPr && prNumber != null ? (
-                <div className="absolute right-4 top-3 z-10">
+                <div className="absolute right-4 top-3 z-10 flex items-center gap-1.5">
+                    <PrCiBadge ciStatus={report.implementation_pr_ci_status} />
                     <PrBadge prNumber={prNumber} prUrl={prUrl} state={derivePrState(report.status)} />
                 </div>
             ) : null}
