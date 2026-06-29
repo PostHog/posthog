@@ -5,7 +5,7 @@ import asyncio
 import datetime as dt
 from dataclasses import dataclass
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import patch
@@ -15,7 +15,7 @@ from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import ActivityInboundInterceptor, UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ActivityInboundInterceptor, ExecuteActivityInput, UnsandboxedWorkflowRunner, Worker
 
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _PostHogClientActivityInboundInterceptor
 
@@ -215,6 +215,7 @@ async def test_activity_cancellation_is_not_captured(cancellation: BaseException
 
     with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
         with pytest.raises(type(cancellation)):
-            await interceptor.execute_activity(SimpleNamespace(args=[]))
+            # Only `.args` is read (by the team-id span tagger) before the cancellation re-raises.
+            await interceptor.execute_activity(cast(ExecuteActivityInput, SimpleNamespace(args=[])))
 
         mock_ph_capture.assert_not_called()
