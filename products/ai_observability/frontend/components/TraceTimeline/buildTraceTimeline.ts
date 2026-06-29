@@ -12,6 +12,10 @@ export interface TraceTimelineBar {
     // Row index: overlapping/nested events stack into separate lanes so their
     // bars and labels never collide on a shared row.
     lane: number
+    // Horizontal room (ms) before the next bar in the same lane begins — or the
+    // trace end for the last bar in a lane. The caption below the bar truncates
+    // to this so it never overruns its neighbor's label.
+    labelRoomMs: number
 }
 
 export interface TraceTimelineData {
@@ -62,6 +66,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
             kind: kindOf(event.event),
             isError: !!event.properties?.$ai_is_error,
             lane: 0,
+            labelRoomMs: 0,
         }
     })
 
@@ -79,5 +84,25 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
     }
 
     const totalMs = Math.max(...bars.map((b) => b.startMs + b.durationMs), 0)
+
+    // A bar's caption can run until the next bar in its lane starts (or the trace
+    // end for the last bar in a lane), so labels never collide with a neighbor.
+    const byLane = new Map<number, TraceTimelineBar[]>()
+    for (const bar of bars) {
+        const group = byLane.get(bar.lane)
+        if (group) {
+            group.push(bar)
+        } else {
+            byLane.set(bar.lane, [bar])
+        }
+    }
+    for (const group of byLane.values()) {
+        group.sort((a, b) => a.startMs - b.startMs)
+        group.forEach((bar, i) => {
+            const next = group[i + 1]
+            bar.labelRoomMs = (next ? next.startMs : totalMs) - bar.startMs
+        })
+    }
+
     return { bars, totalMs, laneCount: Math.max(laneEnds.length, 1) }
 }

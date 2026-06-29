@@ -47,6 +47,17 @@ describe('buildTraceTimeline', () => {
         expect(laneCount).toBe(1) // back-to-back, no overlap → one lane
     })
 
+    it('caps each label to the room before the next bar in its lane', () => {
+        const seq = buildTraceTimeline([ev('a', 0, 1), ev('b', 2000, 0.5)])
+        expect(seq.bars[0].labelRoomMs).toBe(2000) // up to b's start
+        expect(seq.bars[1].labelRoomMs).toBe(500) // last in lane → up to the trace end (2500 - 2000)
+
+        // Bars in different lanes don't shorten each other's room.
+        const nested = buildTraceTimeline([ev('gen', 0, 2), ev('span', 500, 0.5)])
+        expect(nested.bars[0].labelRoomMs).toBe(2000) // gen alone in lane 0 → trace end
+        expect(nested.bars[1].labelRoomMs).toBe(1500) // span alone in lane 1 → trace end (2000 - 500)
+    })
+
     it('returns empty for no events', () => {
         expect(buildTraceTimeline([])).toEqual({ bars: [], totalMs: 0, laneCount: 0 })
     })

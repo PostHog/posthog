@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
@@ -19,10 +19,13 @@ const KIND_CLASS: Record<TraceBarKind, string> = {
     other: 'bg-muted',
 }
 
-// Overlapping bars stack into lanes. Bar height matches `h-5`; the gap keeps
-// stacked rows from touching.
+// Overlapping bars stack into lanes. Each lane row is a colored bar (`h-5`) plus
+// a caption line beneath it; LANE_GAP keeps stacked rows from touching.
 const BAR_H = 20
-const LANE_GAP = 8
+const CAPTION_H = 12
+const BAR_CAPTION_GAP = 2
+const LANE_GAP = 10
+const ROW_H = BAR_H + BAR_CAPTION_GAP + CAPTION_H
 
 export function TraceTimeline({
     events,
@@ -61,42 +64,53 @@ export function TraceTimeline({
                     <div
                         className="relative mx-3"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ height: laneCount * BAR_H + (laneCount - 1) * LANE_GAP }}
+                        style={{ height: laneCount * ROW_H + (laneCount - 1) * LANE_GAP }}
                     >
                         {bars.map((bar) => {
+                            const startPct = pct(bar.startMs)
                             const widthPct = Math.max(pct(bar.durationMs), 0.5)
                             const selected = selectedEventId === bar.id
                             const dur = humanFriendlyMilliseconds(bar.durationMs)
+                            const barTop = bar.lane * (ROW_H + LANE_GAP)
                             return (
-                                <Tooltip key={bar.id} title={`${bar.label} · ${dur}`}>
-                                    <button
-                                        type="button"
-                                        onClick={() => onSelectEvent(bar.id)}
+                                <Fragment key={bar.id}>
+                                    <Tooltip title={`${bar.label} · ${dur}`}>
+                                        <button
+                                            type="button"
+                                            onClick={() => onSelectEvent(bar.id)}
+                                            aria-label={`${bar.label}, ${dur}`}
+                                            className={cn(
+                                                'absolute h-5 rounded-sm cursor-pointer',
+                                                KIND_CLASS[bar.kind],
+                                                bar.isError && 'ring-2 ring-danger',
+                                                selected && 'outline outline-2 outline-offset-1 outline-purple z-10'
+                                            )}
+                                            // eslint-disable-next-line react/forbid-dom-props
+                                            style={{ left: `${startPct}%`, width: `${widthPct}%`, top: barTop }}
+                                            data-attr="trace-timeline-bar"
+                                        />
+                                    </Tooltip>
+                                    {/* Caption below the bar, left-aligned to its start. It truncates to the
+                                        room before the next bar in the lane; the selected bar shows its full
+                                        label, raised above neighbors. Full text is always in the tooltip. */}
+                                    <div
+                                        aria-hidden
                                         className={cn(
-                                            'absolute h-5 rounded-sm cursor-pointer flex items-center overflow-hidden',
-                                            KIND_CLASS[bar.kind],
-                                            // solid bars get white text; the neutral span bar keeps the default dark text
-                                            bar.kind !== 'span' && 'text-white',
-                                            bar.isError && 'ring-2 ring-danger',
-                                            selected && 'outline outline-2 outline-offset-1 outline-purple'
+                                            'absolute text-[10px] leading-none whitespace-nowrap pointer-events-none',
+                                            selected ? 'z-10' : 'overflow-hidden text-ellipsis'
                                         )}
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
-                                            left: `${pct(bar.startMs)}%`,
-                                            width: `${widthPct}%`,
-                                            top: bar.lane * (BAR_H + LANE_GAP),
+                                            left: `${startPct}%`,
+                                            top: barTop + BAR_H + BAR_CAPTION_GAP,
+                                            maxWidth: selected
+                                                ? undefined
+                                                : `${Math.max(pct(bar.labelRoomMs), widthPct)}%`,
                                         }}
-                                        data-attr="trace-timeline-bar"
                                     >
-                                        {widthPct > 5 ? (
-                                            <span className="text-[10px] leading-none px-1 truncate">
-                                                {bar.label} <span className="opacity-80">{dur}</span>
-                                            </span>
-                                        ) : widthPct > 2.5 ? (
-                                            <span className="text-[10px] leading-none px-1 truncate">{dur}</span>
-                                        ) : null}
-                                    </button>
-                                </Tooltip>
+                                        {bar.label} <span className="text-muted">{dur}</span>
+                                    </div>
+                                </Fragment>
                             )
                         })}
                     </div>
