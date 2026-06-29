@@ -420,8 +420,8 @@ export function createExecTool(
                     // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
                     // the `exec` tool registered in single-exec mode, so the UI metadata has to
                     // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
-                    // don't render UI apps — they should see plain text.
+                    // single-exec callers (direct Claude Code, cline, Slack- and posthog_ai-launched
+                    // runs, etc.) don't render UI apps — they should see plain text.
                     if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()

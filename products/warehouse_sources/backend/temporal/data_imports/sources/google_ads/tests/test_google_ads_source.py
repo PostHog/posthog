@@ -260,6 +260,37 @@ class TestGoogleAdsNonRetryableErrors:
         assert "admin" in friendly.lower()
 
 
+class TestGoogleAdsLookbackDefault:
+    _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
+
+    def test_incremental_stats_schemas_get_default_lookback_dimensions_do_not(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import (
+            GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS,
+        )
+
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        # get_schemas() queries the Google Ads API for selectable fields; the static incremental-field
+        # map (real, not mocked) is what marks a table incremental, so stub the network call with one
+        # stats table (has a segments.date filter) and one dimension table (does not).
+        fake_tables = {
+            "campaign_stats": SimpleNamespace(description=None, should_sync_default=True),
+            "campaign": SimpleNamespace(description=None, should_sync_default=True),
+        }
+        with mock.patch(self._SCHEMAS_PATH, return_value=fake_tables):
+            schemas = {s.name: s for s in GoogleAdsSource().get_schemas(config, team_id=1)}
+
+        assert schemas["campaign_stats"].supports_incremental is True
+        assert (
+            schemas["campaign_stats"].default_incremental_lookback_seconds
+            == GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+        )
+        assert schemas["campaign"].supports_incremental is False
+        assert schemas["campaign"].default_incremental_lookback_seconds is None
+        # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
+        # would reject it.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 5_184_000
+
+
 class TestGrpcReceiveLimit:
     # The largest search page observed aborting syncs in production was ~103 MB; the gRPC
     # client must accept at least that much for the resource to sync at all.
