@@ -405,13 +405,13 @@ describe('buildFunnelBarHorizontalData', () => {
                         }),
                         makeStep({
                             count: 40,
-                            fromBasisStep: 0.4,
+                            fromBasisStep: 1,
                             breakdown_value: 'desktop',
                             compare_label: 'current',
                         }),
                         makeStep({
                             count: 25,
-                            fromBasisStep: 0.25,
+                            fromBasisStep: 0.625,
                             breakdown_value: 'desktop',
                             compare_label: 'previous',
                         }),
@@ -423,7 +423,9 @@ describe('buildFunnelBarHorizontalData', () => {
                 const [step] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
 
                 expect(step.bars).toHaveLength(4)
-                expect(step.bars.map((bar) => bar.series[0].data[0])).toEqual([100, 80, 40, 25])
+                // Each value's current bar is that value's leader (100%); previous is proportional
+                // within its own value (mobile 80, desktop 62.5) — not a global scale.
+                expect(step.bars.map((bar) => bar.series[0].data[0])).toEqual([100, 80, 100, 62.5])
                 expect(step.bars.map((bar) => bar.series[0].meta?.breakdownIndex)).toEqual([0, 1, 2, 3])
                 // Each bar ends at its own step-0 entry (drop-off filler 0), so the headroom up to 100%
                 // is empty — not filled to 100% as a drop-off as it was before.

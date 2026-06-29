@@ -71,6 +71,8 @@ const compareSteps: FunnelStepWithConversionMetrics[] = [
     }),
 ]
 
+// Per-value normalization: each breakdown value's bars scale to that value's larger period, so both
+// values' current bars sit at the baseline (fromBasisStep 1) — desktop isn't dwarfed by mobile.
 const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
     makeStep({
         fromBasisStep: 1,
@@ -78,8 +80,8 @@ const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
         nested_breakdown: [
             makeStep({ fromBasisStep: 1, breakdown_value: 'mobile', compare_label: 'current' }),
             makeStep({ fromBasisStep: 0.8, breakdown_value: 'mobile', compare_label: 'previous' }),
-            makeStep({ fromBasisStep: 0.4, breakdown_value: 'desktop', compare_label: 'current' }),
-            makeStep({ fromBasisStep: 0.25, breakdown_value: 'desktop', compare_label: 'previous' }),
+            makeStep({ fromBasisStep: 1, breakdown_value: 'desktop', compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.625, breakdown_value: 'desktop', compare_label: 'previous' }),
         ],
     }),
 ]
@@ -167,9 +169,9 @@ describe('buildFunnelStepsBarData', () => {
 
         // Each value's [current, previous] pair flips to [previous, current]: v0p, v0c, v1p, v1c.
         expect(series.map((s) => s.meta?.breakdownIndex)).toEqual([1, 0, 3, 2])
-        // Every series below the shared baseline is capped at its own entry; only the largest
-        // (mobile-current = 100%, breakdownIndex 0) keeps a full-axis track.
-        expect(series.map((s) => s.trackMax)).toEqual([80, undefined, 25, 40])
+        // Each value's shorter (previous) period is capped at its own entry; each value's current
+        // period is that value's leader, so it keeps a full-axis track.
+        expect(series.map((s) => s.trackMax)).toEqual([80, undefined, 62.5, undefined])
     })
 
     it('sets no trackMax for a non-compare funnel', () => {

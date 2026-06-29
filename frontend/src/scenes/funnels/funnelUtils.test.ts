@@ -757,6 +757,32 @@ describe('stepsWithConversionMetrics', () => {
         expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
     })
 
+    it('compare mode with breakdown — each value normalizes to its own larger period, not a global scale', () => {
+        // mobile current 100 / previous 80; desktop current 40 / previous 25. The basis is per value
+        // (mobile→100, desktop→40), so the small segment isn't dwarfed by the large one's global volume.
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 140,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({ count: 100, order: 0, breakdown_value: 'mobile', compare_label: 'current' }),
+                    makeStep({ count: 80, order: 0, breakdown_value: 'mobile', compare_label: 'previous' }),
+                    makeStep({ count: 40, order: 0, breakdown_value: 'desktop', compare_label: 'current' }),
+                    makeStep({ count: 25, order: 0, breakdown_value: 'desktop', compare_label: 'previous' }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+
+        // Each value's leader period fills the column (1); the other is proportional within its own value.
+        expect(result[0].nested_breakdown!.map((b) => b.conversionRates.fromBasisStep)).toEqual([
+            1,
+            80 / 100,
+            1,
+            25 / 40,
+        ])
+    })
+
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
         // Create 5 breakdowns where one is an outlier
         const breakdownCounts = [

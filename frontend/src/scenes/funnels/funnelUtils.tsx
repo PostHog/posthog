@@ -502,10 +502,18 @@ export function stepsWithConversionMetrics(
 ): FunnelStepWithConversionMetrics[] {
     const compareBars = steps[0]?.nested_breakdown
     const isCompare = compareBars?.some((b) => b.compare_label != null) ?? false
-    // Compare bars share one baseline (the larger period's first step) so both periods sit on a
-    // common scale: the previous bar shows its real volume instead of always starting full height,
-    // and the tallest bar never exceeds the column.
-    const compareBasisCount = isCompare ? Math.max(...(compareBars?.map((b) => b.count) ?? [0])) : 0
+    // Compare normalizes per breakdown value: each value's periods share that value's larger first
+    // step as the baseline, so the shorter period shows its real volume against its own value — every
+    // value's leader fills the column, matching the non-compare breakdown view — instead of all values
+    // sharing one global scale. Pure compare has a single value, so the basis is just
+    // max(current, previous).
+    const compareBasisByValue = new Map<string, number>()
+    if (isCompare && compareBars) {
+        for (const bar of compareBars) {
+            const key = JSON.stringify(bar.breakdown_value ?? null)
+            compareBasisByValue.set(key, Math.max(compareBasisByValue.get(key) ?? 0, bar.count))
+        }
+    }
 
     let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
@@ -525,6 +533,7 @@ export function stepsWithConversionMetrics(
                 fromPrevious: previousBreakdownCount === 0 ? 0 : breakdown.count / previousBreakdownCount,
                 total: firstBreakdownCount === 0 ? 0 : breakdown.count / firstBreakdownCount,
             }
+            const compareBasisCount = compareBasisByValue.get(JSON.stringify(breakdown.breakdown_value ?? null)) ?? 0
             return {
                 ...breakdown,
                 droppedOffFromPrevious: nestedDroppedOffFromPrevious,
