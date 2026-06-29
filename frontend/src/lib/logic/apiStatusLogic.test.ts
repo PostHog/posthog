@@ -1,8 +1,8 @@
 import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_USER } from 'lib/api.mock'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import { expectLogic } from 'kea-test-utils'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { userLogic } from 'scenes/userLogic'
 
