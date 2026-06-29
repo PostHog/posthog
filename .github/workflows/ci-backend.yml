@@ -1014,10 +1014,9 @@ jobs:
                   fi
                   ./bin/hogli product:lint:owners $names
 
-    # Block deleting historical migration files. Deleting a migration that exists on
-    # master leaves the table/constraints in every DB where it ran, never recreates
-    # them on fresh DBs, and makes Migration Risk Analysis flag phantom migrations on
-    # every open PR that predates the deletion. See safe-django-migrations.md.
+    # Block deleting historical migration files (see safe-django-migrations.md for why).
+    # Gate on `backend` (not just `migrations`): the migrations paths-filter omits
+    # ee/ and posthog/ sub-package migration dirs that the script still flags.
     check-deleted-migrations:
         needs: [changes]
         if: github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true')
@@ -1028,7 +1027,13 @@ jobs:
             contents: read
             pull-requests: read
         steps:
+            # Only the guard script and its allowlist are needed — skip the full tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/check-no-deleted-migrations.sh
+                      .github/scripts/migration-deletion-allowlist.txt
+                  sparse-checkout-cone-mode: false
             - name: Fail if a historical migration file was deleted
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1037,11 +1042,22 @@ jobs:
               run: |
                   # The PR files API reports each file's status relative to the PR base
                   # (base...head), so a "removed" file existed on the base branch — i.e. a
-                  # historical migration. Renames carry the old path in previous_filename;
-                  # renaming a historical migration is the same hazard.
-                  gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" \
-                    --jq '.[] | if .status == "removed" then .filename elif .status == "renamed" then .previous_filename else empty end' \
-                    | .github/scripts/check-no-deleted-migrations.sh --stdin
+                  # historical migration. Renames carry the old path in previous_filename.
+                  # Retry transient API errors so a hiccup can't red this required check.
+                  removed=""
+                  for attempt in 1 2 3; do
+                      if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" \
+                            --jq '.[] | select(.status == "removed" or .status == "renamed") | .previous_filename // .filename'); then
+                          break
+                      fi
+                      if [ "$attempt" = 3 ]; then
+                          echo "::error::could not list PR files after 3 attempts" >&2
+                          exit 1
+                      fi
+                      echo "::warning::gh api attempt ${attempt} failed; retrying" >&2
+                      sleep $((attempt * 5))
+                  done
+                  printf '%s\n' "$removed" | .github/scripts/check-no-deleted-migrations.sh --stdin
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline

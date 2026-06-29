@@ -1,0 +1,16 @@
+# Migration files whose deletion is intentional and reviewed.
+#
+# The guard (pre-commit + the check-deleted-migrations CI job) blocks deleting any
+# Django migration that exists on master: doing so diverges fresh databases from
+# deployed ones and false-flags phantom migrations on other open PRs. See
+# docs/published/handbook/engineering/safe-django-migrations.md.
+#
+# Add a path here ONLY when the deletion is genuinely safe and reviewed — e.g.
+# relocating a product's migrations (git mv as part of a SeparateDatabaseAndState
+# move), reverting a not-yet-deployed migration, or a squash. One entry per line.
+# An entry ending in "/" allowlists every migration under that directory. Prefer
+# removing stale entries once the acknowledging PR has merged.
+#
+# Examples (commented out — these are not active entries):
+#   products/old_product/backend/migrations/   # whole-product move
+#   posthog/migrations/0500_oops.py            # single revert

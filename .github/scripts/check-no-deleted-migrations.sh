@@ -1,14 +1,12 @@
 #!/usr/bin/env bash
 #
-# Refuse to delete historical Django migration files.
+# Refuse to delete historical Django migration files. The full rationale and the
+# safe way to retire a table are in the failure message below and in
+# docs/published/handbook/engineering/safe-django-migrations.md.
 #
-# A migration that already exists on master must never be deleted. Deleting the
-# file does not undo the schema change: the table and its constraints stay in every
-# database where the migration ran, fresh databases never recreate them, and the
-# "Migration Risk Analysis" CI job re-flags the file as a phantom new migration on
-# every open PR that predates the deletion. Retire a table with a state-only
-# DeleteModel (SeparateDatabaseAndState) plus a later DROP TABLE migration instead —
-# both NEW files. See docs/published/handbook/engineering/safe-django-migrations.md.
+# Intentional, reviewed deletions (a product/app move, a revert, a squash) are
+# acknowledged in .github/scripts/migration-deletion-allowlist.txt, not by disabling
+# this guard.
 #
 # Modes:
 #   --staged   (default) pre-commit: flag staged deletions of migrations that exist
@@ -19,7 +17,26 @@
 set -euo pipefail
 
 BASE_REF="${BASE_REF:-origin/master}"
+ALLOWLIST="${MIGRATION_DELETION_ALLOWLIST:-.github/scripts/migration-deletion-allowlist.txt}"
 MODE="${1:---staged}"
+
+# A deletion is acknowledged if its path matches an allowlist entry — an exact path,
+# or a directory prefix ending in "/". Reviewers see the entry in the PR diff.
+is_allowlisted() {
+    [ -f "$ALLOWLIST" ] || return 1
+    local path="$1" line
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%%#*}"                       # strip trailing comment
+        line="${line#"${line%%[![:space:]]*}"}"  # trim leading whitespace
+        line="${line%"${line##*[![:space:]]}"}"  # trim trailing whitespace
+        [ -z "$line" ] && continue
+        [ "$path" = "$line" ] && return 0
+        case "$line" in
+            */) case "$path" in "$line"*) return 0 ;; esac ;;
+        esac
+    done < "$ALLOWLIST"
+    return 1
+}
 
 case "$MODE" in
     --stdin) files="$(cat)" ;;
@@ -39,6 +56,8 @@ for f in $files; do
         */migrations/[0-9]*.py) : ;;
         *) continue ;;
     esac
+    # Reviewed, intentional deletions (product moves, reverts, squashes) are allowed.
+    if is_allowlisted "$f"; then continue; fi
     if [ "$MODE" = "--staged" ]; then
         # Ignore migrations this branch added itself (never merged to master).
         git cat-file -e "${BASE_REF}:${f}" 2>/dev/null || continue
@@ -63,6 +82,10 @@ To retire a model/table instead:
 
 Full guide: docs/published/handbook/engineering/safe-django-migrations.md
 ("Dropping Tables", "Removing a whole product or app").
+
+If this deletion is genuinely intentional and reviewed (a product/app move, a revert,
+or a squash), acknowledge it by adding the path(s) to
+.github/scripts/migration-deletion-allowlist.txt — never by disabling this guard.
 
 Adding migrations is fine; deleting historical ones is not. Deleting a migration your
 branch added but never merged to master is allowed (this check ignores it).
