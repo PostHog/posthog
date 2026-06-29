@@ -93,7 +93,8 @@ pub async fn remote_config(
     // team. The project id is needed solely for the flag lookup, so it is computed after auth and
     // the throttle — no DB read happens before an unauthenticated caller is rejected.
     // `verify_token_and_get_team` is cache-backed, so the `?token=` path does no uncached DB work
-    // at this point either.
+    // at this point either, and `resolve_current_team` goes through the shared auth-token cache so
+    // the bearer-only `@current` path doesn't either.
     let (scope_team_id, resolved_team): (i32, Option<Team>) = if let Some(token) = token_param {
         match state.flag_service().verify_token_and_get_team(token).await {
             // Keep the team so the personal-key auth path and the project lookup below don't
@@ -338,8 +339,8 @@ async fn authenticate(
 /// credential — mirroring Django's `current_team = team_from_request or user.current_team`: a
 /// team/project secret token (`phs_`) resolves its own team; a personal API key (`phx_`) resolves
 /// its user's current team. `Ok(None)` means the credential is valid but has no current team
-/// (Django: 404 "Project not found"); an absent credential is `NoAuthenticationProvided` (401).
-/// The resolved team is re-validated by `authenticate`, so this only establishes scope.
+/// (Django: 404 "Project not found"); an absent or invalid credential surfaces as 401 via the
+/// propagated error. The resolved team is re-validated by `authenticate`, so this only establishes scope.
 async fn resolve_current_team(
     state: &AppState,
     headers: &HeaderMap,

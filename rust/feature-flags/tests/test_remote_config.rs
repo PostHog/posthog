@@ -661,6 +661,28 @@ async fn test_remote_config_at_current_without_credentials_returns_401() {
 }
 
 #[tokio::test]
+async fn test_remote_config_at_current_invalid_personal_key_returns_401() {
+    // `@current` with a personal-key-shaped bearer that doesn't exist must be 401 (invalid
+    // credential), not 404: an unknown key can't resolve a project, but it's an auth failure
+    // rather than a missing project, matching the numeric-id path and Django.
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/whatever/remote_config",
+            server.addr
+        ))
+        .header("Authorization", "Bearer phx_nonexistent_key")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
 async fn test_remote_config_at_current_resolves_then_404s_missing_flag() {
     // `@current` resolves the project from the credential, then a flag that doesn't exist (or
     // isn't a remote-config flag) still 404s — the resolution must not over-serve.
