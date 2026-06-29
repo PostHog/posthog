@@ -1011,6 +1011,19 @@ const createSourceFolderNode = (
         ? `search-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
         : `source-${sourceType === 'PostHog' ? 'posthog' : sourceType}`
 
+    // Distinct ExternalDataSources behind this type folder, so it can link each to its edit page.
+    // A type can have several sources (e.g. two Postgres connections), distinguished by prefix.
+    const sourceTables = isSearch ? matches.map(([table]) => table) : tables
+    const sources: { id: string; label: string }[] = []
+    const seenSourceIds = new Set<string>()
+    sourceTables.forEach((table) => {
+        const source = (table as DatabaseSchemaDataWarehouseTable).source
+        if (source?.id && !seenSourceIds.has(source.id)) {
+            seenSourceIds.add(source.id)
+            sources.push({ id: source.id, label: source.prefix?.trim() || source.source_type })
+        }
+    })
+
     return {
         id: sourceFolderId,
         name: sourceType,
@@ -1033,6 +1046,7 @@ const createSourceFolderNode = (
         record: {
             type: 'source-folder',
             sourceType,
+            sources,
         },
         children: sourceChildren,
     }
