@@ -6,11 +6,11 @@ import { IconBug, IconCursorClick, IconGlobe, IconKeyboard, IconPlay } from '@po
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
+import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, {
     RecordingPlayerType,
     useRecordingButton,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
-import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
