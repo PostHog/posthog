@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -18,6 +19,16 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+
+def _is_cancellation(e: BaseException) -> bool:
+    """Whether an exception is a Temporal/asyncio cancellation rather than a genuine failure.
+
+    Activity and workflow cancellations are normal operational events — worker shutdown during a
+    deploy, or a start-to-close/heartbeat timeout — not bugs. Reporting them to error tracking
+    produces fingerprint-fragmented noise (the cancellation lands wherever execution happens to be),
+    so we re-raise them without capturing."""
+    return isinstance(e, asyncio.CancelledError | temporalio.exceptions.CancelledError)
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -65,6 +76,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            if _is_cancellation(e):
+                raise  # Benign cancellation (deploy/shutdown/timeout), not a failure worth reporting
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -97,6 +110,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if _is_cancellation(e):
+                raise  # Benign cancellation (deploy/shutdown/timeout), not a failure worth reporting
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
