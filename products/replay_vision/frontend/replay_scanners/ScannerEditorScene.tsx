@@ -142,7 +142,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         <div className="text-sm text-muted">
                                             {step === 'configure'
                                                 ? 'What it looks for and how it analyzes recordings.'
-                                                : 'Which recordings it runs against and how often.'}
+                                                : 'Pick which recordings to scan, and how often.'}
                                         </div>
                                     </div>
                                 </div>

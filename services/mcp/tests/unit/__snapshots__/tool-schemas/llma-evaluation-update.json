@@ -126,7 +126,8 @@
                                 {
                                     "type": "null"
                                 }
-                            ]
+                            ],
+                            "description": "Team provider key to run this eval with (same provider as `provider`). Leave null only for brief pre-key testing; real evals should set it."
                         },
                         "provider_key_name": {
                             "anyOf": [

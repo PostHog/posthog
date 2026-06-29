@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import ProgrammingError, connection, transaction
 from django.utils import timezone
 
 import requests
@@ -135,21 +135,23 @@ def kill_stale_queued_task_runs() -> None:
     refetch with status=QUEUED handles the race where a worker picks up the run
     between selection and update.
 
-    Staleness is keyed on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
     so a re-queued run won't appear in this candidate set until it has actually
-    been QUEUED for the full STALE_AFTER window.
+    been QUEUED for the full STALE_AFTER window. `CREATED_HARD_CAP` is a backstop for a
+    run whose `updated_at` keeps being bumped while it stays QUEUED.
     """
     from products.tasks.backend.facade import api as tasks_facade
 
     BATCH_SIZE = 500
     STALE_AFTER = datetime.timedelta(hours=24)
+    CREATED_HARD_CAP = datetime.timedelta(hours=48)
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE)
+    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
     swept = 0
     errors = 0
     for run_id in stale_ids:
@@ -178,7 +180,7 @@ def kill_stale_queued_task_runs() -> None:
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def clear_expired_sessions() -> None:
-    from django.contrib.sessions.models import Session
+    from posthog.session.models import Session
 
     deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
 
@@ -649,6 +651,11 @@ def capture_task_run_state_metrics() -> None:
                     run_environment=row.environment,
                 ).set(row.value)
 
+    except ProgrammingError as err:
+        # The tasks-product table isn't present in every environment/database. When the migration
+        # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
+        # not an error worth reporting every minute.
+        logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)

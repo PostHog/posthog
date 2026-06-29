@@ -20,6 +20,8 @@ POSTHOG_FLAG_PREFIX = "x-posthog-flag-"
 POSTHOG_PROVIDER_HEADER = "x-posthog-provider"
 POSTHOG_USE_BEDROCK_FALLBACK_HEADER = "x-posthog-use-bedrock-fallback"
 
+_VALID_PROVIDERS = ("anthropic", "bedrock", "cloudflare")
+
 
 @dataclass
 class RequestContext:
@@ -111,13 +113,12 @@ def extract_posthog_provider_from_headers(request: Request) -> str | None:
     if provider is None:
         return None
 
+    expected = f"Expected one of: {', '.join(_VALID_PROVIDERS)}."
     normalized_provider = provider.strip().lower()
     if not normalized_provider:
-        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value. Expected one of: anthropic, bedrock.")
-    if normalized_provider not in {"anthropic", "bedrock"}:
-        raise ValueError(
-            f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. Expected one of: anthropic, bedrock."
-        )
+        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value. {expected}")
+    if normalized_provider not in _VALID_PROVIDERS:
+        raise ValueError(f"Invalid {POSTHOG_PROVIDER_HEADER} header value '{provider}'. {expected}")
     return normalized_provider
 
 

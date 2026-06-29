@@ -5,10 +5,7 @@ auto-generated grammar PBT introduced in PR #58627) but runs as an
 ad-hoc CLI rather than a pytest collection. Defaults to `cpp-json` vs
 `rust-py` (the primary parity target — `rust-json` was a stepping
 stone and may end up in a future wasm build, but isn't the primary
-production candidate). The `python` antlr4 visitor is intentionally
-excluded from `--oracle` / `--candidate` — it's order-of-magnitude
-slower and useless for the tight diagnose-then-fix loop the grind is
-built for.
+production candidate).
 
 Distinct from the pytest PBT in five ways:
 
@@ -64,8 +61,8 @@ Typical usage:
 """
 
 # ruff: noqa: T201 (this is a CLI script — print is the output channel)
-# ruff: noqa: E402 (django.setup() must run between import django and the
-#                   project-app imports below)
+# ruff: noqa: E402 (DJANGO_SETTINGS_MODULE must be set before the project-app
+#                   imports below)
 
 from __future__ import annotations
 
@@ -75,14 +72,18 @@ import json
 import argparse
 import traceback
 from collections import Counter
+from collections.abc import Callable
 from typing import Any
 
-import django
-
+# Skip django.setup(): parser core only reads settings.TEST, so settings alone avoids ready()-hook DB/redis init.
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
-django.setup()
 
-from hypothesis import assume, given, settings
+from hypothesis import (
+    assume,
+    given,
+    settings,
+    strategies as st,
+)
 
 # Eager so a missing `hogql-parser-parity` dep group fails at script-load,
 # not mid-grind where shrink_to_shape would lose every finding so far.
@@ -110,6 +111,23 @@ from posthog.hogql.test.test_parser_grammar_pbt import (
     _apply_jiggle,
     _apply_mutation,
 )
+
+# ---------------------------------------------------------------------------
+# string_literal strategy
+# ---------------------------------------------------------------------------
+# No generated strategy (the unquoter isn't a grammar rule): build quoted literals over a branch-driving alphabet.
+_SL_QUOTE_PAIRS = [("'", "'"), ('"', '"'), ("`", "`"), ("{", "}")]
+# Excludes NUL: the cpp wheel's PyArg_ParseTuple("s") rejects it (ValueError) while PyO3's &str accepts it.
+_SL_ALPHABET = "'\"`{}\\bfrnt0avxyo ab\n\té£"
+
+
+def string_literal_strategy() -> st.SearchStrategy[str]:
+    body = st.text(alphabet=_SL_ALPHABET, max_size=12)
+    quoted = st.builds(lambda pair, b: pair[0] + b + pair[1], st.sampled_from(_SL_QUOTE_PAIRS), body)
+    # Raw never-empty forms (mismatched/unquoted) exercise the SyntaxError path; min_size=1 so cpp never sees "".
+    raw = st.text(alphabet=_SL_ALPHABET, min_size=1, max_size=14)
+    return st.one_of(quoted, raw)
+
 
 # ---------------------------------------------------------------------------
 # Auto-shrinker
@@ -158,7 +176,11 @@ def _print_failure_sample(
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--n", type=int, default=int(os.environ.get("N", "500")))
-    parser.add_argument("--rule", choices=("expr", "select", "program", "full_template_string"), default="expr")
+    parser.add_argument(
+        "--rule",
+        choices=("expr", "select", "program", "full_template_string", "string_literal"),
+        default="expr",
+    )
     parser.add_argument("--jiggle", action="store_true")
     parser.add_argument(
         "--mutate",
@@ -191,7 +213,6 @@ def main() -> int:
             "so the match denominator is exactly --n."
         ),
     )
-    # `python` excluded — too slow for the diagnose-then-fix loop (see module docstring).
     _BACKENDS = ("cpp-json", "rust-json", "rust-py")
     parser.add_argument(
         "--oracle",
@@ -253,12 +274,15 @@ def main() -> int:
     # abort the whole grind. Keyed by normalised `<ExcType>: …`.
     crash_buckets: dict[str, list[str]] = {}
 
-    base_strategy = {
+    # `Callable[..., ...]` so the no-arg `string_literal_strategy` and the `depth`-taking grammar strategies unify.
+    strategies_by_rule: dict[str, Callable[..., st.SearchStrategy[str]]] = {
         "expr": expr_strategy,
         "select": select_strategy,
         "program": program_strategy,
         "full_template_string": fullTemplateString_strategy,
-    }[args.rule]()
+        "string_literal": string_literal_strategy,
+    }
+    base_strategy = strategies_by_rule[args.rule]()
     strategy = base_strategy
     # Grammar-aware mutation runs first, on the clean space-separated query —
     # the whitespace jiggle below would otherwise break its tokenisation.

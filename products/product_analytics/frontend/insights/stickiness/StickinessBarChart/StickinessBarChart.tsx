@@ -13,18 +13,22 @@ import { openPersonsModal } from 'scenes/trends/persons-modal/PersonsModal'
 import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { makeChartErrorHandler } from '../../trends/shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../../trends/shared/getTrendsSeriesDisplayLabel'
 import {
     buildTrendsSeriesMeta,
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
+import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from '../StickinessLineChart/handleStickinessChartClick'
 import {
     buildStickinessLabels,
@@ -44,6 +48,9 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
 
+    const legendConfig = useInsightsLegendConfig({ insightProps })
+    const quillLegendEnabled = !!legendConfig
+
     const {
         indexedResults,
         display,
@@ -62,6 +69,18 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
 
     // Inverted polarity vs legacy `isStacked` in `ActionsLineGraph`; matches `TrendsBarChart`.
     const isGrouped = display === ChartDisplayType.ActionsUnstackedBar
@@ -78,21 +97,27 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         () =>
             buildStickinessBarSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: getTrendsColor,
-                getHidden: getTrendsHidden,
+                // With the quill legend on, hidden series stay listed (dimmed) and are excluded via
+                // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
+                getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
-        [indexedResults, getTrendsColor, getTrendsHidden]
+        [indexedResults, getTrendsColor, getTrendsHidden, getLabel, quillLegendEnabled]
     )
 
     const chartConfig: TimeSeriesBarChartConfig = useMemo(
-        () =>
-            buildStickinessBarTimeSeriesConfig({
+        () => ({
+            ...buildStickinessBarTimeSeriesConfig({
                 yAxisScaleType,
                 isGrouped,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 tooltip: STICKINESS_TOOLTIP_CONFIG,
             }),
-        [yAxisScaleType, isGrouped, showValuesOnSeries]
+            // Interactive legend is a component concern, kept out of the pure transform.
+            legend: legendConfig,
+        }),
+        [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig]
     )
 
     // Close over the primitives so the click memos don't invalidate when unrelated

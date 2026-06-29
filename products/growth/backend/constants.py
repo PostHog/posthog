@@ -78,6 +78,27 @@ IDENTITY_MATCHING_RULES_MODEL_VERSION = "rules_v1"
 IDENTITY_MATCHING_LOGREG_MODEL_VERSION = "logreg_v1"
 IDENTITY_MATCHING_TIERS = ["high", "medium", "low"]
 
+# Person properties surfaced per link so a reviewer can sanity-check a match at a glance: identity
+# (email/name) plus the dimensions the models score on — geo, device, and campaign attribution.
+# Maps raw person-property keys to clean API field names (the `$`-prefixed keys can't be serializer
+# field names). Kept curated rather than dumping every property: the payload stays bounded, and the
+# chosen fields mirror the match signals so "same city? same browser? same campaign?" is one glance.
+IDENTITY_MATCHING_PERSON_PROPERTY_MAP: dict[str, str] = {
+    "email": "email",
+    "name": "name",
+    "$geoip_city_name": "city",
+    "$geoip_country_code": "country",
+    "$browser": "browser",
+    "$os": "os",
+    "$device_type": "device_type",
+    "$timezone": "timezone",
+    "$initial_utm_source": "utm_source",
+    "$initial_utm_medium": "utm_medium",
+    "$initial_utm_campaign": "utm_campaign",
+    "$initial_referring_domain": "referring_domain",
+    "$initial_gclid": "gclid",
+}
+
 # Parquet column schemas, passed as the explicit `structure` argument to `s3(...)`. They are
 # *required* for the VALUES-based writes (person_timeline, logreg links) and used on every read
 # so that a glob matching no objects returns zero rows instead of failing schema inference (the
@@ -160,6 +181,25 @@ IDENTITY_MATCHING_LINKS_STRUCTURE = """
     tier String,
     computed_at DateTime
 """
+
+
+# On a Cloud deployment the scratch bucket must be a dedicated, infra-provided bucket distinct
+# from the general object-storage bucket. IDENTITY_MATCHING_S3_BUCKET falls back to
+# OBJECT_STORAGE_BUCKET when its env var is unset, so equality on Cloud means the var is missing
+# and every s3() call would target the wrong bucket (the app-assets bucket the ClickHouse role
+# cannot access) — a silent AccessDenied. Both the Dagster job and the read API check this so a
+# missing env on either deployment fails loudly instead of 500-ing on AccessDenied.
+IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE = (
+    "IDENTITY_MATCHING_S3_BUCKET is not set on this deployment, so identity matching falls back to "
+    "the general object-storage bucket, which the ClickHouse role cannot access. Set it to the "
+    "scratch bucket (the same value as the Dagster deployment) on every deployment that runs the "
+    "identity matching job or its read API."
+)
+
+
+def identity_matching_s3_unconfigured() -> bool:
+    """True when the scratch bucket isn't configured on a Cloud deployment (see message above)."""
+    return bool(settings.CLOUD_DEPLOYMENT) and settings.IDENTITY_MATCHING_S3_BUCKET == settings.OBJECT_STORAGE_BUCKET
 
 
 def identity_matching_run_prefix(team_id: int, job_id: str) -> str:

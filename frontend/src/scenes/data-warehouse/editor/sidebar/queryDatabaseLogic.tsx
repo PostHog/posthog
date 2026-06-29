@@ -1571,7 +1571,7 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             },
         ],
     })),
-    selectors(({ actions }) => ({
+    selectors(({ actions, cache }) => ({
         hasNonPosthogSources: [
             (s) => [s.dataWarehouseTables],
             (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): boolean => {
@@ -1944,10 +1944,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
                     searchResults.push(createTopLevelFolderNode('drafts', draftsChildren, true))
                 }
 
+                // Auto-expand matching groups once per search term, so the user can freely collapse
+                // them afterwards without the selector immediately re-expanding them.
                 const expandedIdSet = new Set(expandedSearchFolders)
                 const missingRequiredExpansion = expandedIds.some((id) => !expandedIdSet.has(id))
 
-                if (missingRequiredExpansion) {
+                if (missingRequiredExpansion && cache.lastAutoExpandedSearchTerm !== searchTerm) {
+                    cache.lastAutoExpandedSearchTerm = searchTerm
                     // Auto-expand only parent folders, not the matching nodes themselves.
                     setTimeout(() => {
                         actions.setExpandedSearchFolders(

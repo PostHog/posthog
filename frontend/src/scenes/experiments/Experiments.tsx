@@ -7,11 +7,11 @@ import { LemonInput, LemonSelect, LemonTag, Tooltip, lemonToast } from '@posthog
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { ExperimentsHog } from 'lib/components/hedgehogs'
 import { MemberMultiSelect } from 'lib/components/MemberMultiSelect'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
@@ -110,7 +110,7 @@ const ExperimentsTableFilters = ({
     return (
         <div className="flex justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-6">
-                <AppShortcut
+                <Shortcut
                     name="SearchExperiments"
                     keybind={[keyBinds.filter]}
                     intent="Search experiments"
@@ -123,7 +123,7 @@ const ExperimentsTableFilters = ({
                         onChange={(search) => onFiltersChange({ search, page: 1 })}
                         value={filters.search || ''}
                     />
-                </AppShortcut>
+                </Shortcut>
                 <div className="flex items-center gap-2">
                     <span>
                         <b>Status</b>
@@ -426,8 +426,11 @@ const ExperimentsTable = ({
                                     >
                                         <LemonButton
                                             onClick={() =>
-                                                confirmArchiveExperiment(() =>
-                                                    archiveExperiment(experiment.id as number)
+                                                confirmArchiveExperiment(experiment, (disableFlag) =>
+                                                    archiveExperiment({
+                                                        id: experiment.id as number,
+                                                        disableFeatureFlag: disableFlag,
+                                                    })
                                                 )
                                             }
                                             data-attr={`experiment-${experiment.id}-dropdown-archive`}
@@ -600,7 +603,7 @@ export function Experiments(): JSX.Element {
                                     active={true}
                                     context={{}}
                                 >
-                                    <AppShortcut
+                                    <Shortcut
                                         name="NewExperiment"
                                         keybind={[keyBinds.new]}
                                         intent="New experiment"
@@ -616,7 +619,7 @@ export function Experiments(): JSX.Element {
                                         >
                                             <span className="pr-3">New experiment</span>
                                         </LemonButton>
-                                    </AppShortcut>
+                                    </Shortcut>
                                 </MaxTool>
                             </div>
                         </AccessControlAction>

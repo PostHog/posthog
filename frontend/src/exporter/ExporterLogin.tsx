@@ -9,7 +9,7 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
-import { ERROR_MESSAGES } from 'scenes/authentication/login/Login'
+import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 
 import type { loginLogicType } from './ExporterLoginType'

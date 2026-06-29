@@ -11,6 +11,7 @@ from posthog.hogql import ast
 from posthog.clickhouse.client import sync_execute
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
@@ -355,10 +356,8 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             }
         ]
         team.save(update_fields=["test_account_filters"])
-        from posthog.models.person import Person
-
-        Person.objects.create(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
-        Person.objects.create(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
+        create_person(team=team, distinct_ids=["internal"], properties={"email": "hi@posthog.com"})
+        create_person(team=team, distinct_ids=["external"], properties={"email": "hi@example.com"})
 
         self._produce(
             team.id,

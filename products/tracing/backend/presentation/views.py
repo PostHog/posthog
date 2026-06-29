@@ -446,6 +446,9 @@ class _TracingCountRequestSerializer(serializers.Serializer):
 
 class _TracingCountResponseSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of spans matching the filters.")
+    traceCount = serializers.IntegerField(
+        help_text="Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view."
+    )
 
 
 # Upper bound on symbols per request; each becomes a multiIf branch in the generated query.

@@ -11,9 +11,9 @@
             "type": "boolean"
         },
         "run_interval_minutes": {
-            "description": "Minutes between runs (10–43200). Defaults to 180 (every 3 hours).",
+            "description": "Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).",
             "maximum": 43200,
-            "minimum": 10,
+            "minimum": 30,
             "type": "number"
         },
         "skill_name": {

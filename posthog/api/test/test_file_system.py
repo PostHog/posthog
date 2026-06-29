@@ -338,17 +338,123 @@ class TestFileSystemOrdering(APIBaseTest):
 
         response = self.client.get(
             f"/api/environments/{self.team.id}/file_system/",
-            {"order_by": "-last_viewed_at", "parent": "Testing", "not_type": "folder"},
+            {"order_by": "-last_viewed_at", "not_type": "folder"},
         )
 
         assert response.status_code == status.HTTP_200_OK
 
-        results = response.json()["results"]
+        body = response.json()
+        results = body["results"]
+        # Recents is now view-log-first: it returns only items the user has actually viewed, newest
+        # first. Never-viewed files (Third, Fourth) are not padded in. `count` reflects the returned
+        # rows (no COUNT(*) over a join).
         paths = [item["path"] for item in results]
-        assert paths == ["Testing/Second", "Testing/First", "Testing/Fourth", "Testing/Third"]
+        assert paths == ["Testing/Second", "Testing/First"]
+        assert body["count"] == 2
 
         assert parse_datetime(results[0]["last_viewed_at"]) == timestamp - timedelta(hours=1)
         assert parse_datetime(results[1]["last_viewed_at"]) == timestamp - timedelta(hours=3)
+
+    def test_recents_excludes_shortcuts_and_stale_view_logs(self) -> None:
+        timestamp = now()
+
+        FileSystem.objects.create(
+            team=self.team,
+            path="Reports/Live",
+            depth=2,
+            type="insight",
+            ref="live",
+            shortcut=False,
+            created_by=self.user,
+        )
+        # A shortcut shares (type, ref) with its canonical file; it must not show up as a duplicate.
+        FileSystem.objects.create(
+            team=self.team,
+            path="Shortcuts/Live",
+            depth=2,
+            type="insight",
+            ref="live",
+            shortcut=True,
+            created_by=self.user,
+        )
+
+        FileSystem.objects.create(
+            team=self.team,
+            path="Folders/Folder",
+            depth=2,
+            type="folder",
+            ref="folder",
+            shortcut=False,
+            created_by=self.user,
+        )
+
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="insight", ref="live", viewed_at=timestamp - timedelta(minutes=1)
+        )
+        # A view log whose canonical file was deleted must be skipped, not returned as a dead row.
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="insight", ref="gone", viewed_at=timestamp
+        )
+        # Folders are excluded by `not_type=folder`.
+        FileSystemViewLog.objects.create(
+            team=self.team, user=self.user, type="folder", ref="folder", viewed_at=timestamp
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "not_type": "folder"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        results = response.json()["results"]
+        assert [item["path"] for item in results] == ["Reports/Live"]
+
+    def test_recents_ascending_returns_globally_oldest_within_limit(self) -> None:
+        timestamp = now()
+
+        # a viewed longest ago, c most recently.
+        for ref, age_hours in (("a", 3), ("b", 2), ("c", 1)):
+            FileSystem.objects.create(
+                team=self.team, path=f"R/{ref}", depth=2, type="insight", ref=ref, shortcut=False, created_by=self.user
+            )
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type="insight",
+                ref=ref,
+                viewed_at=timestamp - timedelta(hours=age_hours),
+            )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/",
+            {"order_by": "last_viewed_at", "not_type": "folder", "limit": "2"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # Ascending + limit must pick the globally oldest two (a, b), oldest first — not the two most
+        # recent reversed (b, c). Ordering and the slice both live in the view-log query.
+        assert [item["ref"] for item in response.json()["results"]] == ["a", "b"]
+
+    def test_recents_with_search_filters_viewed_items(self) -> None:
+        timestamp = now()
+
+        for path, ref in (("Revenue/Dashboard", "rev"), ("Growth/Dashboard", "growth")):
+            FileSystem.objects.create(
+                team=self.team, path=path, depth=2, type="insight", ref=ref, shortcut=False, created_by=self.user
+            )
+            FileSystemViewLog.objects.create(
+                team=self.team, user=self.user, type="insight", ref=ref, viewed_at=timestamp - timedelta(minutes=1)
+            )
+
+        # Search-within-Recents shares the view-log-first path: it returns only viewed items whose
+        # path matches the term.
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/file_system/",
+            {"order_by": "-last_viewed_at", "not_type": "folder", "search": "revenue"},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [item["path"] for item in response.json()["results"]] == ["Revenue/Dashboard"]
 
 
 class TestFileSystemSearchNameOnly(APIBaseTest):

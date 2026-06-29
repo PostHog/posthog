@@ -199,7 +199,7 @@ describe('DashboardWidgetItem', () => {
         expect(screen.getByText('Dashboard')).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Hide description' })).toBeInTheDocument()
         expect(screen.getByRole('button', { name: 'Remove from dashboard' })).toBeInTheDocument()
-        const refreshTrigger = screen.getByRole('button', { name: /Refresh data/i })
+        const refreshTrigger = document.querySelector('[data-attr="dashboard-tile-refresh-data"]') as HTMLElement
         expect(refreshTrigger).toBeInTheDocument()
         expect(screen.getByText(/Last computed/i)).toBeInTheDocument()
 

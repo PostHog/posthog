@@ -16,6 +16,7 @@
         "date_from": "2022-03-08T00:00:00Z",
         "date_to": "2022-03-15T23:59:59Z"
     },
+    "total_median_conversion_time": 691.5,
     "result": [
         {
             "action_id": "$pageview",

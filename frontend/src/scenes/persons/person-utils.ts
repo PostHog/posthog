@@ -57,6 +57,22 @@ export function scoreDistinctId(id: string): number {
 }
 
 /**
+ * Pick the most human-readable distinct ID for a person, preferring identified IDs (emails, custom
+ * IDs) over auto-generated anonymous IDs. Returns `undefined` when there are no distinct IDs.
+ *
+ * Use this anywhere a single distinct ID must represent a person — profile/replay links,
+ * copy-to-clipboard, the "IDs" caption — instead of blindly taking `distinct_ids[0]`. The order of
+ * `distinct_ids` is not guaranteed to put the identified ID first (it varies by data source), so
+ * `[0]` frequently surfaces the auto-generated anonymous ID even when a user-defined one exists.
+ */
+export function pickBestPersonDistinctId(distinctIds: string[] | null | undefined): string | undefined {
+    if (!distinctIds?.length) {
+        return undefined
+    }
+    return distinctIds.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
+}
+
+/**
  * Returns a human-friendly display name for a Person object.
  *
  * Resolution order:
@@ -94,9 +110,7 @@ export function asDisplay(
     const display: string | undefined = (
         customIdentifier ||
         person.distinct_id ||
-        (person.distinct_ids
-            ? person.distinct_ids.slice().sort((a, b) => scoreDistinctId(b) - scoreDistinctId(a))[0]
-            : undefined)
+        pickBestPersonDistinctId(person.distinct_ids)
     )?.trim()
 
     // Force return of the UUID truncated to 22 characters (unless maxLength is specified)
@@ -136,13 +150,14 @@ export const asLink = (person?: PersonPropType | null): string | undefined => {
     if (!person?.properties) {
         return undefined
     }
-    return person.distinct_id
-        ? urls.personByDistinctId(person.distinct_id)
-        : person.distinct_ids?.length
-          ? urls.personByDistinctId(person.distinct_ids[0])
-          : person.id
-            ? urls.personByUUID(person.id)
-            : undefined
+    if (person.distinct_id) {
+        return urls.personByDistinctId(person.distinct_id)
+    }
+    const bestDistinctId = pickBestPersonDistinctId(person.distinct_ids)
+    if (bestDistinctId) {
+        return urls.personByDistinctId(bestDistinctId)
+    }
+    return person.id ? urls.personByUUID(person.id) : undefined
 }
 
 /**

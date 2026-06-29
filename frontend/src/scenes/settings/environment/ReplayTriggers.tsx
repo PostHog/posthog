@@ -314,6 +314,7 @@ function MobileEventTriggers(): JSX.Element {
                     <Since
                         ios={{ version: '3.48.0' }}
                         android={{ version: '3.40.1' }}
+                        reactNative={{ version: '4.52.0' }}
                         flutter={{ version: '5.25.0' }}
                     />
                 </LemonLabel>
@@ -324,7 +325,7 @@ function MobileEventTriggers(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Event triggers are shared across Web, iOS, Android, and Flutter.{' '}
+                Event triggers are shared across Web and Mobile.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>
@@ -345,6 +346,7 @@ function MobileMinimumDuration(): JSX.Element {
                     <Since
                         ios={{ version: '3.53.0' }}
                         android={{ version: '3.44.0' }}
+                        reactNative={{ version: '4.52.0' }}
                         flutter={{ version: '5.24.3' }}
                     />
                 </LemonLabel>
@@ -355,7 +357,7 @@ function MobileMinimumDuration(): JSX.Element {
                 </Tooltip>
             </div>
             <p className="text-muted-alt">
-                Minimum duration is shared across Web, iOS, Android, and Flutter.{' '}
+                Minimum duration is shared across Web and Mobile.{' '}
                 <span className="font-semibold">Change this setting on the Web tab.</span>
             </p>
         </div>

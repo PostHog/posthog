@@ -566,32 +566,26 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-            # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.models.person import Person
+            from posthog.personhog_client.fake_client import get_active_fake
+            from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
-            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+            from products.cohorts.backend.models.cohort import Cohort
+            from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = Person.objects.create(
+            person = create_person(
                 team=team,
                 distinct_ids=["example_id"],
                 properties={"email": "tim@posthog.com", "team": "posthog"},
             )
-            person.add_distinct_id("test")
+            add_distinct_id(person=person, distinct_id="test")
             flag = FeatureFlag.objects.create(
                 team=team,
                 name="test",
                 key="test",
                 created_by=self.user,
             )
-            FeatureFlagHashKeyOverride.objects.create(
-                team_id=team.pk,
-                person_id=person.id,
-                feature_flag_key=flag.key,
-                hash_key="test",
-            )
-            CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+            add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
                 team=team,
                 name="Test flag",
@@ -606,6 +600,17 @@ def team_api_test_factory():
             ):
                 response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
+
+            # Verify personhog RPCs were called for persons-DB cleanup
+            fake = get_active_fake()
+            for rpc in [
+                "delete_hash_key_overrides_by_teams",
+                "delete_personless_distinct_ids_batch_for_team",
+                "delete_persons_batch_for_team",
+                "delete_groups_batch_for_team",
+                "delete_group_type_mappings_batch_for_team",
+            ]:
+                fake.assert_called(rpc)
 
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -714,7 +719,7 @@ def team_api_test_factory():
         @patch("posthog.temporal.common.schedule.delete_schedule")
         @patch("posthog.models.team.util.sync_connect")
         def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
-            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+            from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -741,7 +746,7 @@ def team_api_test_factory():
         def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
             import temporalio.service
 
-            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+            from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -1629,29 +1634,6 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_helper_value(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = "session_replay"
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": "session_replay"}
-            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_null_when_helper_returns_none(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = None
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -3196,6 +3178,60 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
+    def test_web_analytics_editor_can_write_app_urls_with_access_control(self):
+        # A web analytics editor (org member, no project-admin) must be able to manage the toolbar /
+        # web analytics authorized URLs. `app_urls` carries a web-analytics-editor field access control,
+        # and web analytics defaults to editor, so a plain member passes without any explicit grant.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.app_urls, ["https://app.example.com"])
+
+    def test_web_analytics_viewer_cannot_write_app_urls_with_access_control(self):
+        # Restricting web analytics below editor must block managing authorized URLs.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        # Default the whole team's web analytics access down to viewer.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="web_analytics",
+            resource_id=None,
+            access_level="viewer",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.team.refresh_from_db()
+        self.assertNotIn("https://app.example.com", self.team.app_urls)
+
     def test_team_member_can_write_to_member_safe_team_patch_without_access_control(self):
         # See test_team_member_can_write_to_member_safe_team_config_without_access_control above:
         # member-safe fields stay writable; admin-only fields (timezone) are covered separately.
@@ -3539,10 +3575,12 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
     f for f in _MEMBER_SAFE_TEAM_CONFIG_FIELDS if f[0] != "onboarding_tasks"
 ]
 
-# Fields the frontend treats as admin-only that previously lacked a
-# `@field_access_control` annotation on the model. Captured as a regression so
-# anyone removing the decorator (or adding a new admin-UI-gated field without one)
-# gets a failing test pointing at the right place.
+# Sensitive fields the frontend treats as admin-only that aren't part of the regular
+# TEAM_CONFIG flow. Captured as a regression so a MEMBER stays blocked from them when the
+# org has no paid access control. `app_urls` additionally carries a web-analytics-editor
+# `@field_access_control`; with access controls enabled that governs it instead (see
+# test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
+# blanket project-admin gate still applies here.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),

@@ -4,7 +4,7 @@
  *   1. Framework preamble — platform-owned guidance about the state
  *      machine, meta tools, and (slice 2+) tool failure / approval
  *      handling / reasoning hints. See `framework-preamble.ts`.
- *   2. agent.md (or spec.entrypoint) — author-owned instructions. Wins
+ *   2. agent.md — author-owned instructions. Wins
  *      over the preamble through normal natural-language precedence
  *      (the model reads it after).
  *   3. Skills index — listed as one line per skill (`- <id>: <description>`).
@@ -31,6 +31,10 @@ export interface UnavailableMcp {
     /** Spec ref id — same string the model sees as the tool-name prefix. */
     id: string
     category: UnavailableMcpCategory
+    /** Set when the MCP didn't open because the asker hasn't linked its
+     *  identity provider yet. The model relays this connect link rather than
+     *  reporting a dead "temporarily unavailable". */
+    authorizeUrl?: string
 }
 
 export interface BuildSystemPromptOpts {
@@ -71,11 +75,10 @@ export async function buildSystemPrompt(
     // defaults via normal natural-language instructions.
     parts.push(renderFrameworkPreamble(rev))
 
-    const entry = rev.spec.entrypoint || 'agent.md'
-    if (await bundle.exists(rev.id, entry)) {
-        parts.push(await bundle.readText(rev.id, entry))
+    if (await bundle.exists(rev.id, 'agent.md')) {
+        parts.push(await bundle.readText(rev.id, 'agent.md'))
     } else {
-        parts.push('(missing entrypoint — please add agent.md)')
+        parts.push('(missing agent.md — please add it)')
     }
 
     if (rev.spec.skills.length > 0) {
@@ -90,13 +93,29 @@ export async function buildSystemPrompt(
     }
 
     const unavailable = opts.unavailableMcps ?? []
-    if (unavailable.length > 0) {
+    // A link-required failure is the user's to fix (connect their account); a
+    // broken one is the owner's. Split so the model relays the link for the
+    // former instead of dead-ending both as "temporarily unavailable".
+    const linkable = unavailable.filter((u) => u.authorizeUrl)
+    const broken = unavailable.filter((u) => !u.authorizeUrl)
+    if (linkable.length > 0) {
+        const lines = ['\n\n---\n\n## Connect required', '']
+        lines.push(
+            "These capabilities need the user to connect (or reconnect) their account before you can use them — the connection is either not set up yet or no longer has the access it needs. When they ask for something one powers (including asking to reconnect), relay the link below as a **markdown link** with a short friendly label (never the bare URL), ask them to click it, then re-ask — don't say it's unavailable:"
+        )
+        lines.push('')
+        for (const u of linkable) {
+            lines.push(`- \`${u.id}\`: [Connect ${u.id}](${u.authorizeUrl})`)
+        }
+        parts.push(lines.join('\n'))
+    }
+    if (broken.length > 0) {
         const lines = ['\n\n---\n\n## Unavailable capabilities', '']
         lines.push(
             'The following MCP servers your spec references failed to open for this session, so their tools are not callable:'
         )
         lines.push('')
-        for (const u of unavailable) {
+        for (const u of broken) {
             lines.push(`- \`${u.id}\` — ${CATEGORY_HINTS[u.category]}`)
         }
         lines.push('')

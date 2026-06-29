@@ -1,19 +1,55 @@
+"""DRF serializers for the customer_analytics account CRUD presentation layer.
+
+The model-backed viewsets used to bind ``ModelSerializer``s straight to ``Account`` /
+``CustomerJourney`` / ``CustomerProfileConfig``. They now serialize the facade's frozen
+contracts via ``DataclassSerializer`` instead, so this module no longer imports product
+models. Every field is declared explicitly to keep the generated OpenAPI components
+(``Account``, ``PatchedAccount``, ``CustomerJourney``, ``CustomerProfileConfig``,
+``AccountNotebook``, ``UserBasic`` …) byte-identical to the pre-isolation output.
+
+Each serializer doubles as the viewset's ``serializer_class`` for both request and
+response — drf-spectacular derives the request component (and its ``Patched`` variant)
+from it exactly as it did for the ``ModelSerializer``s. The contracts carry field
+defaults purely so these serializers can instantiate them from partial request bodies;
+``required`` / ``read_only`` are pinned here, not by the dataclass.
+
+``AccountOrganizationMemberSerializer`` stays a ``ModelSerializer`` — it is bound to the
+core ``OrganizationMembership`` model (no customer_analytics dependency) and is imported
+by the sibling ``organization_members`` module.
+"""
+
 import json
 
-from django.db import IntegrityError, transaction
-
 from drf_spectacular.utils import extend_schema_field
-from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
+from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.tagged_item import TaggedItemSerializerMixin
-from posthog.exceptions import Conflict
 from posthog.models import OrganizationMembership
 
-from products.customer_analytics.backend.models import Account, CustomerJourney, CustomerProfileConfig
-from products.notebooks.backend.models import Notebook
+from products.customer_analytics.backend.facade.constants import CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES
+from products.customer_analytics.backend.facade.contracts import (
+    AccountNotebookView,
+    AccountView,
+    CustomerJourneyView,
+    CustomerProfileConfigView,
+    CustomPropertyDefinitionView,
+)
 
+# Scope (value, label) pairs, kept in sync with ``CustomerProfileConfig.Scope``. Declared
+# here rather than read off the model so this module imports no product models — the
+# generated ``CustomerProfileConfigScopeEnum`` stays identical to the model-derived one.
+_PROFILE_CONFIG_SCOPE_CHOICES = [
+    ("person", "Person"),
+    ("group_0", "Group 0"),
+    ("group_1", "Group 1"),
+    ("group_2", "Group 2"),
+    ("group_3", "Group 3"),
+    ("group_4", "Group 4"),
+]
+
+# JSON schema for the account ``properties`` field. Kept verbatim from the pre-isolation
+# serializer so the generated ``AccountApiProperties`` component is unchanged.
 _ACCOUNT_ASSIGNMENT_SCHEMA = {
     "type": "object",
     "nullable": True,
@@ -47,33 +83,20 @@ class AccountPropertiesField(serializers.JSONField):
     pass
 
 
-class CustomerProfileConfigSerializer(serializers.ModelSerializer):
+class CustomerProfileConfigSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True)
+    scope = serializers.ChoiceField(choices=_PROFILE_CONFIG_SCOPE_CHOICES)
     content = serializers.JSONField(required=False, allow_null=True, default=dict)
     sidebar = serializers.JSONField(required=False, allow_null=True, default=dict)
+    created_at = serializers.DateTimeField(read_only=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
-        model = CustomerProfileConfig
-        fields = [
-            "id",
-            "scope",
-            "content",
-            "sidebar",
-            "created_at",
-            "updated_at",
-        ]
-        read_only_fields = [
-            "id",
-            "created_at",
-            "updated_at",
-        ]
-
-    @staticmethod
-    def validate_scope(value):
-        if value not in dict(CustomerProfileConfig.Scope.choices):
-            raise serializers.ValidationError(
-                f"Invalid scope '{value}'. Must be one of: {', '.join(dict(CustomerProfileConfig.Scope.choices).keys())}"
-            )
-        return value
+        dataclass = CustomerProfileConfigView
+        # Pin the OpenAPI component name to the pre-isolation one (DataclassSerializer would
+        # otherwise name it after the wrapped dataclass, ``CustomerProfileConfigView``).
+        ref_name = "CustomerProfileConfig"
+        fields = ["id", "scope", "content", "sidebar", "created_at", "updated_at"]
 
     def validate_content(self, value):
         return self._validate_json(field="content", value=value)
@@ -97,40 +120,26 @@ class CustomerProfileConfigSerializer(serializers.ModelSerializer):
 
         return value
 
-    def create(self, validated_data):
-        request = self.context["request"]
-        validated_data["created_by"] = request.user
-        validated_data["team_id"] = self.context["team_id"]
-        return super().create(validated_data)
 
+class CustomerJourneySerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True)
+    insight = serializers.IntegerField()
+    name = serializers.CharField(max_length=400)
+    description = serializers.CharField(required=False, allow_null=True)
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
-class CustomerJourneySerializer(serializers.ModelSerializer):
     class Meta:
-        model = CustomerJourney
+        dataclass = CustomerJourneyView
+        ref_name = "CustomerJourney"
         fields = ["id", "insight", "name", "description", "created_at", "created_by", "updated_at"]
-        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
-
-    def validate_insight(self, value):
-        if value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("The insight does not belong to this team.")
-        return value
-
-    def create(self, validated_data):
-        from django.db import IntegrityError
-
-        from posthog.exceptions import Conflict
-
-        validated_data["created_by"] = self.context["request"].user
-        validated_data["team_id"] = self.context["team_id"]
-        try:
-            return super().create(validated_data)
-        except IntegrityError:
-            raise Conflict("A customer journey already exists for this insight.")
 
 
-class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
+class AccountSerializer(DataclassSerializer):
     """A Customer Analytics account — a logical grouping used to assign customer-success ownership."""
 
+    id = serializers.UUIDField(read_only=True)
     name = serializers.CharField(
         max_length=400,
         help_text="Human-readable name of the account.",
@@ -146,7 +155,6 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         ),
     )
     properties = AccountPropertiesField(
-        source="_properties",
         required=False,
         allow_null=True,
         help_text=(
@@ -161,15 +169,21 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         required=False,
         help_text="Tag names attached to the account. Pass a list to replace existing tags.",
     )
-    notebooks = serializers.SerializerMethodField(
+    notebooks = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
         help_text=(
             "Short IDs of the internal notebooks linked to this account, used to persist investigations, "
             "call notes, and other free-form context. Empty list if no notebooks have been created for the account."
-        )
+        ),
     )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
 
     class Meta:
-        model = Account
+        dataclass = AccountView
+        ref_name = "Account"
         fields = [
             "id",
             "name",
@@ -181,17 +195,6 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "created_by",
             "updated_at",
         ]
-        read_only_fields = [
-            "id",
-            "notebooks",
-            "created_at",
-            "created_by",
-            "updated_at",
-        ]
-
-    @extend_schema_field({"type": "array", "items": {"type": "string"}})
-    def get_notebooks(self, obj: Account) -> list[str]:
-        return [link.notebook.short_id for link in obj.notebooks.all()]
 
     def validate_properties(self, value):
         if value is None:
@@ -203,52 +206,6 @@ class AccountSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
         except (TypeError, ValueError):
             raise serializers.ValidationError("properties must be JSON-serializable.")
         return value
-
-    def create(self, validated_data):
-        properties = validated_data.pop("_properties", {})
-        validated_data.pop("tags", None)
-        try:
-            with transaction.atomic():
-                account = Account.objects.create_account(
-                    team=self.context["get_team"](),
-                    created_by=self.context["request"].user,
-                    name=validated_data["name"],
-                    external_id=validated_data.get("external_id"),
-                    properties=properties,
-                )
-                self._attempt_set_tags(self.initial_data.get("tags"), account)
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError({"properties": _format_pydantic_errors(exc)})
-        except IntegrityError:
-            raise Conflict("An account with this external_id already exists for this team.")
-        return account
-
-    def update(self, instance, validated_data):
-        update_kwargs: dict = {}
-        if "name" in validated_data:
-            update_kwargs["name"] = validated_data["name"]
-        if "external_id" in validated_data:
-            update_kwargs["external_id"] = validated_data["external_id"]
-        if "_properties" in validated_data:
-            update_kwargs["properties"] = validated_data["_properties"]
-
-        try:
-            with transaction.atomic():
-                account = Account.objects.update_account(instance, **update_kwargs)
-                self._attempt_set_tags(self.initial_data.get("tags"), account)
-        except PydanticValidationError as exc:
-            raise serializers.ValidationError({"properties": _format_pydantic_errors(exc)})
-        except IntegrityError:
-            raise Conflict("An account with this external_id already exists for this team.")
-        return account
-
-
-def _format_pydantic_errors(exc: PydanticValidationError) -> list[str]:
-    messages = []
-    for err in exc.errors():
-        loc = ".".join(str(part) for part in err["loc"])
-        messages.append(f"{loc}: {err['msg']}" if loc else err["msg"])
-    return messages
 
 
 class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
@@ -266,7 +223,9 @@ class AccountOrganizationMemberSerializer(serializers.ModelSerializer):
         extra_kwargs = {"id": {"help_text": "Organization membership ID."}}
 
 
-class AccountNotebookSerializer(serializers.ModelSerializer):
+class AccountNotebookSerializer(DataclassSerializer):
+    id = serializers.UUIDField(read_only=True)
+    short_id = serializers.CharField(read_only=True)
     created_by = UserBasicSerializer(read_only=True)
     last_modified_by = UserBasicSerializer(read_only=True)
     title = serializers.CharField(
@@ -287,9 +246,12 @@ class AccountNotebookSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Plain text representation of the notebook content for search.",
     )
+    created_at = serializers.DateTimeField(read_only=True)
+    last_modified_at = serializers.DateTimeField(read_only=True)
 
     class Meta:
-        model = Notebook
+        dataclass = AccountNotebookView
+        ref_name = "AccountNotebook"
         fields = [
             "id",
             "short_id",
@@ -301,11 +263,97 @@ class AccountNotebookSerializer(serializers.ModelSerializer):
             "last_modified_at",
             "last_modified_by",
         ]
-        read_only_fields = [
+
+
+class CustomPropertyDefinitionSerializer(DataclassSerializer):
+    """A team-scoped definition of a custom account property — the attribute side of the model.
+
+    Holds only the property's shape (name, display type, big-number flag). Per-account values are
+    stored separately, so this serializer never reads or writes account values. The numeric-only
+    big-number rule and the unique-name conflict are enforced behind the facade.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Human-readable name of the custom property. Unique within the team.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional description of what the property represents.",
+    )
+    display_type = serializers.ChoiceField(
+        choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+        help_text=(
+            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
+            "'percent', 'date', 'datetime', or 'boolean'."
+        ),
+    )
+    is_big_number = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = CustomPropertyDefinitionView
+        # Pin the OpenAPI component name to the pre-isolation one (DataclassSerializer would
+        # otherwise name it after the wrapped dataclass, ``CustomPropertyDefinitionView``).
+        ref_name = "CustomPropertyDefinition"
+        fields = [
             "id",
-            "short_id",
+            "name",
+            "description",
+            "display_type",
+            "is_big_number",
             "created_at",
             "created_by",
-            "last_modified_at",
-            "last_modified_by",
+            "updated_at",
         ]
+
+
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
+class CustomPropertyValueField(serializers.Field):
+    """A custom property value — a JSON scalar (string, number, or boolean).
+
+    Datetimes are sent and returned as ISO-8601 strings. The concrete type a property accepts is
+    set by its definition and validated server-side.
+    """
+
+    def to_internal_value(self, data):
+        if data is None or isinstance(data, dict | list):
+            raise serializers.ValidationError("Value must be a string, number, or boolean.")
+        return data
+
+    def to_representation(self, value):
+        return value
+
+
+class CustomPropertyValueWriteSerializer(serializers.Serializer):
+    definition = serializers.UUIDField(
+        help_text="UUID of the custom property definition whose value to set for this account."
+    )
+    value = CustomPropertyValueField(
+        help_text=(
+            "Value to store, matching the definition's type: a number for number/currency/percent, a "
+            "boolean for boolean, an ISO-8601 string for date/datetime, or text for text properties."
+        )
+    )
+
+
+class CustomPropertyValueSerializer(serializers.Serializer):
+    """An account's current value for a custom property (read shape)."""
+
+    id = serializers.UUIDField(read_only=True, help_text="Unique id of this value record.")
+    account_id = serializers.UUIDField(read_only=True, help_text="Account the value belongs to.")
+    definition_id = serializers.UUIDField(read_only=True, help_text="Custom property definition the value is for.")
+    value = CustomPropertyValueField(read_only=True, help_text="The stored value, typed per the property's data type.")
+    created_at = serializers.DateTimeField(read_only=True, help_text="When this value was set.")
+    created_by_id = serializers.IntegerField(
+        read_only=True, allow_null=True, help_text="Id of the user who set this value, if known."
+    )

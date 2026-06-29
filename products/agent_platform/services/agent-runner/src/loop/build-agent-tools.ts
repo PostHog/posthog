@@ -31,17 +31,20 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    type ApprovalType,
     BundleStore,
     CredentialBroker,
+    GatewayCatalog,
     getSecretAllowedHosts,
     HttpFetcher,
-    IntegrationCredentials,
+    IdentityAuthRequiredError,
     MemoryStore,
     TabularStore,
     Sandbox,
     ToolContext,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -68,6 +71,17 @@ export interface ToolResultDetails {
     queued?: boolean
     /** The approval request id, when `queued`. */
     requestId?: string
+    /** True when the queue deduped onto an existing row (no new request). */
+    deduped?: boolean
+    /**
+     * Approval policy on the queued row, when `queued`. Surfaced so the live
+     * `tool_result` SSE event carries the same `approval` shape the persisted
+     * synthetic result does — the inline card needs `allow_edit` (edit
+     * affordance) and `approver_scope.type` (decidable inline vs console-only),
+     * and neither is derivable from the tool_call alone.
+     */
+    allowEdit?: boolean
+    approverType?: ApprovalType
 }
 
 /**
@@ -98,7 +112,6 @@ export interface AgentToolDeps {
     rev: AgentRevision
     session: AgentSession
     sandbox: Sandbox | null
-    integrations: Record<string, IntegrationCredentials>
     /** Resolved plaintext secrets for native tools (custom tools get nonces via the sandbox). */
     secrets: Record<string, string>
     bundle: BundleStore
@@ -111,6 +124,12 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
+     * `ToolContext`; an empty/absent chain also gates the tool out of the
+     * session surface below (so the model never sees a tool that throws).
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -132,6 +151,11 @@ export interface AgentToolDeps {
      */
     credentialBroker?: CredentialBroker
     /**
+     * Per-asker identity resolver (spec.identity_providers). Built once per run
+     * in the driver, keyed to the run's asker; forwarded to `ToolContext.identity`.
+     */
+    identity?: ToolContext['identity']
+    /**
      * Opened MCP clients from `loop/mcp-clients.ts` — one per entry in
      * `spec.mcps[]`. `buildAgentTools` walks `client.listTools()` on each
      * and emits one `AgentTool` per remote tool, name-prefixed
@@ -152,6 +176,10 @@ export interface AgentToolDeps {
      * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
+    /** Gateway model catalog, forwarded onto `ToolContext.gatewayCatalog` for
+     *  the `@posthog/agent-applications-models` tool. Absent when the gateway
+     *  is disabled. */
+    gatewayCatalog?: GatewayCatalog
 }
 
 export interface BuiltAgentTools {
@@ -173,6 +201,13 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
     if (rev.spec.skills.length > 0) {
         alwaysOn.push('@posthog/load-skill')
     }
+    // `@posthog/identity-connect` lets the agent mint a connect/reconnect link on
+    // demand — included whenever the agent has any linkable identity (declared
+    // providers, or an MCP that authenticates through one), so the agent can hand
+    // the user a link proactively instead of only after a tool/MCP auth failure.
+    if (rev.spec.identity_providers.length > 0 || rev.spec.mcps.some((m) => m.auth?.provider)) {
+        alwaysOn.push('@posthog/identity-connect')
+    }
     const all = [...alwaysOn.map((id) => ({ kind: 'native' as const, id })), ...rev.spec.tools]
 
     for (const t of all) {
@@ -191,16 +226,39 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             if (!hasNativeTool(t.id)) {
                 continue
             }
+            // `@posthog/web-search` is config-gated: with no provider keyed at
+            // boot the chain is empty, so drop it rather than surface a tool
+            // that only ever throws `web_search_not_configured`.
+            if (t.id === WEB_SEARCH_TOOL_ID && !deps.webSearchProviders?.length) {
+                continue
+            }
             tools.push(makeNativeTool(t.id, deps))
             continue
         }
         if (t.kind === 'client') {
-            // Always exposed when dispatcher is wired. No upfront capability
-            // handshake: if the connecting client doesn't handle the id, the
-            // dispatcher's await times out and the model gets an error
-            // tool_result it can adapt to. Keeps the protocol simple +
-            // matches the agent.md degradation rules.
+            // Client tools need a connected client to fulfil the call. Only
+            // chat-triggered sessions have one, so for non-chat triggers we
+            // hide every client tool and let the agent.md degrade — `required`
+            // is only enforced when there's a client to declare support.
+            // Spec freeze rejects `required:true` client tools combined with
+            // non-chat triggers, so this branch is the runtime safety net.
+            const chatMeta = deps.session.trigger_metadata?.kind === 'chat' ? deps.session.trigger_metadata : null
+            const supported = chatMeta?.supported_client_tools ?? []
+            // Dispatcher availability is a runner-side concern (server
+            // misconfig); check before the caller-declaration gate so the
+            // failure code points at the right party. `dispatchClientTool` is
+            // always wired in prod (driver.ts:447); this branch catches the
+            // case where a runner instance ships without it.
             if (!deps.dispatchClientTool) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_dispatcher_unavailable:${t.id}`)
+                }
+                continue
+            }
+            if (!supported.includes(t.id)) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_unsupported:${t.id}`)
+                }
                 continue
             }
             tools.push(makeClientTool(t, deps))
@@ -208,7 +266,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
         }
         // custom — schema + description from the bundle, dispatched via sandbox.
         const { description, parameters } = await loadCustomSchema(rev, t.id, t.path, deps.bundle)
-        tools.push(makeCustomTool(t.id, description, parameters, deps))
+        tools.push(makeCustomTool(t.id, description, parameters, deps, t.requires_identity))
     }
 
     // MCP-sourced tools — one per remote tool per opened client. `listTools()`
@@ -225,7 +283,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
                     // code so the session-failure reason is attributable to a
                     // specific MCP at triage time. Matches the convention used
                     // by `mcp-clients.ts` for the other error paths
-                    // (`mcp_secret_not_resolved`, `mcp_integration_not_resolved`,
+                    // (`mcp_secret_not_resolved`, `mcp_identity_unavailable`,
                     // `duplicate_mcp_prefix`).
                     throw new Error(`mcp_list_tools_failed:${client.prefix}: ${(err as Error).message}`)
                 }
@@ -298,6 +356,42 @@ function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> 
     }
 }
 
+type IdentityGate =
+    | { proceed: true; resolved?: ToolContext['resolvedIdentities'] }
+    | { proceed: false; result: AgentToolResult<ToolResultDetails> }
+
+function authRequiredResult(provider: string, authorizeUrl: string): AgentToolResult<ToolResultDetails> {
+    const output = { auth_required: { provider, authorize_url: authorizeUrl } }
+    return { content: [{ type: 'text', text: JSON.stringify(output) }], details: { output } }
+}
+
+/** Resolve a tool's required identity provider before it runs. Returns the
+ *  resolved credential to thread into the context, or short-circuits to an
+ *  auth_required result. `unknown_provider` (e.g. the `slack` bot) isn't
+ *  identity-gated and proceeds. */
+async function gateIdentity(
+    provider: { id: string; scopes: string[] } | undefined,
+    deps: AgentToolDeps
+): Promise<IdentityGate> {
+    if (!provider || !deps.identity) {
+        return { proceed: true }
+    }
+    const res = await deps.identity.resolve(provider.id, provider.scopes)
+    if (res.kind === 'ok') {
+        return {
+            proceed: true,
+            resolved: { [provider.id]: { credential: res.credential, allowedHosts: res.allowedHosts } },
+        }
+    }
+    if (res.kind === 'link_required') {
+        return { proceed: false, result: authRequiredResult(res.provider, res.authorizeUrl) }
+    }
+    if (res.reason === 'unknown_provider') {
+        return { proceed: true }
+    }
+    throw new Error(`identity_unavailable: ${provider.id} (${res.reason})`)
+}
+
 function makeNativeTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, ToolResultDetails> {
     const native = getNativeTool(id)
     return {
@@ -306,10 +400,19 @@ function makeNativeTool(id: string, deps: AgentToolDeps): AgentTool<TSchema, Too
         description: native.schema.description,
         parameters: native.schema.args,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            // Throws propagate: the loop renders them as an error tool_result
-            // (content = message, isError: true) — same shape as the old path.
-            const result = await native.run(args, buildToolContext(deps))
-            return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
+            const gate = await gateIdentity(native.schema.requires.provider, deps)
+            if (!gate.proceed) {
+                return gate.result
+            }
+            try {
+                const result = await native.run(args, buildToolContext(deps, gate.resolved))
+                return { content: [{ type: 'text', text: JSON.stringify(result) }], details: { output: result } }
+            } catch (err) {
+                if (err instanceof IdentityAuthRequiredError) {
+                    return authRequiredResult(err.provider, err.authorizeUrl)
+                }
+                throw err
+            }
         },
     }
 }
@@ -318,7 +421,8 @@ function makeCustomTool(
     id: string,
     description: string,
     parameters: TSchema,
-    deps: AgentToolDeps
+    deps: AgentToolDeps,
+    requiresIdentity?: string
 ): AgentTool<TSchema, ToolResultDetails> {
     return {
         name: id,
@@ -326,9 +430,15 @@ function makeCustomTool(
         description,
         parameters,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
+            const gate = await gateIdentity(requiresIdentity ? { id: requiresIdentity, scopes: [] } : undefined, deps)
+            if (!gate.proceed) {
+                return gate.result
+            }
             if (!deps.sandbox) {
                 throw new Error(`custom tool ${id} requires a sandbox`)
             }
+            // CUSTOM-TOOL CREDENTIAL INJECTION SEAM: gate only — the resolved
+            // bearer is not yet threaded into the sandbox.
             const r = await deps.sandbox.invoke({ toolId: id, action: 'default', args })
             if (!r.ok) {
                 throw new Error(`${r.error.code}: ${r.error.message}`)
@@ -408,7 +518,8 @@ function makeMcpTool(
         description: remote.description,
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            const result = await client.callTool(remote.name, (args ?? {}) as Record<string, unknown>)
+            const callArgs = (args ?? {}) as Record<string, unknown>
+            const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
                 // shape as `resultText()` in the driver. Keeps the model's
@@ -426,8 +537,7 @@ function makeMcpTool(
     }
 }
 
-/** Replicates the `ToolContext` the old `dispatchTool` built for native tools. */
-function buildToolContext(deps: AgentToolDeps): ToolContext {
+function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext['resolvedIdentities']): ToolContext {
     const credentialBroker = deps.credentialBroker
     const sessionId = deps.session.id
     // The `@posthog/*` data tools act as the invoking PostHog user against an
@@ -438,7 +548,6 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
         teamId: deps.session.team_id,
         applicationId: deps.rev.application_id,
         sessionId,
-        integrations: deps.integrations,
         secret: (name) => deps.secrets[name],
         secretAllowedHosts: (name) => getSecretAllowedHosts(deps.rev.spec, name),
         log: deps.log,
@@ -458,13 +567,17 @@ function buildToolContext(deps: AgentToolDeps): ToolContext {
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
               }
             : undefined,
+        identity: deps.identity,
+        resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        gatewayCatalog: deps.gatewayCatalog,
     }
 }
 

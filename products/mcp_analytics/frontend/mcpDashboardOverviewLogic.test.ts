@@ -10,18 +10,17 @@ import { urls } from 'scenes/urls'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { HARNESS_BY_LABEL, harnessLogo } from './dashboard/harnessRegistry'
 import {
     type ActivityRow,
-    aggregateHarnessRows,
     type BucketRow,
     buildBucketKeys,
     buildDailyActivity,
     buildKPIs,
     buildKpiWindow,
     buildToolDailySeries,
-    categorizeHarness,
     deltaPct,
-    type HarnessRawRow,
+    lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
     normalizeBucket,
     pickNotableSessions,
@@ -50,35 +49,71 @@ function session(overrides: Partial<SessionRow> & { session_id: string }): Sessi
 }
 
 describe('mcpDashboardOverviewLogic', () => {
-    describe('categorizeHarness', () => {
-        it.each([
-            ['claude-code/1.0.0', 'Claude Code'],
-            ['claude-code cli', 'Claude Code'],
-            ['claude-code claude-desktop', 'Claude Desktop'],
-            ['claude-code claude-vscode', 'Claude Code (VS Code)'],
-            ['claude-code sdk-ts', 'Claude Agent SDK'],
-            ['claude-ai', 'Claude.ai'],
-            ['anthropic/claudeai', 'Claude.ai'],
-            ['cowork', 'Cowork'],
-            ['claude-design', 'Claude Design'],
-            ['claude-user', 'Claude.ai'],
-            ['openai-mcp', 'OpenAI'],
-            ['openai-mcp chatgpt', 'ChatGPT'],
-            ['openai-mcp agent builder', 'OpenAI Agent Builder'],
-            ['openai-mcp responses api', 'OpenAI Responses API'],
-            ['cursor/0.42', 'Cursor'],
-            ['cursor darwin arm64', 'Cursor'],
-            ['codex-cli', 'OpenAI Codex'],
-            ['visual studio code', 'VS Code'],
-            ['something-nobody-knows', 'Other'],
-            ['', 'Other'],
-        ])('maps %s -> %s', (raw, expected) => {
-            expect(categorizeHarness(raw)).toBe(expected)
+    describe('harnessLogo', () => {
+        // The expected labels mirror HARNESS_LABELS in mcp_harness.py, minus "Other".
+        // If the backend renames or adds a label, update this list to keep it in sync
+        // and add the corresponding entry to HARNESS_BY_LABEL in harnessRegistry.ts.
+        const EXPECTED_HARNESS_LABELS = [
+            'Claude Desktop',
+            'Claude Code (VS Code)',
+            'Claude Agent SDK',
+            'Claude Code',
+            'Claude.ai',
+            'Anthropic API',
+            'Cowork',
+            'Claude Design',
+            'ChatGPT',
+            'OpenAI Agent Builder',
+            'OpenAI Responses API',
+            'OpenAI',
+            'OpenAI Codex',
+            'Cursor',
+            'VS Code',
+            'Windsurf',
+            'Replit',
+            'Lovable',
+            'Manus',
+            'CodeRabbit',
+            'Notion',
+            'Linear',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+            'Poke',
+            'opencode',
+            'Kiro',
+            'Desktop Commander',
+        ]
+
+        it.each(EXPECTED_HARNESS_LABELS)('HARNESS_BY_LABEL has an entry for backend label %s', (label) => {
+            expect(Object.prototype.hasOwnProperty.call(HARNESS_BY_LABEL, label)).toBe(true)
         })
 
-        it('strips the "(via mcp-remote …)" suffix before matching', () => {
-            expect(categorizeHarness('claude-code (via mcp-remote 1.2.3)')).toBe('Claude Code')
+        it.each([
+            'Claude Code',
+            'OpenAI',
+            'Cursor',
+            'Linear',
+            'CodeRabbit',
+            'Notion',
+            'Replit',
+            'Windsurf',
+            'opencode',
+            'Lovable',
+            'Manus',
+            'LibreChat',
+            'Pi',
+            'Antigravity',
+        ])('resolves a logo for the %s category', (category) => {
+            expect(harnessLogo(category)?.src).toBeTruthy()
         })
+
+        it.each(['Anthropic API', 'Poke', 'Kiro', 'Desktop Commander', 'Other'])(
+            'has no logo for the logo-less %s category',
+            (category) => {
+                expect(harnessLogo(category)).toBeUndefined()
+            }
+        )
     })
 
     describe('deltaPct', () => {
@@ -89,27 +124,6 @@ describe('mcpDashboardOverviewLogic', () => {
             [100, 0, null],
         ])('deltaPct(%s, %s) = %s', (current, previous, expected) => {
             expect(deltaPct(current, previous)).toBe(expected)
-        })
-    })
-
-    describe('aggregateHarnessRows', () => {
-        it('folds raw clients into categories, sums counts, and sorts by volume', () => {
-            const raw: HarnessRawRow[] = [
-                { client: 'claude-code/1.0', total_calls: 100, errors: 10, sessions: 5 },
-                { client: 'claude-code/2.0', total_calls: 50, errors: 5, sessions: 3 },
-                { client: 'cursor/0.4', total_calls: 40, errors: 0, sessions: 2 },
-            ]
-            const result = aggregateHarnessRows(raw)
-            expect(result).toHaveLength(2)
-            expect(result[0]).toEqual({
-                category: 'Claude Code',
-                total_calls: 150,
-                errors: 15,
-                error_rate_pct: 10,
-                sessions: 8,
-                raw_clients: ['claude-code/1.0', 'claude-code/2.0'],
-            })
-            expect(result[1]).toMatchObject({ category: 'Cursor', total_calls: 40, error_rate_pct: 0 })
         })
     })
 
@@ -213,6 +227,43 @@ describe('mcpDashboardOverviewLogic', () => {
                 successes: [0, 0, 0],
                 errors: [0, 0, 0],
             })
+        })
+
+        // The in-progress-tail dash applies `fromIndex = successes.length - 1` to line up with the
+        // last bucket key, so the series must stay exactly bucketKeys-length — including when rows
+        // fall outside the window. If this drifts, the dashed segment lands on the wrong point.
+        it('keeps series length equal to bucketKeys, ignoring rows outside the window', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            const rows: ActivityRow[] = [
+                { day: '2024-01-02 00:00:00', successes: 5, errors: 1 },
+                { day: '2023-12-31 00:00:00', successes: 9, errors: 9 }, // outside bucketKeys — must be dropped
+            ]
+            const result = buildDailyActivity(rows, bucketKeys)
+            expect(result.labels).toHaveLength(bucketKeys.length)
+            expect(result.successes).toHaveLength(bucketKeys.length)
+            expect(result.errors).toHaveLength(bucketKeys.length)
+            expect(result.successes).toEqual([0, 5, 0])
+        })
+    })
+
+    describe('lastBucketIsInProgress', () => {
+        const tz = 'UTC'
+        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
+
+        it('flags the tail when the last bucket is the interval containing now', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
+        })
+
+        it('leaves the tail solid when the window ends in the past', () => {
+            const now = dayjs.tz('2026-07-05 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
+        })
+
+        it('does not dash when there is no segment to dash', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
+            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
         })
     })
 
@@ -390,9 +441,14 @@ describe('mcpDashboardOverviewLogic', () => {
             jest.spyOn(mockApi, 'query').mockResolvedValue({ results: [] } as any)
         })
 
-        function reloadCallsSince(callIndex: number): { query: string; filters: Record<string, any> }[] {
+        function reloadCallsSince(callIndex: number): any[] {
             return mockApi.query.mock.calls.slice(callIndex).map((call) => call[0] as any)
         }
+
+        // HogQL query nodes carry filters under `.filters`; the typed
+        // MCPHarnessBreakdownQuery node carries dateRange/properties/filterTestAccounts
+        // at the top level. This reads whichever shape a reload used.
+        const filtersOf = (call: any): Record<string, any> => call.filters ?? call
 
         it('reloads every tile when the date filter changes', async () => {
             const logic = mcpDashboardOverviewLogic()
@@ -408,10 +464,10 @@ describe('mcpDashboardOverviewLogic', () => {
             // Six tiles: KPI + the five breakdown queries.
             expect(reloads.length).toBe(6)
             // The five breakdowns pass the raw selected range straight through.
-            const breakdowns = reloads.filter((call) => call.filters.dateRange.date_from === '-30d')
+            const breakdowns = reloads.filter((call) => filtersOf(call).dateRange?.date_from === '-30d')
             expect(breakdowns).toHaveLength(5)
             // The KPI tile widens to an absolute doubled window so it can compare against the prior period.
-            const kpi = reloads.find((call) => call.query.includes('AS bucket'))
+            const kpi = reloads.find((call) => call.query?.includes('AS bucket'))
             expect(kpi?.filters.dateRange.date_from).not.toBe('-30d')
             expect(dayjs(kpi?.filters.dateRange.date_from).isValid()).toBe(true)
         })
@@ -431,7 +487,7 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const reloads = reloadCallsSince(callsBefore)
             expect(reloads.length).toBe(6)
-            expect(reloads.every((call) => call.filters.filterTestAccounts === enabled)).toBe(true)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === enabled)).toBe(true)
         })
 
         it('defaults the filter from the team test_account_filters_default_checked setting', async () => {
@@ -444,7 +500,7 @@ describe('mcpDashboardOverviewLogic', () => {
             // No explicit toggle, yet every tile filters internal users because the team default is on.
             const reloads = mockApi.query.mock.calls.map((call) => call[0] as any)
             expect(reloads.length).toBeGreaterThanOrEqual(6)
-            expect(reloads.every((call) => call.filters.filterTestAccounts === true)).toBe(true)
+            expect(reloads.every((call) => filtersOf(call).filterTestAccounts === true)).toBe(true)
         })
 
         const EVENT_FILTER: AnyPropertyFilter = {
@@ -476,9 +532,9 @@ describe('mcpDashboardOverviewLogic', () => {
 
             const reloads = reloadCallsSince(callsBefore)
             expect(reloads.length).toBe(6)
-            expect(reloads.every((call) => JSON.stringify(call.filters.properties) === JSON.stringify([filter]))).toBe(
-                true
-            )
+            expect(
+                reloads.every((call) => JSON.stringify(filtersOf(call).properties) === JSON.stringify([filter]))
+            ).toBe(true)
         })
 
         it('syncs property filters to the URL and clears the param when emptied', async () => {

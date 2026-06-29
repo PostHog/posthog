@@ -541,7 +541,7 @@ class PersonalSpendViewSet(viewsets.ViewSet):
     same scope that covers `/api/users/@me/`). Queries the shared `events`
     table directly -- same pattern as the LLM Analytics "Users" tab and every
     other person-property filter on AI events. We don't route through
-    `execute_with_ai_events_fallback` because the satellite `ai_events`
+    `query_ai_events` because the satellite `ai_events`
     cluster's Distributed `person` shim doesn't declare materialized columns
     like `pmat_email`, and the helper's fallback only catches empty results,
     not the unresolved-identifier exception that would fire there. The

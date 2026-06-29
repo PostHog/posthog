@@ -16,6 +16,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
 
@@ -37,12 +38,16 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
-def _authenticate_as_scout(test: APIBaseTest) -> None:
+def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout") -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
     reaches these endpoints in production. The emit / scratchpad write actions require
     `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
     default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
     a session. `logout()` first so the token is the sole credential on every request.
+
+    `scopes` selects the posture: the default `signals_scout` covers emit-signal / scratchpad;
+    pass `signals_scout_reports` (the report-channel posture, which adds `signal_scout_report:write`)
+    to exercise the emit-report / edit-report surface.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -59,9 +64,7 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(
-        test.user, test.team.id, scopes="signals_scout", include_internal_scopes=True
-    )
+    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=scopes, include_internal_scopes=True)
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -142,12 +145,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert ids == [str(keep.id)]
 
     def test_list_surfaces_emit_tally(self) -> None:
-        _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+        _make_run(
+            self.team,
+            emitted_count=2,
+            emitted_finding_ids=["f-a", "f-b"],
+            emitted_report_ids=["r-1"],
+            edited_report_ids=["r-2"],
+        )
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = response.json()[0]
         assert row["emitted_count"] == 2
         assert row["emitted_finding_ids"] == ["f-a", "f-b"]
+        # Both report-id channels must surface through the serializer. Guards a real gap: these are
+        # carried on the run DTO but were not declared on the serializer, so they were silently dropped
+        # from the API/MCP response.
+        assert row["emitted_report_ids"] == ["r-1"]
+        assert row["edited_report_ids"] == ["r-2"]
 
     @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
     def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:
@@ -736,7 +750,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == ["signals-scout-alpha", "signals-scout-beta"]
         assert body[0]["enabled"] is True
         assert body[0]["emit"] is True
-        assert body[0]["run_interval_minutes"] == 180
+        assert body[0]["run_interval_minutes"] == 1440
+
+    def test_list_excludes_withheld_config(self) -> None:
+        # A held-back scout that still has a row (previously seeded, then withheld) is not surfaced
+        # in the config list — the read surface stays consistent with the seeding + dispatch gates.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-alpha")
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-error-tracking")
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert [c["skill_name"] for c in response.json()] == ["signals-scout-alpha"]
 
     @parameterized.expand(
         [
@@ -848,7 +877,9 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     def test_partial_update_rejects_interval_below_min(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
-        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 5}, format="json")
+        # 20 is below the 30-minute floor (the tightest cadence the UI offers) but above the old
+        # 10-minute floor, so this also guards against the floor being reverted.
+        response = self.client.patch(self._detail_url(str(config.id)), data={"run_interval_minutes": 20}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_partial_update_cannot_change_skill_name(self) -> None:
@@ -890,7 +921,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert [c["skill_name"] for c in body] == sorted(scout_names)
         assert all(c["enabled"] is True for c in body)
         assert all(c["emit"] is True for c in body)
-        assert all(c["run_interval_minutes"] == 180 for c in body)
+        assert all(c["run_interval_minutes"] == 1440 for c in body)
         assert SignalScoutConfig.objects.filter(team=self.team).count() == len(scout_names)
         # Every canonical skill — fleet and companions — was seeded into the team's
         # LLMSkill namespace.
@@ -898,6 +929,41 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
             set(LLMSkill.objects.filter(team=self.team, deleted=False).values_list("name", flat=True))
             == canonical_names
         )
+
+    def test_sync_respects_withheld_skills_holdback(self) -> None:
+        # A scout held back via the `signals-scout` flag denylist must not be seeded or
+        # config-materialized by the on-demand sync endpoint, the same as the scheduled path. The
+        # holdback resolves through `team_limits.withheld_skills_for_team`, so patch the flag read
+        # there (same module `_METADATA_PAYLOAD_PATH` points at).
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        skill_names = {c["skill_name"] for c in response.json()}
+        assert "signals-scout-error-tracking" not in skill_names
+        assert "signals-scout-general" in skill_names
+        assert not SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
+        assert not LLMSkill.objects.filter(team=self.team, name="signals-scout-error-tracking", deleted=False).exists()
+
+    def test_sync_excludes_previously_seeded_withheld_config(self) -> None:
+        # A config seeded before the scout was withheld still exists in storage; the sync response
+        # must not surface it (visibility boundary), even though we don't tombstone the row.
+        SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-error-tracking")
+        payload_path = "products.signals.backend.scout_harness.team_limits.posthoganalytics.get_feature_flag_payload"
+        with patch(
+            payload_path,
+            return_value={"default_team_config": {"withheld_skills": ["signals-scout-error-tracking"]}},
+        ):
+            response = self.client.post(self._sync_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert "signals-scout-error-tracking" not in {c["skill_name"] for c in response.json()}
+        # Storage is untouched — the row is hidden from the response, not deleted.
+        assert SignalScoutConfig.objects.filter(team=self.team, skill_name="signals-scout-error-tracking").exists()
 
     def test_sync_rejects_read_only_scope(self) -> None:
         from posthog.models.personal_api_key import PersonalAPIKey
@@ -1108,7 +1174,7 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
     def test_create_rejects_interval_below_min(self) -> None:
         self._make_skill("signals-scout-fresh")
         response = self.client.post(
-            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 5}, format="json"
+            self._list_url(), data={"skill_name": "signals-scout-fresh", "run_interval_minutes": 20}, format="json"
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -1117,6 +1183,9 @@ _METADATA_PAYLOAD_PATH = "products.signals.backend.scout_harness.team_limits.pos
 
 
 class TestScoutHarnessMetadataAPI(APIBaseTest):
+    """Scout metadata endpoint: enrollment, the alpha banner, and the enforced run limits, all
+    resolved from the `signals-scout` flag payload so the UI shows the throttle dispatch applies."""
+
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/metadata/current/"
 

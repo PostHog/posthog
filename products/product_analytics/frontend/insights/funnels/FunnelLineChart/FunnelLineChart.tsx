@@ -2,8 +2,14 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useMemo, type ErrorInfo } from 'react'
 
-import { ChartLegend, TimeSeriesLineChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { PointClickData, TimeSeriesLineChartConfig, TooltipConfig, TooltipContext } from '@posthog/quill-charts'
+import { TimeSeriesLineChart } from '@posthog/quill-charts'
+import type {
+    ChartLegendConfig,
+    PointClickData,
+    TimeSeriesLineChartConfig,
+    TooltipConfig,
+    TooltipContext,
+} from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -24,6 +30,7 @@ import { isFunnelsQuery } from '~/queries/utils'
 import { ChartParams, type FlattenedFunnelStepByBreakdown } from '~/types'
 
 import { AnnotationsLayer } from '../../trends/shared/AnnotationsLayer'
+import { buildBaseLegendConfig } from '../../trends/shared/buildBaseLegendConfig'
 import { FUNNEL_CONVERSION_SERIES_LABEL, type FunnelSeriesMeta } from '../shared/funnelSeriesMeta'
 import { buildFunnelLineSeries, buildFunnelLineTimeSeriesConfig, type IndexedFunnelStep } from './funnelChartTransforms'
 import { FunnelLineTooltip } from './FunnelLineTooltip'
@@ -58,7 +65,7 @@ export function FunnelLineChart({
 }: Omit<ChartParams, 'filters'>): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
         indexedSteps,
@@ -69,6 +76,7 @@ export function FunnelLineChart({
         interval,
         insightData,
         showLegend,
+        legendPosition,
         showValuesOnSeries,
         funnelsFilter,
         breakdownFilter,
@@ -84,7 +92,7 @@ export function FunnelLineChart({
     const showPersonsModal = canOpenPersonModal && showPersonsModalProp
     const steps = useMemo(() => (indexedSteps ?? []) as IndexedFunnelStep[], [indexedSteps])
 
-    const series = useMemo(
+    const seriesBase = useMemo(
         () =>
             buildFunnelLineSeries(steps, {
                 incompletenessOffsetFromEnd,
@@ -97,26 +105,38 @@ export function FunnelLineChart({
         [steps, incompletenessOffsetFromEnd, getFunnelsColor]
     )
 
-    const legendItems = useMemo(
+    // Apply formatted breakdown labels so the chart's internal legend picks them up directly.
+    const series = useMemo(
         () =>
-            legendItemsFromSeries(series, theme).map((item) => {
-                const breakdownValue = series.find((s) => s.key === item.key)?.meta?.breakdown_value
-                const label = hasBreakdown(breakdownValue)
-                    ? formatBreakdownLabel(
-                          breakdownValue,
-                          breakdownFilter ?? undefined,
-                          allCohorts.results,
-                          formatPropertyValueForDisplay
-                      )
-                    : FUNNEL_CONVERSION_SERIES_LABEL
-                return { ...item, label }
+            seriesBase.map((s) => ({
+                ...s,
+                label:
+                    s.meta && hasBreakdown(s.meta.breakdown_value)
+                        ? formatBreakdownLabel(
+                              s.meta.breakdown_value,
+                              breakdownFilter ?? undefined,
+                              allCohorts.results,
+                              formatPropertyValueForDisplay
+                          )
+                        : FUNNEL_CONVERSION_SERIES_LABEL,
+            })),
+        [seriesBase, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
+    )
+
+    const legendConfig = useMemo<ChartLegendConfig>(
+        () =>
+            buildBaseLegendConfig({
+                show: !!showLegend && series.length > 1,
+                legendPosition,
+                canEditInsight,
+                inSharedMode,
             }),
-        [series, theme, breakdownFilter, allCohorts.results, formatPropertyValueForDisplay]
+        [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
     )
 
     const chartConfig: TimeSeriesLineChartConfig = useMemo(
-        () =>
-            buildFunnelLineTimeSeriesConfig({
+        () => ({
+            ...buildFunnelLineTimeSeriesConfig({
                 indexedSteps: steps,
                 interval,
                 timezone,
@@ -128,6 +148,8 @@ export function FunnelLineChart({
                 showCrosshair: true,
                 tooltip: TOOLTIP_CONFIG,
             }),
+            legend: legendConfig,
+        }),
         [
             steps,
             interval,
@@ -136,6 +158,7 @@ export function FunnelLineChart({
             incompletenessOffsetFromEnd,
             funnelsFilter?.showTrendLines,
             showValuesOnSeries,
+            legendConfig,
         ]
     )
 
@@ -190,25 +213,18 @@ export function FunnelLineChart({
     )
 
     return (
-        <ChartLegend
-            show={!!showLegend && legendItems.length > 1}
-            items={legendItems}
-            position="top"
-            legendDataAttr="funnel-line-legend"
+        <TimeSeriesLineChart<FunnelSeriesMeta>
+            series={series}
+            labels={labels}
+            theme={theme}
+            config={chartConfig}
+            tooltip={renderTooltip}
+            onPointClick={showPersonsModal ? onPointClick : undefined}
+            className="LineGraph"
+            dataAttr="trend-line-graph-funnel"
+            onError={handleChartError}
         >
-            <TimeSeriesLineChart<FunnelSeriesMeta>
-                series={series}
-                labels={labels}
-                theme={theme}
-                config={chartConfig}
-                tooltip={renderTooltip}
-                onPointClick={showPersonsModal ? onPointClick : undefined}
-                className="LineGraph"
-                dataAttr="trend-line-graph-funnel"
-                onError={handleChartError}
-            >
-                {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
-            </TimeSeriesLineChart>
-        </ChartLegend>
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationDates} />}
+        </TimeSeriesLineChart>
     )
 }

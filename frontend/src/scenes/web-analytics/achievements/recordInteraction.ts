@@ -5,6 +5,7 @@ import { webAnalyticsAchievementsRecordInteraction } from 'products/web_analytic
 import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { isWebAnalyticsAchievementsEnabled } from './gating'
+import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
 
 export function recordWebAnalyticsInteraction(kind: InteractionKindEnumApi): void {
     const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags
@@ -15,5 +16,9 @@ export function recordWebAnalyticsInteraction(kind: InteractionKindEnumApi): voi
     if (projectId === undefined || projectId === null) {
         return
     }
-    void webAnalyticsAchievementsRecordInteraction(String(projectId), { interaction_kind: kind }).catch(() => {})
+    void webAnalyticsAchievementsRecordInteraction(String(projectId), { interaction_kind: kind })
+        .then(() => {
+            webAnalyticsAchievementsLogic.findMounted()?.actions.loadAchievements()
+        })
+        .catch(() => {})
 }

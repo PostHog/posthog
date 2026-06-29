@@ -72,7 +72,7 @@ jobs:
 
             - name: Add multinode hostnames to /etc/hosts
               run: |
-                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions kafka zookeeper" | sudo tee -a /etc/hosts
+                  echo "127.0.0.1 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs kafka zookeeper" | sudo tee -a /etc/hosts
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0

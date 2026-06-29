@@ -33,14 +33,18 @@ const DEFAULT_FILTERS: IdentityMatchingFilters = {
     search: '',
 }
 
-const LINKS_PAGE_SIZE = 500
+export const LINKS_PAGE_SIZE = 50
+
+export type IdentityMatchingTab = 'links' | 'paid_attribution' | 'runs'
 
 export const identityMatchingLogic = kea<identityMatchingLogicType>([
     path(['products', 'growth', 'frontend', 'identityMatchingLogic']),
     actions({
         setFilters: (filters: Partial<IdentityMatchingFilters>) => ({ filters }),
+        setPage: (page: number) => ({ page }),
+        setActiveTab: (tab: IdentityMatchingTab) => ({ tab }),
     }),
-    loaders(({ values }) => ({
+    loaders(({ values, cache }) => ({
         runsResponse: {
             __default: null as IdentityMatchingRunsResponseApi | null,
             loadRuns: async () => {
@@ -54,7 +58,8 @@ export const identityMatchingLogic = kea<identityMatchingLogicType>([
                 await breakpoint(300)
                 const projectId = String(teamLogic.values.currentTeamId)
                 const { jobId, modelVersion, tier, minScore, search } = values.filters
-                const params: IdentityMatchingLinksListParams = { limit: LINKS_PAGE_SIZE }
+                const offset = (values.page - 1) * LINKS_PAGE_SIZE
+                const params: IdentityMatchingLinksListParams = { limit: LINKS_PAGE_SIZE, offset }
                 if (jobId) {
                     params.job_id = jobId
                 }
@@ -70,8 +75,12 @@ export const identityMatchingLogic = kea<identityMatchingLogicType>([
                 if (search.trim()) {
                     params.search = search.trim()
                 }
+                const requestId = (cache.loadLinksSeq = (cache.loadLinksSeq ?? 0) + 1)
                 const response = await identityMatchingLinksList(projectId, params)
                 breakpoint()
+                if (requestId !== cache.loadLinksSeq) {
+                    return values.linksResponse
+                }
                 return response
             },
         },
@@ -81,6 +90,19 @@ export const identityMatchingLogic = kea<identityMatchingLogicType>([
             DEFAULT_FILTERS,
             {
                 setFilters: (state, { filters }) => ({ ...state, ...filters }),
+            },
+        ],
+        page: [
+            1,
+            {
+                setPage: (_, { page }) => page,
+                setFilters: () => 1,
+            },
+        ],
+        activeTab: [
+            'links' as IdentityMatchingTab,
+            {
+                setActiveTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -114,6 +136,9 @@ export const identityMatchingLogic = kea<identityMatchingLogicType>([
     }),
     listeners(({ actions }) => ({
         setFilters: () => {
+            actions.loadLinks(null)
+        },
+        setPage: () => {
             actions.loadLinks(null)
         },
     })),

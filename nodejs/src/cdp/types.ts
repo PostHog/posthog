@@ -2,9 +2,9 @@ import { DateTime } from 'luxon'
 
 import { VMState } from '@posthog/hogvm'
 
-import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/schema/cyclotron'
+import { CyclotronInputType, CyclotronInvocationQueueParametersType } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
-import { HogFlow } from '../schema/hogflow'
 import {
     ClickHouseTimestamp,
     ElementPropertyFilter,
@@ -240,6 +240,7 @@ export type MinimalAppMetric = {
         | 'email_spam'
         | 'email_unsubscribed'
         | 'quota_limited'
+        | 'conversion'
     count: number
 }
 
@@ -364,6 +365,11 @@ export type HogFlowInvocationContext = {
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
     conversionMatched?: boolean
+    // Once-per-run guard for the property-based conversion metric. Executor-owned:
+    // shouldExitEarly runs on every resume, so without this a persistently-true
+    // conversion filter would emit a `conversion` metric on every step. Event-based
+    // conversions are counted by the matcher and never touch this flag.
+    conversionCounted?: boolean
     variables?: Record<string, any>
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows

@@ -1,4 +1,4 @@
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 export interface Tracker {
     readonly metricName: string

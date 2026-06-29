@@ -376,18 +376,25 @@ class TestEvaluationStatusCoercion(BaseTest):
         evaluation = self._create(enabled=True)
         evaluation.status = EvaluationStatus.ERROR
         evaluation.status_reason = EvaluationStatusReason.TRIAL_LIMIT_REACHED
+        evaluation.status_reason_detail = "The trial limit was reached."
         evaluation.save()
 
         evaluation.status = EvaluationStatus.PAUSED
         evaluation.save()
         self.assertIsNone(evaluation.status_reason)
+        self.assertIsNone(evaluation.status_reason_detail)
 
     def test_set_status_helper_transitions_all_three_fields(self):
         evaluation = self._create(enabled=True)
-        evaluation.set_status(EvaluationStatus.ERROR, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        evaluation.set_status(
+            EvaluationStatus.ERROR,
+            EvaluationStatusReason.HOG_ERROR,
+            "Must return boolean, got int: 42",
+        )
         evaluation.refresh_from_db()
         self.assertEqual(evaluation.status, EvaluationStatus.ERROR)
-        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.PROVIDER_KEY_DELETED)
+        self.assertEqual(evaluation.status_reason, EvaluationStatusReason.HOG_ERROR)
+        self.assertEqual(evaluation.status_reason_detail, "Must return boolean, got int: 42")
         self.assertFalse(evaluation.enabled)
 
     def test_refresh_from_db_resets_change_tracking_baseline(self):

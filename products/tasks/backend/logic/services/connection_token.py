@@ -4,7 +4,7 @@ import hashlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
@@ -25,6 +25,13 @@ SANDBOX_EVENT_INGEST_TOKEN_TTL = timedelta(seconds=SANDBOX_TTL_SECONDS) + SANDBO
 
 SANDBOX_JWT_STATE_KID_KEY = "sandbox_jwt_kid"
 
+STREAM_READ_AUDIENCE = "posthog:stream_read"
+# Short-lived on purpose: the agent-proxy validates these tokens statelessly, so the TTL bounds
+# how long a user who lost project access can keep reconnecting to a stream. The client fetches a
+# fresh token from the stream_token endpoint (which re-checks access) on every connect, and again
+# when a reconnect is rejected with a 401 after the token expires mid-stream.
+STREAM_READ_TOKEN_TTL = timedelta(minutes=15)
+
 
 @dataclass(frozen=True)
 class SandboxEventIngestTokenPayload:
@@ -38,6 +45,13 @@ class _SandboxJwtKey:
     kid: str
     private_key_pem: str
     public_key_pem: str
+
+
+@dataclass(frozen=True)
+class StreamReadTokenPayload:
+    run_id: str
+    task_id: str
+    team_id: int
 
 
 def _normalize_pem_key(key: str) -> str:
@@ -111,7 +125,15 @@ def get_primary_sandbox_jwt_kid() -> str:
 
 
 def get_sandbox_jwt_public_key() -> str:
-    """Public key (PEM) baked into newly provisioned sandboxes for verifying connection tokens."""
+    """Public key (PEM) used to verify sandbox tokens, baked into newly provisioned sandboxes.
+
+    Prefers an explicitly configured public key so a verify-only service (the agent-proxy)
+    never needs the private key. Falls back to the primary signing key's public half for
+    Django, which mints tokens.
+    """
+    public_key_pem = settings.SANDBOX_JWT_PUBLIC_KEY
+    if public_key_pem:
+        return _normalize_pem_key(public_key_pem)
     return _primary_key().public_key_pem
 
 
@@ -126,6 +148,42 @@ def _signing_key_for_run(task_run: TaskRun) -> _SandboxJwtKey:
     if kid and kid in registry:
         return registry[kid]
     return _primary_key()
+
+
+def _verification_public_keys() -> list[str]:
+    """Public-key PEMs to verify sandbox tokens against.
+
+    Prefers explicitly configured public keys so a verify-only context (the agent-proxy, or a
+    public-key-only Django process) never needs the private key; the optional secondary public key
+    is additionally trusted during a rotation overlap. Falls back to the signing registry's public
+    halves when no explicit public key is configured (Django, which mints tokens).
+    """
+    explicit = settings.SANDBOX_JWT_PUBLIC_KEY
+    if explicit:
+        pems = [_normalize_pem_key(explicit)]
+        secondary = settings.SANDBOX_JWT_PUBLIC_KEY_SECONDARY
+        if secondary:
+            pems.append(_normalize_pem_key(secondary))
+        return pems
+    _, registry = _key_registry()
+    return [key.public_key_pem for key in registry.values()]
+
+
+def _decode_sandbox_token(token: str, audience: str) -> dict[str, Any]:
+    """Verify a sandbox JWT against every trusted public key, returning the first that validates.
+
+    Trusting both the primary and the rotation-secondary key is what lets the agent-proxy token
+    legs survive a primary-key rotation without downtime: a token signed under either key still
+    verifies. Only a signature mismatch advances to the next key; expiry and audience errors are
+    key-independent and propagate immediately.
+    """
+    last_error: jwt.InvalidTokenError | None = None
+    for public_key_pem in _verification_public_keys():
+        try:
+            return jwt.decode(token, public_key_pem, algorithms=["RS256"], audience=audience)
+        except jwt.InvalidSignatureError as exc:
+            last_error = exc
+    raise last_error or jwt.InvalidTokenError("No sandbox JWT keys configured")
 
 
 def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id: str) -> str:
@@ -158,12 +216,12 @@ def create_sandbox_connection_token(task_run: TaskRun, user_id: int, distinct_id
     return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
 
 
-def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL) -> str:
-    """
-    Create a run-scoped JWT token for sandbox-to-Django live event ingest.
+def _encode_run_scoped_token(task_run: TaskRun, audience: str, ttl: timedelta) -> str:
+    """Encode a run-scoped JWT carrying no user identity, signed with the run's key.
 
-    This token intentionally carries no user identity and grants one capability:
-    appending ordered live events for this task run.
+    Shared by the event-ingest and stream-read tokens; they stay distinct capabilities
+    (write vs read) kept apart by ``audience`` rather than by the encoding. Signing with
+    the run's provisioned key (via ``kid``) keeps both legs working across key rotation.
     """
     now = datetime.now(tz=UTC)
     payload = {
@@ -172,19 +230,24 @@ def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBO
         "team_id": task_run.team_id,
         "iat": now,
         "exp": now + ttl,
-        "aud": SANDBOX_EVENT_INGEST_AUDIENCE,
+        "aud": audience,
     }
+    key = _signing_key_for_run(task_run)
+    return jwt.encode(payload, key.private_key_pem, algorithm="RS256", headers={"kid": key.kid})
 
-    return jwt.encode(payload, _primary_key().private_key_pem, algorithm="RS256")
+
+def create_sandbox_event_ingest_token(task_run: TaskRun, ttl: timedelta = SANDBOX_EVENT_INGEST_TOKEN_TTL) -> str:
+    """
+    Create a run-scoped JWT token for sandbox-to-Django live event ingest.
+
+    This token intentionally carries no user identity and grants one capability:
+    appending ordered live events for this task run.
+    """
+    return _encode_run_scoped_token(task_run, SANDBOX_EVENT_INGEST_AUDIENCE, ttl)
 
 
 def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPayload:
-    payload = jwt.decode(
-        token,
-        _primary_key().public_key_pem,
-        algorithms=["RS256"],
-        audience=SANDBOX_EVENT_INGEST_AUDIENCE,
-    )
+    payload = _decode_sandbox_token(token, SANDBOX_EVENT_INGEST_AUDIENCE)
 
     run_id = payload.get("run_id")
     task_id = payload.get("task_id")
@@ -194,3 +257,28 @@ def validate_sandbox_event_ingest_token(token: str) -> SandboxEventIngestTokenPa
         raise jwt.InvalidTokenError("Sandbox event ingest token has invalid claims")
 
     return SandboxEventIngestTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id)
+
+
+def create_stream_read_token(task_run: TaskRun, ttl: timedelta = STREAM_READ_TOKEN_TTL) -> str:
+    """
+    Create a run-scoped JWT that authorizes reading a task run's live event stream.
+
+    Minted by Django (which authorizes the requesting user first) for the browser to
+    present to the standalone agent-proxy, which verifies it statelessly with the
+    public key. Carries no user identity and grants one capability: reading this
+    task run's stream.
+    """
+    return _encode_run_scoped_token(task_run, STREAM_READ_AUDIENCE, ttl)
+
+
+def validate_stream_read_token(token: str) -> StreamReadTokenPayload:
+    payload = _decode_sandbox_token(token, STREAM_READ_AUDIENCE)
+
+    run_id = payload.get("run_id")
+    task_id = payload.get("task_id")
+    team_id = payload.get("team_id")
+
+    if not isinstance(run_id, str) or not isinstance(task_id, str) or type(team_id) is not int:
+        raise jwt.InvalidTokenError("Stream read token has invalid claims")
+
+    return StreamReadTokenPayload(run_id=run_id, task_id=task_id, team_id=team_id)
