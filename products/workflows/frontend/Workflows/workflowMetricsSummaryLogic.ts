@@ -11,10 +11,10 @@ import {
     type AppMetricsTotalsResponse,
 } from 'lib/components/AppMetrics/appMetricsLogic'
 import { dayjs } from 'lib/dayjs'
-import { getDefaultEventsSceneQuery } from 'scenes/activity/explore/defaults'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode } from '~/queries/schema/schema-general'
+import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { isEmailAction } from './hogflows/steps/types'
@@ -331,22 +331,29 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
             (s) => [s.getDateRangeAbsolute, (_, p: WorkflowMetricsSummaryLogicProps) => p.id],
             (getDateRangeAbsolute, id): string => {
                 const { dateFrom, dateTo } = getDateRangeAbsolute()
-                const base = getDefaultEventsSceneQuery([
-                    {
-                        type: PropertyFilterType.Event,
-                        key: '$workflow_id',
-                        operator: PropertyOperator.Exact,
-                        value: id,
-                    },
-                ])
+                const source: EventsQuery = {
+                    kind: NodeKind.EventsQuery,
+                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                    orderBy: ['timestamp DESC'],
+                    event: CONVERSION_EVENT,
+                    after: dateFrom.toISOString(),
+                    before: dateTo.toISOString(),
+                    properties: [
+                        {
+                            type: PropertyFilterType.Event,
+                            key: '$workflow_id',
+                            operator: PropertyOperator.Exact,
+                            value: id,
+                        },
+                    ],
+                }
                 const query: DataTableNode = {
-                    ...base,
-                    source: {
-                        ...base.source,
-                        event: CONVERSION_EVENT,
-                        after: dateFrom.toISOString(),
-                        before: dateTo.toISOString(),
-                    },
+                    kind: NodeKind.DataTableNode,
+                    full: true,
+                    source,
+                    propertiesViaUrl: true,
+                    showSavedQueries: true,
+                    showPersistentColumnConfigurator: true,
                 }
                 return combineUrl(urls.activity(ActivityTab.ExploreEvents), {}, { q: query }).url
             },
