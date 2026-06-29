@@ -56,7 +56,5 @@ class Migration(migrations.Migration):
     dependencies = [("warehouse_sources", "0051_warehousecolumnstatistics")]
 
     operations = [
-        migrations.RunPython(
-            backfill_google_ads_lookback, migrations.RunPython.noop, elidable=True
-        ),
+        migrations.RunPython(backfill_google_ads_lookback, migrations.RunPython.noop, elidable=True),
     ]

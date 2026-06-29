@@ -11,8 +11,8 @@ class BackfillGoogleAdsIncrementalLookbackMigrationTest(TestMigrations):
     soft-deleted row, and never an explicit user value (including 0, which means "no overlap").
     """
 
-    migrate_from = "0050_alter_externaldatasource_source_type_and_more"
-    migrate_to = "0051_backfill_google_ads_incremental_lookback"
+    migrate_from = "0051_warehousecolumnstatistics"
+    migrate_to = "0052_backfill_google_ads_incremental_lookback"
 
     DEFAULT = 30 * 24 * 60 * 60
 
