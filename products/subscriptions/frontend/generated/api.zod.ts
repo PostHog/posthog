@@ -137,7 +137,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                     ),
             })
             .describe(
-                'Typed view over the Subscription.delivery_config JSON blob. New per-delivery options\nare added as fields here so the generated API\/MCP types stay typed and extensible without\na migration per option.'
+                'Typed view over the Subscription.delivery_config JSON blob. Per-delivery options are\ndeclared as fields here so the generated API\/MCP types stay typed and forward-compatible\nwithout a migration per option.'
             )
             .optional()
             .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
@@ -272,7 +272,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
                     ),
             })
             .describe(
-                'Typed view over the Subscription.delivery_config JSON blob. New per-delivery options\nare added as fields here so the generated API\/MCP types stay typed and extensible without\na migration per option.'
+                'Typed view over the Subscription.delivery_config JSON blob. Per-delivery options are\ndeclared as fields here so the generated API\/MCP types stay typed and forward-compatible\nwithout a migration per option.'
             )
             .optional()
             .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
@@ -414,7 +414,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                     ),
             })
             .describe(
-                'Typed view over the Subscription.delivery_config JSON blob. New per-delivery options\nare added as fields here so the generated API\/MCP types stay typed and extensible without\na migration per option.'
+                'Typed view over the Subscription.delivery_config JSON blob. Per-delivery options are\ndeclared as fields here so the generated API\/MCP types stay typed and forward-compatible\nwithout a migration per option.'
             )
             .optional()
             .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
