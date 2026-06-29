@@ -3570,7 +3570,9 @@ const api = {
                     }
                 },
                 onerror: (error) => {
-                    onError(error)
+                    // Throw so fetch-event-source stops instead of auto-reconnecting; the
+                    // rejection propagates to .catch(onError) below, reporting the error once.
+                    throw error
                 },
             }).catch(onError)
 

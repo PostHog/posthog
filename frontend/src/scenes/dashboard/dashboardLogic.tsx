@@ -458,33 +458,55 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     await breakpoint(200)
                     actions.resetIntermittentFilters()
 
-                    // Start unified streaming - metadata followed by tiles
-                    api.dashboards.streamTiles(
-                        props.id,
-                        {
-                            layoutSize: values.currentLayoutSize,
-                            filtersOverride: values.filtersOverrideForLoad,
-                            variablesOverride: values.urlVariables,
-                        },
-                        // onMessage callback - handles both metadata and tiles
-                        (data) => {
-                            if (data.type === 'metadata') {
-                                actions.loadDashboardMetadataSuccess(
-                                    getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
+                    // Register via disposables so the SSE connection is aborted on unmount and
+                    // replaced (old one aborted first) on restart. The abort handle resolves
+                    // asynchronously, so hold it in a closure and abort once it's available.
+                    cache.disposables.add(
+                        () => {
+                            let abort: (() => void) | undefined
+                            let disposed = false
+                            api.dashboards
+                                .streamTiles(
+                                    props.id,
+                                    {
+                                        layoutSize: values.currentLayoutSize,
+                                        filtersOverride: values.filtersOverrideForLoad,
+                                        variablesOverride: values.urlVariables,
+                                    },
+                                    // onMessage callback - handles both metadata and tiles
+                                    (data) => {
+                                        if (data.type === 'metadata') {
+                                            actions.loadDashboardMetadataSuccess(
+                                                getQueryBasedDashboard(data.dashboard as DashboardType<InsightModel>)
+                                            )
+                                        } else if (data.type === 'tile') {
+                                            actions.receiveTileFromStream(data)
+                                        }
+                                    },
+                                    // onComplete callback
+                                    () => {
+                                        actions.tileStreamingComplete()
+                                    },
+                                    // onError callback
+                                    (error) => {
+                                        console.error('❌ Tile streaming error:', error)
+                                        actions.tileStreamingFailure(error)
+                                    }
                                 )
-                            } else if (data.type === 'tile') {
-                                actions.receiveTileFromStream(data)
+                                .then((abortFn) => {
+                                    if (disposed) {
+                                        abortFn()
+                                    } else {
+                                        abort = abortFn
+                                    }
+                                })
+                            return () => {
+                                disposed = true
+                                abort?.()
                             }
                         },
-                        // onComplete callback
-                        () => {
-                            actions.tileStreamingComplete()
-                        },
-                        // onError callback
-                        (error) => {
-                            console.error('❌ Tile streaming error:', error)
-                            actions.tileStreamingFailure(error)
-                        }
+                        'sseStream',
+                        { pauseOnPageHidden: false }
                     )
 
                     // Return null - metadata will update the dashboard

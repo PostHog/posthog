@@ -2091,4 +2091,76 @@ describe('dashboardLogic', () => {
             })
         })
     })
+
+    describe('SSE streaming connection cleanup', () => {
+        let streamAbort: jest.Mock
+        let streamTilesSpy: jest.SpyInstance
+
+        beforeEach(async () => {
+            silenceKeaLoadersErrors()
+            streamAbort = jest.fn()
+            streamTilesSpy = jest.spyOn(api.dashboards, 'streamTiles').mockResolvedValue(streamAbort)
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            // drain the non-streaming auto-load so streaming runs against a quiet logic
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        afterEach(() => {
+            resumeKeaLoadersErrors()
+        })
+
+        // streamTiles resolves the abort handle on a microtask after the loader's
+        // 200ms breakpoint; wait for the loader to settle, then flush microtasks.
+        async function startStreamAndSettle(action: DashboardLoadAction): Promise<void> {
+            logic.actions.loadDashboardStreaming({ action })
+            await expectLogic(logic).toFinishAllListeners()
+            await Promise.resolve()
+            await Promise.resolve()
+        }
+
+        it('aborts the SSE connection when the logic unmounts', async () => {
+            await startStreamAndSettle(DashboardLoadAction.InitialLoad)
+            expect(streamTilesSpy).toHaveBeenCalledTimes(1)
+            expect(streamAbort).not.toHaveBeenCalled()
+
+            logic.unmount()
+
+            expect(streamAbort).toHaveBeenCalledTimes(1)
+        })
+
+        it('aborts the previous stream before starting a new one on restart', async () => {
+            const firstAbort = jest.fn()
+            const secondAbort = jest.fn()
+            streamTilesSpy.mockResolvedValueOnce(firstAbort).mockResolvedValueOnce(secondAbort)
+
+            await startStreamAndSettle(DashboardLoadAction.InitialLoad)
+            await startStreamAndSettle(DashboardLoadAction.Update)
+
+            // re-adding the keyed disposable tears down the previous connection first
+            expect(firstAbort).toHaveBeenCalledTimes(1)
+            expect(secondAbort).not.toHaveBeenCalled()
+        })
+
+        it('aborts the handle even when disposed before streamTiles resolves', async () => {
+            const lateAbort = jest.fn()
+            let resolveStream: () => void = () => {}
+            streamTilesSpy.mockReturnValueOnce(
+                new Promise<() => void>((resolve) => {
+                    resolveStream = () => resolve(lateAbort)
+                })
+            )
+
+            logic.actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+            await expectLogic(logic).toFinishAllListeners()
+
+            // unmount before the abort handle is available, then let streamTiles resolve
+            logic.unmount()
+            resolveStream()
+            await Promise.resolve()
+            await Promise.resolve()
+
+            expect(lateAbort).toHaveBeenCalledTimes(1)
+        })
+    })
 })
