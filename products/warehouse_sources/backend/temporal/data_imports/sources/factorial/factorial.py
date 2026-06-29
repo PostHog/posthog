@@ -181,6 +181,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
             params={"limit": 1},
             headers={"x-api-key": api_key},
             timeout=10,
+            # `allow_redirects=False` as defense-in-depth — keeps the API key from being
+            # forwarded to a redirected host even though the base URL is hard-coded.
+            allow_redirects=False,
         )
     except Exception as e:
         return False, str(e)

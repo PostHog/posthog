@@ -291,6 +291,7 @@ class TestValidateCredentials:
             assert call.args[0] == f"{BASE_URL}/resources/employees/employees"
             assert call.kwargs["headers"] == {"x-api-key": "test-key"}
             assert call.kwargs["params"] == {"limit": 1}
+            assert call.kwargs["allow_redirects"] is False
 
     def test_network_error_returns_message(self) -> None:
         with patch(_SESSION_FACTORY) as MockSession:

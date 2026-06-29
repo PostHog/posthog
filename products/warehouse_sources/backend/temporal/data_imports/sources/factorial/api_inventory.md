@@ -36,25 +36,25 @@ Source-local notes for the Factorial (HRIS) connector. See the official referenc
 
 ## Synced endpoints (`settings.py`)
 
-| Table                   | Path                                              | Partition key |
-| ----------------------- | ------------------------------------------------- | ------------- |
-| employees               | `/resources/employees/employees`                  | created_at    |
-| teams                   | `/resources/teams/teams`                          | —             |
-| team_memberships        | `/resources/teams/memberships`                    | —             |
-| locations               | `/resources/locations/locations`                  | —             |
-| legal_entities          | `/resources/companies/legal_entities`             | —             |
-| contract_versions       | `/resources/contracts/contract_versions`          | created_at    |
-| leaves                  | `/resources/timeoff/leaves`                       | created_at    |
-| leave_types             | `/resources/timeoff/leave_types`                  | —             |
-| allowances              | `/resources/timeoff/allowances`                   | —             |
-| attendance_shifts       | `/resources/attendance/shifts`                    | created_at    |
-| expenses                | `/resources/expenses/expenses`                    | created_at    |
-| payroll_supplements     | `/resources/payroll/supplements`                  | created_at    |
-| flexible_time_records   | `/resources/project_management/flexible_time_records` | created_at |
-| projects                | `/resources/project_management/projects`          | —             |
-| candidates              | `/resources/ats/candidates`                       | created_at    |
-| job_postings            | `/resources/ats/job_postings`                     | —             |
-| applications            | `/resources/ats/applications`                     | created_at    |
+| Table                 | Path                                                  | Partition key |
+| --------------------- | ----------------------------------------------------- | ------------- |
+| employees             | `/resources/employees/employees`                      | created_at    |
+| teams                 | `/resources/teams/teams`                              | —             |
+| team_memberships      | `/resources/teams/memberships`                        | —             |
+| locations             | `/resources/locations/locations`                      | —             |
+| legal_entities        | `/resources/companies/legal_entities`                 | —             |
+| contract_versions     | `/resources/contracts/contract_versions`              | created_at    |
+| leaves                | `/resources/timeoff/leaves`                           | created_at    |
+| leave_types           | `/resources/timeoff/leave_types`                      | —             |
+| allowances            | `/resources/timeoff/allowances`                       | —             |
+| attendance_shifts     | `/resources/attendance/shifts`                        | created_at    |
+| expenses              | `/resources/expenses/expenses`                        | created_at    |
+| payroll_supplements   | `/resources/payroll/supplements`                      | created_at    |
+| flexible_time_records | `/resources/project_management/flexible_time_records` | created_at    |
+| projects              | `/resources/project_management/projects`              | —             |
+| candidates            | `/resources/ats/candidates`                           | created_at    |
+| job_postings          | `/resources/ats/job_postings`                         | —             |
+| applications          | `/resources/ats/applications`                         | created_at    |
 
 Primary key is the integer `id` on every list resource. Partition keys are `created_at` where the field is
 reliably present on every row (transactional records); lookup/config resources are left unpartitioned.
