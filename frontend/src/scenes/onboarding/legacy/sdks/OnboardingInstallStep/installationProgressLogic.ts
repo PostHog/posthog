@@ -140,7 +140,8 @@ export function localProgress(
               }
             : null
 
-    return { phase, steps, error, prUrl: null, isCurrent: phase !== 'idle' }
+    // A session exists past the early return above, so this is always a current run.
+    return { phase, steps, error, prUrl: null, isCurrent: true }
 }
 
 /**
