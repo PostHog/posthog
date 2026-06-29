@@ -1012,6 +1012,22 @@ class SubscriptionTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
 
 
+class SubscriptionPreviewThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Rate limit AI subscription previews. A preview runs the full LLM + HogQL generation pipeline
+    # (planner / synthesis / per-step query fixes) without delivering, so the blast radius is LLM cost
+    # and query load, not recipient spam. Keyed per team (same rationale as the test-delivery throttle:
+    # neither rotating subscriptions nor rotating API keys bypasses a team-wide bucket) and applied to
+    # every authenticated caller. Tighter than test-delivery's rate because each call is several LLM
+    # round-trips with no user-visible send to self-limit it.
+    scope = "subscription_preview"
+    rate = "6/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+
+
 class UserInterviewInviteThrottle(PersonalApiKeyOrUserRateThrottle):
     # Cap how often a team can fire the user-interview send_invites action.
     #

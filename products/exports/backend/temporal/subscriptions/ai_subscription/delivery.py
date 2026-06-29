@@ -162,6 +162,30 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
     return result
 
 
+async def preview_ai_subscription_report(subscription: Subscription) -> AiReportResult:
+    """Run the AI report generation pipeline for a preview — no delivery, no persistence.
+
+    Same generation path as `build_ai_subscription_report` but deliberately side-effect-free: it never
+    persists the freshly-planned `query_plan` (re-plan/edit are the explicit write paths) and the caller
+    never invokes a send function. The returned report markdown + per-step diagnostics let an owner see
+    what the subscription would produce — including the generated HogQL — without emailing/Slacking anyone.
+    """
+    team, user, window, query_plan = await database_sync_to_async(
+        _resolve_subscription_context, thread_sensitive=False
+    )(subscription)
+    if user is None:
+        raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot preview.")
+
+    return await generate_ai_report(
+        team=team,
+        user=user,
+        prompt=subscription.prompt,
+        window=window,
+        query_plan=query_plan,
+        trace_correlation_id=subscription.id,
+    )
+
+
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:
     # Lands on the authenticated subscription page; the frontend reads these exact params
     # (feedback_delivery, feedback, feedback_source) and captures an `ai_report_feedback` event.
@@ -318,6 +342,7 @@ async def send_slack_ai_subscription_report(
 
 __all__ = [
     "build_ai_subscription_report",
+    "preview_ai_subscription_report",
     "render_ai_email_html",
     "send_email_ai_subscription_report",
     "send_slack_ai_subscription_report",
