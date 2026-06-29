@@ -1,4 +1,4 @@
-import { toHogDateTime } from '../stl/date'
+import { toHogDate, toHogDateTime } from '../stl/date'
 import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, unifyComparisonTypes } from '../utils'
 
 const PTR_COST = 8
@@ -9,17 +9,26 @@ describe('hogvm utils', () => {
         // and the VM's GT opcode does `unifyComparisonTypes(a, b)` then `a > b`. Two HogDateTime objects
         // fell through unchanged, so `object > object` coerced to "[object Object]" and was always false —
         // realtime workflow date filters never matched. They must order by epoch seconds.
-        const later = toHogDateTime(1782988689) // 2026-06-28
-        const earlier = toHogDateTime(1782518400) // 2026-06-23
+        const laterDateTime = toHogDateTime(1782988689) // 2026-06-28
+        const earlierDateTime = toHogDateTime(1782518400) // 2026-06-23 00:00:00 UTC
+        const laterDate = toHogDate(2026, 6, 28) // UTC midnight, exercises the isHogDate branch
+        const earlierDate = toHogDate(2026, 6, 23)
 
-        test('orders two HogDateTimes chronologically', () => {
+        // Cover both temporalSeconds branches (HogDateTime → .dt, HogDate → toHogDateTime().dt) and the
+        // cross-type pairings — the GT opcode does `unifyComparisonTypes(a, b)` then `a > b`.
+        test.each([
+            ['HogDateTime vs HogDateTime', laterDateTime, earlierDateTime],
+            ['HogDate vs HogDate', laterDate, earlierDate],
+            ['HogDate vs HogDateTime', laterDate, earlierDateTime],
+            ['HogDateTime vs HogDate', laterDateTime, earlierDate],
+        ])('orders %s chronologically', (_label, later, earlier) => {
             const [a, b] = unifyComparisonTypes(later, earlier)
             expect(a > b).toBe(true)
             expect(a < b).toBe(false)
         })
 
         test('equal instants compare equal', () => {
-            const [a, b] = unifyComparisonTypes(later, toHogDateTime(1782988689))
+            const [a, b] = unifyComparisonTypes(laterDateTime, toHogDateTime(1782988689))
             expect(a === b).toBe(true)
         })
     })
