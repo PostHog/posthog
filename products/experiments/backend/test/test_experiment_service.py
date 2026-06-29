@@ -18,6 +18,7 @@ from rest_framework.test import APIRequestFactory
 
 from posthog.schema import EventsNode, ExperimentMetric
 
+from posthog.event_usage import EventSource
 from posthog.models import Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
@@ -1699,6 +1700,193 @@ class TestExperimentService(APIBaseTest):
         second_link = experiment.experimenttosavedmetric_set.first()
         assert second_link is not None
         assert second_link.saved_metric_id == sm2.id
+
+    def _updated_events(self, mock_report_user_action):
+        return [c for c in mock_report_user_action.call_args_list if c.args[1] == "experiment updated"]
+
+    def _changed_fields(self, mock_report_user_action):
+        events = self._updated_events(mock_report_user_action)
+        assert len(events) == 1, f"expected exactly one 'experiment updated' event, got {len(events)}"
+        return events[0].args[2]["changed_fields"]
+
+    def _make_saved_metric(self, name: str, event: str = "$pageview") -> ExperimentSavedMetric:
+        return ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name=name,
+            query={"kind": "ExperimentMetric", "metric_type": "mean", "source": {"kind": "EventsNode", "event": event}},
+        )
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_reports_updated_with_metric_composition(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Shared SM")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}]},
+            serializer_context=service._build_serializer_context(),
+        )
+
+        metadata = self._updated_events(mock_report_user_action)[0].args[2]
+        assert metadata["saved_metrics_count"] == 1
+        # _create_draft_experiment seeds one inline primary metric and no secondary
+        assert metadata["metrics_count"] == 1
+        assert metadata["secondary_metrics_count"] == 0
+        assert "saved_metrics" in metadata["changed_fields"]
+        assert mock_report_user_action.call_args_list[-1].kwargs["team"] == self.team
+        assert mock_report_user_action.call_args_list[-1].kwargs["request"] is not None
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Renamed experiment"}, "name"),
+            ("description", {"description": "A brand new hypothesis"}, "description"),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_scalar_edit(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, update_data, serializer_context=service._build_serializer_context())
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        # A scalar edit must not falsely report metric (re)configuration even though the
+        # update pipeline internally re-touches existing inline metrics.
+        assert "metrics" not in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            (
+                "primary",
+                {
+                    "metrics": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "uuid": "m-new",
+                            "source": {"kind": "EventsNode", "event": "checkout_completed"},
+                        }
+                    ]
+                },
+                "metrics",
+            ),
+            (
+                "secondary",
+                {
+                    "metrics_secondary": [
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "funnel",
+                            "uuid": "s-new",
+                            "series": [
+                                {"kind": "EventsNode", "event": "$pageview"},
+                                {"kind": "EventsNode", "event": "signed_up"},
+                            ],
+                        }
+                    ]
+                },
+                "metrics_secondary",
+            ),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_inline_metric(self, _name, update_data, expected_field, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(
+            experiment, update_data, serializer_context=service._build_serializer_context(), allow_unknown_events=True
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert expected_field in changed
+        assert "saved_metrics" not in changed
+
+    @parameterized.expand(
+        [
+            # (initial role attached, role sent in the measured update, expect a real change)
+            ("attach", None, "primary", True),
+            ("detach", "primary", None, True),
+            ("retype", "primary", "secondary", True),
+            ("resend_identical", "primary", "primary", False),
+        ]
+    )
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_saved_metric_change_detection(self, _name, initial_type, new_type, expect_change, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        ctx = service._build_serializer_context()
+
+        # fresh payload per call — update_experiment mutates update_data in place
+        def attach(metric_type: str) -> dict:
+            return {"saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": metric_type}}]}
+
+        if initial_type is not None:
+            service.update_experiment(experiment, attach(initial_type), serializer_context=ctx)
+        mock_report_user_action.reset_mock()
+
+        update_data = {"saved_metrics_ids": []} if new_type is None else attach(new_type)
+        service.update_experiment(experiment, update_data, serializer_context=ctx)
+
+        if expect_change:
+            changed = self._changed_fields(mock_report_user_action)
+            assert "saved_metrics" in changed
+            # the write-side payload key must not leak; inline metrics were untouched
+            assert "saved_metrics_ids" not in changed
+            assert "metrics" not in changed
+        else:
+            assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_no_real_change_does_not_report(self, mock_report_user_action):
+        experiment = self._create_draft_experiment(name="Stable name")
+        service = self._service()
+        service.update_experiment(
+            experiment, {"name": "Stable name"}, serializer_context=service._build_serializer_context()
+        )
+
+        assert self._updated_events(mock_report_user_action) == []
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_changed_fields_multiple_at_once(self, mock_report_user_action):
+        experiment = self._create_draft_experiment()
+        saved_metric = self._make_saved_metric("Reusable conversion")
+        service = self._service()
+        service.update_experiment(
+            experiment,
+            {
+                "name": "Renamed and remetered",
+                "saved_metrics_ids": [{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            },
+            serializer_context=service._build_serializer_context(),
+        )
+
+        changed = self._changed_fields(mock_report_user_action)
+        assert "name" in changed
+        assert "saved_metrics" in changed
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_with_event_source_and_no_request_reports_with_source(self, mock_report_user_action):
+        # Parity with create_experiment: a non-HTTP caller (e.g. an AI/Max tool) that passes
+        # event_source must still emit, attributed to that channel, even without a request.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed by AI"}, event_source=EventSource.POSTHOG_AI)
+
+        event = self._updated_events(mock_report_user_action)[0]
+        assert event.args[2]["source"] == EventSource.POSTHOG_AI
+        assert "name" in event.args[2]["changed_fields"]
+        assert event.kwargs["request"] is None
+
+    @patch("products.experiments.backend.experiment_service.report_user_action")
+    def test_update_without_request_or_event_source_is_silent(self, mock_report_user_action):
+        # Internal callers that supply neither a request nor an event_source stay invisible.
+        experiment = self._create_draft_experiment()
+        service = self._service()
+        service.update_experiment(experiment, {"name": "Renamed internally"})
+
+        assert self._updated_events(mock_report_user_action) == []
 
     def test_update_experiment_rolls_back_saved_metric_changes_on_validation_error(self):
         self._create_flag(key="rollback-update")
