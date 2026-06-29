@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from unittest.mock import MagicMock, patch
+
+from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 
 from .fetch import fetch_responses
 
@@ -220,3 +223,22 @@ class TestFetchResponses(ClickhouseTestMixin, APIBaseTest):
         # Only the valid response should be returned
         assert len(responses) == 1
         assert responses[0] == "Valid response"
+
+    @patch.object(HogQLHasMorePaginator, "execute_hogql_query")
+    def test_strips_null_bytes_from_responses(self, mock_execute):
+        # A real user answer can contain a null byte; it must never reach the LLM or a
+        # Postgres text/jsonb column, both of which reject it. Constructed via chr(0) so a
+        # raw NUL never appears in this source file.
+        null_byte = chr(0)
+        mock_execute.return_value = MagicMock(results=[["O site sempre d" + null_byte], ["clean answer"]])
+
+        responses = fetch_responses(
+            survey_id=str(uuid.uuid4()),
+            question_index=0,
+            question_id=None,
+            start_date=datetime.now() - timedelta(days=1),
+            end_date=datetime.now(),
+            team=self.team,
+        )
+
+        assert responses == ["O site sempre d", "clean answer"]

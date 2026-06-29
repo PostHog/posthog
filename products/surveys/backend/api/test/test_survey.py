@@ -6832,6 +6832,33 @@ class TestSurveySummarizeByQuestionId(APIBaseTest):
         self.assertEqual(mock_fetch.call_args.kwargs["question_index"], expected_index)
         self.assertEqual(mock_fetch.call_args.kwargs["question_id"], question_id)
 
+    @override_settings(GEMINI_API_KEY="test-key")
+    @patch("products.surveys.backend.api.survey.is_cloud", return_value=True)
+    @patch("products.surveys.backend.api.survey.get_archived_response_uuids", return_value=set())
+    # The LLM echoes a null byte from a user's answer into the summary it returns.
+    @patch("products.surveys.backend.api.survey.format_as_markdown", return_value="O site sempre d\x00 — broken")
+    @patch("products.surveys.backend.api.survey.summarize_responses")
+    @patch("products.surveys.backend.api.survey.fetch_responses", return_value=["O site sempre d\x00"])
+    def test_summarize_strips_null_byte_before_saving(
+        self, mock_fetch, mock_summarize, _mock_format, _mock_archived, _mock_cloud
+    ):
+        mock_summarize.return_value = MagicMock(summary="summary", trace_id="trace-123")
+
+        # A null byte in the generated summary would make the question_summaries JSONField write
+        # raise UntranslatableCharacter in Postgres, 500ing the endpoint with no user workaround.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/surveys/{self.survey.id}/summarize_responses/?question_id=q1"
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertNotIn("\x00", response.json()["content"])
+
+        # The summary must persist cleanly so the long-term cache read-back works.
+        self.survey.refresh_from_db()
+        saved_summary = self.survey.question_summaries["q1"]["summary"]
+        self.assertNotIn("\x00", saved_summary)
+        self.assertEqual(saved_summary, "O site sempre d — broken")
+
 
 class TestSurveyLifecycleActions(APIBaseTest):
     def setUp(self):
