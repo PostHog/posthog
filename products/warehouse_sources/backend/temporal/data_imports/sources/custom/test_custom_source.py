@@ -6,6 +6,7 @@ from typing import Any, cast
 from urllib.parse import quote
 
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -15,6 +16,7 @@ from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
 
+from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
     APIKeyAuth,
@@ -35,6 +37,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     ManifestValidationError,
     PreviewResponseTooLargeError,
     _fanout_chain,
+    _inject_oauth2_integration_secrets,
     _json_type_label,
     _PreviewSession,
     _read_capped_text,
@@ -49,6 +52,13 @@ from products.warehouse_sources.backend.temporal.data_imports.util import NonRet
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
+
+
+def _token_response(status_code: int = 200, payload: dict[str, Any] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    response.json.return_value = payload if payload is not None else {}
+    return response
 
 
 def validate_manifest(manifest: Any) -> None:
@@ -461,6 +471,81 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         auth = source._assemble_manifest(config)["client"]["auth"]
         assert "client_secret" not in auth
         assert "refresh_token" not in auth
+
+    def test_oauth2_skips_static_secrets_when_integration_backed(self):
+        # When the source points at a CustomOAuth2Integration, the static job_inputs secrets must NOT be
+        # injected here — the row is the source of truth and supplies them at sync time. Leaking the
+        # static ones would let a stale/duplicate secret override the model's live credentials.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_oauth2_client_secret="cs_secret",
+            auth_oauth2_refresh_token="rt_secret",
+            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+        )
+        auth = source._assemble_manifest(config)["client"]["auth"]
+        assert "client_secret" not in auth
+        assert "refresh_token" not in auth
+
+
+class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
+    def _make_integration(self, **secret_overrides) -> CustomOAuth2Integration:
+        return CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            config={"token_url": "https://auth.example.com/token", "client_id": "cid", "grant_type": "refresh_token"},
+            sensitive_config={"client_secret": "cs", "refresh_token": "orig-RT", **secret_overrides},
+        )
+
+    def _oauth2_manifest(self) -> dict:
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+            "grant_type": "refresh_token",
+        }
+        return manifest
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_injects_live_secrets_seeds_minted_token_and_writes_back_rotation(self, mock_session):
+        # The Calendly path end-to-end at the wiring seam: minting up front persists the rotated
+        # single-use refresh token, and the manifest is seeded with the live secrets + minted token so
+        # the engine reuses it (no second mint that would burn an unpersisted rotation).
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
+        )
+        integration = self._make_integration()
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
+
+        auth = manifest["client"]["auth"]
+        assert auth["client_secret"] == "cs"
+        assert auth["access_token"] == "minted-AT"
+        assert auth["access_token_expiry"] is not None
+        # The seeded refresh token is the rotated one, not the consumed original.
+        assert auth["refresh_token"] == "rotated-RT"
+        # And it was persisted, so the next sync reads the rotated token from the row.
+        fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
+        assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_reuses_cached_token_without_minting(self, mock_session):
+        # A still-valid cached token means no mint at all — the manifest is seeded straight from the row.
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        integration = self._make_integration(access_token="cached-AT", token_expiry=future)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
+
+        mock_session.return_value.post.assert_not_called()
+        assert manifest["client"]["auth"]["access_token"] == "cached-AT"
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):

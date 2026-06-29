@@ -157,6 +157,7 @@ class OAuth2Auth(BearerTokenAuth):
         scopes: Optional[str] = None,
         refresh_token: Optional[str] = None,
         access_token: Optional[str] = None,
+        access_token_expiry: Optional[str] = None,
         # --- Extensibility knobs (all optional, all non-secret) for the provider long tail. ---
         access_token_name: str = "access_token",
         expires_in_name: str = "expires_in",
@@ -182,9 +183,11 @@ class OAuth2Auth(BearerTokenAuth):
         # captured here (never overwriting self.refresh_token, which must keep minting this run) so a
         # caller holding a DB row can persist it for the next sync. None until a rotation is seen.
         self.rotated_refresh_token: Optional[str] = None
-        # None => mint on the first request. A pre-supplied access_token (rare; never
-        # set for custom sources today) has no known expiry, so it too re-mints first.
-        self.token_expiry: Optional[datetime] = None
+        # None => mint on the first request. A model-backed source seeds a still-valid access_token plus
+        # its expiry (access_token_expiry) so the token is reused instead of re-minted on the first
+        # request — for a rotating provider a re-mint would burn another single-use refresh token that
+        # this in-memory auth never persists. A seeded token with no expiry re-mints first, as before.
+        self.token_expiry: Optional[datetime] = _parse_seed_expiry(access_token_expiry) if access_token else None
         # When the current token was minted — used to cap the refresh buffer at half the
         # token's lifetime so a very short-lived token isn't treated as expired the instant
         # it's minted (which would re-mint on every request).
@@ -341,6 +344,21 @@ def _read_capped_token_payload(response: Response) -> Optional[dict[str, Any]]:
     except ValueError:
         return None
     return payload if isinstance(payload, dict) else None
+
+
+def _parse_seed_expiry(raw: Optional[str]) -> Optional[datetime]:
+    """Parse a seeded access-token expiry (ISO-8601) into an aware UTC datetime, or None.
+
+    A naive timestamp is read as UTC; an unparseable value yields None so a seeded token without a
+    usable expiry simply re-mints on first use rather than crashing the auth.
+    """
+    if not raw:
+        return None
+    try:
+        parsed = datetime.fromisoformat(raw)
+    except (ValueError, TypeError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
 
 
 def _extract_token_error(payload: Optional[dict[str, Any]]) -> tuple[Optional[str], str]:

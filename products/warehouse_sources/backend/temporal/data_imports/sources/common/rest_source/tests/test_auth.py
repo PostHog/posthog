@@ -123,6 +123,42 @@ class TestOAuth2Auth(SimpleTestCase):
         assert _apply_auth(auth) == "Bearer short"
         assert mock_session.return_value.post.call_count == 1
 
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_seeded_token_with_future_expiry_is_reused_without_minting(self, mock_session):
+        # A model-backed source seeds a still-valid access token + its expiry; the engine must reuse it
+        # rather than mint on the first request — a re-mint would burn another single-use refresh token.
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_id="cid",
+            client_secret="cs",
+            grant_type="refresh_token",
+            refresh_token="rt",
+            access_token="seeded-token",
+            access_token_expiry=future,
+        )
+        assert _apply_auth(auth) == "Bearer seeded-token"
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_seeded_token_with_past_expiry_remints(self, mock_session):
+        # An expired seed still re-mints — the seed is an optimization, not a way to pin a dead token.
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "fresh", "expires_in": 3600}
+        )
+        past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_id="cid",
+            client_secret="cs",
+            grant_type="refresh_token",
+            refresh_token="rt",
+            access_token="stale",
+            access_token_expiry=past,
+        )
+        assert _apply_auth(auth) == "Bearer fresh"
+        mock_session.return_value.post.assert_called_once()
+
     def test_secret_values_includes_minted_token(self):
         auth = OAuth2Auth(client_secret="csecret", refresh_token="refresh-x")
         # Before minting: the static secrets only.

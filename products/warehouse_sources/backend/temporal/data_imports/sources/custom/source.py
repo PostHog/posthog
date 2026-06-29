@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.cloud_utils import is_cloud
 
+from products.warehouse_sources.backend.models.custom_oauth2_integration import get_custom_oauth2_integration
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SortMode,
     SourceInputs,
@@ -689,6 +690,19 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         placeholder="",
                         secret=True,
                     ),
+                    # Non-secret pointer to a CustomOAuth2Integration row (a UUID). When set, the live
+                    # client_secret / refresh_token / minted access token come from that row at sync time
+                    # (so a rotated single-use refresh token gets persisted), and the static auth_oauth2_*
+                    # secrets above are ignored. Not a secret — it's an id, so it doesn't trip the
+                    # credential re-entry gate.
+                    SourceFieldInputConfig(
+                        name="auth_oauth2_integration_id",
+                        label="OAuth2 integration",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="",
+                        secret=False,
+                    ),
                 ],
             ),
         )
@@ -901,6 +915,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def source_for_pipeline(self, config: CustomSourceConfig, inputs: SourceInputs) -> SourceResponse:
         try:
             manifest = self._assemble_manifest(config)
+            # A model-backed OAuth2 source loads its live secrets + minted token from the
+            # CustomOAuth2Integration row here (sync time, DB-capable), which also writes back a rotated
+            # refresh token. _assemble_manifest already skipped the static job_inputs secrets for it.
+            if config.auth_oauth2_integration_id:
+                _inject_oauth2_integration_secrets(manifest, config.auth_oauth2_integration_id, inputs.team_id)
             ok, err = validate_manifest_urls(manifest, inputs.team_id)
             if not ok:
                 raise ManifestValidationError(err or "Manifest URL validation failed")
@@ -1311,6 +1330,11 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
     elif auth_type == "http_basic" and config.auth_password:
         auth["password"] = config.auth_password
     elif auth_type == "oauth2":
+        # A model-backed source (auth_oauth2_integration_id set) gets its live secrets + minted token
+        # from the CustomOAuth2Integration row at sync time (see _inject_oauth2_integration_secrets),
+        # so skip the static job_inputs secrets entirely — they aren't the source of truth here.
+        if config.auth_oauth2_integration_id:
+            return
         # The non-secret oauth fields (client_id / token_url / grant_type / knobs) are
         # already in the manifest; inject only the secrets. client_credentials needs just
         # the client_secret; the refresh_token grant also needs the refresh token.
@@ -1318,6 +1342,31 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
             auth["client_secret"] = config.auth_oauth2_client_secret
         if config.auth_oauth2_refresh_token:
             auth["refresh_token"] = config.auth_oauth2_refresh_token
+
+
+def _inject_oauth2_integration_secrets(manifest: dict[str, Any], integration_id: str, team_id: int) -> None:
+    """Inject a model-backed OAuth2 source's live credentials + minted token into ``client.auth``.
+
+    Mutates ``manifest`` in place. Runs only at sync time (it loads from the DB and mints), where the
+    activity is DB-capable and ``team_id`` is known — never on the create-time / schema-listing manifest
+    assembly. ``get_access_token()`` mints + persists up front, so this is the seam where a rotating
+    provider's new single-use refresh token gets written back before the next sync would reuse the
+    consumed one. The minted token + its expiry are seeded too, so the REST engine reuses them instead
+    of re-minting on the first request (a re-mint would burn — and fail to persist — another rotation).
+    """
+    client = manifest.get("client")
+    if not isinstance(client, dict):
+        return
+    auth = client.get("auth")
+    if not isinstance(auth, dict) or auth.get("type") != "oauth2":
+        return
+    integration = get_custom_oauth2_integration(integration_id, team_id)
+    integration.get_access_token()
+    secrets = integration.sensitive_config
+    auth["client_secret"] = secrets.get("client_secret")
+    auth["refresh_token"] = secrets.get("refresh_token")
+    auth["access_token"] = secrets.get("access_token")
+    auth["access_token_expiry"] = secrets.get("token_expiry")
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:
