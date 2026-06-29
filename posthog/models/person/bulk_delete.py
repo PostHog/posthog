@@ -128,18 +128,9 @@ def queue_person_recording_deletion(
     _start_recording_workflows(team_id, persons, actor, reason)
 
 
-# A bulk deletion can resolve tens of thousands of persons. Starting one workflow
-# per person fanned out enough concurrent ``load-recordings-with-person`` queries to
-# blow past the offline ClickHouse per-user concurrent-query cap (Code 202). Batch
-# persons into a single workflow per chunk — the load query filters distinct IDs with
-# an ``IN`` clause, so one query covers the whole chunk — and bound how many start
-# at once so the fan-out can't saturate the read replicas again.
+# Batch persons per workflow (not one each) to bound concurrent ClickHouse load queries; cap distinct IDs per chunk to stay under Temporal's payload limit.
 _RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
 _MAX_CONCURRENT_WORKFLOW_STARTS = 20
-# Also bound a chunk by total distinct IDs so the combined ``RecordingsWithPersonInput``
-# stays well under Temporal's payload limit even when persons carry large distinct-ID
-# sets. A single person over the cap still gets its own (oversized) workflow — no worse
-# than the previous one-per-person fan-out.
 _MAX_DISTINCT_IDS_PER_WORKFLOW = 2000
 
 

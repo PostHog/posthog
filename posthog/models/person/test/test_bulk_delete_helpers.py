@@ -16,8 +16,7 @@ from posthog.test.persons import create_person
 
 
 def _person_with_distinct_ids(*distinct_ids: str) -> Person:
-    # Unsaved Person with its distinct_ids cached, mirroring how production callers
-    # pre-resolve them — so reads stay in-memory inside the async fan-out.
+    # Unsaved Person with distinct_ids cached, so reads stay in-memory in the async fan-out.
     person = Person()
     person._distinct_ids = list(distinct_ids)
     return person
@@ -119,9 +118,6 @@ class QueueRecordingDeletionTests(BaseTest):
         ]
     )
     def test_batches_persons_into_workflows(self, _name, num_persons, batch_size, expected_workflows):
-        # Guards the fan-out cap: one workflow per person previously saturated the
-        # offline ClickHouse query pool. We must start ceil(persons / batch) workflows
-        # while still covering every person's distinct IDs.
         persons = [_person_with_distinct_ids(f"did-{i}") for i in range(num_persons)]
         client = MagicMock()
         client.start_workflow = AsyncMock()
@@ -154,8 +150,6 @@ class QueueRecordingDeletionTests(BaseTest):
         ]
     )
     def test_chunks_by_distinct_id_count(self, _name, distinct_id_counts, cap, expected_workflows):
-        # Guards the payload cap: a chunk's combined distinct IDs must stay bounded so the
-        # workflow input can't exceed Temporal's payload limit, independent of person count.
         persons = [
             _person_with_distinct_ids(*[f"p{i}-d{j}" for j in range(count)])
             for i, count in enumerate(distinct_id_counts)
@@ -170,8 +164,6 @@ class QueueRecordingDeletionTests(BaseTest):
         assert client.start_workflow.call_count == expected_workflows
 
     def test_uses_empty_deleted_by_when_actor_missing(self):
-        # The Dagster deletion path passes actor=None; DeletionConfig.deleted_by is a
-        # required str, so the workflow start must not raise on a missing actor.
         client = MagicMock()
         client.start_workflow = AsyncMock()
         with patch("posthog.models.person.bulk_delete.sync_connect", return_value=client):

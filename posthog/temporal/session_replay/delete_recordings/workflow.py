@@ -36,14 +36,7 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 
-# The load activities query the shared offline ClickHouse read replicas as the
-# ``default`` user, which is capped at a low number of concurrent queries per node.
-# Under a deletion burst these queries get rejected with Code 202
-# (TOO_MANY_SIMULTANEOUS_QUERIES, mapped to a retryable ClickHouse error). Retry with
-# exponential backoff so they drain into the per-user cap instead of failing the
-# workflow outright. The listed errors are deterministic — a parse failure or a query
-# that's too heavy — and won't recover on retry, so fail fast rather than burning the
-# whole backoff budget on them.
+# Back off on transient ClickHouse overload (Code 202); fail fast on deterministic errors that won't recover.
 _LOAD_RECORDINGS_RETRY_POLICY = common.RetryPolicy(
     maximum_attempts=8,
     initial_interval=timedelta(seconds=2),
