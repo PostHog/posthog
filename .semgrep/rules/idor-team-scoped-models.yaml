@@ -229,6 +229,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceGroupLease
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -491,6 +492,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceGroupLease
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery
