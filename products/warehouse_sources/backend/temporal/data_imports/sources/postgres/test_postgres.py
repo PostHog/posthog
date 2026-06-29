@@ -866,8 +866,22 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
             db_incremental_field_last_value=None,
         )
 
-    def test_sustained_recovery_conflict_during_setup_aborts_non_retryably(self):
-        err = psycopg.errors.SerializationFailure("terminating connection due to conflict with recovery")
+    @pytest.mark.parametrize(
+        "err",
+        [
+            # A hot-standby recovery conflict surfaces as either SerializationFailure (the
+            # transaction was aborted) or QueryCanceled (the statement was canceled, e.g. a replica
+            # reconnect) — the same transient condition. Both must be retried in-process during setup
+            # and end in the non-retryable abort once sustained; before the QueryCanceled fix that
+            # flavor escaped on the first probe and failed the whole activity.
+            psycopg.errors.SerializationFailure("terminating connection due to conflict with recovery"),
+            psycopg.errors.QueryCanceled(
+                "canceling statement due to conflict with recovery\n"
+                "DETAIL:  User query might have conflicted with replica reconnect."
+            ),
+        ],
+    )
+    def test_sustained_recovery_conflict_during_setup_aborts_non_retryably(self, err):
         connection = self._make_failing_connection(err)
 
         with patch(
@@ -885,60 +899,25 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
         # Each retry reconnects, so connect is called once per attempt.
         assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
 
-    def test_non_recovery_serialization_failure_during_setup_is_not_retried(self):
-        # A serialization failure unrelated to standby recovery must propagate immediately —
-        # the retry is scoped strictly to "conflict with recovery".
-        err = psycopg.errors.SerializationFailure("could not serialize access due to concurrent update")
+    @pytest.mark.parametrize(
+        "err",
+        [
+            # The in-process retry is scoped strictly to "conflict with recovery": a serialization
+            # failure from a concurrent update, and a QueryCanceled from a statement_timeout, are
+            # both unrelated to standby recovery and must propagate on the first probe.
+            psycopg.errors.SerializationFailure("could not serialize access due to concurrent update"),
+            psycopg.errors.QueryCanceled("canceling statement due to statement timeout"),
+        ],
+    )
+    def test_non_recovery_conflict_during_setup_is_not_retried(self, err):
         connection = self._make_failing_connection(err)
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
             return_value=connection,
         ) as connect_mock:
-            with pytest.raises(psycopg.errors.SerializationFailure):
+            with pytest.raises(type(err)):
                 self._call_postgres_source()
-
-        assert connect_mock.call_count == 1
-
-    def test_recovery_conflict_as_query_canceled_during_setup_is_retried(self):
-        # A hot-standby recovery conflict can surface as QueryCanceled ("canceling statement due to
-        # conflict with recovery") rather than SerializationFailure — the same transient condition.
-        # The setup loop must retry it in-process exactly like the SerializationFailure flavor;
-        # before the fix it escaped on the first probe and failed the whole activity.
-        err = psycopg.errors.QueryCanceled(
-            "canceling statement due to conflict with recovery\n"
-            "DETAIL:  User query might have conflicted with replica reconnect."
-        )
-        connection = self._make_failing_connection(err)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
-            return_value=connection,
-        ) as connect_mock:
-            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
-                with pytest.raises(Exception) as exc_info:
-                    self._call_postgres_source()
-
-        message = str(exc_info.value)
-        assert "conflict with recovery" in message and "max_standby_streaming_delay" in message
-        non_retryable = PostgresSource().get_non_retryable_errors()
-        assert any(pattern in message for pattern in non_retryable.keys())
-        # Each retry reconnects, so connect is called once per attempt.
-        assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
-
-    def test_statement_timeout_query_canceled_during_setup_is_not_retried(self):
-        # A QueryCanceled that isn't a recovery conflict (a statement_timeout) must propagate
-        # immediately — the in-process retry is scoped strictly to "conflict with recovery".
-        err = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
-        connection = self._make_failing_connection(err)
-
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
-            return_value=connection,
-        ) as connect_mock:
-            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
-                with pytest.raises(psycopg.errors.QueryCanceled):
-                    self._call_postgres_source()
 
         assert connect_mock.call_count == 1
 
