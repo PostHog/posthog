@@ -21,7 +21,13 @@ class TracingView(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMeta
     just replays those filters into `tracingFiltersLogic`.
     """
 
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents; the real constraints are added lock-free via
+    # AddForeignKeyNotValid in the migration. created_by overrides CreatedMetaFields for the same reason.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
+    )
     # Human-friendly id used in the API/URL instead of exposing the UUID primary key.
     short_id = models.CharField(max_length=12, blank=True, default=generate_short_id)
     name = models.CharField(max_length=400)

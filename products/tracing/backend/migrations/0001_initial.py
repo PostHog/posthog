@@ -4,6 +4,7 @@ from django.db import migrations, models
 
 import posthog.utils
 import posthog.models.utils
+from posthog.migration_helpers import AddForeignKeyNotValid
 
 
 class Migration(migrations.Migration):
@@ -44,6 +45,7 @@ class Migration(migrations.Migration):
                     "created_by",
                     models.ForeignKey(
                         blank=True,
+                        db_constraint=False,
                         null=True,
                         on_delete=django.db.models.deletion.SET_NULL,
                         to=settings.AUTH_USER_MODEL,
@@ -51,7 +53,11 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "team",
-                    models.ForeignKey(on_delete=django.db.models.deletion.CASCADE, to="posthog.team"),
+                    models.ForeignKey(
+                        db_constraint=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to="posthog.team",
+                    ),
                 ),
             ],
             options={
@@ -64,5 +70,19 @@ class Migration(migrations.Migration):
                 ],
                 "unique_together": {("team", "short_id")},
             },
+        ),
+        AddForeignKeyNotValid(
+            model_name="tracingview",
+            name="tracingview_team_id_fk",
+            column="team_id",
+            to_table="posthog_team",
+            to_column="id",
+        ),
+        AddForeignKeyNotValid(
+            model_name="tracingview",
+            name="tracingview_created_by_id_fk",
+            column="created_by_id",
+            to_table="posthog_user",
+            to_column="id",
         ),
     ]
