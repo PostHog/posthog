@@ -274,6 +274,45 @@ async fn load_personal_key_from_pg(
     }
 }
 
+/// Resolves the current team id for a personal API key's user — Django's `user.current_team`,
+/// used only by the remote_config endpoint's `@current` project resolution. Returns `None` when
+/// the key is unknown/inactive or the user has no current team set. This is a live read rather
+/// than the auth cache: the `@current`-without-token path is low volume and the cached key
+/// metadata does not carry the user's current team.
+pub async fn current_team_id_for_personal_api_key(
+    state: &AppState,
+    key: &str,
+) -> Result<Option<i32>, FlagError> {
+    use sqlx::Row;
+
+    let hashed_token = hash_token_value(key);
+    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let mut conn = get_connection_with_metrics(
+        &pg_reader,
+        "non_persons_reader",
+        "remote_config_current_team",
+    )
+    .await?;
+
+    let row = sqlx::query(
+        r#"
+        SELECT u.current_team_id
+        FROM posthog_personalapikey pak
+        INNER JOIN posthog_user u ON pak.user_id = u.id
+        WHERE pak.secure_value = $1 AND u.is_active = true
+        "#,
+    )
+    .bind(&hashed_token)
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(FlagError::from)?;
+
+    match row {
+        Some(r) => Ok(r.try_get::<Option<i32>, _>("current_team_id")?),
+        None => Ok(None),
+    }
+}
+
 /// Hash a token value using SHA256
 /// Ported from PostHog's `hash_key_value` function in `posthog/models/utils.py`
 /// Used by both PersonalAPIKey and ProjectSecretAPIKey
