@@ -100,6 +100,50 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         finished_at: null,
     },
     {
+        // AI-prompt delivery: the delivered report markdown and per-query diagnostics (one failed) live in
+        // content_snapshot, gated behind query:viewer (the backend scrubs it to {} otherwise).
+        id: 'del-ai-report',
+        subscription: 1,
+        temporal_workflow_id: 'wf-ai-report',
+        idempotency_key: 'idem-ai-report',
+        trigger_type: 'manual',
+        scheduled_at: null,
+        target_type: 'email',
+        target_value: 'matt.p@posthog.com',
+        exported_asset_ids: [],
+        content_snapshot: {
+            ai_report:
+                '## Weekly Hedgebox report\n\n| Metric | Value |\n| --- | --- |\n| Daily active users | 89 |\n| New signups | 56 |\n| File uploads | 429 |\n| File downloads | 324 |\n\nEngagement is up week-over-week, led by uploads.',
+            ai_report_diagnostics: [
+                {
+                    description: 'Daily active users (7-day total)',
+                    hogql: 'SELECT count(DISTINCT person_id) AS dau FROM events WHERE timestamp >= now() - INTERVAL 7 DAY',
+                    ok: true,
+                    error_type: null,
+                },
+                {
+                    description: 'New signups',
+                    hogql: "SELECT count() AS signups FROM events WHERE event = 'signed_up' AND timestamp >= now() - INTERVAL 7 DAY",
+                    ok: true,
+                    error_type: null,
+                },
+                {
+                    description: 'First-ever signups per user',
+                    hogql: 'SELECT first_ever(event) OVER (PARTITION BY person_id) FROM events',
+                    ok: false,
+                    error_type: 'SyntaxError',
+                },
+            ],
+        },
+        recipient_results: [],
+        status: SubscriptionDeliveryStatusEnumApi.Completed,
+        error: null,
+        change_summary: null,
+        created_at: '2026-04-07T09:30:00Z',
+        last_updated_at: '2026-04-07T09:30:20Z',
+        finished_at: '2026-04-07T09:30:22Z',
+    },
+    {
         id: 'del-1',
         subscription: 1,
         temporal_workflow_id: 'wf-1',

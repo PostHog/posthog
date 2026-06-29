@@ -1,6 +1,7 @@
 import { IconSend, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import {
     LemonButton,
+    LemonCollapse,
     LemonDivider,
     LemonSelect,
     LemonTable,
@@ -18,7 +19,9 @@ import {
     SubscriptionsDeliveriesListStatus as SubscriptionDeliveriesListStatusByValue,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
+import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 
 import type { DeliveryFeedback } from '../subscriptionSceneLogic'
 import { SubscriptionDeliveryDestinationCell } from './SubscriptionDestinationCell'
@@ -91,20 +94,125 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-function ExpandedSummaryRow({ summary }: { summary: string }): JSX.Element {
+/** One entry of `content_snapshot.ai_report_diagnostics` — a generated query and whether it ran. */
+interface AiReportDiagnostic {
+    description?: string
+    hogql?: string
+    ok?: boolean
+    error_type?: string | null
+}
+
+/**
+ * All per-query diagnostics for an AI-prompt delivery (succeeded and failed). The backend scrubs
+ * `content_snapshot` to `{}` for callers without `query:viewer` access, so this is empty unless the
+ * viewer may see query content. Surfacing the successful queries — not just the failed ones — lets a
+ * subscription owner see exactly what the prompt generated and self-recover by tightening it.
+ */
+function reportDiagnostics(row: SubscriptionDeliveryApi): AiReportDiagnostic[] {
+    const diagnostics = (row.content_snapshot as { ai_report_diagnostics?: unknown } | null)?.ai_report_diagnostics
+    if (!Array.isArray(diagnostics)) {
+        return []
+    }
+    return (diagnostics as AiReportDiagnostic[]).filter((d) => d && typeof d === 'object')
+}
+
+function queryStatusTag(d: AiReportDiagnostic): JSX.Element {
+    return d.ok === false ? (
+        <LemonTag type="danger">{d.error_type || 'Failed'}</LemonTag>
+    ) : (
+        <LemonTag type="success">OK</LemonTag>
+    )
+}
+
+function diagnosticsSummary(diagnostics: AiReportDiagnostic[]): string {
+    const total = diagnostics.length
+    const failed = diagnostics.filter((d) => d.ok === false).length
+    const noun = total === 1 ? 'query' : 'queries'
+    return failed === 0 ? `${total} ${noun} · all succeeded` : `${total} ${noun} · ${failed} failed`
+}
+
+const failedIndexes = (diagnostics: AiReportDiagnostic[]): number[] =>
+    diagnostics.map((d, i) => (d.ok === false ? i : -1)).filter((i) => i >= 0)
+
+/** The delivered report markdown, when present. Lives in `content_snapshot`, so it is scrubbed away for
+ * callers without `query:viewer` access just like the diagnostics. */
+function reportMarkdown(row: SubscriptionDeliveryApi): string | null {
+    const report = (row.content_snapshot as { ai_report?: unknown } | null)?.ai_report
+    return typeof report === 'string' && report ? report : null
+}
+
+/**
+ * Per-query accordion: one compact header per generated query (status + description); expand a query for its
+ * SQL. Failed queries are open by default so a degraded report stays loud and debuggable.
+ */
+function GeneratedQueries({ diagnostics }: { diagnostics: AiReportDiagnostic[] }): JSX.Element {
     return (
-        <div className="px-4 py-3 text-sm whitespace-pre-wrap">
-            <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
-            {summary}
+        <div className="flex flex-col gap-1">
+            <div className="text-secondary">{diagnosticsSummary(diagnostics)}</div>
+            <LemonCollapse
+                size="small"
+                multiple
+                defaultActiveKeys={failedIndexes(diagnostics)}
+                panels={diagnostics.map((d, index) => ({
+                    key: index,
+                    header: (
+                        <div className="flex items-center gap-2">
+                            {queryStatusTag(d)}
+                            <span>{d.description || 'Query'}</span>
+                        </div>
+                    ),
+                    content: d.hogql ? (
+                        <CodeSnippet language={Language.SQL} compact>
+                            {d.hogql}
+                        </CodeSnippet>
+                    ) : (
+                        <span className="text-secondary">No query captured.</span>
+                    ),
+                }))}
+            />
+        </div>
+    )
+}
+
+function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
+    const diagnostics = reportDiagnostics(row)
+    const report = reportMarkdown(row)
+    if (!row.change_summary && !report && diagnostics.length === 0) {
+        return null
+    }
+    return (
+        <div className="px-4 py-3 text-sm flex flex-col gap-4">
+            {row.change_summary ? (
+                <div className="whitespace-pre-wrap">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
+                    {row.change_summary}
+                </div>
+            ) : null}
+            {report ? (
+                <div className="flex flex-col gap-1">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">Delivered report</div>
+                    <div className="max-h-96 overflow-auto rounded border bg-bg-light p-3">
+                        <LemonMarkdown>{report}</LemonMarkdown>
+                    </div>
+                </div>
+            ) : null}
+            {diagnostics.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary">
+                        Generated queries
+                    </div>
+                    <GeneratedQueries diagnostics={diagnostics} />
+                </div>
+            ) : null}
         </div>
     )
 }
 
 // Module-scope const keeps the reference stable across parent re-renders.
 const DELIVERY_TABLE_EXPANDABLE = {
-    rowExpandable: (row: SubscriptionDeliveryApi) => Boolean(row.change_summary),
-    expandedRowRender: (row: SubscriptionDeliveryApi) =>
-        row.change_summary ? <ExpandedSummaryRow summary={row.change_summary} /> : <></>,
+    rowExpandable: (row: SubscriptionDeliveryApi) =>
+        Boolean(row.change_summary) || Boolean(reportMarkdown(row)) || reportDiagnostics(row).length > 0,
+    expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
 }
 
 // Only called from storybook visual tests — production use ignores the optional set.
