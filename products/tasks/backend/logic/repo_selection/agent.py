@@ -5,9 +5,12 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+from django.db.models import Case, IntegerField, Value, When
+
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.integration_repository_cache import GitHubRepositoryFullCache
+from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.sync import database_sync_to_async
@@ -61,7 +64,15 @@ class RepoSelectionUnavailableError(Exception):
 
 
 def resolve_team_github_integration(team_id: int, team: Team | None = None) -> GitHubIntegrationBase | None:
-    """Resolve the GitHub source the agent should use for this team."""
+    """Resolve the GitHub source the agent should use for this team.
+
+    A team-level integration always wins. When the team has none, we fall back to a GitHub
+    integration connected by an *organization owner* — never an arbitrary member. The fallback
+    used to span ``team.all_users_with_access()`` (org-wide), which let one member's personal
+    GitHub repos surface as the candidate list for another member's report — a wrong-repo /
+    cross-account leak. Among an owner's own integrations we prefer a personal (``User``) account
+    over an organization the owner merely belongs to, then the most recently connected one.
+    """
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
         # Skip integrations whose installation has been synced and confirmed empty (0 repos)
@@ -73,18 +84,31 @@ def resolve_team_github_integration(team_id: int, team: Team | None = None) -> G
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration)
-    if team is None:
-        team = Team.objects.get(id=team_id)
+    organization = (team if team is not None else Team.objects.get(id=team_id)).organization
+    owner_user_ids = OrganizationMembership.objects.filter(
+        organization=organization,
+        level=OrganizationMembership.Level.OWNER,
+        user__is_active=True,
+    ).values_list("user_id", flat=True)
     user_integration = (
         UserIntegration.objects.filter(
             kind=UserIntegration.IntegrationKind.GITHUB,
-            user__in=team.all_users_with_access(),
+            user_id__in=owner_user_ids,
         )
         .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
-        .order_by("config__account__type", "created_at", "id")
+        # Prefer a personal (User) account over an org the owner merely belongs to (a `posthog/*`
+        # org the owner happens to work in must not outrank their own repos), then newest first.
+        .annotate(
+            _is_org_account=Case(
+                When(config__account__type="User", then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("_is_org_account", "-created_at", "-id")
         .first()
     )
-    # If no team integration - pick the integration of the first user
+    # If no team integration - pick an org owner's integration (personal account preferred)
     if user_integration is not None:
         return UserGitHubIntegration(user_integration)
     return None
