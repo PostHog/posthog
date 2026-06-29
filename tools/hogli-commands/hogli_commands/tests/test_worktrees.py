@@ -15,6 +15,7 @@ from hogli_commands.worktrees import (
     _du_sizes,
     _is_under,
     _parse_cutoff,
+    _reclaimed_bytes,
     _registered_worktrees,
 )
 
@@ -177,18 +178,29 @@ class TestComputeGitState:
             _git_stub({"status": (0, ""), "symbolic-ref": (1, ""), "rev-list": (0, "0\n")}),
         )
         wt = _make_worktree(tmp_path)
-        _compute_git_state(wt)
-        assert wt.detached and not wt.dirty and wt.unpushed == 0 and not wt.unsafe
+        _compute_git_state(wt, has_remotes=True)
+        assert wt.detached and not wt.dirty and wt.unpushed == 0 and not wt.state_unknown and not wt.unsafe
 
-    def test_orphaned_unreadable_is_not_detached(self, tmp_path, monkeypatch) -> None:
-        # git returns 128 (fatal) for an orphaned worktree — must not be read as detached.
+    def test_orphaned_unreadable_fails_closed(self, tmp_path, monkeypatch) -> None:
+        # git returns 128 (fatal) for an orphaned worktree — we can't verify it's
+        # clean, so it must be treated as unsafe (fail closed), not silently deleted.
         monkeypatch.setattr(
             "hogli_commands.worktrees._git",
             _git_stub({"status": (128, ""), "symbolic-ref": (128, ""), "rev-list": (128, "")}),
         )
         wt = _make_worktree(tmp_path)
-        _compute_git_state(wt)
-        assert not wt.detached and not wt.dirty and wt.unpushed == 0 and not wt.unsafe
+        _compute_git_state(wt, has_remotes=True)
+        assert wt.state_unknown and wt.unsafe and not wt.detached
+
+    def test_status_timeout_fails_closed(self, tmp_path, monkeypatch) -> None:
+        # _git returns None on a status timeout — must be treated as unsafe.
+        def _run(cwd, args, timeout=30.0):
+            return None
+
+        monkeypatch.setattr("hogli_commands.worktrees._git", _run)
+        wt = _make_worktree(tmp_path)
+        _compute_git_state(wt, has_remotes=True)
+        assert wt.state_unknown and wt.unsafe
 
     def test_dirty_and_unpushed_are_unsafe(self, tmp_path, monkeypatch) -> None:
         monkeypatch.setattr(
@@ -196,8 +208,29 @@ class TestComputeGitState:
             _git_stub({"status": (0, " M file.py\n"), "symbolic-ref": (0, "refs/heads/x"), "rev-list": (0, "3\n")}),
         )
         wt = _make_worktree(tmp_path)
-        _compute_git_state(wt)
+        _compute_git_state(wt, has_remotes=True)
         assert wt.dirty and wt.unpushed == 3 and not wt.detached and wt.unsafe
+
+    def test_no_remotes_skips_unpushed_check(self, tmp_path, monkeypatch) -> None:
+        # Without remotes, rev-list HEAD --not --remotes would count every commit;
+        # the check must be skipped so a clean local-only worktree isn't flagged.
+        monkeypatch.setattr(
+            "hogli_commands.worktrees._git",
+            _git_stub({"status": (0, ""), "symbolic-ref": (0, "refs/heads/x"), "rev-list": (0, "999\n")}),
+        )
+        wt = _make_worktree(tmp_path)
+        _compute_git_state(wt, has_remotes=False)
+        assert wt.unpushed == 0 and not wt.unsafe
+
+
+class TestReclaimedBytes:
+    def test_sums_per_device_increase_and_clamps_negatives(self) -> None:
+        before = {1: 1_000, 2: 5_000}
+        after = {1: 3_000, 2: 4_000}  # device 1 freed 2000; device 2 went down (concurrent write)
+        assert _reclaimed_bytes(before, after) == 2_000.0
+
+    def test_unmeasurable_returns_negative(self) -> None:
+        assert _reclaimed_bytes({}, {}) == -1.0
 
 
 class TestDuSizes:

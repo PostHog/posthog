@@ -11,8 +11,11 @@ logic and deletion modes are generic.
 
 Safety: age is a staleness heuristic, not a "no unsaved work" guarantee — edits
 made without any git operation may not move the activity signal. So `--mode full`
-additionally refuses to delete a worktree with uncommitted/untracked changes or
-unpushed/detached commits unless `--include-dirty` is given.
+additionally refuses to delete a worktree with uncommitted/untracked changes,
+unpushed/detached commits, or git state it cannot verify (orphaned/unreadable)
+unless `--include-dirty` is given. `--mode deps` only removes recreatable
+artifacts, so it has no such gate — it can strip deps from a worktree that is
+idle by the activity signal but still has a live dev server/build running.
 """
 
 from __future__ import annotations
@@ -90,7 +93,7 @@ DEPS_WALK_PRUNE_LEAVES = frozenset({"dist", ".cache", "tmp", "storybook-static",
 _INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 
 # du can hang on a stale network mount; bound it so one bad path can't stall the
-# whole sizing pool (doctor.py times out its subprocesses the same way).
+# whole sizing pool.
 _DU_TIMEOUT_SECONDS = 120.0
 
 
@@ -110,11 +113,17 @@ class Worktree:
     dirty: bool = False
     unpushed: int = 0
     detached: bool = False
+    state_unknown: bool = False
 
     @property
     def unsafe(self) -> bool:
-        """Holds work that a full removal would destroy irrecoverably."""
-        return self.dirty or self.unpushed > 0
+        """Holds (or might hold) work that a full removal would destroy.
+
+        Includes worktrees whose git state we couldn't read — an orphaned or
+        unreadable worktree might contain uncommitted work, so we fail closed
+        and treat "can't verify it's clean" as unsafe rather than deleting it.
+        """
+        return self.dirty or self.unpushed > 0 or self.state_unknown
 
 
 @click.command(
@@ -125,13 +134,14 @@ class Worktree:
     "--before",
     default=None,
     metavar="DATE|INTERVAL|all",
-    help="Cutoff: a date (2026-06-01), a relative age older than 3h/7d/2w, or 'all' for everything.",
+    help="Required. Cutoff: a date (2026-06-01), a relative age like 7d/2w "
+    "(matches worktrees idle longer than that), or 'all' for everything.",
 )
 @click.option(
     "--mode",
     type=click.Choice(["full", "deps"], case_sensitive=False),
     default=None,
-    help="'full' removes the whole worktree; 'deps' removes only deps/build artifacts, keeping the code.",
+    help="Required. 'full' removes the whole worktree; 'deps' removes only deps/build artifacts, keeping the code.",
 )
 @click.option(
     "--source",
@@ -150,7 +160,8 @@ class Worktree:
 @click.option(
     "--include-dirty",
     is_flag=True,
-    help="In --mode full, also remove worktrees with uncommitted or unpushed work (default: skip them).",
+    help="In --mode full, also remove worktrees with uncommitted/unpushed work or "
+    "unverifiable git state (orphaned/unreadable). Default: skip them.",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
@@ -229,13 +240,13 @@ def worktrees_clean(
         return
 
     # Full mode is destructive of working-tree state, so refuse worktrees with
-    # unsaved work unless the user explicitly opts in. (deps mode only removes
-    # recreatable artifacts, so it doesn't need this gate.)
+    # unsaved work — or whose git state we can't verify — unless the user opts in.
+    # (deps mode only removes recreatable artifacts, so it doesn't need this gate.)
     if mode == "full":
-        _populate_git_state(stale)
+        _populate_git_state(stale, _repo_has_remotes(repo_root))
         unsafe = [wt for wt in stale if wt.unsafe]
         if unsafe and not include_dirty:
-            click.echo(f"Skipping {len(unsafe)} worktree(s) with uncommitted or unpushed work:")
+            click.echo(f"Skipping {len(unsafe)} worktree(s) with unsaved or unverifiable work:")
             for wt in sorted(unsafe, key=lambda w: w.last_activity):
                 click.echo(f"  {wt.source}  {_display_path(wt.path)}  ({_state_markers(wt)})")
             click.echo("  Re-run with --include-dirty to remove them anyway.\n")
@@ -254,10 +265,10 @@ def worktrees_clean(
         )
 
     total = sum(wt.size for wt in stale)
-    action = "remove entirely" if mode == "full" else "strip deps/build artifacts from"
+    action = "fully remove" if mode == "full" else "strip deps/build artifacts from"
     click.echo(
-        f"\nWould {action} {len(stale)} worktree(s), reclaiming up to ~{_format_size(total)} "
-        "(cloned/hardlinked deps may free less)."
+        f"\nWould {action} {len(stale)} worktree(s); estimated up to ~{_format_size(total)} "
+        "(cloned/hardlinked deps free less — the actual reclaimed total is measured after deletion)."
     )
 
     if dry_run:
@@ -268,8 +279,11 @@ def worktrees_clean(
         click.echo("Aborted.")
         return
 
-    freed, removed, failed = _execute(stale, mode, repo_root)
-    summary = f"\n✓ Done. Freed up to ~{_format_size(freed)} across {removed}/{len(stale)} worktree(s)."
+    reclaimed, removed, failed = _execute(stale, mode, repo_root)
+    if reclaimed >= 0:
+        summary = f"\n✓ Done. Reclaimed ~{_format_size(reclaimed)} of disk across {removed}/{len(stale)} worktree(s)."
+    else:
+        summary = f"\n✓ Done. Removed {removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
     if failed:
         summary += f" {failed} could not be fully removed (see warnings above)."
     click.echo(summary)
@@ -287,8 +301,8 @@ def _resolve_repo(repo: str | None) -> Path:
         base = _resolve(REPO_ROOT)
     else:
         base = Path(repo).expanduser()
-        if not base.exists():
-            raise click.BadParameter(f"{repo!r} does not exist.")
+        if not base.is_dir():
+            raise click.BadParameter(f"{repo!r} is not an existing directory.")
 
     common = _git_common_dir(base)
     if common is None:
@@ -342,7 +356,7 @@ def _parse_cutoff(value: str) -> tuple[float, str]:
     if interval:
         amount = int(interval.group(1))
         if amount == 0:
-            raise click.BadParameter("a zero interval selects everything; use 'all' if that's intended.")
+            raise click.BadParameter("a zero interval would match everything; use 'all' if that's intended.")
         seconds = amount * _INTERVAL_UNITS[interval.group(2)]
         return time.time() - seconds, f"idle older than {amount}{interval.group(2)}"
 
@@ -352,7 +366,9 @@ def _parse_cutoff(value: str) -> tuple[float, str]:
         raise click.BadParameter(f"{value!r} is not a date (YYYY-MM-DD), an interval (3h, 7d, 2w), or 'all'.") from err
     cutoff = parsed.timestamp()
     if cutoff > time.time():
-        raise click.BadParameter(f"{value!r} is in the future, which would match everything; use 'all' if intended.")
+        raise click.BadParameter(
+            f"{value!r} is in the future and would match everything; use 'all' if that's intended."
+        )
     return cutoff, f"last active before {parsed.date()}"
 
 
@@ -411,7 +427,7 @@ def _registered_worktrees(repo_root: Path) -> dict[Path, dict] | None:
         elif current is None:
             continue
         elif line.startswith("branch "):
-            current["branch"] = line[len("branch ") :].replace("refs/heads/", "")
+            current["branch"] = line[len("branch ") :].removeprefix("refs/heads/")
         elif line == "detached":
             current["branch"] = "(detached)"
         elif line.startswith("locked"):
@@ -570,31 +586,45 @@ def _find_dir_case_insensitive(parent: Path, name: str) -> Path | None:
     return None
 
 
-def _populate_git_state(worktrees: list[Worktree]) -> None:
-    """Fill in dirty / unpushed / detached for each worktree, in parallel."""
+def _populate_git_state(worktrees: list[Worktree], has_remotes: bool) -> None:
+    """Fill in dirty / unpushed / detached / state_unknown for each worktree."""
 
     if not worktrees:
         return
     with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
-        list(pool.map(_compute_git_state, worktrees))
+        list(pool.map(lambda wt: _compute_git_state(wt, has_remotes), worktrees))
 
 
-def _compute_git_state(wt: Worktree) -> None:
+def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
+    # If git can't read the worktree's status (orphaned worktree → rc 128, or a
+    # timeout/transient failure → None), we can't confirm it's clean. Fail closed:
+    # mark it unverified so full mode skips it unless --include-dirty.
     status = _git(wt.path, ["status", "--porcelain"])
-    if status is not None and status.returncode == 0:
-        wt.dirty = bool(status.stdout.strip())
+    if status is None or status.returncode != 0:
+        wt.state_unknown = True
+        return
+    wt.dirty = bool(status.stdout.strip())
 
-    # symbolic-ref returns 1 for a genuine detached HEAD, but 128 when git can't
-    # read the worktree at all (orphaned: admin entry pruned). Only 1 is detached.
+    # symbolic-ref returns 1 for a genuine detached HEAD (128 would mean git can't
+    # read it, but status already succeeded above, so 1 here is a real detach).
     symref = _git(wt.path, ["symbolic-ref", "-q", "HEAD"])
     wt.detached = symref is not None and symref.returncode == 1
 
-    # Commits reachable from HEAD but not on any remote — unpushed work that a
-    # forced removal would orphan (especially on a detached HEAD).
-    ahead = _git(wt.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
-    if ahead is not None and ahead.returncode == 0:
-        count = ahead.stdout.strip()
-        wt.unpushed = int(count) if count.isdigit() else 0
+    # Commits reachable from HEAD but not on any remote — unpushed work a forced
+    # removal would orphan. Meaningless without remotes (every commit would count
+    # as unpushed), so skip the check when the repo has none.
+    if has_remotes:
+        ahead = _git(wt.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
+        if ahead is None or ahead.returncode != 0:
+            wt.state_unknown = True
+        else:
+            count = ahead.stdout.strip()
+            wt.unpushed = int(count) if count.isdigit() else 0
+
+
+def _repo_has_remotes(repo_root: Path) -> bool:
+    result = _git(repo_root, ["remote"])
+    return result is not None and result.returncode == 0 and bool(result.stdout.strip())
 
 
 def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.CompletedProcess[str] | None:
@@ -612,6 +642,8 @@ def _state_markers(wt: Worktree) -> str:
         parts.append(f"{wt.unpushed} unpushed commit(s)")
     if wt.detached:
         parts.append("detached HEAD")
+    if wt.state_unknown:
+        parts.append("git state could not be verified")
     return ", ".join(parts) if parts else "clean"
 
 
@@ -628,6 +660,8 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
             parts.append(f"{wt.unpushed} unpushed")
         if wt.detached:
             parts.append("detached")
+        if wt.state_unknown:
+            parts.append("unverified")
     return " · ".join(parts)
 
 
@@ -734,19 +768,26 @@ def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:
 def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[float, int, int]:
     """Delete the selected worktrees (or their deps).
 
-    Returns (bytes_freed, worktrees_removed, worktrees_failed). Only space that
-    was actually freed is counted, so the reported total never overstates.
+    Returns (real_bytes_reclaimed, worktrees_removed, worktrees_failed). The
+    reclaimed figure is measured from actual filesystem free space before/after,
+    so it reflects what was genuinely freed — hardlinked (pnpm store) and
+    copy-on-write-cloned (APFS) blocks that are shared elsewhere don't count,
+    unlike the du-based pre-delete estimate. Falls back to -1.0 if free space
+    couldn't be measured.
     """
 
-    freed = 0.0
+    # Anchor on each target's parent (which survives the deletion) so disk_usage
+    # has a readable path on the same filesystem before and after.
+    anchors = [wt.path.parent for wt in worktrees]
+    before = _free_by_device(anchors)
+
     removed = 0
     failed = 0
     need_prune = False
 
     for wt in worktrees:
         if mode == "deps":
-            wt_freed, failures = _delete_paths(wt.deps_items, wt.deps_sizes)
-            freed += wt_freed
+            _, failures = _delete_paths(wt.deps_items, wt.deps_sizes)
             if failures:
                 failed += 1
             else:
@@ -773,13 +814,44 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
             click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}")
             failed += 1
         else:
-            freed += wt.size
             removed += 1
             _cleanup_empty_parent(wt.path)
 
     if need_prune:
         subprocess.run(["git", "worktree", "prune"], cwd=repo_root, capture_output=True)
-    return freed, removed, failed
+
+    after = _free_by_device(anchors)
+    return _reclaimed_bytes(before, after), removed, failed
+
+
+def _free_by_device(anchors: Sequence[Path]) -> dict[int, int]:
+    """Free bytes per filesystem (keyed by device id) for the given anchor dirs.
+
+    Keying by st_dev collapses anchors on the same filesystem and keeps separate
+    volumes (e.g. the repo vs the home-dir posthog-code root) independent.
+    """
+
+    free: dict[int, int] = {}
+    for anchor in anchors:
+        try:
+            device = anchor.stat().st_dev
+            free[device] = shutil.disk_usage(anchor).free
+        except OSError:
+            continue
+    return free
+
+
+def _reclaimed_bytes(before: dict[int, int], after: dict[int, int]) -> float:
+    """Total real bytes reclaimed = summed per-filesystem free-space increase.
+
+    Returns -1.0 (unknown) if nothing could be measured. Per-device deltas are
+    clamped at 0 so concurrent writes on a busy volume can't show as negative.
+    """
+
+    common = before.keys() & after.keys()
+    if not common:
+        return -1.0
+    return float(sum(max(0, after[device] - before[device]) for device in common))
 
 
 def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
