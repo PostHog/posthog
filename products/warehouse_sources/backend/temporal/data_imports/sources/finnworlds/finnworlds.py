@@ -227,6 +227,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
         response = make_tracked_session(redact_values=(api_key,)).get(url, timeout=10)
     except (requests.ConnectionError, requests.Timeout) as exc:
         return False, f"Could not reach the Finnworlds API: {type(exc).__name__}. Please try again."
+    except Exception:
+        # Any other unexpected failure stays fail-closed as a bad key rather than crashing setup.
+        return False, "Invalid Finnworlds API key"
 
     if not response.ok:
         return False, "Invalid Finnworlds API key"
