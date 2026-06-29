@@ -181,23 +181,39 @@ class TestComputeGitState:
         _compute_git_state(wt, has_remotes=True)
         assert wt.detached and not wt.dirty and wt.unpushed == 0 and not wt.state_unknown and not wt.unsafe
 
-    def test_orphaned_unreadable_fails_closed(self, tmp_path, monkeypatch) -> None:
-        # git returns 128 (fatal) for an orphaned worktree — we can't verify it's
-        # clean, so it must be treated as unsafe (fail closed), not silently deleted.
+    def test_orphaned_pruned_gitdir_is_safe(self, tmp_path, monkeypatch) -> None:
+        # Orphaned worktree: .git points to a gitdir that no longer exists. git
+        # can't read it (rc 128), but committed work survives in the branch ref,
+        # so it's safe to remove by default — not flagged unsafe.
+        (tmp_path / ".git").write_text(f"gitdir: {tmp_path / 'missing-gitdir'}\n")
         monkeypatch.setattr(
             "hogli_commands.worktrees._git",
             _git_stub({"status": (128, ""), "symbolic-ref": (128, ""), "rev-list": (128, "")}),
         )
         wt = _make_worktree(tmp_path)
         _compute_git_state(wt, has_remotes=True)
-        assert wt.state_unknown and wt.unsafe and not wt.detached
+        assert not wt.state_unknown and not wt.unsafe and not wt.detached
+
+    def test_present_gitdir_but_unreadable_fails_closed(self, tmp_path, monkeypatch) -> None:
+        # gitdir still exists but git can't read status (corruption/lock/timeout)
+        # — git should have been able to, so we can't confirm clean → fail closed.
+        gitdir = tmp_path / "live-gitdir"
+        gitdir.mkdir()
+        (tmp_path / ".git").write_text(f"gitdir: {gitdir}\n")
+        monkeypatch.setattr(
+            "hogli_commands.worktrees._git",
+            _git_stub({"status": (128, ""), "symbolic-ref": (128, ""), "rev-list": (128, "")}),
+        )
+        wt = _make_worktree(tmp_path)
+        _compute_git_state(wt, has_remotes=True)
+        assert wt.state_unknown and wt.unsafe
 
     def test_status_timeout_fails_closed(self, tmp_path, monkeypatch) -> None:
-        # _git returns None on a status timeout — must be treated as unsafe.
-        def _run(cwd, args, timeout=30.0):
-            return None
-
-        monkeypatch.setattr("hogli_commands.worktrees._git", _run)
+        # _git returns None on a status timeout, with the gitdir present → unsafe.
+        gitdir = tmp_path / "live-gitdir"
+        gitdir.mkdir()
+        (tmp_path / ".git").write_text(f"gitdir: {gitdir}\n")
+        monkeypatch.setattr("hogli_commands.worktrees._git", lambda cwd, args, timeout=30.0: None)
         wt = _make_worktree(tmp_path)
         _compute_git_state(wt, has_remotes=True)
         assert wt.state_unknown and wt.unsafe

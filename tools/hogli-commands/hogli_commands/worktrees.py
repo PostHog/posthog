@@ -11,11 +11,14 @@ logic and deletion modes are generic.
 
 Safety: age is a staleness heuristic, not a "no unsaved work" guarantee — edits
 made without any git operation may not move the activity signal. So `--mode full`
-additionally refuses to delete a worktree with uncommitted/untracked changes,
-unpushed/detached commits, or git state it cannot verify (orphaned/unreadable)
-unless `--include-dirty` is given. `--mode deps` only removes recreatable
-artifacts, so it has no such gate — it can strip deps from a worktree that is
-idle by the activity signal but still has a live dev server/build running.
+skips a worktree with uncommitted/untracked changes, unpushed commits, or git
+state it cannot read (present-but-corrupt/locked) unless `--include-dirty` is
+given. Orphaned worktrees (admin gitdir pruned) are removed by default: deleting
+the directory never touches git refs, so committed work survives in the shared
+repo — only uncommitted edits in an already-stale tree could be lost. `--mode
+deps` only removes recreatable artifacts, so it has no such gate — it can strip
+deps from a worktree that is idle by the activity signal but still has a live
+dev server/build running.
 """
 
 from __future__ import annotations
@@ -161,7 +164,7 @@ class Worktree:
     "--include-dirty",
     is_flag=True,
     help="In --mode full, also remove worktrees with uncommitted/unpushed work or "
-    "unverifiable git state (orphaned/unreadable). Default: skip them.",
+    "unreadable git state. Default: skip them. (Orphaned worktrees are removed either way.)",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
@@ -246,7 +249,7 @@ def worktrees_clean(
         _populate_git_state(stale, _repo_has_remotes(repo_root))
         unsafe = [wt for wt in stale if wt.unsafe]
         if unsafe and not include_dirty:
-            click.echo(f"Skipping {len(unsafe)} worktree(s) with unsaved or unverifiable work:")
+            click.echo(f"Skipping {len(unsafe)} worktree(s) with unsaved work or unreadable git state:")
             for wt in sorted(unsafe, key=lambda w: w.last_activity):
                 click.echo(f"  {wt.source}  {_display_path(wt.path)}  ({_state_markers(wt)})")
             click.echo("  Re-run with --include-dirty to remove them anyway.\n")
@@ -596,30 +599,38 @@ def _populate_git_state(worktrees: list[Worktree], has_remotes: bool) -> None:
 
 
 def _compute_git_state(wt: Worktree, has_remotes: bool) -> None:
-    # If git can't read the worktree's status (orphaned worktree → rc 128, or a
-    # timeout/transient failure → None), we can't confirm it's clean. Fail closed:
-    # mark it unverified so full mode skips it unless --include-dirty.
     status = _git(wt.path, ["status", "--porcelain"])
-    if status is None or status.returncode != 0:
-        wt.state_unknown = True
+    if status is not None and status.returncode == 0:
+        wt.dirty = bool(status.stdout.strip())
+
+        # symbolic-ref returns 1 for a genuine detached HEAD (status succeeded, so
+        # this isn't the "git can't read it" 128 case).
+        symref = _git(wt.path, ["symbolic-ref", "-q", "HEAD"])
+        wt.detached = symref is not None and symref.returncode == 1
+
+        # Commits reachable from HEAD but not on any remote — unpushed work a
+        # forced removal would orphan. Meaningless without remotes (every commit
+        # would count as unpushed), so skip the check when the repo has none.
+        if has_remotes:
+            ahead = _git(wt.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
+            if ahead is None or ahead.returncode != 0:
+                wt.state_unknown = True
+            else:
+                count = ahead.stdout.strip()
+                wt.unpushed = int(count) if count.isdigit() else 0
         return
-    wt.dirty = bool(status.stdout.strip())
 
-    # symbolic-ref returns 1 for a genuine detached HEAD (128 would mean git can't
-    # read it, but status already succeeded above, so 1 here is a real detach).
-    symref = _git(wt.path, ["symbolic-ref", "-q", "HEAD"])
-    wt.detached = symref is not None and symref.returncode == 1
-
-    # Commits reachable from HEAD but not on any remote — unpushed work a forced
-    # removal would orphan. Meaningless without remotes (every commit would count
-    # as unpushed), so skip the check when the repo has none.
-    if has_remotes:
-        ahead = _git(wt.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
-        if ahead is None or ahead.returncode != 0:
-            wt.state_unknown = True
-        else:
-            count = ahead.stdout.strip()
-            wt.unpushed = int(count) if count.isdigit() else 0
+    # git couldn't read the worktree's status. Distinguish two cases:
+    #  - Orphaned (its admin gitdir was pruned): git has already discarded this
+    #    worktree's HEAD/index, and deleting the directory never touches refs, so
+    #    committed work survives in the shared repo's branch. Only uncommitted
+    #    edits in an already age-stale tree could be lost — safe to remove by
+    #    default (it shows as "orphaned" in the listing).
+    #  - gitdir still present (corruption, lock, or a status timeout): git should
+    #    have been able to read it, so we can't confirm it's clean → fail closed.
+    gitdir = _gitdir_for(wt.path)
+    if gitdir is None or gitdir.is_dir():
+        wt.state_unknown = True
 
 
 def _repo_has_remotes(repo_root: Path) -> bool:
@@ -643,7 +654,7 @@ def _state_markers(wt: Worktree) -> str:
     if wt.detached:
         parts.append("detached HEAD")
     if wt.state_unknown:
-        parts.append("git state could not be verified")
+        parts.append("git state unreadable")
     return ", ".join(parts) if parts else "clean"
 
 
@@ -661,7 +672,7 @@ def _listing_markers(wt: Worktree, mode: str) -> str:
         if wt.detached:
             parts.append("detached")
         if wt.state_unknown:
-            parts.append("unverified")
+            parts.append("unreadable")
     return " · ".join(parts)
 
 
