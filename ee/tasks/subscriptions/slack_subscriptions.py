@@ -15,7 +15,7 @@ from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
 from products.exports.backend.models.exported_asset import ExportedAsset
-from products.exports.backend.models.subscription import Subscription
+from products.exports.backend.models.subscription import Subscription, SubscriptionResourceInfo
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, UTM_TAGS_BASE, _has_asset_failed
 
@@ -92,6 +92,38 @@ def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
     return None
 
 
+# Title/summary/overflow text is identical across the threaded message and the gallery; these
+# helpers keep the wording and the Slack 3000-char summary cap in one place so the two delivery
+# paths can't drift apart.
+def _subscription_title(
+    subscription: Subscription, resource_info: SubscriptionResourceInfo, is_new_subscription: bool
+) -> str:
+    if subscription.title:
+        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
+    else:
+        display_name = f"the {resource_info.kind} *{resource_info.name}*"
+
+    if is_new_subscription:
+        return (
+            f"This channel has been subscribed to {display_name} on PostHog! 🎉\n"
+            f"This subscription is {subscription.summary}. "
+            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
+        )
+    return f"Your subscription to {display_name} is ready! 🎉"
+
+
+def _ai_summary_text(change_summary: str) -> str:
+    summary_text = f"*AI summary:*\n{change_summary}"
+    # Slack section text is capped at 3000 chars; truncate with an ellipsis.
+    return summary_text[:2997] + "..." if len(summary_text) > 3000 else summary_text
+
+
+def _overflow_text(shown_count: int, total_asset_count: int, resource_url: str, utm_tags: str) -> str:
+    return (
+        f"Showing {shown_count} of {total_asset_count} Insights. <{resource_url}?{utm_tags}|View the rest in PostHog>"
+    )
+
+
 def _prepare_slack_gallery(
     subscription: Subscription,
     assets: list[ExportedAsset],
@@ -106,24 +138,9 @@ def _prepare_slack_gallery(
         raise NotImplementedError("This type of subscription resource is not supported")
     channel = subscription.target_value.split("|")[0]
 
-    if subscription.title:
-        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
-    else:
-        display_name = f"the {resource_info.kind} *{resource_info.name}*"
-
-    if is_new_subscription:
-        title = (
-            f"This channel has been subscribed to {display_name} on PostHog! 🎉\n"
-            f"This subscription is {subscription.summary}. "
-            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
-        )
-    else:
-        title = f"Your subscription to {display_name} is ready! 🎉"
-
-    lines: list[str] = [title]
+    lines: list[str] = [_subscription_title(subscription, resource_info, is_new_subscription)]
     if change_summary:
-        summary_text = f"*AI summary:*\n{change_summary}"
-        lines.append(summary_text[:2997] + "..." if len(summary_text) > 3000 else summary_text)
+        lines.append(_ai_summary_text(change_summary))
     elif summary_skipped_over_budget:
         billing_url = f"{absolute_uri('/organization/billing')}?{utm_tags}"
         lines.append(summary_skipped_over_budget_message(billing_url))
@@ -150,10 +167,7 @@ def _prepare_slack_gallery(
     if failed_names:
         lines.append("_Could not generate: " + ", ".join(failed_names) + "_")
     if total_asset_count > len(assets):
-        lines.append(
-            f"Showing {len(assets)} of {total_asset_count} Insights. "
-            f"<{resource_info.url}?{utm_tags}|View the rest in PostHog>"
-        )
+        lines.append(_overflow_text(len(assets), total_asset_count, resource_info.url, utm_tags))
     lines.append(
         f"<{resource_info.url}?{utm_tags}|View in PostHog> · <{subscription.url}?{utm_tags}|Manage subscription>"
     )
@@ -239,29 +253,14 @@ def _prepare_slack_message(
 
     channel = subscription.target_value.split("|")[0]
 
-    if subscription.title:
-        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
-    else:
-        display_name = f"the {resource_info.kind} *{resource_info.name}*"
-
-    if is_new_subscription:
-        title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
-        title += (
-            f"\nThis subscription is {subscription.summary}. "
-            f"The next one will be sent on {_next_delivery_date_display(subscription)}"
-        )
-    else:
-        title = f"Your subscription to {display_name} is ready! 🎉"
+    title = _subscription_title(subscription, resource_info, is_new_subscription)
 
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
     ]
 
     if change_summary:
-        summary_text = f"*AI summary:*\n{change_summary}"
-        if len(summary_text) > 3000:
-            summary_text = summary_text[:2997] + "..."
-        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": summary_text}})
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": _ai_summary_text(change_summary)}})
     elif summary_skipped_over_budget:
         billing_url = f"{absolute_uri('/organization/billing')}?{utm_tags}"
         blocks.append(
@@ -277,7 +276,7 @@ def _prepare_slack_message(
             "type": "section",
             "text": {
                 "type": "mrkdwn",
-                "text": f"Showing {len(assets)} of {total_asset_count} Insights. <{resource_info.url}?{utm_tags}|View the rest in PostHog>",
+                "text": _overflow_text(len(assets), total_asset_count, resource_info.url, utm_tags),
             },
         }
 
