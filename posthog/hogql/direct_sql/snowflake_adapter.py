@@ -38,7 +38,9 @@ RAW_SNOWFLAKE_BLOCKED_FUNCTION_ERROR = "This Snowflake function is not allowed i
 # block them there. Quoted identifiers tokenize as strings, not names, so a column legitimately
 # named e.g. "result_scan" is unaffected.
 _RAW_SNOWFLAKE_BLOCKED_FUNCTIONS = frozenset({"RESULT_SCAN", "LAST_QUERY_ID"})
-DIRECT_SNOWFLAKE_ROW_CAP_ERROR = f"Snowflake query returned more than {DIRECT_SNOWFLAKE_MAX_ROWS:,} rows. Add a LIMIT clause."
+DIRECT_SNOWFLAKE_ROW_CAP_ERROR = (
+    f"Snowflake query returned more than {DIRECT_SNOWFLAKE_MAX_ROWS:,} rows. Add a LIMIT clause."
+)
 
 # A Snowflake account identifier is either the org-account form (`orgname-account_name`)
 # or the legacy dotted form (`account.region.cloud`) — letters, digits, hyphens, underscores,

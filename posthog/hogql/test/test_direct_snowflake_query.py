@@ -257,7 +257,9 @@ class TestDirectSnowflakeQuery(APIBaseTest):
             send_raw_query=True,
         )
 
-        with patch("posthog.hogql.direct_sql.snowflake_adapter.SnowflakeAdapter.validate_source_config") as mock_validate:
+        with patch(
+            "posthog.hogql.direct_sql.snowflake_adapter.SnowflakeAdapter.validate_source_config"
+        ) as mock_validate:
             with self.assertRaises(ExposedHogQLError):
                 executor.execute()
 
