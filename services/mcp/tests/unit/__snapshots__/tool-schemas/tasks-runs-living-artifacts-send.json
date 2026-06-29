@@ -1,0 +1,16 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "artifact_id": {
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["artifact_id", "id", "task_id"],
+    "type": "object"
+}

@@ -1,0 +1,66 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "artifact_id": {
+            "type": "string"
+        },
+        "content": {
+            "description": "Markdown or text content for the next version.",
+            "maxLength": 500000,
+            "type": "string"
+        },
+        "content_base64": {
+            "description": "Base64-encoded binary content for the next version, used by adapters such as slack_file.",
+            "type": "string"
+        },
+        "content_type": {
+            "description": "MIME type for content_base64 or source-backed edits.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "id": {
+            "type": "string"
+        },
+        "metadata": {
+            "additionalProperties": {},
+            "description": "Optional metadata to merge into the artifact registry record.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "name": {
+            "description": "Optional new human-readable artifact name.",
+            "maxLength": 255,
+            "type": "string"
+        },
+        "slack_channel_id": {
+            "description": "For unsent slack_message drafts, optional replacement target Slack channel ID such as C123.",
+            "maxLength": 80,
+            "type": "string"
+        },
+        "slack_delivery_mode": {
+            "description": "For unsent slack_message drafts, keep or switch the artifact to draft mode before approval.\n\n* `send` - send\n* `draft` - draft",
+            "enum": ["send", "draft"],
+            "type": "string"
+        },
+        "slack_thread_ts": {
+            "description": "For unsent slack_message drafts, optional replacement target Slack thread timestamp.",
+            "maxLength": 80,
+            "type": "string"
+        },
+        "source_artifact_id": {
+            "description": "Existing run artifact id to use as the next version content source.",
+            "type": "string"
+        },
+        "source_storage_path": {
+            "description": "Existing run artifact storage_path to use as the next version content source.",
+            "type": "string"
+        },
+        "task_id": {
+            "type": "string"
+        }
+    },
+    "required": ["artifact_id", "id", "task_id"],
+    "type": "object"
+}
