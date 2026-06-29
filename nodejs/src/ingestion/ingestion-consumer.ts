@@ -108,13 +108,6 @@ const backgroundTaskProducesDuration = new Histogram({
     buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
 })
 
-const backgroundTaskHogTransformerDuration = new Histogram({
-    name: 'ingestion_background_task_hog_transformer_duration_seconds',
-    help: 'Time waiting for hog transformer invocation results in the background task',
-    labelNames: ['groupId'],
-    buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
-})
-
 export class IngestionConsumer {
     protected name = 'ingestion-consumer'
     protected groupId: string
@@ -192,6 +185,7 @@ export class IngestionConsumer {
                 bucketCapacity: this.config.EVENT_OVERFLOW_BUCKET_CAPACITY,
                 replenishRate: this.config.EVENT_OVERFLOW_BUCKET_REPLENISH_RATE,
                 statefulEnabled: this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED,
+                overflowType: 'events',
             })
         }
 
@@ -199,6 +193,7 @@ export class IngestionConsumer {
         if (this.config.INGESTION_LANE === 'overflow' && this.config.INGESTION_STATEFUL_OVERFLOW_ENABLED) {
             this.overflowLaneTTLRefreshService = new OverflowLaneOverflowRedirect({
                 redisRepository: overflowRedisRepository,
+                overflowType: 'events',
             })
         }
 
@@ -424,12 +419,9 @@ export class IngestionConsumer {
         return {
             backgroundTask: this.runInstrumented('awaitScheduledWork', async () => {
                 const labels = { groupId: this.groupId }
-                await Promise.all([
-                    timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll()),
-                    timedHistogram(backgroundTaskHogTransformerDuration, labels, () =>
-                        this.hogTransformer.processInvocationResults()
-                    ),
-                ])
+                // Drains scheduled produces and the hog transformer invocation results, which
+                // the pipeline's afterBatch flush step schedules as a side effect.
+                await timedHistogram(backgroundTaskProducesDuration, labels, () => this.promiseScheduler.waitForAll())
             }),
         }
     }
