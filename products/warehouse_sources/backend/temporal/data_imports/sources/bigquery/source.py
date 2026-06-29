@@ -24,7 +24,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.bas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import build_incremental_fields
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.incremental import (
+    build_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigQuerySourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
@@ -231,16 +233,8 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
-        region: str | None = None
-        if (
-            config.use_custom_region
-            and config.use_custom_region.enabled
-            and config.use_custom_region.region is not None
-            and config.use_custom_region.region != ""
-        ):
-            region = config.use_custom_region.region
         auth = resolve_bigquery_auth(config, team_id)
-        with impl.connect(config, auth=auth, location=region, team_id=team_id) as conn:
+        with impl.connect(config, auth=auth, team_id=team_id) as conn:
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
                 return []
