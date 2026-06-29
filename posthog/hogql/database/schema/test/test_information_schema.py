@@ -17,10 +17,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def _field(name: str) -> ast.Field:
@@ -151,6 +150,30 @@ class TestWarehouseMetadata(APIBaseTest):
         _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
 
+    def test_descriptions_are_keyed_by_table_id_not_name(self):
+        # A synced table's catalog name (source-prefixed) differs from its model name, so descriptions
+        # must key by table UUID — keying by name silently dropped every annotation in production.
+        table = self._table("orders", 100)
+        with team_scope(self.team.id, canonical=True):
+            WarehouseColumnAnnotation.objects.create(
+                team=self.team,
+                table=table,
+                column_name="",
+                description="All orders placed by customers.",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.CANONICAL,
+            )
+            WarehouseColumnAnnotation.objects.create(
+                team=self.team,
+                table=table,
+                column_name="id",
+                description="Unique order identifier.",
+                description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+        descriptions, _row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        assert descriptions[(str(table.id), "")] == "All orders placed by customers."
+        assert descriptions[(str(table.id), "id")] == "Unique order identifier."
+        assert ("orders", "") not in descriptions
+
 
 class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
     def _context(self, db: Database) -> HogQLContext:
@@ -201,6 +224,27 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
         names = {row[0] for row in response.results or []}
         assert "system.cohorts" in names
         assert "system.feature_flags" not in names
+
+    @parameterized.expand(
+        [
+            ("person_id", "String"),
+            ("event_issue_id", "UUID"),
+            ("issue_first_seen", "DateTime"),
+            ("$virt_is_bot", "Boolean"),
+        ]
+    )
+    def test_expression_columns_resolve_to_their_value_type(self, column_name: str, expected_type: str):
+        # Expression columns must report the type they evaluate to (like hogql autocomplete), not the
+        # generic "Expression" — otherwise the catalog is useless for picking a cast/comparison.
+        response = execute_hogql_query(
+            f"SELECT data_type, field_kind FROM system.information_schema.columns "
+            f"WHERE table_name = 'events' AND column_name = '{column_name}'",
+            team=self.team,
+        )
+        results = response.results or []
+        assert len(results) == 1
+        assert results[0][1] == "expression"
+        assert results[0][0] == expected_type
 
     def test_columns_lists_event_columns_with_types(self):
         response = execute_hogql_query(

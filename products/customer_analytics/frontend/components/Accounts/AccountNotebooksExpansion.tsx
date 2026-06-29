@@ -1,7 +1,7 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
+import { IconCloud, IconGraph, IconPencil, IconPeople, IconPiggyBank, IconReceipt } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -22,9 +22,13 @@ import { urls } from 'scenes/urls'
 import type { AccountNotebookApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { AccountBillingExpansion } from './AccountBillingExpansion'
+import { accountBillingLogic } from './accountBillingLogic'
 import { accountLinksLogic } from './accountLinksLogic'
 import { accountNotebooksLogic } from './accountNotebooksLogic'
+import { AccountOpportunitiesExpansion } from './AccountOpportunitiesExpansion'
+import { accountOpportunitiesLogic } from './accountOpportunitiesLogic'
 import { AccountRelatedUsersExpansion } from './AccountRelatedUsersExpansion'
+import { accountRelatedUsersLogic } from './accountRelatedUsersLogic'
 import { accountsExpansionLogic } from './accountsExpansionLogic'
 import { AccountsEvents } from './constants'
 import { EditAccountLinksButton } from './EditAccountLinksButton'
@@ -46,6 +50,7 @@ const LINK_ICONS: Record<string, JSX.Element> = {
     'usage-dashboard': <IconGraph />,
     slack: <IconSlack />,
     'billing-admin': <IconReceipt />,
+    salesforce: <IconCloud />,
 }
 
 function UsefulLinks({ accountId }: { accountId: string }): JSX.Element {
@@ -98,6 +103,12 @@ export function AccountNotebooksExpansion({
     const logic = accountNotebooksLogic({ accountId })
     const { notebooks, notebooksResponseLoading, createdNoteLoading, searchTerm, sorting, pagination } =
         useValues(logic)
+
+    // LemonTabs only renders the active tab, so without this the data refetches on every tab switch.
+    useMountedLogic(accountRelatedUsersLogic({ externalId }))
+    useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'usage' }))
+    useMountedLogic(accountBillingLogic({ accountId, externalId, kind: 'spend' }))
+    useMountedLogic(accountOpportunitiesLogic({ accountId }))
     const { setSearchTerm, setSorting, createNote } = useActions(logic)
     const { activeTabFor } = useValues(accountsExpansionLogic)
     const { setActiveTab } = useActions(accountsExpansionLogic)
@@ -248,6 +259,11 @@ export function AccountNotebooksExpansion({
                                         kind="spend"
                                     />
                                 ),
+                            },
+                            {
+                                key: 'opportunities',
+                                label: 'Opportunities',
+                                content: <AccountOpportunitiesExpansion accountId={accountId} />,
                             },
                         ]}
                     />

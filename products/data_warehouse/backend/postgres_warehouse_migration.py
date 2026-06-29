@@ -7,11 +7,10 @@ substitution dict for `sync_old_schemas_with_new_schemas`.
 
 from __future__ import annotations
 
-from posthog.temporal.data_imports.sources.common.schema import SourceSchema
-
 from products.data_warehouse.backend.postgres_helpers import rename_postgres_schemas_to_match_source_schemas
 from products.data_warehouse.backend.sql_warehouse_migration import apply_on_refresh
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 
 def reconcile_refresh_name_substitutions(

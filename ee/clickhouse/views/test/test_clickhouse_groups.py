@@ -21,14 +21,21 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupTypeMapping, GroupUsageMetric, Person, PropertyDefinition
+from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
-from posthog.models.group_type_mapping import GROUP_TYPES_CACHE_KEY_PREFIX, GROUP_TYPES_STALE_CACHE_KEY_PREFIX
+from posthog.models.group_type_mapping import (
+    GROUP_TYPES_CACHE_KEY_PREFIX,
+    GROUP_TYPES_STALE_CACHE_KEY_PREFIX,
+    get_group_type_mapping_instance,
+    get_group_types_for_project,
+    update_group_type_mapping_fields,
+)
 from posthog.models.organization import Organization
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team
+from posthog.test.persons import create_group_type_mapping, create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -179,7 +186,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, 400)
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=False)
     def test_retrieve_group_crm_disabled(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -207,7 +214,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(0, Notebook.objects.filter(team=self.team).count())
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_crm_enabled(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -246,7 +253,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(notebook.content[1]["type"], "text")
 
     @freeze_time("2021-05-02")
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_find_with_skip_create_notebook_does_not_create_notebook(self, _):
         index: GroupTypeIndex = 0
         key = "key"
@@ -295,7 +302,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
     @freeze_time("2021-05-02")
     @patch("products.notebooks.backend.logic.ResourceNotebook.objects.create", side_effect=IntegrityError)
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.feature_enabled_or_false", return_value=True)
     def test_retrieve_group_notebook_transaction_rollback(self, _, mock_relationship_create):
         index: GroupTypeIndex = 0
         key = "key"
@@ -1139,41 +1146,6 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/groups/related?group_type_index=0")
         self.assertEqual(response.status_code, 400)
 
-    def test_property_definitions(self):
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:5",
-            properties={"industry": "finance", "name": "Mr. Krabs"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=0,
-            group_key="org:6",
-            properties={"industry": "technology"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:1",
-            properties={"name": "Plankton"},
-        )
-        create_group(
-            team_id=self.team.pk,
-            group_type_index=1,
-            group_key="company:2",
-            properties={},
-        )
-
-        response_data = self.client.get(f"/api/projects/{self.team.id}/groups/property_definitions").json()
-        self.assertEqual(
-            response_data,
-            {
-                "0": [{"name": "industry", "count": 2}, {"name": "name", "count": 1}],
-                "1": [{"name": "name", "count": 1}],
-            },
-        )
-
     def test_property_values(self):
         create_group(
             team_id=self.team.pk,
@@ -1503,7 +1475,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
     def test_create_detail_dashboard_success(self):
-        group_type_mapping = create_group_type_mapping_without_created_at(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1513,7 +1485,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
-        group_type_mapping.refresh_from_db()
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertIsNotNone(group_type_mapping.detail_dashboard_id)
 
     def test_create_detail_dashboard_duplicate(self):
@@ -1522,8 +1494,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
 
         dashboard = create_group_type_mapping_detail_dashboard(group_type, self.user)
-        group_type.detail_dashboard_id = dashboard.id
-        group_type.save()
+        update_group_type_mapping_fields(group_type, fields={"detail_dashboard_id": dashboard.id}, caller_tag="test")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/groups_types/create_detail_dashboard",
@@ -1540,7 +1511,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.json().get("detail"), "Group type not found")
 
     def test_set_default_columns_success(self):
-        group_type_mapping = create_group_type_mapping_without_created_at(
+        create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type="organization", group_type_index=0
         )
 
@@ -1550,7 +1521,7 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(response.status_code, 200)
 
-        group_type_mapping.refresh_from_db()
+        group_type_mapping = get_group_type_mapping_instance(project_id=self.team.project_id, group_type_index=0)
         self.assertEqual(group_type_mapping.default_columns, ["$group_0", "$group_1"])
 
     def test_set_default_columns_not_found(self):
@@ -1571,9 +1542,9 @@ class GroupsViewSetTestCase(ClickhouseTestMixin, APIBaseTest):
 
         uuid = UUID("01795392-cc00-0003-7dc7-67a694604d72")
 
-        Person.objects.create(uuid=uuid, team_id=self.team.pk, distinct_ids=["1", "2"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["3"])
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["4"])
+        create_person(uuid=uuid, team=self.team, distinct_ids=["1", "2"])
+        create_person(team=self.team, distinct_ids=["3"])
+        create_person(team=self.team, distinct_ids=["4"])
 
         create_group(self.team.pk, 0, "0::0")
         create_group(self.team.pk, 0, "0::1")
@@ -1645,7 +1616,8 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         delete_response = self.client.delete(delete_url)
 
         self.assertEqual(delete_response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(GroupTypeMapping.objects.filter(**group_type_data).exists())
+        remaining_indices = [m["group_type_index"] for m in get_group_types_for_project(self.team.project_id)]
+        self.assertNotIn(group_type.group_type_index, remaining_indices)
 
         list_response = self.client.get(self.url)
 
@@ -1658,9 +1630,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     def test_create_detail_dashboard(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
 
         response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
 
@@ -1752,9 +1722,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertNotIn("detail_dashboard_id", response.json()[0])
 
     def test_update_metadata_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.patch(
@@ -1768,9 +1736,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(cache.get(stale_cache_key)[0]["name_singular"], "org")
 
     def test_destroy_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.delete(self.url + "/0")
@@ -1780,9 +1746,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(stale_cache_key))
 
     def test_create_detail_dashboard_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.put(self.url + "/create_detail_dashboard", {"group_type_index": 0})
@@ -1792,9 +1756,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(stale_cache_key))
 
     def test_set_default_columns_invalidates_cache(self):
-        GroupTypeMapping.objects.create(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
+        create_group_type_mapping(team=self.team, project=self.project, group_type="organization", group_type_index=0)
         cache_key, stale_cache_key = self._seed_cache()
 
         response = self.client.put(
@@ -1812,7 +1774,7 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 
         from ee.models.rbac.access_control import AccessControl
 
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -1836,14 +1798,16 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        group_type.refresh_from_db()
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index
+        )
         self.assertIsNone(group_type.name_singular)
         self.assertIsNone(group_type.name_plural)
 
     def test_update_metadata_admin_can_modify_protected_fields(self):
         from posthog.models.organization import OrganizationMembership
 
-        group_type = GroupTypeMapping.objects.create(
+        group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -1856,7 +1820,9 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        group_type.refresh_from_db()
+        group_type = get_group_type_mapping_instance(
+            project_id=self.team.project_id, group_type_index=group_type.group_type_index
+        )
         self.assertEqual(group_type.name_singular, "Org")
         self.assertEqual(group_type.name_plural, "Orgs")
 
@@ -1864,14 +1830,14 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
 class GroupUsageMetricViewSetTestCase(APIBaseTest):
     def setUp(self):
         super().setUp()
-        self.group_type = GroupTypeMapping.objects.create(
+        self.group_type = create_group_type_mapping(
             team=self.team, project=self.project, group_type="organization", group_type_index=0
         )
         self.url = f"/api/projects/{self.team.id}/groups_types/{str(self.group_type.group_type_index)}/metrics"
 
         self.other_org = Organization.objects.create(name="other org")
         self.other_team = Team.objects.create(organization=self.other_org, name="other team")
-        self.other_group_type = GroupTypeMapping.objects.create(
+        self.other_group_type = create_group_type_mapping(
             team=self.other_team, project_id=self.other_team.project_id, group_type="company", group_type_index=0
         )
         self.other_url = (
@@ -2091,8 +2057,7 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
         self.assertEqual(metric.name, "Updated by admin")
 
     def _create_dw_table(self, name: str = "stripe_charges"):
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
         return DataWarehouseTable.objects.create(

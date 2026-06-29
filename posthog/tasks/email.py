@@ -27,7 +27,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import get_client
+from posthog.ph_client import feature_enabled_or_false, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -738,8 +738,7 @@ def send_external_data_failure_digest(team_id: int, schemas: list[dict[str, Any]
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def send_matview_failure_digest() -> None:
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         logger.warning("Email service is not available for materialized view digest")
@@ -807,8 +806,7 @@ def send_matview_failure_digest() -> None:
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_team_matview_failure_digest(team_id: int, failed_query_ids: list[str], paused_query_ids: list[str]) -> None:
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 
     if not is_email_available(with_absolute_urls=True):
         return
@@ -1107,7 +1105,7 @@ def login_from_new_device_notification(
     elif user.current_organization is None:
         enabled = False
     else:
-        enabled = posthoganalytics.feature_enabled(
+        enabled = feature_enabled_or_false(
             key="login-from-new-device-notification",
             distinct_id=str(user.distinct_id),
             groups={"organization": str(user.current_organization.id)},

@@ -22,12 +22,12 @@ from .provider_keys import LLMProviderKeySerializer
 class EvaluationConfigSerializer(serializers.ModelSerializer):
     trial_evals_remaining = serializers.IntegerField(
         read_only=True,
-        help_text="Number of trial evaluation runs remaining before the team must supply its own provider key.",
+        help_text="Trial runs remaining — a getting-started affordance only; evals should use the team's own provider key.",
     )
     active_provider_key = LLMProviderKeySerializer(
         read_only=True,
         allow_null=True,
-        help_text="Provider key currently used to run llm_judge evaluations. Null when the team is on trial credits.",
+        help_text="Provider key used to run llm_judge evals; null if none configured yet.",
     )
 
     class Meta:
@@ -50,10 +50,10 @@ class EvaluationConfigSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             "trial_eval_limit": {
-                "help_text": "Maximum number of llm_judge runs the team may execute on PostHog trial credits.",
+                "help_text": "Cap on trial runs — a getting-started affordance only, not for ongoing evals (use the team's own key).",
             },
             "trial_evals_used": {
-                "help_text": "Number of llm_judge runs already consumed against the trial credit pool.",
+                "help_text": "Trial runs consumed (getting-started affordance only).",
             },
             "created_at": {"help_text": "Timestamp when the evaluation config row was created."},
             "updated_at": {"help_text": "Timestamp when the evaluation config row was last modified."},

@@ -20,14 +20,19 @@ import pytest
 import structlog
 from asgiref.sync import sync_to_async
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import DEFAULT_CHUNK_SIZE, DEFAULT_TABLE_SIZE_BYTES
-from posthog.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
-from posthog.temporal.data_imports.sources.mysql.mysql import MySQLImplementation, _build_query
 from posthog.temporal.tests.data_imports.conftest import run_external_data_job_workflow
 
-from products.data_warehouse.backend.types import IncrementalFieldType
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import (
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_TABLE_SIZE_BYTES,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
+from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
+    MySQLImplementation,
+    _build_query,
+)
 
 _IMPL = MySQLImplementation()
 

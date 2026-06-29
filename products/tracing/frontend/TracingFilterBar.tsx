@@ -1,8 +1,16 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconChevronDown, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
+import { IconChevronDown, IconList, IconListTree, IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCheckbox,
+    LemonDropdown,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSwitch,
+    LemonTag,
+} from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
@@ -28,7 +36,7 @@ import {
 } from '~/types'
 
 import { tracingDataLogic } from './tracingDataLogic'
-import { tracingFiltersLogic } from './tracingFiltersLogic'
+import { tracingFiltersLogic, type TracingViewMode } from './tracingFiltersLogic'
 import { tracingServiceFilterLogic, TracingServiceFilterLogicProps } from './tracingServiceFilterLogic'
 
 const taxonomicFilterLogicKey = 'tracing'
@@ -82,8 +90,9 @@ export function TracingFilterBar(): JSX.Element {
     const { spansLoading } = useValues(tracingDataLogic())
     const { runQuery } = useActions(tracingDataLogic())
     const { filters, utcDateRange } = useValues(tracingFiltersLogic())
-    const { setDateRange, setServiceNames, setFilterGroup, setCompareMode } = useActions(tracingFiltersLogic())
-    const { dateRange, serviceNames, filterGroup, compareMode } = filters
+    const { setDateRange, setServiceNames, setFilterGroup, setViewMode, setCompareMode } =
+        useActions(tracingFiltersLogic())
+    const { dateRange, serviceNames, filterGroup, viewMode, compareMode } = filters
 
     return (
         <TracingFilterGroup filterGroup={filterGroup} onFilterGroupChange={setFilterGroup}>
@@ -145,6 +154,29 @@ export function TracingFilterBar(): JSX.Element {
                                 }}
                             />
                         </div>
+                        {!compareMode && (
+                            <LemonSegmentedButton<TracingViewMode>
+                                size="small"
+                                value={viewMode}
+                                onChange={setViewMode}
+                                options={[
+                                    {
+                                        value: 'traces',
+                                        label: 'Traces',
+                                        icon: <IconListTree />,
+                                        tooltip: 'Group matching spans by trace — one row per trace (its root span)',
+                                        'data-attr': 'tracing-view-mode-traces',
+                                    },
+                                    {
+                                        value: 'spans',
+                                        label: 'Spans',
+                                        icon: <IconList />,
+                                        tooltip: 'Show every matching span individually, including child spans',
+                                        'data-attr': 'tracing-view-mode-spans',
+                                    },
+                                ]}
+                            />
+                        )}
                         <LemonSwitch
                             label="Compare"
                             checked={compareMode}

@@ -14,7 +14,6 @@ from django.db.models.signals import post_delete, post_save
 
 import pytz
 import pydantic
-import posthoganalytics
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
@@ -33,6 +32,7 @@ from posthog.models.utils import (
     sane_repr,
     validate_rate_limit,
 )
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.decorators import field_access_control
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.settings.utils import get_list
@@ -261,6 +261,11 @@ class Team(UUIDTClassicModel):
     class Meta:
         verbose_name = "environment (aka team)"
         verbose_name_plural = "environments (aka teams)"
+        # Route forward-FK / related-object loads (e.g. `request.user.current_team`) through the
+        # `objects` manager so they inherit its `.defer(*DEPRECATED_ATTRS)`. Without this, Django
+        # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
+        # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
+        base_manager_name = "objects"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -311,7 +316,7 @@ class Team(UUIDTClassicModel):
         validators=[MinLengthValidator(10, "Project's API token must be at least 10 characters long!")],
     )
     app_urls: ArrayField = field_access_control(
-        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "project", "admin"
+        ArrayField(models.CharField(max_length=200, null=True), default=list, blank=True), "web_analytics", "editor"
     )
     name = models.CharField(
         max_length=200,
@@ -406,6 +411,15 @@ class Team(UUIDTClassicModel):
             choices=SessionRecordingRetentionPeriod,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
+        "project",
+        "admin",
+    )
+
+    # Events data retention in months — denormalized from the billing entitlement by sync_events_retention, read on
+    # the HogQL hot path. Default 84 (7 years) grandfathers existing teams. db_default because posthog_team is also
+    # written by raw inserts in nodejs/rust and the test-schema builder.
+    event_retention_months = field_access_control(
+        models.PositiveSmallIntegerField(default=84, db_default=84),
         "project",
         "admin",
     )
@@ -796,7 +810,7 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "persons-on-events-person-id-no-override-properties-on-events",
                 str(self.uuid),
                 groups={"project": str(self.id)},
@@ -822,7 +836,7 @@ class Team(UUIDTClassicModel):
 
         # on PostHog Cloud, use the feature flag
         if is_cloud():
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "persons-on-events-v2-reads-enabled",
                 str(self.uuid),
                 groups={"organization": str(self.organization_id)},

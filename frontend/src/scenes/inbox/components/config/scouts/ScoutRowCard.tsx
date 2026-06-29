@@ -53,7 +53,16 @@ export function ScoutRowCard({
                             // trailing badges — truncate should clip to an ellipsis, never vanish.
                             <span className="truncate font-medium text-sm min-w-[6rem]">{displayName}</span>
                         ) : (
-                            <Tooltip title={`${config.skill_name} · view scout`}>
+                            <Tooltip
+                                title={
+                                    <div className="flex flex-col gap-1 max-w-sm">
+                                        {config.description ? (
+                                            <span className="line-clamp-6">{config.description}</span>
+                                        ) : null}
+                                        <span className="text-muted">{config.skill_name} · view scout</span>
+                                    </div>
+                                }
+                            >
                                 <Link
                                     to={urls.inboxScout(config.skill_name)}
                                     // The fleet list lives in the setup modal, which portals outside the

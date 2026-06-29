@@ -1,7 +1,7 @@
 import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from '~/config/kafka-topics'
+} from '~/common/config/kafka-topics'
 
 // WARNING: Do not change these - they will essentially reset the consumer
 export const KAFKA_CONSUMER_GROUP_ID = 'session-recordings-blob-v2'

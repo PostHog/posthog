@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPlus, IconTrash } from '@posthog/icons'
+import { IconPlus, IconSparkles, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDivider, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import {
     API_KEY_LOCATIONS,
@@ -16,6 +18,7 @@ import {
     eligibleParentTables,
     EMPTY_PARENT_FIELDS,
     type HeaderEntry,
+    isCustomSourceAiBuilderEnabled,
     type ManifestState,
     type Paginator,
     PAGINATOR_DEFAULTS,
@@ -85,7 +88,11 @@ export function CustomSourceManifestBuilder({
     setValue,
 }: CustomSourceManifestBuilderLogicProps): JSX.Element {
     const logic = customSourceManifestBuilderLogic({ initialManifestJson, setValue })
-    const { manifestState, manifestJson, manifestPreviewOpen } = useValues(logic)
+    const { manifestState, manifestJson, manifestPreviewOpen, docsUrl, sourceName, draftResultLoading, showBuilder } =
+        useValues(logic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { currentOrganization } = useValues(organizationLogic)
+    const aiBuilderEnabled = isCustomSourceAiBuilderEnabled(featureFlags, currentOrganization)
     const {
         updateState,
         updateTable,
@@ -96,10 +103,81 @@ export function CustomSourceManifestBuilder({
         removeHeader,
         updateHeader,
         setManifestPreviewOpen,
+        setDocsUrl,
+        setSourceName,
+        generateFromDocs,
+        setShowBuilder,
     } = useActions(logic)
+
+    // Airbyte-style intro: name + docs URL → draft with AI, or skip to the manual builder.
+    if (aiBuilderEnabled && !showBuilder) {
+        return (
+            <div className="space-y-4">
+                <div>
+                    <h3 className="mb-1 flex items-center gap-1">
+                        <IconSparkles /> Build a custom source from API docs
+                    </h3>
+                    <p className="m-0 text-secondary">
+                        Name your source and link to the API's documentation — we'll draft the connection for you to
+                        review and add credentials to. Or configure it manually.
+                    </p>
+                </div>
+                <LemonField.Pure label="Source name">
+                    <LemonInput
+                        data-attr="custom-source-ai-source-name"
+                        placeholder="Acme CRM"
+                        value={sourceName}
+                        onChange={setSourceName}
+                        onPressEnter={generateFromDocs}
+                        disabled={draftResultLoading}
+                    />
+                </LemonField.Pure>
+                <LemonField.Pure label="Documentation URL">
+                    <LemonInput
+                        data-attr="custom-source-ai-docs-url"
+                        placeholder="https://docs.example.com/api"
+                        value={docsUrl}
+                        onChange={setDocsUrl}
+                        onPressEnter={generateFromDocs}
+                        disabled={draftResultLoading}
+                    />
+                </LemonField.Pure>
+                <div className="flex items-center gap-2">
+                    <LemonButton
+                        data-attr="custom-source-ai-generate"
+                        type="primary"
+                        icon={<IconSparkles />}
+                        loading={draftResultLoading}
+                        disabledReason={!docsUrl.trim() ? 'Enter a documentation URL' : undefined}
+                        onClick={generateFromDocs}
+                    >
+                        Generate
+                    </LemonButton>
+                    <LemonButton
+                        data-attr="custom-source-ai-configure-manually"
+                        type="secondary"
+                        onClick={() => setShowBuilder(true)}
+                        disabledReason={draftResultLoading ? 'Generating…' : undefined}
+                    >
+                        Configure manually
+                    </LemonButton>
+                </div>
+            </div>
+        )
+    }
 
     return (
         <div className="space-y-6">
+            {aiBuilderEnabled && !initialManifestJson && (
+                <LemonButton
+                    data-attr="custom-source-ai-back-to-intro"
+                    size="small"
+                    type="tertiary"
+                    onClick={() => setShowBuilder(false)}
+                >
+                    ← Back to AI setup
+                </LemonButton>
+            )}
             <LemonField.Pure label="Base URL" htmlFor="custom-source-base-url">
                 <LemonInput
                     id="custom-source-base-url"
