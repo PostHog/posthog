@@ -141,13 +141,12 @@ def _top_event_names(team: Team, limit: int) -> list[str]:
     return [name for name in sanitized if name]
 
 
-def _no_data_event_names(team: Team, window_days: int, limit: int) -> list[str]:
+def _no_data_event_names(team: Team, cutoff: datetime, limit: int) -> list[str]:
     # Ground truth for "events with no data" lives in the event-definitions taxonomy, not the events
-    # table (which only contains events that fired). An event whose `last_seen_at` predates the window —
-    # or was never seen — had no data in it. `last_seen_at` is maintained on ingestion so it can lag
-    # slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a plausible
-    # list of dormant events from its general knowledge of PostHog event names.
-    cutoff = datetime.now(tz=UTC) - timedelta(days=window_days)
+    # table (which only contains events that fired). An event whose `last_seen_at` predates the window
+    # start (`cutoff`) — or was never seen — had no data in it. `last_seen_at` is maintained on ingestion
+    # so it can lag slightly, but it's the authoritative taxonomy signal and stops the LLM fabricating a
+    # plausible list of dormant events from its general knowledge of PostHog event names.
     names = (
         EventDefinition.objects.filter(team_id=team.pk)
         .filter(Q(last_seen_at__isnull=True) | Q(last_seen_at__lt=cutoff))
@@ -268,21 +267,25 @@ def _event_property_names(team: Team, events: list[str], per_event_limit: int) -
     return by_event
 
 
-def build_context_blob(team: Team, window_days: int, relevant_events: Sequence[str] = ()) -> str:
+def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequence[str] = ()) -> str:
     event_names = _top_event_names(team, EVENT_NAMES_SAMPLE_LIMIT)
-    now_iso = datetime.now(tz=UTC).isoformat(timespec="seconds")
 
     # Team / org names are also user-controlled and end up in the LLM context, so
     # apply the same sanitization as event names.
     team_name = sanitize_user_text(team.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
     org_name = sanitize_user_text(team.organization.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
 
+    # Exact, code-computed bounds in the project timezone — the planner filters on these literals
+    # instead of writing its own `now() - INTERVAL`, so there's no timezone math in HogQL and the
+    # window is gap-free run-to-run. Half-open: include `start`, exclude `end`.
     lines = [
         f"- Project: {team_name}",
         f"- Organization: {org_name}",
         f"- Project timezone: {team.timezone}",
-        f"- Current UTC time: {now_iso}",
-        f"- Suggested analysis window: last {window_days} day(s)",
+        f"- Analysis window start (inclusive, project timezone): {window.start_iso}",
+        f"- Analysis window end (exclusive, project timezone): {window.end_iso}",
+        f"- Filter timestamps with: timestamp >= toDateTime('{window.start_iso}') "
+        f"AND timestamp < toDateTime('{window.end_iso}')",
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))
@@ -313,11 +316,9 @@ def build_context_blob(team: Team, window_days: int, relevant_events: Sequence[s
             if clean_props:
                 lines.append(f"  - `{clean}` properties (use properties.<name>): " + ", ".join(clean_props))
 
-    no_data_events = _no_data_event_names(team, window_days, NO_DATA_EVENT_NAMES_LIMIT)
+    no_data_events = _no_data_event_names(team, window.start, NO_DATA_EVENT_NAMES_LIMIT)
     if no_data_events:
-        lines.append(
-            f"- Events defined but with no data in the last {window_days} day(s): " + ", ".join(no_data_events)
-        )
+        lines.append("- Events defined but with no data since the window start: " + ", ".join(no_data_events))
 
     person_properties = _person_property_names(team, PERSON_PROPERTY_NAMES_LIMIT)
     if person_properties:
@@ -373,12 +374,12 @@ def build_enriched_prompt(
     team: Team,
     user: User,
     prompt: Optional[str],
-    window_days: int,
+    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> EnrichedPromptSpec:
     cleaned = sanitize_prompt(prompt)
     relevant_events = _select_relevant_events(team, user, cleaned, trace_correlation_id)
-    context_blob = build_context_blob(team, window_days, relevant_events=relevant_events)
+    context_blob = build_context_blob(team, window, relevant_events=relevant_events)
     plan = generate_query_plan(
         cleaned_prompt=cleaned,
         context_blob=context_blob,

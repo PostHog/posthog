@@ -17,6 +17,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH,
     PromptRejectedError,
+    ReportWindow,
     _event_property_names,
     _group_type_labels,
     _no_data_event_names,
@@ -29,6 +30,13 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
 )
 
 _SG = "products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator"
+
+
+def _window(days: int = 7) -> ReportWindow:
+    # A fixed-ish window for context-blob tests: end = now, start = now - days. The dormant-event
+    # cases below rely on start being recent enough that a 30-day-old event predates it.
+    end = datetime.now(tz=UTC)
+    return ReportWindow(start=end - timedelta(days=days), end=end)
 
 
 class TestSanitizePrompt:
@@ -59,11 +67,12 @@ class TestSanitizePrompt:
 class TestNoDataEventNames(APIBaseTest):
     def test_returns_dormant_and_never_seen_events_excluding_recent(self) -> None:
         now = datetime.now(tz=UTC)
+        cutoff = now - timedelta(days=7)
         EventDefinition.objects.create(team=self.team, name="recent_event", last_seen_at=now - timedelta(days=1))
         EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=30))
         EventDefinition.objects.create(team=self.team, name="never_seen_event", last_seen_at=None)
 
-        names = _no_data_event_names(self.team, window_days=7, limit=25)
+        names = _no_data_event_names(self.team, cutoff=cutoff, limit=25)
 
         assert "recent_event" not in names
         assert "dormant_event" in names
@@ -74,7 +83,7 @@ class TestNoDataEventNames(APIBaseTest):
         for i in range(5):
             EventDefinition.objects.create(team=self.team, name=f"dormant_{i}", last_seen_at=now - timedelta(days=30))
 
-        assert len(_no_data_event_names(self.team, window_days=7, limit=2)) == 2
+        assert len(_no_data_event_names(self.team, cutoff=now - timedelta(days=7), limit=2)) == 2
 
 
 class TestPersonPropertyNames(APIBaseTest):
@@ -272,6 +281,29 @@ class TestComputeReportWindow:
 
 
 class TestContextBlob(APIBaseTest):
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_states_explicit_window_bounds_in_project_timezone(self, _mock_top: object, _mock_groups: object) -> None:
+        # The window-text regression: the blob must hand the planner concrete `[start, end)` literals
+        # (so it never writes `now() - INTERVAL`), not the old "last N day(s)" relative phrasing.
+        self.team.timezone = "Australia/Sydney"
+        self.team.save()
+        window = compute_report_window(
+            self.team,
+            last_successful_delivery_at=None,
+            now=datetime(2026, 6, 29, 16, 0, tzinfo=UTC),
+            window_days=1,
+        )
+
+        blob = build_context_blob(self.team, window)
+
+        assert f"Analysis window start (inclusive, project timezone): {window.start_iso}" in blob
+        assert f"Analysis window end (exclusive, project timezone): {window.end_iso}" in blob
+        assert f"timestamp >= toDateTime('{window.start_iso}') AND timestamp < toDateTime('{window.end_iso}')" in blob
+        # The relative "last N day(s)" phrasing the planner used to do tz math against is gone.
+        assert "Suggested analysis window" not in blob
+        assert "Current UTC time" not in blob
+
     @patch(f"{_SG}.get_group_types_for_project", return_value=[{"group_type": "organization", "group_type_index": 0}])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_includes_no_data_person_and_group_lines(self, _mock_top: object, _mock_groups: object) -> None:
@@ -279,9 +311,9 @@ class TestContextBlob(APIBaseTest):
         EventDefinition.objects.create(team=self.team, name="dormant_event", last_seen_at=now - timedelta(days=30))
         PropertyDefinition.objects.create(team=self.team, name="plan", type=PropertyDefinition.Type.PERSON)
 
-        blob = build_context_blob(self.team, window_days=7)
+        blob = build_context_blob(self.team, _window(7))
 
-        assert "Events defined but with no data in the last 7 day(s):" in blob
+        assert "Events defined but with no data since the window start:" in blob
         assert "dormant_event" in blob
         assert "Person properties (reference as person.properties.<name>" in blob
         assert "plan" in blob
@@ -302,7 +334,7 @@ class TestContextBlob(APIBaseTest):
         for prop in props:
             EventProperty.objects.create(team=self.team, event="export created", property=prop)
 
-        blob = build_context_blob(self.team, window_days=7, relevant_events=["export created"])
+        blob = build_context_blob(self.team, _window(7), relevant_events=["export created"])
 
         assert "Events matching your request: export created" in blob
         # properties are listed alphabetically (the _event_property_names ordering)
@@ -313,7 +345,7 @@ class TestContextBlob(APIBaseTest):
     def test_injects_property_schema_for_selected_top_event(self, _mock_top: object, _mock_groups: object) -> None:
         EventProperty.objects.create(team=self.team, event="$pageview", property="$browser")
 
-        blob = build_context_blob(self.team, window_days=7, relevant_events=["$pageview"])
+        blob = build_context_blob(self.team, _window(7), relevant_events=["$pageview"])
 
         # $pageview is already under "Top events", so it's not repeated in the matched-names line...
         assert "Events matching your request" not in blob
@@ -323,7 +355,7 @@ class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
     def test_omits_relevant_section_without_selected_events(self, _mock_top: object, _mock_groups: object) -> None:
-        blob = build_context_blob(self.team, window_days=7)
+        blob = build_context_blob(self.team, _window(7))
 
         assert "Events matching your request" not in blob
 

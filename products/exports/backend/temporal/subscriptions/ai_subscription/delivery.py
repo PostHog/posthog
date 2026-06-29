@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from urllib.parse import urlencode
 
 import nh3
@@ -15,12 +15,16 @@ from posthog.models.integration import Integration
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
 
-from products.exports.backend.models.subscription import Subscription, get_unsubscribe_token
+from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery, get_unsubscribe_token
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     AiReportResult,
     generate_ai_report,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+    compute_report_window,
+)
 
 from ee.tasks.subscriptions.slack_subscriptions import (
     UTM_TAGS_BASE,
@@ -93,13 +97,38 @@ def _split_text_into_chunks(text: str, limit: int = SLACK_MRKDWN_SECTION_LIMIT) 
     return chunks
 
 
-def _resolve_subscription_actors(subscription: Subscription) -> tuple[Team, User | None]:
-    # team/created_by are FK relations; reading them may hit the DB, so this runs off the event loop
-    return subscription.team, subscription.created_by
+def _last_successful_delivery_finished_at(subscription: Subscription) -> datetime | None:
+    # The gap-free "since last send" anchor: the most recent COMPLETED delivery's finish time.
+    # None on the first run (no prior success) → compute_report_window falls back to window_days.
+    return (
+        SubscriptionDelivery.objects.filter(
+            subscription_id=subscription.id,
+            status=SubscriptionDelivery.Status.COMPLETED,
+            finished_at__isnull=False,
+        )
+        .order_by("-finished_at")
+        .values_list("finished_at", flat=True)
+        .first()
+    )
+
+
+def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, User | None, ReportWindow]:
+    # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
+    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
+    team = subscription.team
+    window = compute_report_window(
+        team=team,
+        last_successful_delivery_at=_last_successful_delivery_finished_at(subscription),
+        now=datetime.now(tz=UTC),
+        window_days=subscription.ai_report_window_days,
+    )
+    return team, subscription.created_by, window
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user = await database_sync_to_async(_resolve_subscription_actors, thread_sensitive=False)(subscription)
+    team, user, window = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(
+        subscription
+    )
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
@@ -108,7 +137,7 @@ async def build_ai_subscription_report(subscription: Subscription) -> AiReportRe
         team=team,
         user=user,
         prompt=subscription.prompt,
-        window_days=subscription.ai_report_window_days,
+        window=window,
         trace_correlation_id=subscription.id,
     )
 
