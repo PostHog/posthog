@@ -97,7 +97,8 @@ def _is_rollout_enabled(ticket_id: str) -> bool:
 
 def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[EligibleTicket]:
     """Sync DB scan for eligible tickets. Runs in a worker thread."""
-    cutoff = timezone.now() - timedelta(minutes=lookback_minutes)
+    now = timezone.now()
+    cutoff = now - timedelta(minutes=lookback_minutes)
     # last_message_at is the debounce axis; fall back to created_at for tickets whose denormalized
     # timestamp hasn't landed yet (set via a post-commit signal, so there's a brief null window).
     recent_tickets = Ticket.objects.filter(
@@ -162,7 +163,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     # the bucket on tickets that were never going to run this tick. Per-team and global caps bound
     # how many child workflows a single tick can fan out so externally-created ticket volume can't
     # directly translate into unbounded LLM work; overflow rolls to the next tick (still in lookback).
-    settle_cutoff = timezone.now() - timedelta(minutes=TICKET_SETTLE_MINUTES)
+    settle_cutoff = now - timedelta(minutes=TICKET_SETTLE_MINUTES)
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
     for team_id, ticket_id_str, created_at in candidates:
