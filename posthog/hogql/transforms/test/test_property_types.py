@@ -313,9 +313,6 @@ class TestPropertyTypes(BaseTest):
         assert printed == self.snapshot
 
     def test_property_type_override_beats_detected_type(self):
-        # A property whose values look like timestamps gets detected as DateTime, which would
-        # otherwise coerce it to parseDateTime64BestEffortOrNull. A caller-supplied String override
-        # keeps it a plain string.
         PropertyDefinition.objects.get_or_create(
             team=self.team,
             type=PropertyDefinition.Type.EVENT,

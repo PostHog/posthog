@@ -126,8 +126,6 @@ def query_ai_events(
 
         events_query = rewrite_query_for_events_table(query)
         events_placeholders = {k: rewrite_expr_for_events_table(v) for k, v in placeholders.items()}
-        # On events, the ai_events string-ID columns become `properties.$ai_*`; force them back to
-        # String so detection can't coerce timestamp-/number-shaped IDs and break the match.
         events_kwargs = {
             **kwargs,
             "context": HogQLContext(property_type_overrides=EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES),

@@ -82,10 +82,6 @@ class HogQLContext:
     output_format: str | None = None
     # Globals that will be resolved in the context of the query
     globals: Optional[dict] = None
-    # Per-query overrides for event property types, keyed by property name (value is a HogQL type
-    # name like "String"). Takes precedence over the type inferred from PropertyDefinition rows, for
-    # callers that know a property's authoritative type better than heuristic detection (e.g. AI
-    # observability ID properties that must stay String even when their values look timestamp-shaped).
     property_type_overrides: Optional[dict[str, str]] = None
     # Per-query data that query runners want to ingest into the HogQL resolution (e.g. pending updates
     # merged into a table via UNION ALL in error tracking).

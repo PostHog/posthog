@@ -60,11 +60,7 @@ _NUMERIC_COLUMNS: frozenset[str] = frozenset(
 
 _BOOLEAN_COLUMNS: frozenset[str] = frozenset({"is_error"})
 
-# Opaque string IDs (String in ai_events). On the events table they live in `properties.$ai_*`,
-# where property-type detection can mis-classify timestamp- or number-shaped values as Datetime /
-# Numeric — which makes PropertySwapper coerce them (e.g. parseDateTime64BestEffortOrNull) and breaks
-# an exact-match filter. They must stay String, matching the ai_events schema. Keep in sync with the
-# StringDatabaseField *_id columns in posthog/hogql/database/schema/ai_events.py.
+# Forced String so detection can't coerce timestamp-/number-shaped IDs and break an exact match.
 _STRING_ID_COLUMNS: frozenset[str] = frozenset(
     {
         "trace_id",
@@ -76,8 +72,6 @@ _STRING_ID_COLUMNS: frozenset[str] = frozenset(
     }
 )
 
-# property_type_overrides to pass to the events-table fallback so the string IDs above resolve as
-# String regardless of detected type. Fed to HogQLContext.property_type_overrides.
 EVENTS_FALLBACK_PROPERTY_TYPE_OVERRIDES: dict[str, str] = {
     AI_COLUMN_TO_PROPERTY[col]: "String" for col in _STRING_ID_COLUMNS
 }

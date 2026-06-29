@@ -78,7 +78,6 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         if not prop_def.property_type:
             continue
 
-        # A caller-supplied override wins over heuristic detection — see HogQLContext.property_type_overrides.
         prop_type = type_overrides.get(prop_def.name, prop_def.property_type)
         prop_info: dict[str, str | None] = {"type": prop_type}
         slot = prop_def.materialized_column_slots.first()
