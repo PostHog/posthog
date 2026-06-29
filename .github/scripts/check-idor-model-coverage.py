@@ -226,6 +226,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
     LEGITIMATELY_UNSCOPED: set[str] = {
         # --- Django/third-party internals ---
         "AccessAttempt",
+        "AccessAttemptExpiration",
         "AccessFailureLog",
         "AccessLog",
         "Association",
