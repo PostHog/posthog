@@ -180,3 +180,37 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         if artefact_type_for(content) not in cls.WORKING_STATE_ARTEFACT_TYPES:
             raise ValueError(f"{type(content).__name__} is not a working-state artefact content model")
         return cls._create(team_id=team_id, report_id=report_id, content=content, attribution=attribution)
+
+
+class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
+    """Per-(team, user, review-skill) enablement for ReviewHog.
+
+    One generic table for which review skills run for a user, discriminated by the skill-name prefix:
+    `review-hog-perspective-*` (the review perspectives — **multi-enable**, ≥1 must stay on) and, later,
+    `review-hog-validation-*` (the validator — **single-active**: exactly one runs, the select endpoint
+    flips the others off, falling back to the canonical default when none is set). `enabled=True` means
+    "active for this user" in both cases; the cardinality rules are enforced in app code, not the DB,
+    the same way the perspective min-1 floor is.
+
+    A skill is any team `LLMSkill` carrying the prefix (canonical or custom — handled identically);
+    canonicals auto-seed on first resolve, customs are switched on via the config API. The skill itself
+    stays team-level; this row only gates whether it runs for this user's PRs. Mirrors Signals'
+    `SignalScoutConfig` enable/disable, minus the schedule — ReviewHog is PR-triggered, not on a clock.
+    `skill_name` is the identity (mirrors scouts keying on it, never `created_by`).
+    """
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+")
+    skill_name = models.CharField(max_length=200)
+    enabled = models.BooleanField(default=True, db_default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user", "skill_name"], name="uniq_review_skill_config_per_user"),
+        ]
+        indexes = [
+            # The loaders seek WHERE team=? AND user=? AND enabled=true to resolve a run's skills.
+            models.Index(fields=["team", "user", "enabled"], name="reviewhog_skillcfg_lookup_idx"),
+        ]
