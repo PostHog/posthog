@@ -13,10 +13,12 @@ from hogli_commands.worktrees import (
     _collect_deps_items,
     _compute_git_state,
     _du_sizes,
+    _include_orphans,
     _is_under,
     _parse_cutoff,
     _reclaimed_bytes,
     _registered_worktrees,
+    _resolve_orphan_policy,
 )
 
 
@@ -237,6 +239,40 @@ class TestComputeGitState:
         wt = _make_worktree(tmp_path)
         _compute_git_state(wt, has_remotes=False)
         assert wt.unpushed == 0 and not wt.unsafe
+
+
+class TestOrphanPolicy:
+    @pytest.mark.parametrize(
+        ("explicit", "mode", "expected"),
+        [
+            (None, "full", "ask"),  # full defaults to prompting
+            (None, "deps", "yes"),  # deps defaults to cleaning orphans
+            ("no", "full", "no"),
+            ("YES", "deps", "yes"),  # explicit wins, case-insensitive
+        ],
+        ids=["full-default", "deps-default", "explicit-no", "explicit-case"],
+    )
+    def test_default_varies_by_mode(self, explicit, mode, expected) -> None:
+        assert _resolve_orphan_policy(explicit, mode) == expected
+
+    def test_yes_includes_without_prompt(self, tmp_path, monkeypatch) -> None:
+        monkeypatch.setattr("click.confirm", lambda *a, **k: pytest.fail("must not prompt"))
+        orphans = [_make_worktree(tmp_path)]
+        assert _include_orphans("yes", orphans, dry_run=False, yes=False) is True
+
+    def test_no_skips(self, tmp_path) -> None:
+        assert _include_orphans("no", [_make_worktree(tmp_path)], dry_run=False, yes=False) is False
+
+    @pytest.mark.parametrize("answer", [True, False])
+    def test_ask_interactive_uses_prompt(self, tmp_path, monkeypatch, answer) -> None:
+        monkeypatch.setattr("click.confirm", lambda *a, **k: answer)
+        assert _include_orphans("ask", [_make_worktree(tmp_path)], dry_run=False, yes=False) is answer
+
+    @pytest.mark.parametrize(("dry_run", "yes"), [(True, False), (False, True)], ids=["dry-run", "yes-flag"])
+    def test_ask_includes_when_cannot_prompt(self, tmp_path, monkeypatch, dry_run, yes) -> None:
+        # --dry-run (preview) and --yes (non-interactive) can't prompt → include.
+        monkeypatch.setattr("click.confirm", lambda *a, **k: pytest.fail("must not prompt"))
+        assert _include_orphans("ask", [_make_worktree(tmp_path)], dry_run=dry_run, yes=yes) is True
 
 
 class TestReclaimedBytes:

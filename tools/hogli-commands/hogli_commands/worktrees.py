@@ -164,7 +164,15 @@ class Worktree:
     "--include-dirty",
     is_flag=True,
     help="In --mode full, also remove worktrees with uncommitted/unpushed work or "
-    "unreadable git state. Default: skip them. (Orphaned worktrees are removed either way.)",
+    "unreadable git state. Default: skip them. (Orphaned worktrees are governed by --orphans.)",
+)
+@click.option(
+    "--orphans",
+    type=click.Choice(["yes", "no", "ask"], case_sensitive=False),
+    default=None,
+    help="What to do with orphaned worktrees (admin entry pruned, not in `git worktree list`; "
+    "committed work is safe in branch refs). yes=include, no=skip, ask=prompt when any are found. "
+    "Default: yes for --mode deps, ask for --mode full.",
 )
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
@@ -174,6 +182,7 @@ def worktrees_clean(
     sources: tuple[str, ...],
     repo: str | None,
     include_dirty: bool,
+    orphans: str | None,
     dry_run: bool,
     yes: bool,
 ) -> None:
@@ -193,6 +202,7 @@ def worktrees_clean(
         )
 
     mode = mode.lower()
+    orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
     repo_common = _git_common_dir(repo_root)
     cutoff, cutoff_label = _parse_cutoff(before)
@@ -258,6 +268,16 @@ def worktrees_clean(
             click.echo("Nothing left to remove.")
             return
 
+    # Apply the orphan policy (both modes). Orphans are worktrees git no longer
+    # tracks; their committed work survives in branch refs, so removing them only
+    # discards uncommitted edits in an already-stale tree.
+    orphan_wts = [wt for wt in stale if not wt.registered]
+    if orphan_wts and not _include_orphans(orphan_policy, orphan_wts, dry_run, yes):
+        stale = [wt for wt in stale if wt.registered]
+        if not stale:
+            click.echo("Nothing left to remove.")
+            return
+
     click.echo(f"Measuring {len(stale)} worktree(s)…")
     _populate_sizes(stale, mode)
 
@@ -290,6 +310,40 @@ def worktrees_clean(
     if failed:
         summary += f" {failed} could not be fully removed (see warnings above)."
     click.echo(summary)
+
+
+def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
+    """Resolve --orphans, defaulting per mode: deps cleans orphans (their deps are
+    just recreatable artifacts), full prompts (it deletes the working copy)."""
+
+    if explicit is not None:
+        return explicit.lower()
+    return "ask" if mode == "full" else "yes"
+
+
+def _include_orphans(policy: str, orphans: list[Worktree], dry_run: bool, yes: bool) -> bool:
+    """Resolve the --orphans policy to a keep/skip decision for orphaned worktrees."""
+
+    if policy == "yes":
+        return True
+    if policy == "no":
+        click.echo(f"Skipping {len(orphans)} orphaned worktree(s) (--orphans no).\n")
+        return False
+
+    # ask: surface the orphans, then decide. We can't prompt under --dry-run
+    # (preview) or --yes (non-interactive), so both resolve to include.
+    click.echo(f"{len(orphans)} orphaned worktree(s) found (git no longer tracks them; committed work is safe):")
+    for wt in sorted(orphans, key=lambda w: w.last_activity):
+        click.echo(f"  {wt.source}  {_ago(wt.last_activity):>10} ago  {_display_path(wt.path)}")
+    if dry_run:
+        click.echo("  (--orphans ask: you'll be prompted before deletion; counted as included below.)\n")
+        return True
+    if yes:
+        click.echo("  Including them (--yes).\n")
+        return True
+    decision = click.confirm("Include these orphaned worktree(s)?", default=True)
+    click.echo("")
+    return decision
 
 
 def _resolve_repo(repo: str | None) -> Path:
