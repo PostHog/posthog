@@ -50,7 +50,7 @@ function stepStatus(raw: string): InstallationStepStatus {
 // Cloud: the TaskRun is the spine (phase, steps, PR url, terminal error); the wizard session enriches
 // the wizard stage with its live sub-task (absent today while the cloud wizard is WIP — degrades to
 // the bare TaskRun step).
-function cloudProgress(
+export function cloudProgress(
     taskRunState: TaskRunStreamState | null,
     progressSteps: TaskRunProgressStep[],
     taskConnectionStatus: string,
@@ -75,7 +75,7 @@ function cloudProgress(
         id: `${p.group}:${p.step}`,
         label: p.label,
         status: stepStatus(p.status),
-        detail: p.step === 'wizard' && p.status === 'in_progress' ? wizardDetail : p.detail,
+        detail: p.step === 'wizard' && p.status === 'in_progress' ? (wizardDetail ?? p.detail) : p.detail,
     }))
 
     const error =
@@ -100,7 +100,7 @@ function cloudProgress(
 
 // Local: the wizard session is the only source — mirror wizardProgressTrackerLogic's displayState so
 // the existing surfaces behave identically when they migrate onto this layer.
-function localProgress(
+export function localProgress(
     latestSession: WizardSessionDTOApi | null,
     sessionConnectionStatus: string
 ): InstallationProgress {

@@ -35,6 +35,59 @@ export interface TaskRunStreamLogicProps {
     runId: string
 }
 
+export type TaskRunStreamMessage = { kind: 'state'; state: TaskRunStreamState } | { kind: 'step'; step: TaskRunProgressStep }
+
+// Merge a progress step into the list: last-write-wins per (group, step), preserving arrival order.
+export function mergeProgressStep(steps: TaskRunProgressStep[], step: TaskRunProgressStep): TaskRunProgressStep[] {
+    const idx = steps.findIndex((s) => s.step === step.step && s.group === step.group)
+    if (idx === -1) {
+        return [...steps, step]
+    }
+    const next = [...steps]
+    next[idx] = step
+    return next
+}
+
+// Parse one SSE data payload into a typed message, or null if it isn't one we act on (keepalive, a
+// non-progress notification, an unknown type). Throws on invalid JSON — the caller surfaces that.
+export function parseTaskRunStreamMessage(rawData: string): TaskRunStreamMessage | null {
+    const payload = JSON.parse(rawData) as TaskRunStreamState & {
+        type?: string
+        notification?: { method?: string; params?: TaskRunProgressStep }
+    }
+    if (payload.type === 'notification') {
+        const params = payload.notification?.params
+        if (payload.notification?.method !== '_posthog/progress' || !params) {
+            return null
+        }
+        return {
+            kind: 'step',
+            step: {
+                step: params.step,
+                status: params.status,
+                label: params.label,
+                group: params.group,
+                detail: params.detail ?? null,
+            },
+        }
+    }
+    if (payload.type === 'task_run_state') {
+        return {
+            kind: 'state',
+            state: {
+                status: payload.status,
+                stage: payload.stage ?? null,
+                output: payload.output ?? null,
+                branch: payload.branch ?? null,
+                error_message: payload.error_message ?? null,
+                updated_at: payload.updated_at,
+                completed_at: payload.completed_at ?? null,
+            },
+        }
+    }
+    return null
+}
+
 /**
  * Raw SSE consumer for a single TaskRun (the cloud-run pipeline: provision → clone → wizard → agent →
  * PR). A private source for the Installation layer — `installationProgressLogic` merges this with the
@@ -71,15 +124,7 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
         progressSteps: [
             [] as TaskRunProgressStep[],
             {
-                progressStepUpdated: (state, { step }) => {
-                    const idx = state.findIndex((s) => s.step === step.step && s.group === step.group)
-                    if (idx === -1) {
-                        return [...state, step]
-                    }
-                    const next = [...state]
-                    next[idx] = step
-                    return next
-                },
+                progressStepUpdated: (state, { step }) => mergeProgressStep(state, step),
             },
         ],
         connectionStatus: [
@@ -127,31 +172,11 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                 eventSource.onopen = actions.connectionOpened
                 eventSource.onmessage = (event: MessageEvent<string>): void => {
                     try {
-                        const payload = JSON.parse(event.data) as TaskRunStreamState & {
-                            type?: string
-                            notification?: { params?: TaskRunProgressStep }
-                        }
-                        if (payload.type === 'notification') {
-                            const params = payload.notification?.params
-                            if (params) {
-                                actions.progressStepUpdated({
-                                    step: params.step,
-                                    status: params.status,
-                                    label: params.label,
-                                    group: params.group,
-                                    detail: params.detail ?? null,
-                                })
-                            }
-                        } else if (payload.type === 'task_run_state') {
-                            actions.taskRunStateUpdated({
-                                status: payload.status,
-                                stage: payload.stage ?? null,
-                                output: payload.output ?? null,
-                                branch: payload.branch ?? null,
-                                error_message: payload.error_message ?? null,
-                                updated_at: payload.updated_at,
-                                completed_at: payload.completed_at ?? null,
-                            })
+                        const message = parseTaskRunStreamMessage(event.data)
+                        if (message?.kind === 'step') {
+                            actions.progressStepUpdated(message.step)
+                        } else if (message?.kind === 'state') {
+                            actions.taskRunStateUpdated(message.state)
                         }
                     } catch (err) {
                         actions.connectionErrored(`Failed to parse SSE payload: ${String(err)}`)
