@@ -13,7 +13,6 @@ from posthog.schema import (
 )
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.revenue_example_data_warehouse_tables_query_runner import (
     RevenueExampleDataWarehouseTablesQueryRunner,
 )
@@ -26,6 +25,7 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     INVOICE_RESOURCE_NAME as STRIPE_INVOICE_RESOURCE_NAME,
 )
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.revenue.stripe_invoices"
 

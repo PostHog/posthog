@@ -79,6 +79,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         draftContent,
         draftIsPrivate,
         snoozedUntil,
+        knowledgeGaps,
+        knowledgeGapsLoading,
     } = useValues(logic)
     const {
         setStatus,
@@ -91,6 +93,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         loadOlderMessages,
         setDraftContent,
         setDraftIsPrivate,
+        dismissKnowledgeGap,
     } = useActions(logic)
 
     const { user } = useValues(userLogic)
@@ -406,7 +409,14 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     {user?.is_staff && ticket && <StaffActionsPanel />}
 
                     {/* AI Triage Panel */}
-                    {aiSuggestionsEnabled && ticket && <AIPanel aiTriage={ticket.ai_triage} />}
+                    {aiSuggestionsEnabled && ticket && (
+                        <AIPanel
+                            aiTriage={ticket.ai_triage}
+                            knowledgeGaps={knowledgeGaps}
+                            knowledgeGapsLoading={knowledgeGapsLoading}
+                            onDismissGap={dismissKnowledgeGap}
+                        />
+                    )}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

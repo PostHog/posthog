@@ -37,6 +37,7 @@ from google.auth import (
 from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
+from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, _job_should_retry
 from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
@@ -117,6 +118,24 @@ BIGQUERY_DATASET_NOT_FOUND_ERROR = (
     "it may live in a different region — verify your dataset and table names, and set the dataset "
     "region in your source configuration if it isn't in the US."
 )
+
+# BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
+# `jobs.getQueryResults` REST call as a 400 BadRequest whose message ends "The job encountered an
+# error during execution. Retrying the job may solve the problem.". The client's default job-retry
+# predicate retries backendError / internalError / rateLimitExceeded but not this reason, so it
+# escapes `QueryJob.result()` and crashes the import. BigQuery itself recommends retrying, so re-run
+# the job in place — matched on its stable retry-recommendation wording, not the volatile job id/URL.
+_BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
+
+
+def _query_job_should_retry(exc: Exception) -> bool:
+    # Defer to the library's own default predicate for the reasons it already covers; importing it
+    # directly (rather than reading the private `Retry._predicate`) means a library rename fails
+    # loudly at import instead of silently dropping that default coverage.
+    return _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc) or _job_should_retry(exc)
+
+
+BIGQUERY_QUERY_JOB_RETRY = DEFAULT_JOB_RETRY.with_predicate(_query_job_should_retry)
 
 
 class BigQueryDatasetNotFoundError(Exception):
@@ -563,7 +582,7 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     job = client.query(query, job_config=job_config, project=table.project)
 
     primary_keys = []
-    for row in job.result():
+    for row in job.result(job_retry=BIGQUERY_QUERY_JOB_RETRY):
         field_name = row["column_name"].removeprefix(f"{table.table_id}.")
 
         if field_name not in existing_fields:

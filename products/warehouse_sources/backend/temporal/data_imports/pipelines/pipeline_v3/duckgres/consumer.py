@@ -80,6 +80,10 @@ class DuckgresBatchConsumerAdapter:
     executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
+    # Advisory locks are session-scoped: the lock acquired during fetch_and_lock
+    # must be verified/released on the same connection, so groups share the poll
+    # connection. Migrating duckgres to leases is tracked separately.
+    per_group_connections: bool = False
 
     def __init__(self) -> None:
         self._team_ids: list[int] | None = None
@@ -143,7 +147,12 @@ class DuckgresBatchConsumerAdapter:
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> list[PendingBatch]:
+        # The duckgres sink coordinates via session advisory locks, not leases:
+        # owner_token / lease_ttl_seconds are part of the shared adapter contract
+        # but unused here.
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
             return []
@@ -168,8 +177,18 @@ class DuckgresBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None:
         await DuckgresBatchQueue.unlock_for_batches(conn, batches=batches)
+
+    async def release_all_owned(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        # Duckgres holds session advisory locks; release them all on graceful shutdown.
+        await conn.execute("SELECT pg_advisory_unlock_all()")
 
     async def update_status(
         self,
@@ -212,8 +231,22 @@ class DuckgresBatchConsumerAdapter:
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
     ) -> bool:
         return await DuckgresBatchQueue.verify_advisory_lock(conn, team_id=team_id, schema_id=schema_id)
+
+    async def renew_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int,
+    ) -> bool:
+        # Duckgres ownership is the session advisory lock (checked by verify_advisory_lock),
+        # which has no TTL to renew; report ownership retained.
+        return True
 
     async def get_stale_executing(
         self,

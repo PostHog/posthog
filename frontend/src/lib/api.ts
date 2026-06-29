@@ -237,7 +237,10 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
-import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubBranchesResponseApi,
+    GitHubReposResponseApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
 import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
@@ -1571,6 +1574,10 @@ export class ApiRequest {
 
     public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
+    }
+
+    public integrationGitHubBranches(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('github_branches')
     }
 
     public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -5293,8 +5300,11 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).withAction('run').create()
+        async run(id: Task['id'], data?: { branch?: string | null }): Promise<Task> {
+            return await new ApiRequest()
+                .task(id)
+                .withAction('run')
+                .create(data ? { data } : undefined)
         },
         runs: {
             async list(taskId: Task['id'], params: Record<string, any> = {}): Promise<PaginatedResponse<TaskRun>> {
@@ -6187,9 +6197,15 @@ const api = {
         },
         async githubRepositories(
             id: IntegrationType['id'],
-            params?: { limit?: number; offset?: number }
+            params?: { limit?: number; offset?: number; search?: string }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubBranches(
+            id: IntegrationType['id'],
+            params: { repo: string; limit?: number; offset?: number; search?: string }
+        ): Promise<GitHubBranchesResponseApi> {
+            return await new ApiRequest().integrationGitHubBranches(id).withQueryString(params).get()
         },
         async githubLinkExisting(
             data: {
@@ -6565,7 +6581,12 @@ const api = {
         async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
             return await new ApiRequest().hogFlows().create({ data })
         },
-        async updateHogFlow(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+        async updateHogFlow(
+            hogFlowId: HogFlow['id'],
+            // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
+            // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
+            data: Partial<HogFlow> & { base_updated_at?: string | null }
+        ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {

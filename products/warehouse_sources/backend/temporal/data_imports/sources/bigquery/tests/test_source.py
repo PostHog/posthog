@@ -13,12 +13,14 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery import bigquery as bq_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_QUERY_JOB_RETRY,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryCredentialsRejectedError,
     BigQueryDatasetNotFoundError,
     BigQueryImplementation,
     BigQueryTokenRefreshError,
     _bq_select_clause,
+    _get_primary_keys_for_table,
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
@@ -1235,6 +1237,53 @@ def test_has_duplicate_primary_keys_captures_unexpected_errors():
 
     assert result is False
     mock_capture.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # The transient `jobInternalError` from `jobs.getQueryResults` (volatile project/job id redacted).
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=US&prettyPrint=false: The job encountered an error during execution. "
+            "Retrying the job may solve the problem."
+        ),
+        # The library default's own retryable reasons must still be honoured.
+        BadRequest("query failed", errors=[{"reason": "backendError", "message": "internal error"}]),
+        BadRequest("query failed", errors=[{"reason": "rateLimitExceeded", "message": "slow down"}]),
+    ],
+)
+def test_bigquery_query_job_retry_retries_transient_job_errors(exc):
+    assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is True
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        # A genuinely malformed query is deterministic — retrying never helps, so it must surface.
+        BadRequest("Syntax error: Unexpected keyword SELECT"),
+        BadRequest("query failed", errors=[{"reason": "invalidQuery", "message": "bad SQL"}]),
+    ],
+)
+def test_bigquery_query_job_retry_does_not_retry_deterministic_errors(exc):
+    assert BIGQUERY_QUERY_JOB_RETRY._predicate(exc) is False
+
+
+def test_bigquery_get_primary_keys_for_table_passes_job_retry():
+    """The primary-key probe must run under the extended job retry so a transient BigQuery job
+    error is re-tried in place instead of crashing the import."""
+    table = mock.MagicMock()
+    table.schema = []
+    table.dataset_id = "dataset"
+    table.table_id = "table"
+    table.project = "project"
+
+    client = mock.MagicMock()
+    client.query.return_value.result.return_value = []
+
+    _get_primary_keys_for_table(table, client)
+
+    assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
 
 
 @pytest.mark.parametrize(

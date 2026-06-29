@@ -43,7 +43,6 @@ from posthog.models.group_type_mapping import (
     project_has_group_types_authoritatively,
 )
 from posthog.models.team import Team
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HYPERCACHE_REBUILD_SKIPPED_COUNTER, HyperCache, KeyType, emit_cache_sync_metrics
 from posthog.storage.hypercache_manager import HyperCacheManagementConfig
 from posthog.utils import capture_exception_throttled, get_safe_cache
@@ -382,9 +381,6 @@ DATABASE_FOR_LOCAL_EVALUATION = (
     if ("local_evaluation" not in settings.READ_REPLICA_OPT_IN or "replica" not in settings.DATABASES)  # noqa: F821
     else "replica"
 )
-
-# Use centralized database routing constant
-READ_ONLY_DATABASE_FOR_PERSONS = PERSONS_DB_FOR_READ
 
 flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
