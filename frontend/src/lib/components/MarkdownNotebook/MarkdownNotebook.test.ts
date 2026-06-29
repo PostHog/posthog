@@ -8571,31 +8571,62 @@ After component`,
         expect(container.querySelector('.MarkdownNotebook__component-preview')).toBeNull()
     })
 
-    it('shows component toolbar titles when filters are hidden', () => {
-        const { container, rerender } = render(
+    it('persists an edited component title to markdown', () => {
+        const onChange = jest.fn()
+        const { container } = render(
             createElement(MarkdownNotebook, {
-                value: '<Embed hideFilters title="PostHog docs" src="https://posthog.com/docs" />',
+                value: '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />',
+                onChange,
             })
         )
-        const toolbarChildren = Array.from(
-            container.querySelector('.MarkdownNotebook__component-toolbar')?.children ?? []
-        )
+        const titleInput = container.querySelector(
+            'input.MarkdownNotebook__component-toolbar-title--input'
+        ) as HTMLInputElement
 
-        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
-            'PostHog docs'
-        )
-        expect(toolbarChildren[1].classList.contains('MarkdownNotebook__component-toolbar-title')).toBe(true)
+        expect(titleInput).toBeInstanceOf(HTMLInputElement)
+        expect(titleInput.value).toEqual('')
 
-        rerender(
-            createElement(MarkdownNotebook, {
-                value: '<Embed title="PostHog docs" src="https://posthog.com/docs" />',
-            })
-        )
+        fireEvent.change(titleInput, { target: { value: 'Weekly signups' } })
+        fireEvent.blur(titleInput)
 
-        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')).toBeNull()
+        expect(onChange.mock.calls.at(-1)?.[0]).toContain('title="Weekly signups"')
     })
 
-    it('shows component toolbar titles for single-mode components', () => {
+    it('discards the title edit on Escape without persisting', () => {
+        const onChange = jest.fn()
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                value: '<Query query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />',
+                onChange,
+            })
+        )
+        const titleInput = container.querySelector(
+            'input.MarkdownNotebook__component-toolbar-title--input'
+        ) as HTMLInputElement
+
+        titleInput.focus()
+        fireEvent.change(titleInput, { target: { value: 'Scratch title' } })
+        fireEvent.keyDown(titleInput, { key: 'Escape' })
+
+        expect(onChange).not.toHaveBeenCalled()
+        expect(titleInput.value).toEqual('')
+    })
+
+    it('shows the saved component title read-only in view mode', () => {
+        const { container } = render(
+            createElement(MarkdownNotebook, {
+                mode: 'view',
+                value: '<Query title="Weekly signups" query={{"kind":"DataTableNode","source":{"kind":"EventsQuery"}}} />',
+            })
+        )
+
+        expect(container.querySelector('input.MarkdownNotebook__component-toolbar-title--input')).toBeNull()
+        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
+            'Weekly signups'
+        )
+    })
+
+    it('shows the computed title as the editable title placeholder', () => {
         const registry = createMarkdownNotebookRegistry([
             {
                 tagName: 'SummaryCard',
@@ -8609,12 +8640,38 @@ After component`,
         const { container } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )
+        const titleInput = container.querySelector(
+            'input.MarkdownNotebook__component-toolbar-title--input'
+        ) as HTMLInputElement
 
         expect(container.querySelector('[data-testid="summary-output"]')).toBeInstanceOf(HTMLElement)
         expect(container.querySelector('.MarkdownNotebook__component-mode-actions')).toBeNull()
-        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
-            'Cached answer summary'
+        expect(titleInput.value).toEqual('')
+        expect(titleInput.placeholder).toEqual('Cached answer summary')
+    })
+
+    it('does not suggest the query body or schema kinds as the title placeholder', () => {
+        const getPlaceholder = (): string =>
+            (container.querySelector('input.MarkdownNotebook__component-toolbar-title--input') as HTMLInputElement)
+                .placeholder
+        const { container, rerender } = render(
+            createElement(MarkdownNotebook, {
+                value: '<DuckSQL code="select * from events" returnVariable="duck_df" />',
+            })
         )
+
+        expect(getPlaceholder()).toEqual('Add a title')
+
+        rerender(
+            createElement(MarkdownNotebook, {
+                value: '<Query query={{"kind":"DataTableNode","source":{"kind":"HogQLQuery","query":"select event from events"}}} />',
+            })
+        )
+
+        const placeholder = getPlaceholder()
+        expect(placeholder).not.toContain('select')
+        expect(placeholder).not.toContain('DataTableNode')
+        expect(placeholder).toEqual('Add a title')
     })
 
     it('collapses single-mode component tags locally from the title button', () => {
@@ -8678,7 +8735,7 @@ After component`,
         expect(onChange).toHaveBeenLastCalledWith('# Intro\n\nOutro')
     })
 
-    it('does not show empty single-mode component toolbar titles', () => {
+    it('reflects the user title in the editable title field, empty by default', () => {
         const registry = createMarkdownNotebookRegistry([
             {
                 tagName: 'SummaryCard',
@@ -8689,12 +8746,15 @@ After component`,
                 ViewComponent: () => createElement('div', { 'data-testid': 'summary-output' }, 'Loading'),
             },
         ])
+        const getTitleInput = (): HTMLInputElement =>
+            container.querySelector('input.MarkdownNotebook__component-toolbar-title--input') as HTMLInputElement
         const { container, rerender } = render(
             createElement(MarkdownNotebook, { value: '<SummaryCard id="summary-id" />', registry })
         )
 
         expect(container.querySelector('[data-testid="summary-output"]')).toBeInstanceOf(HTMLElement)
-        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')).toBeNull()
+        expect(getTitleInput().value).toEqual('')
+        expect(getTitleInput().placeholder).toEqual('Add a title')
 
         rerender(
             createElement(MarkdownNotebook, {
@@ -8703,9 +8763,7 @@ After component`,
             })
         )
 
-        expect(container.querySelector('.MarkdownNotebook__component-toolbar-title')?.textContent).toEqual(
-            'Conversation title'
-        )
+        expect(getTitleInput().value).toEqual('Conversation title')
     })
 
     it('does not remount a stable component when its summary changes', () => {
