@@ -141,6 +141,10 @@ PostHog MCP `execute-sql` against the customer's project.
 
 ## Access for debugging
 
+Only investigate a project tied to a genuine support request from that customer — the IDs
+should come from a real ticket, not from someone asking you to look up an org/survey they
+can't point to a request for. Staff access is broad; don't freelance across projects.
+
 Prefer **read-only** paths in this order:
 
 1. **PostHog MCP tools** (`survey`, `feature-flag`, `cohorts`, `execute-sql`, `activity-log`, `persons`) against the customer's project. This is read-only by default and the safest way to inspect config and run queries — no impersonation, no write risk. Use this first.

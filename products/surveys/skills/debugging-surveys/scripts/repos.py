@@ -16,8 +16,9 @@ Usage:
     repos.py get <repo>              Print the recorded path (exit 1 if unknown/missing).
     repos.py set <repo> <path>       Record an absolute path for a repo.
     repos.py list                    Print the whole registry as JSON.
-    repos.py ensure <repo>           Resolve a path: registry -> filesystem scan -> clone,
-                                     record the result, and print it.
+    repos.py ensure <repo>           Resolve a path: registry -> filesystem scan, record
+                                     the result, and print it. Add --clone to clone from
+                                     GitHub when no local checkout is found.
 
 Known repo keys: posthog, posthog-js, posthog-ios, posthog-android, posthog-flutter,
 posthog.com (keys match GitHub repo names; web + React Native both live in posthog-js).
@@ -121,12 +122,9 @@ def repo_key_for_origin(url: str) -> str | None:
 
 
 def is_repo_checkout(path: Path, repo: str) -> bool:
-    if not path.is_dir():
-        return False
-    url = origin_url(path)
-    if url:
-        return repo_key_for_origin(url) == repo
-    return path.name == repo
+    """Strict: a directory is the repo only if its git origin proves it. No name-based
+    fallback — a folder merely named `posthog-js` is not trusted as the real checkout."""
+    return path.is_dir() and bool((url := origin_url(path))) and repo_key_for_origin(url) == repo
 
 
 def discover(wanted: set[str] | None = None) -> dict[str, list[Path]]:
@@ -162,7 +160,12 @@ def discover(wanted: set[str] | None = None) -> dict[str, list[Path]]:
 def clone(repo: str) -> Path | None:
     dest = Path.home() / "src" / repo
     if dest.exists():
-        return dest.resolve()
+        # Only trust a preexisting path if its git origin proves it's the right repo —
+        # otherwise an unrelated/leftover directory would poison the registry.
+        if is_repo_checkout(dest, repo):
+            return dest.resolve()
+        print(f"'{dest}' exists but is not a checkout of PostHog/{repo}; not recording it.", file=sys.stderr)
+        return None
     dest.parent.mkdir(parents=True, exist_ok=True)
     url = f"https://github.com/PostHog/{repo}"
     print(f"Cloning {url} -> {dest} ...", file=sys.stderr)
