@@ -350,7 +350,7 @@ _INTERNAL_COLUMNS = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION
 _MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
 
 
-def _columns_from_table(table: DataWarehouseTable) -> list[dict[str, Any]]:
+def _columns_from_table(table: DataWarehouseTable, log: Any = logger) -> list[dict[str, Any]]:
     """Source-agnostic `[{name, data_type, is_nullable}]` from `DataWarehouseTable.columns`.
 
     `columns` is populated after every sync for every source type (unlike SQL-only `schema_metadata`),
@@ -360,7 +360,17 @@ def _columns_from_table(table: DataWarehouseTable) -> list[dict[str, Any]]:
     """
     result: list[dict[str, Any]] = []
     for name, definition in (table.columns or {}).items():
-        if name in _INTERNAL_COLUMNS or len(name) > _MAX_COLUMN_NAME_LENGTH:
+        if name in _INTERNAL_COLUMNS:
+            continue
+        if len(name) > _MAX_COLUMN_NAME_LENGTH:
+            # Surface the drop — otherwise the column silently vanishes from enrichment with no trace,
+            # the same opacity that made the original DataError crash hard to diagnose.
+            log.warning(
+                "warehouse_enrichment.column_name_too_long",
+                column_name_prefix=name[:64],
+                column_name_length=len(name),
+                max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
+            )
             continue
         if isinstance(definition, dict):
             clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
@@ -418,7 +428,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     # Columns + types come from `table.columns`, populated for every source type after sync — so this
     # enriches REST sources (Stripe, Hubspot, …) as well as SQL ones. Foreign keys remain SQL-only.
-    columns = [column for column in _columns_from_table(table) if column.get("name")]
+    columns = [column for column in _columns_from_table(table, log) if column.get("name")]
     event_props["columns_total"] = len(columns)
     if not columns:
         emit_completed("skipped", reason="no_columns")
