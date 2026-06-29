@@ -22,7 +22,7 @@ export const BusinessKnowledgeGapSuggestionsAcceptCreateBody = /* @__PURE__ */ z
 })
 
 /**
- * Accept all suggestions for a normalized topic cluster.
+ * Accept all pending suggestions for a normalized topic cluster.
  */
 export const BusinessKnowledgeGapSuggestionsAcceptTopicCreateBody = /* @__PURE__ */ zod.object({
     normalized_topic: zod.string().describe('The normalized topic key identifying the gap cluster to act on.'),
@@ -30,7 +30,7 @@ export const BusinessKnowledgeGapSuggestionsAcceptTopicCreateBody = /* @__PURE__
 })
 
 /**
- * Dismiss all suggestions for a normalized topic cluster.
+ * Dismiss all pending suggestions for a normalized topic cluster.
  */
 export const BusinessKnowledgeGapSuggestionsDismissTopicCreateBody = /* @__PURE__ */ zod.object({
     normalized_topic: zod.string().describe('The normalized topic key identifying the gap cluster to act on.'),

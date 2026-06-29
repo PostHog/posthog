@@ -211,7 +211,7 @@ export const getBusinessKnowledgeGapSuggestionsAcceptTopicCreateUrl = (projectId
 }
 
 /**
- * Accept all suggestions for a normalized topic cluster.
+ * Accept all pending suggestions for a normalized topic cluster.
  */
 export const businessKnowledgeGapSuggestionsAcceptTopicCreate = async (
     projectId: string,
@@ -231,7 +231,7 @@ export const getBusinessKnowledgeGapSuggestionsDismissTopicCreateUrl = (projectI
 }
 
 /**
- * Dismiss all suggestions for a normalized topic cluster.
+ * Dismiss all pending suggestions for a normalized topic cluster.
  */
 export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     projectId: string,

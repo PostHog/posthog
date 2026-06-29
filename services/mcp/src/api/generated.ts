@@ -60001,7 +60001,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * When provided, returns per-ticket gap rows instead of aggregated view.
+     * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string;
     };
