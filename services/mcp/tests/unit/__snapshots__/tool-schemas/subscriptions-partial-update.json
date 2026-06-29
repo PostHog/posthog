@@ -55,7 +55,7 @@
             "description": "Dashboard ID to subscribe to (mutually exclusive with insight on create)."
         },
         "dashboard_export_insights": {
-            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+            "description": "List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 25.",
             "items": {
                 "type": "number"
             },
