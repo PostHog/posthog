@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
 use posthog_rs::{Client, Event};
-use tracing::info;
+use tracing::{info, warn};
 
 use super::{Emitter, Transaction};
 
@@ -106,27 +106,39 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         let txn_elapsed = self.start.elapsed();
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
 
+        // Split oversized chunks across multiple requests so we stay under capture's
+        // 10 MiB body limit. Re-sending a chunk on retry is already safe (events carry
+        // stable UUIDs and route through historical migration, which dedupes), so a
+        // partial failure here just re-sends the whole chunk and downstream dedupes the
+        // overlap.
+        let batches = split_into_byte_limited_batches(events)?;
+
         info!(
             count,
+            batches = batches.len(),
             ?txn_elapsed,
             ?min_duration,
             ?to_sleep,
             "sending events to capture"
         );
 
-        match self.client.capture_batch(events, true).await {
-            Ok(()) => {
-                counter!("capture_batch_events_total", "outcome" => "success")
-                    .increment(count as u64);
-                info!(count, "successfully sent batch to capture");
-                Ok(to_sleep)
-            }
-            Err(e) => {
-                counter!("capture_batch_events_total", "outcome" => "failure")
-                    .increment(count as u64);
-                Err(Error::msg(format!("capture batch failed: {e}")))
+        for batch in batches {
+            let batch_count = batch.len();
+            match self.client.capture_batch(batch, true).await {
+                Ok(()) => {
+                    counter!("capture_batch_events_total", "outcome" => "success")
+                        .increment(batch_count as u64);
+                }
+                Err(e) => {
+                    counter!("capture_batch_events_total", "outcome" => "failure")
+                        .increment(batch_count as u64);
+                    return Err(Error::msg(format!("capture batch failed: {e}")));
+                }
             }
         }
+
+        info!(count, "successfully sent batch to capture");
+        Ok(to_sleep)
     }
 }
 
@@ -134,6 +146,59 @@ fn get_min_txn_duration(send_rate: u64, count: usize) -> Duration {
     let max_send_rate = send_rate as f64;
     let batch_size = count as f64;
     Duration::from_secs_f64(batch_size / max_send_rate)
+}
+
+/// Capture's `/batch/` endpoint rejects any request body larger than 10 MiB with
+/// `payload_too_large`. We pack events into sub-batches that stay under this budget so a
+/// chunk whose serialized events exceed the limit is split across several requests
+/// instead of wedging the import. The headroom below 10 MiB absorbs the batch envelope
+/// and the per-event `api_key` / `$lib*` fields capture injects into each event.
+const MAX_BATCH_PAYLOAD_BYTES: usize = 9 * 1024 * 1024;
+
+/// Overhead capture adds per event beyond its own JSON (injected `api_key`, `$lib*`
+/// properties and separators). Counted toward every event so a flood of tiny events
+/// can't accumulate past the wire limit.
+const PER_EVENT_OVERHEAD_BYTES: usize = 256;
+
+/// Greedily pack events into batches whose estimated serialized size stays under
+/// [`MAX_BATCH_PAYLOAD_BYTES`], preserving order. A single event larger than the budget
+/// gets its own batch — best effort, since capture may still reject it, but that is a
+/// genuinely oversized event rather than an aggregation problem.
+fn split_into_byte_limited_batches(events: Vec<Event>) -> Result<Vec<Vec<Event>>, Error> {
+    let mut batches: Vec<Vec<Event>> = Vec::new();
+    let mut current: Vec<Event> = Vec::new();
+    let mut current_bytes: usize = 0;
+
+    for event in events {
+        let event_bytes = serde_json::to_vec(&event)
+            .map_err(|e| Error::msg(format!("failed to size event for batching: {e}")))?
+            .len()
+            .saturating_add(PER_EVENT_OVERHEAD_BYTES);
+
+        if !current.is_empty()
+            && current_bytes.saturating_add(event_bytes) > MAX_BATCH_PAYLOAD_BYTES
+        {
+            batches.push(std::mem::take(&mut current));
+            current_bytes = 0;
+        }
+
+        if event_bytes > MAX_BATCH_PAYLOAD_BYTES {
+            warn!(
+                event_bytes,
+                limit = MAX_BATCH_PAYLOAD_BYTES,
+                "single event exceeds capture batch size limit; sending it in its own request"
+            );
+        }
+
+        current.push(event);
+        current_bytes = current_bytes.saturating_add(event_bytes);
+    }
+
+    if !current.is_empty() {
+        batches.push(current);
+    }
+
+    Ok(batches)
 }
 
 #[cfg(test)]
@@ -458,6 +523,93 @@ mod tests {
 
         let result = txn.commit_write().await;
         assert!(result.is_err());
+        mock.assert();
+    }
+
+    fn padded_event(pad_bytes: usize) -> Event {
+        let mut event = Event::new("big", "user1");
+        event.insert_prop("pad", "x".repeat(pad_bytes)).unwrap();
+        event
+    }
+
+    fn batch_bytes(batch: &[Event]) -> usize {
+        batch
+            .iter()
+            .map(|e| serde_json::to_vec(e).unwrap().len() + PER_EVENT_OVERHEAD_BYTES)
+            .sum()
+    }
+
+    #[test]
+    fn test_split_empty_returns_no_batches() {
+        assert!(split_into_byte_limited_batches(vec![]).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_split_keeps_small_events_in_one_batch() {
+        let events = vec![padded_event(10), padded_event(10), padded_event(10)];
+        let batches = split_into_byte_limited_batches(events).unwrap();
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].len(), 3);
+    }
+
+    #[test]
+    fn test_split_breaks_oversized_chunk_into_multiple_batches() {
+        // Five ~2.5 MiB events against a 9 MiB budget must span more than one batch.
+        let events: Vec<Event> = (0..5).map(|_| padded_event(2_500_000)).collect();
+        let total = events.len();
+
+        let batches = split_into_byte_limited_batches(events).unwrap();
+
+        assert!(batches.len() > 1, "expected multiple batches");
+        let mut seen = 0;
+        for batch in &batches {
+            assert!(
+                batch_bytes(batch) <= MAX_BATCH_PAYLOAD_BYTES,
+                "batch exceeds capture limit"
+            );
+            seen += batch.len();
+        }
+        assert_eq!(seen, total, "no events may be dropped while splitting");
+    }
+
+    #[test]
+    fn test_split_isolates_single_oversized_event() {
+        let events = vec![padded_event(10 * 1024 * 1024), padded_event(10)];
+        let batches = split_into_byte_limited_batches(events).unwrap();
+        assert_eq!(batches.len(), 2);
+        assert_eq!(batches[0].len(), 1, "oversized event sent on its own");
+        assert_eq!(batches[1].len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_splits_oversized_chunk_across_requests() {
+        let events: Vec<Event> = (0..5).map(|_| padded_event(2_500_000)).collect();
+        let expected_requests = split_into_byte_limited_batches(events.clone())
+            .unwrap()
+            .len();
+        assert!(
+            expected_requests > 1,
+            "test must exercise multiple requests"
+        );
+
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .with_status(200)
+            .with_body(V1_OK_BODY)
+            .expect(expected_requests)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = Box::new(CaptureTransaction {
+            client: &client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(events),
+        });
+
+        let result = txn.commit_write().await;
+        assert!(result.is_ok(), "got {result:?}");
         mock.assert();
     }
 }
