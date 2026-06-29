@@ -206,6 +206,12 @@ def resolve_kill_switch_level(team_id: Optional[int]) -> KillSwitchLevel:
     return level
 
 
+# max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
+# https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
+# ClickHouse rejects any query whose rendered text is larger than this with a SYNTAX_ERROR.
+CLICKHOUSE_MAX_QUERY_SIZE = 1048576
+
+
 @lru_cache(maxsize=1)
 def default_settings() -> dict:
     # https://clickhouse.com/blog/clickhouse-fully-supports-joins-how-to-choose-the-right-algorithm-part5
@@ -214,9 +220,7 @@ def default_settings() -> dict:
     return {
         "join_algorithm": "direct,parallel_hash,hash",
         "distributed_replica_max_ignored_errors": 1000,
-        # max_query_size can't be set in a query, because it determines the size of the buffer used to parse the query
-        # https://clickhouse.com/docs/en/operations/settings/settings#max_query_size
-        "max_query_size": 1048576,
+        "max_query_size": CLICKHOUSE_MAX_QUERY_SIZE,
     }
 
 

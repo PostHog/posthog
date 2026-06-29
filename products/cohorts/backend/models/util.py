@@ -26,6 +26,8 @@ from posthog.hogql.resolver_utils import extract_select_queries
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.escape import substitute_params
+from posthog.clickhouse.client.execute import CLICKHOUSE_MAX_QUERY_SIZE
 from posthog.clickhouse.query_tagging import Feature, tag_queries, tags_context
 from posthog.constants import PropertyOperatorType
 from posthog.exceptions import (
@@ -749,6 +751,29 @@ def hogql_cohort_subquery_sql(cohort: Cohort, *, team: Team) -> tuple[str, HogQL
     return _trim_trailing_settings(sql), hogql_context
 
 
+def _assert_cohort_query_within_size_limit(query: str, params: dict[str, Any]) -> None:
+    """Raise ``ClickHouseQuerySizeExceeded`` if the rendered query would exceed ClickHouse's
+    ``max_query_size``.
+
+    ClickHouse hard-pins ``max_query_size`` at the buffer it allocates to parse the query, so it
+    can't be raised per-query and any query whose text exceeds it fails with a SYNTAX_ERROR at byte
+    ``max_query_size + 1``. Cohort criteria with large ``icontains``-style filters expand into long
+    chains of inlined property-value literals (``multiSearchAny...([...])``), and ``sync_execute``
+    substitutes those literals into the query text client-side, so the rendered SQL can blow past the
+    limit. Detecting it here lets the failure be recorded as ``CohortErrorCode.QUERY_SIZE`` rather
+    than wasting a ClickHouse parse on a doomed query and surfacing as an opaque ``ServerException``.
+
+    The annotation comment ``sync_execute`` prepends only adds to the rendered size, so this is a
+    conservative lower bound — queries that squeak under here still get ClickHouse's own check.
+    """
+    rendered_size = len(substitute_params(query, params).encode("utf-8"))
+    if rendered_size > CLICKHOUSE_MAX_QUERY_SIZE:
+        raise ClickHouseQuerySizeExceeded(
+            f"Rendered cohort calculation query is {rendered_size} bytes, "
+            f"over ClickHouse's max_query_size of {CLICKHOUSE_MAX_QUERY_SIZE} bytes."
+        )
+
+
 def _recalculate_cohortpeople_for_team_hogql(
     cohort: Cohort, pending_version: int, team: Team, history: CohortCalculationHistory
 ) -> int:
@@ -767,6 +792,16 @@ def _recalculate_cohortpeople_for_team_hogql(
         cohort_params = hogql_context.values
 
     recalculate_cohortpeople_sql = RECALCULATE_COHORT_BY_ID.format(cohort_filter=cohort_query)
+    query_params: dict[str, Any] = {
+        **cohort_params,
+        "cohort_id": cohort.pk,
+        "team_id": team.id,
+        "new_version": pending_version,
+    }
+
+    # Fail fast (and with a classifiable error code) when the criteria render to a query ClickHouse
+    # would reject for exceeding max_query_size, instead of sending it and getting an opaque error.
+    _assert_cohort_query_within_size_limit(recalculate_cohortpeople_sql, query_params)
 
     def execute_query():
         tag_queries(
@@ -781,12 +816,7 @@ def _recalculate_cohortpeople_for_team_hogql(
 
         return sync_execute(
             recalculate_cohortpeople_sql,
-            {
-                **cohort_params,
-                "cohort_id": cohort.pk,
-                "team_id": team.id,
-                "new_version": pending_version,
-            },
+            query_params,
             settings={
                 "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
                 "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,

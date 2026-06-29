@@ -12,6 +12,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 from posthog.hogql.hogql import HogQLContext
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute import CLICKHOUSE_MAX_QUERY_SIZE
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -24,6 +25,7 @@ from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    _assert_cohort_query_within_size_limit,
     _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
@@ -1108,3 +1110,16 @@ class TestGetFriendlyErrorMessage(BaseTest):
         message = get_friendly_error_message("some_unknown_code")
         assert message is not None
         self.assertIn("an error occurred", message.lower())
+
+
+class TestAssertCohortQueryWithinSizeLimit(BaseTest):
+    def test_passes_when_rendered_query_is_within_limit(self):
+        # A small query with an inlined value renders well under the limit and must not raise.
+        _assert_cohort_query_within_size_limit("SELECT %(value)s", {"value": "x" * 100})
+
+    def test_raises_when_rendered_query_exceeds_limit(self):
+        # Mirrors the production failure: criteria expand into so many inlined literals that the
+        # rendered SQL blows past ClickHouse's max_query_size. The substituted value alone is over
+        # the limit, so the guard must reject it before it reaches ClickHouse.
+        with self.assertRaises(ClickHouseQuerySizeExceeded):
+            _assert_cohort_query_within_size_limit("SELECT %(value)s", {"value": "x" * (CLICKHOUSE_MAX_QUERY_SIZE + 1)})
