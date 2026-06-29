@@ -36,6 +36,19 @@ class CimisRetryableError(Exception):
     pass
 
 
+class CimisHTTPError(Exception):
+    """Sanitized HTTP error for non-2xx CIMIS responses.
+
+    requests' own ``raise_for_status()`` embeds the full request URL — which carries the appKey in
+    its query string — in the exception message, so it must not be used here. This error reports only
+    the status code, keeping the credential out of logs, error tracking, and the non-retryable matcher.
+    """
+
+    def __init__(self, status_code: int) -> None:
+        self.status_code = status_code
+        super().__init__(f"CIMIS API error: status={status_code}")
+
+
 def _headers() -> dict[str, str]:
     return {"Accept": "application/json", "User-Agent": _USER_AGENT}
 
@@ -114,7 +127,7 @@ def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) ->
 
     if not response.ok:
         logger.error(f"CIMIS API error: status={response.status_code}, body={response.text[:500]}")
-        response.raise_for_status()
+        raise CimisHTTPError(response.status_code)
 
     return response.json()
 
@@ -128,7 +141,6 @@ def _build_metadata_url(config: CimisEndpointConfig, app_key: str) -> str:
 def _build_data_url(
     app_key: str,
     targets: list[str],
-    scope: Optional[str],
     unit_of_measure: str,
     data_items: list[str],
     start: date,
@@ -193,7 +205,7 @@ def _get_data_rows(
 
     for win_start, win_end in _date_windows(start, end, window_days):
         for batch in target_batches:
-            url = _build_data_url(app_key, batch, config.scope, unit_of_measure, data_items, win_start, win_end)
+            url = _build_data_url(app_key, batch, unit_of_measure, data_items, win_start, win_end)
             data = _fetch(session, url, logger)
             rows = list(_iter_data_records(data))
             if rows:
@@ -218,7 +230,7 @@ def get_rows(
     # CIMIS has no future data and rejects future dates; the upper bound is always today in California.
     end = _california_today()
 
-    start = _to_date(CIMIS_DATA_EPOCH) or date(1982, 6, 7)
+    start = date.fromisoformat(CIMIS_DATA_EPOCH)
     if should_use_incremental_field:
         last_value = _to_date(db_incremental_field_last_value)
         if last_value is not None:
@@ -247,13 +259,14 @@ def validate_credentials(app_key: str, targets: list[str], logger: FilteringBoun
     probe_target = targets[0] if targets else "2"
     end = _california_today()
     start = end - timedelta(days=2)
-    url = _build_data_url(app_key, [probe_target], "daily", "E", ["day-air-tmp-avg"], start, end)
+    url = _build_data_url(app_key, [probe_target], "E", ["day-air-tmp-avg"], start, end)
 
     try:
         session = make_tracked_session(headers=_headers(), redact_values=(app_key,))
         response = session.get(url, timeout=REQUEST_TIMEOUT)
     except Exception as exc:
-        logger.warning(f"CIMIS credential validation failed to reach the API: {exc}")
+        # Log only the exception type — requests exceptions embed the request URL, which carries the appKey.
+        logger.warning(f"CIMIS credential validation failed to reach the API: {type(exc).__name__}")
         return False, "Could not reach the CIMIS API. Please try again."
 
     if response.status_code == 200:

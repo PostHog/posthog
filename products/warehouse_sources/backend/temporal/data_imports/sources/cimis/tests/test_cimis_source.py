@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Any, Literal
 
 from unittest import mock
 
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
@@ -13,7 +13,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-def _config(app_key: str = "key", targets: str | None = "2", unit: str = "E") -> CimisSourceConfig:
+def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", "M"] = "E") -> CimisSourceConfig:
     return CimisSourceConfig(app_key=app_key, targets=targets, unit_of_measure=unit)
 
 
@@ -31,11 +31,15 @@ class TestCimisSourceConfig:
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in CimisSource().get_source_config.fields}
         assert set(fields) == {"app_key", "targets", "unit_of_measure"}
+        app_key = fields["app_key"]
+        targets = fields["targets"]
+        assert isinstance(app_key, SourceFieldInputConfig)
+        assert isinstance(targets, SourceFieldInputConfig)
         # The credential must be flagged secret so the serializer treats it as sensitive.
-        assert fields["app_key"].required is True
-        assert fields["app_key"].secret is True
+        assert app_key.required is True
+        assert app_key.secret is True
         # Targets is optional so the metadata tables can sync without it.
-        assert fields["targets"].required is False
+        assert targets.required is False
 
 
 class TestCimisGetSchemas:

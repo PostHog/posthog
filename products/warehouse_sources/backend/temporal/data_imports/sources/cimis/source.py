@@ -103,9 +103,11 @@ To sync the **daily** and **hourly** weather tables, set **Targets** to a comma-
         return CANONICAL_DESCRIPTIONS
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
+        # Matches the sanitized CimisHTTPError message (status code only) so the appKey embedded in the
+        # request URL never reaches the matcher, logs, or error tracking.
         return {
-            "401 Client Error: Unauthorized for url: https://et.water.ca.gov": "Your CIMIS appKey is invalid or has expired. Create a new appKey in your CIMIS account, then reconnect.",
-            "403 Client Error: Forbidden for url: https://et.water.ca.gov": "Your CIMIS appKey is invalid or has not been activated. Check the key in your CIMIS account, then reconnect.",
+            "CIMIS API error: status=401": "Your CIMIS appKey is invalid or has expired. Create a new appKey in your CIMIS account, then reconnect.",
+            "CIMIS API error: status=403": "Your CIMIS appKey is invalid or has not been activated. Check the key in your CIMIS account, then reconnect.",
         }
 
     def get_schemas(

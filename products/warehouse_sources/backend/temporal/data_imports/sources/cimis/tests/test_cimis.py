@@ -177,7 +177,12 @@ class TestGetRowsData:
     @freeze_time("2023-01-02 12:00:00")
     def test_no_requests_when_watermark_in_future(self, monkeypatch: Any) -> None:
         urls: list[str] = []
-        monkeypatch.setattr(cimis, "_fetch", lambda *a, **k: urls.append("x") or _data_payload("2", "2023-01-01"))
+
+        def fake_fetch(_session: Any, url: str, _logger: Any) -> dict[str, Any]:
+            urls.append(url)
+            return _data_payload("2", "2023-01-01")
+
+        monkeypatch.setattr(cimis, "_fetch", fake_fetch)
         batches = list(
             get_rows(
                 endpoint="daily_data",
