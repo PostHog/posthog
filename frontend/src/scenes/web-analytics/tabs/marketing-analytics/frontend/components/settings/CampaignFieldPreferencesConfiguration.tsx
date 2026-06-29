@@ -4,12 +4,10 @@ import { LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { CampaignFieldPreference, MatchField } from '~/queries/schema/schema-general'
+import { CampaignFieldPreference, MatchField, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { getEnabledNativeMarketingSources } from '../../logic/utils'
 
 export interface CampaignFieldPreferencesConfigurationProps {
     sourceFilter?: string
@@ -22,7 +20,6 @@ export function CampaignFieldPreferencesConfiguration({
 }: CampaignFieldPreferencesConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCampaignFieldPreferences } = useActions(marketingAnalyticsSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -30,8 +27,7 @@ export function CampaignFieldPreferencesConfiguration({
 
     const preferences = marketingAnalyticsConfig?.campaign_field_preferences || {}
 
-    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
-    const integrationsToShow = sourceFilter ? [sourceFilter] : [...enabledSources]
+    const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
 
     const updatePreference = (integration: string, matchField: CampaignFieldPreference['match_field']): void => {
         updateCampaignFieldPreferences({

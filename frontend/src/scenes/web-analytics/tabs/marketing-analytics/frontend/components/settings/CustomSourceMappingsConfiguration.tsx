@@ -6,12 +6,10 @@ import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { MARKETING_DEFAULT_SOURCE_MAPPINGS } from '~/queries/schema/schema-general'
+import { MARKETING_DEFAULT_SOURCE_MAPPINGS, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
-import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import { parseCommaSeparatedValues, removeSourceFromMappings } from '../NonIntegratedConversionsTable/mappingUtils'
 
 export interface CustomSourceMappingsConfigurationProps {
@@ -25,7 +23,6 @@ export function CustomSourceMappingsConfiguration({
 }: CustomSourceMappingsConfigurationProps): JSX.Element {
     const { marketingAnalyticsConfig } = useValues(marketingAnalyticsSettingsLogic)
     const { updateCustomSourceMappings } = useActions(marketingAnalyticsSettingsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -36,8 +33,7 @@ export function CustomSourceMappingsConfiguration({
         sourceFilter && initialUtmValue ? { [sourceFilter]: initialUtmValue } : {}
     )
 
-    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
-    const integrationsToShow = sourceFilter ? [sourceFilter] : [...enabledSources]
+    const integrationsToShow = sourceFilter ? [sourceFilter] : [...VALID_NATIVE_MARKETING_SOURCES]
 
     const getInputValue = (integration: string): string => inputValues[integration] || ''
     const setInputValue = (integration: string, value: string): void => {

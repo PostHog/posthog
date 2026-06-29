@@ -4,13 +4,12 @@ import { router } from 'kea-router'
 import { IconArrowRight, IconCheckCircle, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonCard, Link, Tooltip } from '@posthog/lemon-ui'
 
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
+import { ProductIntentContext, ProductKey, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
@@ -18,7 +17,6 @@ import { marketingAnalyticsLogic } from '../../web-analytics/tabs/marketing-anal
 import {
     VALID_NON_NATIVE_MARKETING_SOURCES,
     VALID_SELF_MANAGED_MARKETING_SOURCES,
-    getEnabledNativeMarketingSources,
 } from '../../web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 interface MarketingSource {
@@ -34,14 +32,11 @@ interface AddSourceStepProps {
 
 export function AddSourceStep({ onContinue, hasSources }: AddSourceStepProps): JSX.Element {
     const { validExternalTables, validNativeSources } = useValues(marketingAnalyticsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { reportMarketingAnalyticsDataSourceConnected } = useActions(eventUsageLogic)
     const { addProductIntent } = useActions(teamLogic)
 
-    const enabledNativeSources = getEnabledNativeMarketingSources(featureFlags)
-
     const allSources: MarketingSource[] = [
-        ...enabledNativeSources.map((sourceType) => ({
+        ...VALID_NATIVE_MARKETING_SOURCES.map((sourceType) => ({
             id: sourceType,
             isConnected: validNativeSources.some((source) => source.source.source_type === sourceType),
             category: 'native' as const,
