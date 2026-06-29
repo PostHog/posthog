@@ -719,7 +719,7 @@ describe('TrendsBarChart overlays', () => {
             })
 
             const legendEl = getInChartLegend(container)
-            expect(legendEl.textContent).toContain('$pageview')
+            expect(legendEl.textContent).toContain('Pageview')
             expect(legendEl.textContent).toContain('Napped')
         })
     })

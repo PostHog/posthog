@@ -11,6 +11,7 @@ import { webAnalyticsRecap } from 'products/web_analytics/frontend/generated/api
 import type { WebAnalyticsRecapResponseApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import { formatRecapDateRange } from './recapDates'
+import type { webAnalyticsRecapLogicType } from './webAnalyticsRecapLogicType'
 
 export type RecapShareMethod = 'copy_link' | 'copy_slack' | 'copy_email'
 export type RecapCta = 'view_dashboard' | 'ask_posthog_ai' | 'go_to_web_analytics'
@@ -38,7 +39,7 @@ function buildSlackCopy(recap: WebAnalyticsRecapResponseApi): string {
         `• ${recap.sessions.current.toLocaleString()} sessions`,
         `• ${Math.round(recap.bounce_rate.current)}% bounce rate`,
         '',
-        `Persona: ${recap.persona.emoji} ${recap.persona.label}`,
+        `Persona: ${recap.persona.emoji} ${recap.persona.name}`,
         recap.recap_url,
     ].join('\n')
 }
@@ -54,14 +55,14 @@ function buildEmailCopy(recap: WebAnalyticsRecapResponseApi): string {
         `${recap.sessions.current.toLocaleString()} sessions`,
         `${Math.round(recap.bounce_rate.current)}% bounce rate`,
         '',
-        `This week's persona: ${recap.persona.emoji} ${recap.persona.label}`,
+        `This week's persona: ${recap.persona.emoji} ${recap.persona.name}`,
         recap.persona.blurb,
         '',
         `View the full recap: ${recap.recap_url}`,
     ].join('\n')
 }
 
-export const webAnalyticsRecapLogic = kea([
+export const webAnalyticsRecapLogic = kea<webAnalyticsRecapLogicType>([
     path(['scenes', 'web-analytics', 'recap', 'webAnalyticsRecapLogic']),
     connect(() => ({
         values: [projectLogic, ['currentProjectId']],

@@ -83,20 +83,25 @@ pub enum RawFrame {
 }
 
 impl RawFrame {
-    pub fn symbol_set_ref(&self) -> Option<String> {
+    pub fn symbol_set_ref(&self, debug_images: &[DebugImage]) -> Option<String> {
         match self {
             RawFrame::JavaScriptWeb(frame) | RawFrame::LegacyJS(frame) => frame.symbol_set_ref(),
             RawFrame::JavaScriptNode(frame) => frame.chunk_id.clone(),
             RawFrame::Hermes(frame) => frame.symbol_set_ref(),
             RawFrame::Java(frame) => frame.symbol_set_ref(),
+            // Native frames (apple, rust) resolve against an uploaded debug
+            // symbol set keyed by the matched debug image's debug_id. Surfacing
+            // it as the symbol-set ref links the saved frame records to that
+            // set, so release info attaches and a later (re)upload invalidates
+            // the cached records.
+            RawFrame::Apple(frame) => frame.symbol_set_ref(debug_images),
+            RawFrame::Native(frame) => frame.symbol_set_ref(debug_images),
             // Frames with no symbol sets
             RawFrame::Python(_)
             | RawFrame::Php(_)
             | RawFrame::Ruby(_)
             | RawFrame::Go(_)
             | RawFrame::Dart(_)
-            | RawFrame::Apple(_)
-            | RawFrame::Native(_)
             | RawFrame::Custom(_) => None,
         }
     }

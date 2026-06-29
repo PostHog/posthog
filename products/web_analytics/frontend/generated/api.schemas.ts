@@ -137,6 +137,8 @@ export interface HeatmapScreenshotResponseApi {
     readonly snapshots: readonly HeatmapSnapshotMetadataApi[]
     /** Soft-delete flag; deleted heatmaps are hidden from the list. */
     deleted?: boolean
+    /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -232,6 +234,8 @@ export interface SavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 export interface PatchedSavedHeatmapRequestApi {
@@ -267,6 +271,8 @@ export interface PatchedSavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 /**
@@ -353,7 +359,7 @@ export interface RecapPersonaApi {
     /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
     id: string
     /** Display name for the persona, e.g. 'Traffic Magnet'. */
-    label: string
+    name: string
     /** Emoji representing the persona. */
     emoji: string
     /** One-line explanation of why this persona was assigned this week. */
@@ -368,7 +374,7 @@ export interface RecapHighlightApi {
     /** Emoji for the highlight. */
     emoji: string
     /** Short headline for the highlight, e.g. 'Rising star page'. */
-    label: string
+    title: string
     /** The standout value, e.g. a page path or visitor count. */
     value: string
     /** Supporting sentence for the highlight. */
@@ -486,6 +492,11 @@ export interface AchievementDefinitionApi {
     stages: AchievementStageApi[]
 }
 
+/**
+ * Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked.
+ */
+export type AchievementProgressApiUnlockedAt = { [key: string]: string }
+
 export interface AchievementProgressApi {
     /** Track this progress row belongs to. */
     track_key: string
@@ -498,6 +509,8 @@ export interface AchievementProgressApi {
      * @nullable
      */
     last_computed_at: string | null
+    /** Map of unlocked stage number (as a string, '1'-'5') to the ISO timestamp it was unlocked. */
+    unlocked_at: AchievementProgressApiUnlockedAt
 }
 
 export interface PendingCelebrationApi {

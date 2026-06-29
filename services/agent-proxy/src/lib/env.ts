@@ -6,7 +6,7 @@
 // at runtime.
 
 export type KnownEnvKey =
-    | 'REDIS_URL'
+    | 'TASKS_REDIS_URL'
     | 'SANDBOX_JWT_PUBLIC_KEY'
     | 'SANDBOX_JWT_PUBLIC_KEY_SECONDARY'
     | 'TASKS_AGENT_PROXY_CORS_ORIGINS'

@@ -35,7 +35,7 @@ const recapMock: WebAnalyticsRecapResponseApi = {
     dashboard_url: '/project/1/web',
     persona: {
         id: 'traffic_magnet',
-        label: 'Traffic Magnet',
+        name: 'Traffic Magnet',
         emoji: '🧲',
         blurb: 'Visitors surged +18% this week. Whatever you’re doing, keep doing it.',
         color: '#e0a23b',
@@ -44,21 +44,21 @@ const recapMock: WebAnalyticsRecapResponseApi = {
         {
             id: 'milestone',
             emoji: '🎉',
-            label: 'Milestone unlocked',
+            title: 'Milestone unlocked',
             value: '10,000 visitors',
             detail: 'You crossed a new visitor milestone this week.',
         },
         {
             id: 'rising_page',
             emoji: '📈',
-            label: 'Rising star page',
+            title: 'Rising star page',
             value: '/blog/launch-week',
             detail: 'Up 120% in visitors week over week.',
         },
         {
             id: 'top_source',
             emoji: '🌐',
-            label: 'Top source',
+            title: 'Top source',
             value: 'google.com',
             detail: '5,400 visitors came from here.',
         },

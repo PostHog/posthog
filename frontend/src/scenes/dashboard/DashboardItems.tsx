@@ -85,11 +85,18 @@ export function DashboardItems(): JSX.Element {
         ? null
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
-    const resizingItemRef = useRef<any>(null)
+    // Tile currently being resized. Its viz is unmounted for the duration of the gesture so the chart doesn't
+    // redraw on every frame as the tile's dimensions change — the dominant cost that makes resizing feel laggy.
+    const [resizingTileId, setResizingTileId] = useState<string | null>(null)
     const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
+    // While a drag/resize is in progress the grid drives itself from its own internal state and ignores the
+    // `layouts` prop, so pushing layout updates to the store mid-gesture only triggers expensive full re-renders
+    // (every InsightCard) that make the dragged tile lag the cursor. Stash the latest layout and commit once on stop.
+    const interactionInProgress = useRef(false)
+    const pendingLayouts = useRef<Partial<Record<DashboardLayoutSize, Layout>> | null>(null)
     const dragEndTimeout = useRef<number | null>(null)
     const scrollAnimationRef = useRef<number | null>(null)
     const scrollContainerRef = useRef<HTMLElement | null>(null)
@@ -156,6 +163,11 @@ export function DashboardItems(): JSX.Element {
 
         const element = containerRef.current
         const observer = new ResizeObserver((entries) => {
+            // Skip per-frame height commits during a gesture — they re-render every tile just for GridBackground,
+            // lagging the cursor. flushPendingLayouts remeasures on stop.
+            if (interactionInProgress.current) {
+                return
+            }
             for (const entry of entries) {
                 if (entry.target === element) {
                     setContainerHeight(entry.contentRect.height)
@@ -269,12 +281,32 @@ export function DashboardItems(): JSX.Element {
 
     const handleLayoutChange = useCallback(
         (_: unknown, newLayouts: Partial<Record<DashboardLayoutSize, Layout>>) => {
-            if (layoutEditMode) {
-                updateLayouts(newLayouts)
+            if (!layoutEditMode) {
+                return
             }
+            // Defer commits while dragging/resizing — the final layout is flushed on gesture stop.
+            if (interactionInProgress.current) {
+                pendingLayouts.current = newLayouts
+                return
+            }
+            updateLayouts(newLayouts)
         },
         [layoutEditMode, updateLayouts]
     )
+
+    const flushPendingLayouts = useCallback(() => {
+        interactionInProgress.current = false
+        if (pendingLayouts.current) {
+            updateLayouts(pendingLayouts.current)
+            pendingLayouts.current = null
+        }
+        // Remeasure once the gesture settles, since height updates were suppressed during it.
+        requestAnimationFrame(() => {
+            if (containerRef.current) {
+                setContainerHeight(containerRef.current.clientHeight)
+            }
+        })
+    }, [updateLayouts])
 
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
@@ -283,18 +315,25 @@ export function DashboardItems(): JSX.Element {
         [updateContainerWidth]
     )
 
+    const handleResizeStart = useCallback(() => {
+        interactionInProgress.current = true
+    }, [])
+
     const handleResize = useCallback((_layout: any, _oldItem: any, newItem: any) => {
-        resizingItemRef.current = newItem
+        // Setting state to the same id bails out of re-rendering, so this only re-renders once per gesture.
+        setResizingTileId(newItem.i)
     }, [])
 
     const handleResizeStop = useCallback(() => {
-        resizingItemRef.current = null
+        setResizingTileId(null)
+        flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(() => {
+        interactionInProgress.current = true
         scrollContainerRef.current = document.getElementById('main-content')
         scrollContainerRectRef.current = scrollContainerRef.current?.getBoundingClientRect() ?? null
     }, [])
@@ -356,10 +395,11 @@ export function DashboardItems(): JSX.Element {
         dragEndTimeout.current = window.setTimeout(() => {
             isDragging.current = false
         }, 250)
+        flushPendingLayouts()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom])
+    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
 
     return (
         <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
@@ -397,6 +437,7 @@ export function DashboardItems(): JSX.Element {
                         onWidthChange={handleWidthChange}
                         breakpoints={BREAKPOINTS}
                         cols={BREAKPOINT_COLUMN_COUNTS}
+                        onResizeStart={handleResizeStart}
                         onResize={handleResize}
                         onResizeStop={handleResizeStop}
                         onDragStart={handleDragStart}
@@ -455,6 +496,7 @@ export function DashboardItems(): JSX.Element {
                                         showDetailsControls={showDetailsControls}
                                         placement={placement}
                                         loadPriority={smLayout ? smLayout.y * 1000 + smLayout.x : undefined}
+                                        isResizing={resizingTileId === tile.id.toString()}
                                         filtersOverride={effectiveEditBarFilters}
                                         variablesOverride={effectiveDashboardVariableOverrides}
                                         // :HACKY: The two props below aren't actually used in the component, but are needed to trigger a re-render

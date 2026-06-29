@@ -31,8 +31,10 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
+    type ApprovalType,
     BundleStore,
     CredentialBroker,
+    GatewayCatalog,
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
@@ -40,8 +42,9 @@ import {
     TabularStore,
     Sandbox,
     ToolContext,
+    WebSearchProvider,
 } from '@posthog/agent-shared'
-import { getNativeTool, hasNativeTool } from '@posthog/agent-tools'
+import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
 import { buildToolNameMap } from './provider-safe-names'
@@ -70,6 +73,15 @@ export interface ToolResultDetails {
     requestId?: string
     /** True when the queue deduped onto an existing row (no new request). */
     deduped?: boolean
+    /**
+     * Approval policy on the queued row, when `queued`. Surfaced so the live
+     * `tool_result` SSE event carries the same `approval` shape the persisted
+     * synthetic result does — the inline card needs `allow_edit` (edit
+     * affordance) and `approver_scope.type` (decidable inline vs console-only),
+     * and neither is derivable from the tool_call alone.
+     */
+    allowEdit?: boolean
+    approverType?: ApprovalType
 }
 
 /**
@@ -112,6 +124,12 @@ export interface AgentToolDeps {
     memoryStore?: MemoryStore
     /** Deterministic tabular store for @posthog/table-* tools. */
     tabularStore?: TabularStore
+    /**
+     * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
+     * `ToolContext`; an empty/absent chain also gates the tool out of the
+     * session surface below (so the model never sees a tool that throws).
+     */
+    webSearchProviders?: readonly WebSearchProvider[]
     /**
      * Dispatcher for `kind: "client"` tools. The driver wires this up
      * over the session event bus: `execute` publishes a
@@ -158,6 +176,10 @@ export interface AgentToolDeps {
      * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
+    /** Gateway model catalog, forwarded onto `ToolContext.gatewayCatalog` for
+     *  the `@posthog/agent-applications-models` tool. Absent when the gateway
+     *  is disabled. */
+    gatewayCatalog?: GatewayCatalog
 }
 
 export interface BuiltAgentTools {
@@ -204,16 +226,39 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             if (!hasNativeTool(t.id)) {
                 continue
             }
+            // `@posthog/web-search` is config-gated: with no provider keyed at
+            // boot the chain is empty, so drop it rather than surface a tool
+            // that only ever throws `web_search_not_configured`.
+            if (t.id === WEB_SEARCH_TOOL_ID && !deps.webSearchProviders?.length) {
+                continue
+            }
             tools.push(makeNativeTool(t.id, deps))
             continue
         }
         if (t.kind === 'client') {
-            // Always exposed when dispatcher is wired. No upfront capability
-            // handshake: if the connecting client doesn't handle the id, the
-            // dispatcher's await times out and the model gets an error
-            // tool_result it can adapt to. Keeps the protocol simple +
-            // matches the agent.md degradation rules.
+            // Client tools need a connected client to fulfil the call. Only
+            // chat-triggered sessions have one, so for non-chat triggers we
+            // hide every client tool and let the agent.md degrade — `required`
+            // is only enforced when there's a client to declare support.
+            // Spec freeze rejects `required:true` client tools combined with
+            // non-chat triggers, so this branch is the runtime safety net.
+            const chatMeta = deps.session.trigger_metadata?.kind === 'chat' ? deps.session.trigger_metadata : null
+            const supported = chatMeta?.supported_client_tools ?? []
+            // Dispatcher availability is a runner-side concern (server
+            // misconfig); check before the caller-declaration gate so the
+            // failure code points at the right party. `dispatchClientTool` is
+            // always wired in prod (driver.ts:447); this branch catches the
+            // case where a runner instance ships without it.
             if (!deps.dispatchClientTool) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_dispatcher_unavailable:${t.id}`)
+                }
+                continue
+            }
+            if (!supported.includes(t.id)) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_unsupported:${t.id}`)
+                }
                 continue
             }
             tools.push(makeClientTool(t, deps))
@@ -473,7 +518,8 @@ function makeMcpTool(
         description: remote.description,
         parameters: remote.inputSchema as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
-            const result = await client.callTool(remote.name, (args ?? {}) as Record<string, unknown>)
+            const callArgs = (args ?? {}) as Record<string, unknown>
+            const result = await client.callTool(remote.name, callArgs)
             if (result.isError) {
                 // Surface the first text content as the error message — same
                 // shape as `resultText()` in the driver. Keeps the model's
@@ -521,6 +567,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         },
         memoryStore: deps.memoryStore,
         tabularStore: deps.tabularStore,
+        webSearchProviders: deps.webSearchProviders,
         credentials: credentialBroker
             ? {
                   resolve: (target) => credentialBroker.resolve(sessionId, target),
@@ -530,6 +577,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        gatewayCatalog: deps.gatewayCatalog,
     }
 }
 

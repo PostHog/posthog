@@ -96,6 +96,7 @@ const INLINE_TAG_NAMES = ['ref', 'mention'] as const
 type InlineTagName = (typeof INLINE_TAG_NAMES)[number]
 const INLINE_TAG_OPEN_REGEX = /^<(ref|mention)\s+id=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\s*>/
 let generatedNodeIdCounter = 0
+const serializedNodeCache = new WeakMap<NotebookBlockNode, string>()
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
     const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
@@ -164,6 +165,17 @@ function isEmptyNotebookTitleNode(node: NotebookBlockNode | undefined): boolean 
 }
 
 export function serializeNode(node: NotebookBlockNode): string {
+    const cachedValue = serializedNodeCache.get(node)
+    if (cachedValue !== undefined) {
+        return cachedValue
+    }
+
+    const serialized = serializeNodeUncached(node)
+    serializedNodeCache.set(node, serialized)
+    return serialized
+}
+
+function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
         return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(

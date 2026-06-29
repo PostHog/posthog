@@ -6,7 +6,6 @@ import { Badge, Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -80,8 +79,8 @@ function NewQueryEngineTooltipBody(): JSX.Element {
 }
 
 export function WebAnalyticsSceneMenuBar(): JSX.Element | null {
-    const sceneMenuBarEnabled = useFeatureFlag('SCENE_MENU_BAR')
-    if (!sceneMenuBarEnabled) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    if (!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]) {
         return null
     }
     return <WebAnalyticsSceneMenuBarInner />

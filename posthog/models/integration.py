@@ -8,7 +8,7 @@ import hashlib
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, NoReturn, Optional, Self
 from urllib.parse import urlencode
 
 from products.workflows.backend.providers import MAILDEV_MOCK_DNS_RECORDS
@@ -21,6 +21,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.db import models, transaction
+from django.db.models import Q
 from django.http import HttpRequest
 from django.utils import timezone
 
@@ -178,10 +179,43 @@ def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn
 ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 
 
+class IntegrationQuerySet(models.QuerySet["Integration"]):
+    def for_github_installation_id(self, installation_id: str | int) -> Self:
+        return self.filter(
+            Q(config__installation_id=str(installation_id)) | Q(config__installation_id=int(installation_id))
+        )
+
+
+class IntegrationManager(models.Manager["Integration"]):
+    _queryset_class = IntegrationQuerySet
+
+    def get_queryset(self) -> IntegrationQuerySet:
+        return IntegrationQuerySet(self.model, using=self._db)
+
+    def filter(self, *args: Any, **kwargs: Any) -> IntegrationQuerySet:
+        return self.get_queryset().filter(*args, **kwargs)
+
+    def first_github_for_team_installation(self, team_id: int, installation_id: str) -> "Integration | None":
+        return (
+            self.filter(team_id=team_id, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+    def first_github_for_user_installation(self, user: User, installation_id: str) -> "Integration | None":
+        user_team_ids = user.teams.values_list("id", flat=True)
+        return (
+            self.filter(team_id__in=user_team_ids, kind=Integration.IntegrationKind.GITHUB)
+            .for_github_installation_id(installation_id)
+            .first()
+        )
+
+
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         ANTHROPIC = "anthropic"
         APPLE_PUSH = "apns"
+        AWS_S3 = "aws-s3"
         AZURE_BLOB = "azure-blob"
         BING_ADS = "bing-ads"
         CLICKUP = "clickup"
@@ -209,6 +243,7 @@ class Integration(models.Model):
         PINTEREST_ADS = "pinterest-ads"
         POSTGRESQL = "postgresql"
         REDDIT_ADS = "reddit-ads"
+        S3_COMPATIBLE = "s3-compatible"
         SALESFORCE = "salesforce"
         SLACK = "slack"
         # Deprecated — kept in choices to avoid a no-op migration. The runtime no longer creates
@@ -245,6 +280,8 @@ class Integration(models.Model):
     created_at = models.DateTimeField(auto_now_add=True, blank=True)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
 
+    objects: IntegrationManager = IntegrationManager()
+
     class Meta:
         constraints = [
             models.UniqueConstraint(
@@ -263,6 +300,19 @@ class Integration(models.Model):
             return dot_get(self.config, "account.name", self.integration_id)
         if self.kind == "databricks":
             return self.integration_id or "unknown ID"
+        if self.kind == Integration.IntegrationKind.AWS_S3:
+            name = self.integration_id or "unknown ID"
+            # config["auth_type"] leaves room for a future OIDC / IAM-role mode; only keys exist today.
+            auth_label = self.config.get("auth_type", "access key")
+            account_id = self.config.get("aws_account_id")
+            detail = f"{auth_label}, AWS account {account_id}" if account_id else auth_label
+            return f"{name} ({detail})"
+        if self.kind == Integration.IntegrationKind.S3_COMPATIBLE:
+            name = self.integration_id or "unknown ID"
+            auth_label = self.config.get("auth_type", "access key")
+            endpoint_url = self.config.get("endpoint_url")
+            detail = f"{auth_label}, {endpoint_url}" if endpoint_url else auth_label
+            return f"{name} ({detail})"
         if self.kind == "gitlab":
             return self.integration_id or "unknown ID"
         if self.kind == "email":
@@ -2159,26 +2209,45 @@ class LinearIntegration:
         teams = dot_get(body, "data.teams.nodes")
         return teams
 
-    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]):
-        title: str = json.dumps(config.pop("title"))
-        description: str = json.dumps(config.pop("description"))
+    def create_issue(self, team_id: str, posthog_issue_id: str, config: dict[str, str]) -> dict[str, str]:
+        title: str = config.pop("title")
+        description: str = config.pop("description")
         linear_team_id = config.pop("team_id")
 
-        issue_create_query = f'mutation IssueCreate {{ issueCreate(input: {{ title: {title}, description: {description}, teamId: "{linear_team_id}" }}) {{ success issue {{ identifier }} }} }}'
-        body = self.query(issue_create_query)
+        issue_create_query = """
+        mutation IssueCreate($title: String!, $description: String!, $teamId: String!) {
+            issueCreate(input: { title: $title, description: $description, teamId: $teamId }) {
+                success
+                issue { identifier }
+            }
+        }
+        """
+        body = self.query(
+            issue_create_query,
+            variables={"title": title, "description": description, "teamId": linear_team_id},
+        )
         linear_issue_id = dot_get(body, "data.issueCreate.issue.identifier")
 
         attachment_url = f"{settings.SITE_URL}/project/{team_id}/error_tracking/{posthog_issue_id}"
-        link_attachment_query = f'mutation AttachmentCreate {{ attachmentCreate(input: {{ issueId: "{linear_issue_id}", title: "PostHog issue", url: "{attachment_url}" }}) {{ success }} }}'
-        self.query(link_attachment_query)
+        link_attachment_query = """
+        mutation AttachmentCreate($issueId: String!, $title: String!, $url: String!) {
+            attachmentCreate(input: { issueId: $issueId, title: $title, url: $url }) {
+                success
+            }
+        }
+        """
+        self.query(
+            link_attachment_query,
+            variables={"issueId": linear_issue_id, "title": "PostHog issue", "url": attachment_url},
+        )
 
         return {"id": linear_issue_id}
 
-    def query(self, query):
+    def query(self, query: str, variables: dict[str, Any] | None = None) -> dict[str, Any]:
         response = requests.post(
             "https://api.linear.app/graphql",
             headers={"Authorization": f"Bearer {self.integration.sensitive_config['access_token']}"},
-            json={"query": query},
+            json={"query": query, "variables": variables or {}},
         )
         return response.json()
 
@@ -2384,28 +2453,72 @@ class GitHubInstallationAccess:
     repository_selection: str
 
 
+class GitHubInstallationAccessFetchError(Exception):
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
+def invalidate_github_repository_caches_for_installation(installation_id: str | int) -> None:
+    """Affects both team Integration and personal UserIntegration rows."""
+    from posthog.models.user_integration import UserIntegration
+
+    installation_id_str = str(installation_id)
+    Integration.objects.filter(kind="github", integration_id=installation_id_str).update(
+        repository_cache_updated_at=None
+    )
+    UserIntegration.objects.filter(
+        kind=UserIntegration.IntegrationKind.GITHUB,
+        integration_id=installation_id_str,
+    ).update(repository_cache_updated_at=None)
+
+
 class GitHubIntegration(GitHubIntegrationBase):
     integration: Integration
+
+    @classmethod
+    def fetch_installation_access(cls, installation_id: str) -> GitHubInstallationAccess:
+        try:
+            installation_info = cls.client_request(f"installations/{installation_id}").json()
+            access_token_response = cls.client_request(
+                f"installations/{installation_id}/access_tokens", method="POST"
+            ).json()
+        except Exception as exc:
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
+
+        installation_access_token = access_token_response.get("token")
+        token_expires_at = access_token_response.get("expires_at")
+        if not installation_access_token or not token_expires_at:
+            raise GitHubInstallationAccessFetchError("installation_token_failed")
+
+        return GitHubInstallationAccess(
+            installation_id=installation_id,
+            installation_info=installation_info,
+            access_token=installation_access_token,
+            token_expires_at=token_expires_at,
+            repository_selection=access_token_response.get("repository_selection", "selected"),
+        )
 
     @classmethod
     def integration_from_installation_id(
         cls, installation_id: str, team_id: int, created_by: User | None = None
     ) -> Integration:
-        installation_info = cls.client_request(f"installations/{installation_id}").json()
-        access_token = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST").json()
+        installation_access = cls.fetch_installation_access(installation_id)
+        now = int(time.time())
+        expires_in = int(datetime.fromisoformat(installation_access.token_expires_at).timestamp() - now)
 
         config = {
             "installation_id": installation_id,
-            "expires_in": datetime.fromisoformat(access_token["expires_at"]).timestamp() - int(time.time()),
-            "refreshed_at": int(time.time()),
-            "repository_selection": access_token["repository_selection"],
+            "expires_in": expires_in,
+            "refreshed_at": now,
+            "repository_selection": installation_access.repository_selection,
             "account": {
-                "type": dot_get(installation_info, "account.type", None),
-                "name": dot_get(installation_info, "account.login", installation_id),
+                "type": dot_get(installation_access.installation_info, "account.type", None),
+                "name": dot_get(installation_access.installation_info, "account.login", installation_id),
             },
         }
 
-        sensitive_config = {"access_token": access_token["token"]}
+        sensitive_config = {"access_token": installation_access.access_token}
 
         integration, created = Integration.objects.update_or_create(
             team_id=team_id,
@@ -2421,6 +2534,8 @@ class GitHubIntegration(GitHubIntegrationBase):
         if integration.errors:
             integration.errors = ""
             integration.save()
+
+        invalidate_github_repository_caches_for_installation(installation_id)
 
         return integration
 
@@ -3400,6 +3515,210 @@ class AzureBlobIntegration:
             if part.startswith("AccountName="):
                 return part.split("=", 1)[1]
         return None
+
+
+class S3CredentialIntegrationError(Exception):
+    """Error raised when an S3-family credential integration is not valid."""
+
+    pass
+
+
+def _read_s3_credentials(integration: Integration) -> tuple[str, str]:
+    try:
+        return (
+            integration.sensitive_config["aws_access_key_id"],
+            integration.sensitive_config["aws_secret_access_key"],
+        )
+    except KeyError as e:
+        raise S3CredentialIntegrationError(f"S3 integration is not valid: {str(e)} missing")
+
+
+def _build_s3_sensitive_config(aws_access_key_id: str, aws_secret_access_key: str) -> dict[str, str]:
+    return {
+        "aws_access_key_id": aws_access_key_id,
+        "aws_secret_access_key": aws_secret_access_key,
+    }
+
+
+def _create_unique_s3_integration(
+    *,
+    team_id: int,
+    kind: str,
+    name: str,
+    config: dict[str, Any],
+    sensitive_config: dict[str, str],
+    created_by: "User | None",
+) -> Integration:
+    """Create an S3-family integration, rejecting a name already taken for this team and kind.
+
+    Unlike most integrations, `name` is a free-form user-supplied identifier rather than one derived
+    from the external connection (an OAuth account id, service-account email, etc.). So we create
+    rather than upsert — re-using a name is a 400, not a silent overwrite of an unrelated credential
+    set.
+    """
+    try:
+        # Savepoint so the unique-constraint IntegrityError aborts only this INSERT, not the
+        # surrounding transaction (e.g. the test wrapper, or any outer atomic block).
+        with transaction.atomic():
+            return Integration.objects.create(
+                team_id=team_id,
+                kind=kind,
+                integration_id=name,
+                config=config,
+                sensitive_config=sensitive_config,
+                created_by=created_by,
+            )
+    except IntegrityError:
+        raise S3CredentialIntegrationError(f"An integration named '{name}' already exists")
+
+
+class AwsS3Integration:
+    """An AWS S3 integration storing reusable AWS credentials.
+
+    Holds only credentials; bucket, region, prefix and other export-specific settings stay on the
+    batch export destination config, so one credential can be reused across many buckets/regions —
+    and, in future, by Redshift COPY-mode exports that stage to S3.
+
+    Unlike `S3CompatibleIntegration` it has no `endpoint_url` — an AWS
+    integration must never be pointed at an arbitrary endpoint (SSRF boundary).
+    """
+
+    integration: Integration
+    aws_access_key_id: str
+    aws_secret_access_key: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.AWS_S3:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an AWS S3 integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+
+    @property
+    def aws_account_id(self) -> str | None:
+        """The AWS account id resolved from the credentials at create time, if available."""
+        return self.integration.config.get("aws_account_id")
+
+    @staticmethod
+    def validate_credentials(aws_access_key_id: str, aws_secret_access_key: str) -> str:
+        """Validate AWS credentials via STS GetCallerIdentity, returning the AWS account id.
+
+        GetCallerIdentity requires no IAM permissions, so it verifies the credentials are valid
+        without assuming any particular S3 policy. It hits the fixed global AWS STS endpoint, so
+        there is no user-controlled endpoint and no SSRF surface (unlike S3-compatible).
+
+        This runs synchronously on the request thread, so the timeout budget is kept tight:
+        a single attempt (no retry) bounds the worst case at ~10s (connect + read) if STS is
+        unreachable, rather than blocking the worker while botocore retries.
+        """
+        import boto3  # noqa: PLC0415 — keeps botocore off the module import path (startup time)
+        from botocore.config import Config  # noqa: PLC0415
+        from botocore.exceptions import BotoCoreError, ClientError  # noqa: PLC0415
+
+        client = boto3.client(
+            "sts",
+            aws_access_key_id=aws_access_key_id,
+            aws_secret_access_key=aws_secret_access_key,
+            config=Config(connect_timeout=5, read_timeout=5, retries={"max_attempts": 1}),
+        )
+        try:
+            identity = client.get_caller_identity()
+        except ClientError as e:
+            message = e.response.get("Error", {}).get("Message") or str(e)
+            raise S3CredentialIntegrationError(f"AWS credentials are not valid: {message}")
+        except BotoCoreError as e:
+            raise S3CredentialIntegrationError(f"Could not validate AWS credentials: {e}")
+
+        return identity["Account"]
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an AWS S3 integration")
+
+        # Fail fast on invalid/expired credentials, and capture the (non-sensitive) account id.
+        account_id = cls.validate_credentials(aws_access_key_id, aws_secret_access_key)
+
+        # `name` is the unencrypted, frontend-visible identifier — never an AWS credential, which is
+        # treated as a secret. The account id is non-sensitive and kept for display/debugging.
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.AWS_S3,
+            name=name,
+            config={"name": name, "aws_account_id": account_id},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
+        )
+
+
+class S3CompatibleIntegration:
+    """An S3-compatible storage integration (Cloudflare R2, DigitalOcean Spaces, Hetzner, etc.).
+
+    Holds the same credentials as `AwsS3Integration` plus the provider `endpoint_url` (non-sensitive),
+    since credentials are bound to a specific S3-compatible provider. `integration_from_config`
+    SSRF-validates `endpoint_url`, so callers don't have to.
+
+    bucket, region, prefix and other export-specific settings stay on the batch export destination
+    config, so one credential can be reused across many buckets/regions.
+    """
+
+    integration: Integration
+    # The `aws_` prefix applies even to these non-AWS providers: they are AWS Signature V4
+    # credentials, which every S3-compatible provider (R2, MinIO, Spaces, ...) uses. The names also
+    # match boto3's kwargs and the existing S3-family batch export config fields, so they pass
+    # through unchanged.
+    aws_access_key_id: str
+    aws_secret_access_key: str
+    endpoint_url: str
+
+    def __init__(self, integration: Integration) -> None:
+        if integration.kind != Integration.IntegrationKind.S3_COMPATIBLE:
+            raise S3CredentialIntegrationError(
+                f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
+            )
+        self.integration = integration
+        self.aws_access_key_id, self.aws_secret_access_key = _read_s3_credentials(integration)
+        try:
+            self.endpoint_url = integration.config["endpoint_url"]
+        except KeyError:
+            raise S3CredentialIntegrationError("S3-compatible integration is missing required field: 'endpoint_url'")
+
+    @classmethod
+    def integration_from_config(
+        cls,
+        team_id: int,
+        name: str,
+        endpoint_url: str,
+        aws_access_key_id: str,
+        aws_secret_access_key: str,
+        created_by: "User | None" = None,
+    ) -> Integration:
+        if not name:
+            raise S3CredentialIntegrationError("A name is required for an S3-compatible integration")
+        if not endpoint_url:
+            raise S3CredentialIntegrationError("An endpoint URL is required for an S3-compatible integration")
+
+        # SSRF protection — credentials must not be testable against an attacker-controlled endpoint.
+        allowed, error = is_url_allowed(endpoint_url)
+        if not allowed:
+            raise S3CredentialIntegrationError(f"Invalid endpoint URL: {error}")
+
+        return _create_unique_s3_integration(
+            team_id=team_id,
+            kind=Integration.IntegrationKind.S3_COMPATIBLE,
+            name=name,
+            config={"name": name, "endpoint_url": endpoint_url},
+            sensitive_config=_build_s3_sensitive_config(aws_access_key_id, aws_secret_access_key),
+            created_by=created_by,
+        )
 
 
 class StripeIntegration:

@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
@@ -7,19 +9,25 @@ import { projectsGridLogic } from './projectsGridLogic'
 
 interface MockFlag {
     id: number
+    team_id: number
     key: string
     name: string
     filters: { groups: [] }
     active: boolean
+    created_at: string
+    created_by: null
 }
 
 function buildFlag(i: number): MockFlag {
     return {
         id: i,
+        team_id: 1,
         key: `flag_${i}`,
         name: `Flag ${i}`,
         filters: { groups: [] },
         active: true,
+        created_at: '2024-01-01T00:00:00Z',
+        created_by: null,
     }
 }
 
@@ -30,7 +38,7 @@ describe('projectsGridLogic', () => {
         beforeEach(() => {
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': ({ request }) => {
+                    '/api/organizations/:org/feature_flags/keys/': ({ request }) => {
                         const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
                         const count = 40
                         const remaining = Math.max(0, count - offset)
@@ -40,6 +48,7 @@ describe('projectsGridLogic', () => {
                             {
                                 count,
                                 next: offset + pageSize < count ? 'next' : null,
+                                previous: null,
                                 results: Array.from({ length: pageSize }, (_, i) => buildFlag(offset + i + 1)),
                             },
                         ]
@@ -88,9 +97,10 @@ describe('projectsGridLogic', () => {
 
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': {
+                    '/api/organizations/:org/feature_flags/keys/': {
                         count: 3,
                         next: null,
+                        previous: null,
                         results: [buildFlag(1), buildFlag(2), buildFlag(3)],
                     },
                     '/api/organizations/:org/feature_flags/:key/': async ({ params }) => {
@@ -133,7 +143,12 @@ describe('projectsGridLogic', () => {
             localStorage.clear()
             useMocks({
                 get: {
-                    '/api/projects/:team/feature_flags/': { count: 0, next: null, results: [] },
+                    '/api/organizations/:org/feature_flags/keys/': {
+                        count: 0,
+                        next: null,
+                        previous: null,
+                        results: [],
+                    },
                     '/api/organizations/:org/feature_flags/:key/': [],
                 },
             })
@@ -176,6 +191,58 @@ describe('projectsGridLogic', () => {
             const teamId = logic.values.currentTeamId
             expect(logic.values.pickedTeamIds).toEqual([])
             expect(localStorage.getItem(`ff-projects-grid.picked-teams.${teamId}`)).toBeNull()
+        })
+
+        it('reloads rows when pickedTeamIds changes', async () => {
+            logic = projectsGridLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            await expectLogic(logic, () => logic.actions.setPickedTeamIds([3, 4])).toDispatchActions([
+                'loadFlagsPage',
+                'loadFlagsPageSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.resetPickedTeamIds()).toDispatchActions([
+                'loadFlagsPage',
+                'loadFlagsPageSuccess',
+            ])
+        })
+    })
+
+    describe('afterMount hydration', () => {
+        let keysCalls: number
+
+        beforeEach(() => {
+            localStorage.clear()
+            keysCalls = 0
+            useMocks({
+                get: {
+                    '/api/organizations/:org/feature_flags/keys/': () => {
+                        keysCalls += 1
+                        return [200, { count: 0, next: null, previous: null, results: [] }]
+                    },
+                    '/api/organizations/:org/feature_flags/:key/': [],
+                },
+            })
+            initKeaTests()
+        })
+
+        afterEach(() => {
+            if (logic.cache.mounted) {
+                logic.unmount()
+            }
+        })
+
+        it('loads rows exactly once on mount when picked teams are hydrated', async () => {
+            localStorage.setItem(`ff-projects-grid.picked-teams.${MOCK_TEAM_ID}`, JSON.stringify([3, 4]))
+
+            logic = projectsGridLogic()
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            // Hydrating via setPickedTeamIds triggers the load; the afterMount return prevents a second one.
+            expect(logic.values.pickedTeamIds).toEqual([3, 4])
+            expect(keysCalls).toBe(1)
         })
     })
 })

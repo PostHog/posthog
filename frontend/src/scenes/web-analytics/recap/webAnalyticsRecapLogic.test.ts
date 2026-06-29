@@ -32,7 +32,7 @@ function makeRecap(overrides: Partial<WebAnalyticsRecapResponseApi> = {}): WebAn
         top_sources: [],
         goals: [],
         dashboard_url: 'http://localhost/project/1/web',
-        persona: { id: 'rising_star', label: 'Rising Star', emoji: '🚀', blurb: 'Up!', color: '#6a5af0' },
+        persona: { id: 'rising_star', name: 'Rising Star', emoji: '🚀', blurb: 'Up!', color: '#6a5af0' },
         highlights: [],
         period_label: 'Last 7 days',
         period_start: '2025-01-22',

@@ -2005,32 +2005,14 @@ describe('experimentLogic', () => {
     })
 
     describe('excluded variants', () => {
-        it('excludedVariants selector reads the excluded_variants column first', async () => {
+        it('excludedVariants selector reads the excluded_variants column', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
                     excluded_variants: ['test-3'],
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-2'],
-                    },
                 })
             }).toMatchValues({
                 excludedVariants: ['test-3'],
-            })
-        })
-
-        it('excludedVariants selector falls back to parameters.excluded_variants', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.setExperiment({
-                    ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-2'],
-                    },
-                })
-            }).toMatchValues({
-                excludedVariants: ['test-2'],
             })
         })
 
@@ -2073,10 +2055,7 @@ describe('experimentLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...experiment,
-                    parameters: {
-                        ...experiment.parameters,
-                        excluded_variants: ['test-1', 'test-2'],
-                    },
+                    excluded_variants: ['test-1', 'test-2'],
                 })
             }).toMatchValues({
                 excludedVariants: ['test-1', 'test-2'],

@@ -47,9 +47,9 @@
         "build:cyclotron": "pnpm --filter=@posthog/cyclotron package",
         "build:cyclotron:dev": "pnpm --filter=@posthog/cyclotron run build:dev",
         "generate:personhog-proto": "cd ../proto && buf generate --template ../nodejs/buf.gen.yaml --path personhog/service --path personhog/types .",
-        "update-ai-costs": "ts-node src/ingestion/ai/costs/scripts/update-ai-costs.ts",
+        "update-ai-costs": "ts-node src/ingestion/pipelines/ai/costs/scripts/update-ai-costs.ts",
         "sync-segment-icons": "DATABASE_URL=something ts-node src/cdp/segment/sync-segment-icons.ts",
-        "start:recording-rasterizer": "node dist/recording-rasterizer/index.js"
+        "start:recording-rasterizer": "node dist/session-replay/recording-rasterizer/index.js"
     },
     "dependencies": {
         "@amplitude/ua-parser-js": "^0.7.33",

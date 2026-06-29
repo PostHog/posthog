@@ -299,7 +299,7 @@ export function WebAnalyticsRecapScene(): JSX.Element {
                         >
                             <div className="text-6xl">{persona.emoji}</div>
                             <p className="uppercase tracking-widest opacity-80 mt-4 text-sm">Your persona</p>
-                            <h2 className="font-title text-4xl font-extrabold mt-1 text-white">{persona.label}</h2>
+                            <h2 className="font-title text-4xl font-extrabold mt-1 text-white">{persona.name}</h2>
                             <p className="text-lg opacity-90 mt-3 max-w-xl mx-auto">{persona.blurb}</p>
                         </div>
                     </Reveal>
@@ -418,7 +418,7 @@ export function WebAnalyticsRecapScene(): JSX.Element {
                                             className="flex flex-col gap-1 rounded-xl bg-surface-secondary p-4 text-center"
                                         >
                                             <span className="text-3xl">{highlight.emoji}</span>
-                                            <span className="text-sm text-secondary">{highlight.label}</span>
+                                            <span className="text-sm text-secondary">{highlight.title}</span>
                                             <span className="text-lg font-bold truncate">{highlight.value}</span>
                                             <span className="text-xs text-muted">{highlight.detail}</span>
                                         </div>

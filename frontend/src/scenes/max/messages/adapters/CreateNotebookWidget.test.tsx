@@ -1,12 +1,13 @@
-import {
-    lookupSandboxToolRenderer,
-    sandboxToolRegistry,
-} from 'products/posthog_ai/frontend/sandbox/sandboxToolRegistry'
+// Side-effect: Max registers its product tool renderers (incl. the notebook keys) into the shared
+// registry. The bare registry no longer knows product keys, so the resolution assertions below need it.
+import './registerMaxToolRenderers'
 
-import type { SandboxToolCallMessage } from '../../maxTypes'
+import { lookupToolRenderer, toolRegistry } from 'products/posthog_ai/frontend/api/tools'
+
+import type { ToolCallMessage } from '../../maxTypes'
 import { extractNotebook } from './CreateNotebookWidget'
 
-function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): SandboxToolCallMessage {
+function toolMessage(rawOutput: unknown, innerInput?: Record<string, unknown>): ToolCallMessage {
     return {
         id: 'call-1',
         resolvedKey: 'notebooks-create',
@@ -24,13 +25,13 @@ describe('CreateNotebookWidget', () => {
     it.each(['notebooks-create', 'notebooks-partial-update', 'notebooks-retrieve', 'notebook-edit'])(
         'resolves %s to the notebook widget',
         (key) => {
-            expect(sandboxToolRegistry.lookup(key)?.displayName).toBe('Notebook')
-            expect(lookupSandboxToolRenderer(key).displayName).toBe('Notebook')
+            expect(toolRegistry.lookup(key)?.displayName).toBe('Notebook')
+            expect(lookupToolRenderer(key).displayName).toBe('Notebook')
         }
     )
 
     it('falls back to the generic renderer for an unknown inner tool key', () => {
-        expect(lookupSandboxToolRenderer('some-unwired-tool').displayName).not.toBe('Notebook')
+        expect(lookupToolRenderer('some-unwired-tool').displayName).not.toBe('Notebook')
     })
 
     describe('extractNotebook', () => {

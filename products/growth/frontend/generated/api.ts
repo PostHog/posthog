@@ -50,7 +50,7 @@ export const getIdentityMatchingLinksRunsRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Recent identity matching runs for this project with link counts per scoring model, most recent first.
+ * Recent identity matching runs for this project with link counts, tier breakdowns, and paid attribution stats per scoring model, most recent first.
  * @summary List identity matching runs
  */
 export const identityMatchingLinksRunsRetrieve = async (

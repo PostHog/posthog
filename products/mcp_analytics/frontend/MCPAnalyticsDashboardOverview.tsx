@@ -28,8 +28,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         notableSessions,
         sessionRowsLoading,
         harnessRows,
-        harnessRawRowsLoading,
+        harnessRowsLoading,
         dailyActivity,
+        activityIncompleteTail,
         activityRowsLoading,
         toolDailySeries,
         toolDailyRowsLoading,
@@ -93,9 +94,10 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 theme={theme}
                                 timezone={timezone}
                                 interval={interval}
+                                incompleteTail={activityIncompleteTail}
                             />
                         </div>
-                        <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
+                        <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />

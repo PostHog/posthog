@@ -211,6 +211,7 @@ class TestTeam(BaseTest):
                     "persons-on-events-v2-reads-enabled",
                     str(team.uuid),
                     groups={"organization": str(self.organization.id)},
+                    person_properties=None,
                     group_properties={
                         "organization": {
                             "id": str(self.organization.id),
@@ -219,6 +220,8 @@ class TestTeam(BaseTest):
                     },
                     only_evaluate_locally=True,
                     send_feature_flag_events=False,
+                    disable_geoip=None,
+                    device_id=None,
                 )
 
     @mock.patch("posthoganalytics.feature_enabled", return_value=False)

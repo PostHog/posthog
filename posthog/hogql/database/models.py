@@ -41,6 +41,9 @@ def _slim_pickle_setstate(model: BaseModel, state: dict[Any, Any]) -> None:
 
 class FieldOrTable(BaseModel):
     hidden: bool = False
+    # Optional human/agent-facing description of this table or column. Surfaced through the
+    # `system.information_schema` tables so agents can discover and disambiguate the schema.
+    description: Optional[str] = None
 
     def __getstate__(self) -> dict[Any, Any]:
         return _slim_pickle_getstate(self)
@@ -514,13 +517,13 @@ class SavedQuery(Table):
 
     # Note: redundancy for safety. This validation is used in the data model already
     def to_printed_clickhouse(self, context):
-        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
+        from products.data_modeling.backend.facade.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name
 
     def to_printed_hogql(self):
-        from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
+        from products.data_modeling.backend.facade.models import validate_saved_query_name
 
         validate_saved_query_name(self.name)
         return self.name

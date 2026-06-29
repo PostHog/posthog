@@ -1,6 +1,6 @@
 import '~/styles'
 
-import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/blocks'
+import { Controls, Description, Primary, Stories, Subtitle, Title } from '@storybook/addon-docs/blocks'
 import type { Meta, Parameters, Preview } from '@storybook/react'
 
 import { apiHostOrigin } from 'lib/utils/apiHost'
@@ -103,6 +103,8 @@ export const decorators: Meta['decorators'] = [
 const preview: Preview = {
     parameters: {
         actions: { argTypesRegex: '^on[A-Z].*' },
+        // We don't want axe-core tests in visual review
+        a11y: { test: 'off' },
         controls: {
             matchers: {
                 color: /(background|color)$/i,

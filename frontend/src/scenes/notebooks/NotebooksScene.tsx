@@ -4,8 +4,8 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu, Tooltip, lemonToast } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { base64Encode } from 'lib/utils/base64'
 import { getTextFromFile, selectFiles } from 'lib/utils/file-utils'
 import { notebooksTableLogic } from 'scenes/notebooks/NotebooksTable/notebooksTableLogic'
@@ -81,7 +81,7 @@ export function NotebooksScene(): JSX.Element {
                             resourceType={AccessControlResourceType.Notebook}
                             minAccessLevel={AccessControlLevel.Editor}
                         >
-                            <AppShortcut
+                            <Shortcut
                                 name="NewNotebook"
                                 keybind={[keyBinds.new]}
                                 intent="New notebook"
@@ -97,7 +97,7 @@ export function NotebooksScene(): JSX.Element {
                                 >
                                     New notebook
                                 </LemonButton>
-                            </AppShortcut>
+                            </Shortcut>
                         </AccessControlAction>
                     </>
                 }

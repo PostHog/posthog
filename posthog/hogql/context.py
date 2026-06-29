@@ -11,9 +11,11 @@ if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
     from posthog.hogql.database.database import Database
+    from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
+    from posthog.clickhouse.client.execute import ClickHouseExternalTable
     from posthog.models import Team, User
     from posthog.rbac.user_access_control import UserAccessControl
 
@@ -60,6 +62,10 @@ class HogQLContext:
     direct_postgres_connection_metadata: dict[str, Any] | None = None
     # If set, will save string constants to this dict. Inlines strings into the query if None.
     values: dict = field(default_factory=dict)
+    # Query-scoped ClickHouse external data tables accumulated during printing (keyed by table name).
+    # Lets `system.information_schema` ship its rows out-of-band instead of inlining them; read by the
+    # executor and passed to `sync_execute`.
+    external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
     # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
@@ -109,10 +115,27 @@ class HogQLContext:
     property_swapper: Optional["PropertySwapper"] = None
     # Workload detected during AST resolution (set by prepare_ast_for_printing)
     workload: Optional[Workload] = None
+    # Per-query cache of the `system.information_schema` introspection result (populated lazily in
+    # posthog/hogql/database/schema/information_schema.py). A dict keyed by the pushed-down table
+    # filter, so information_schema tables resolving to the same bound within one query walk the
+    # database (and fire the warehouse metadata ORM queries) only once.
+    information_schema_introspection: Optional[Any] = field(default=None, compare=False, repr=False)
     # Property-level access control: set of (property_name, PropertyDefinition.Type) tuples
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
+
+    # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
+    # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
+    cte_database_table_cache: dict[int, tuple[Any, "Table"]] = field(default_factory=dict, compare=False, repr=False)
+
+    # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
+    # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
+    events_retention_months: Optional[int] = None
+    # Backend-only switch for the events-retention floor. Defaults on; server-side paths that must act on all rows
+    # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
+    # HogQLQueryModifier, so a query can't disable enforcement.
+    apply_events_retention_floor: bool = True
 
     def __post_init__(self):
         if self.team:

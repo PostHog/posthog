@@ -5,6 +5,7 @@ import { CardMeta } from 'lib/components/Cards/CardMeta'
 import { CardTopHeadingRow } from 'lib/components/Cards/CardTopHeadingRow'
 import { More, MoreProps } from 'lib/lemon-ui/LemonButton/More'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { dateFilterToText } from 'lib/utils/dateFilters'
@@ -244,6 +245,7 @@ export function WidgetCardHeader({
                     <>
                         {titleEl}
                         {descriptionEl}
+                        <LemonTableLoader loading={loading} />
                     </>
                 }
             />

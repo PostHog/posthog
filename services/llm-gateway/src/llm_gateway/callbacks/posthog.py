@@ -11,6 +11,7 @@ from posthoganalytics import Posthog
 from llm_gateway.auth.models import resolve_distinct_id
 from llm_gateway.callbacks.base import InstrumentedCallback
 from llm_gateway.products.config import get_product_config
+from llm_gateway.rate_limiting.cost_refresh import normalize_metric_labels
 from llm_gateway.request_context import (
     get_auth_user,
     get_posthog_flags,
@@ -49,7 +50,13 @@ def _replace_binary_content(data: Any) -> Any:
             return data
 
 
-_MAX_CAPTURE_SIZE = 15 * 1024 * 1024
+# Capture rejects events whose Kafka message exceeds message.max.bytes (~1 MB,
+# the librdkafka default) with a 413, and the posthoganalytics client drops
+# events over its own ~900 KB ceiling. $ai_generation events carry the full
+# prompt/completion via $ai_input / $ai_output_choices, so they routinely cross
+# that line. Truncate well below 1 MB to leave headroom for the event envelope
+# (distinct_id, event name, other properties) and JSON re-escaping on the wire.
+_MAX_CAPTURE_SIZE = 800 * 1024
 _MIN_FIELD_SIZE_TO_TRUNCATE = 10 * 1024
 _TRUNCATION_MARKER = "[truncated: content too large for capture]"
 _TRUNCATABLE_FIELDS = ("$ai_output_choices", "$ai_input")
@@ -194,9 +201,14 @@ class PostHogCallback(InstrumentedCallback):
         is_streaming = standard_logging_object.get("stream", False)
         usage_object = (standard_logging_object.get("metadata") or {}).get("usage_object") or {}
 
+        ai_provider, ai_model = normalize_metric_labels(
+            standard_logging_object.get("model", ""),
+            standard_logging_object.get("custom_llm_provider", ""),
+        )
+
         properties: dict[str, Any] = {
-            "$ai_model": standard_logging_object.get("model", ""),
-            "$ai_provider": standard_logging_object.get("custom_llm_provider", ""),
+            "$ai_model": ai_model,
+            "$ai_provider": ai_provider,
             "$ai_input": _replace_binary_content(standard_logging_object.get("messages")),
             "$ai_input_tokens": standard_logging_object.get("prompt_tokens", 0),
             "$ai_output_tokens": standard_logging_object.get("completion_tokens", 0),

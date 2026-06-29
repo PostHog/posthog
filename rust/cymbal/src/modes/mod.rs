@@ -6,6 +6,7 @@
 
 use std::str::FromStr;
 
+pub mod notifications;
 pub mod processing;
 pub mod resolution;
 
@@ -17,6 +18,8 @@ pub enum CymbalMode {
     Processing,
     /// `cymbal.resolution.v1` gRPC symbol-resolution service.
     Resolution,
+    /// Consumes the error-tracking ingestion notifications topic and logs it.
+    Notifications,
 }
 
 impl FromStr for CymbalMode {
@@ -26,8 +29,9 @@ impl FromStr for CymbalMode {
         match s.trim().to_ascii_lowercase().as_str() {
             "processing" => Ok(Self::Processing),
             "resolution" => Ok(Self::Resolution),
+            "notifications" => Ok(Self::Notifications),
             other => Err(format!(
-                "unknown CYMBAL_MODE '{other}', expected 'processing' or 'resolution'"
+                "unknown CYMBAL_MODE '{other}', expected 'processing', 'resolution', or 'notifications'"
             )),
         }
     }

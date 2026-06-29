@@ -1,0 +1,239 @@
+from datetime import UTC, datetime
+from uuid import uuid4
+
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from django.db import IntegrityError
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import Team
+
+from products.customer_analytics.backend.facade import (
+    api as facade,
+    contracts,
+)
+from products.customer_analytics.backend.logic.custom_property_values import (
+    CustomPropertyDefinitionNotFound,
+    CustomPropertyValueConflict,
+    InvalidCustomPropertyValue,
+    list_active_custom_property_values,
+    set_custom_property_value,
+)
+from products.customer_analytics.backend.models import (
+    Account,
+    CustomPropertyDefinition,
+    CustomPropertyValue,
+    DisplayType,
+)
+from products.customer_analytics.backend.models.custom_property_value import ACTIVE_VALUE_CONSTRAINT_NAME
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
+
+LOGIC_MODULE = "products.customer_analytics.backend.logic.custom_property_values"
+
+
+class TestSetCustomPropertyValue(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def _create_property_definition(
+        self, display_type: str = DisplayType.TEXT, name: str = "Prop"
+    ) -> CustomPropertyDefinition:
+        return create_custom_property_definition(team_id=self.team.id, name=name, display_type=display_type)
+
+    def _set(self, *, definition: CustomPropertyDefinition, value: object) -> CustomPropertyValue:
+        return set_custom_property_value(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            definition_id=definition.id,
+            value=value,
+            created_by_id=self.user.id,
+        )
+
+    @parameterized.expand(
+        [
+            ("text", DisplayType.TEXT, "enterprise", "value_str", "enterprise"),
+            ("number_int", DisplayType.NUMBER, 12, "value_num", 12.0),
+            ("number_decimal", DisplayType.NUMBER, 9.99, "value_num", 9.99),
+            ("number_string", DisplayType.NUMBER, "42", "value_num", 42.0),
+            ("currency", DisplayType.CURRENCY, 1000, "value_num", 1000.0),
+            ("percent", DisplayType.PERCENT, 0.5, "value_num", 0.5),
+            ("boolean_true", DisplayType.BOOLEAN, True, "value_bool", True),
+            ("boolean_true_string", DisplayType.BOOLEAN, "true", "value_bool", True),
+            ("boolean_false_string", DisplayType.BOOLEAN, "FALSE", "value_bool", False),
+            (
+                "datetime",
+                DisplayType.DATETIME,
+                "2026-01-01T12:00:00+00:00",
+                "value_datetime",
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+            ),
+            (
+                "datetime_z",
+                DisplayType.DATETIME,
+                "2026-01-01T12:00:00Z",
+                "value_datetime",
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+            ),
+            ("date_only", DisplayType.DATE, "2026-01-01", "value_datetime", datetime(2026, 1, 1, tzinfo=UTC)),
+        ]
+    )
+    def test_writes_coerced_value_into_the_right_column(self, _name, display_type, value, column, expected):
+        definition = self._create_property_definition(display_type=display_type, name=_name)
+
+        instance = self._set(definition=definition, value=value)
+        instance.refresh_from_db()
+
+        assert getattr(instance, column) == expected
+        assert instance.created_by_id == self.user.id
+        assert instance.is_deleted is False
+        # only the target column is populated
+        other_columns = {"value_str", "value_bool", "value_num", "value_datetime"} - {column}
+        assert all(getattr(instance, other) is None for other in other_columns)
+
+    @parameterized.expand(
+        [
+            ("numeric_from_text", DisplayType.NUMBER, "abc"),
+            ("numeric_from_bool", DisplayType.NUMBER, True),
+            ("numeric_from_nan_string", DisplayType.NUMBER, "nan"),
+            ("numeric_from_inf_string", DisplayType.NUMBER, "inf"),
+            ("numeric_from_negative_inf_string", DisplayType.NUMBER, "-inf"),
+            ("numeric_from_nan_float", DisplayType.NUMBER, float("nan")),
+            ("numeric_from_inf_float", DisplayType.NUMBER, float("inf")),
+            ("boolean_from_arbitrary_string", DisplayType.BOOLEAN, "yes"),
+            ("boolean_from_int", DisplayType.BOOLEAN, 1),
+            ("datetime_from_unparseable", DisplayType.DATETIME, "not a date"),
+            ("datetime_from_number", DisplayType.DATETIME, 123),
+            ("text_from_list", DisplayType.TEXT, ["nope"]),
+        ]
+    )
+    def test_rejects_values_that_do_not_match_the_type(self, _name, display_type, value):
+        definition = self._create_property_definition(display_type=display_type, name=_name)
+
+        with pytest.raises(InvalidCustomPropertyValue):
+            self._set(definition=definition, value=value)
+
+        assert not CustomPropertyValue.objects.for_team(self.team.id).filter(definition=definition).exists()
+
+    def test_naive_datetime_is_stored_as_aware_utc(self):
+        definition = self._create_property_definition(display_type=DisplayType.DATETIME)
+
+        instance = self._set(definition=definition, value=datetime(2026, 6, 18, 12))
+        instance.refresh_from_db()
+
+        assert instance.value_datetime is not None
+        assert timezone.is_aware(instance.value_datetime)
+        assert instance.value_datetime == datetime(2026, 6, 18, 12, tzinfo=UTC)
+
+    def test_unknown_definition_raises(self):
+        with pytest.raises(CustomPropertyDefinitionNotFound):
+            set_custom_property_value(
+                team_id=self.team.id, account_id=self.account.id, definition_id=uuid4(), value="x"
+            )
+
+    def test_account_from_another_team_is_rejected(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = create_account(team_id=other_team.id)
+        definition = self._create_property_definition()
+
+        with pytest.raises(Account.DoesNotExist):
+            set_custom_property_value(
+                team_id=self.team.id, account_id=other_account.id, definition_id=definition.id, value="x"
+            )
+
+    def test_setting_a_new_value_soft_deletes_the_previous_and_keeps_history(self):
+        definition = self._create_property_definition()
+
+        first = self._set(definition=definition, value="starter")
+        second = self._set(definition=definition, value="enterprise")
+
+        rows = CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account, definition=definition)
+        assert rows.count() == 2
+        assert rows.get(is_deleted=False) == second
+
+        first.refresh_from_db()
+        assert first.is_deleted is True
+
+    def test_list_active_returns_only_current_values(self):
+        plan = self._create_property_definition(name="Plan")
+        seats = self._create_property_definition(name="Seats", display_type=DisplayType.NUMBER)
+
+        self._set(definition=plan, value="starter")
+        self._set(definition=plan, value="enterprise")  # supersedes the starter row
+        self._set(definition=seats, value=42)
+
+        active = list_active_custom_property_values(team_id=self.team.id, account_id=self.account.id)
+
+        assert {(v.definition_id, v.value_str, v.value_num) for v in active} == {
+            (plan.id, "enterprise", None),
+            (seats.id, None, 42.0),
+        }
+
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_losing_the_active_value_race_surfaces_as_a_conflict(self, mock_value_model):
+        definition = self._create_property_definition()
+        mock_value_model.objects.for_team.return_value.create.side_effect = IntegrityError(
+            f'duplicate key value violates unique constraint "{ACTIVE_VALUE_CONSTRAINT_NAME}"'
+        )
+
+        with pytest.raises(CustomPropertyValueConflict):
+            self._set(definition=definition, value="enterprise")
+
+    @patch(f"{LOGIC_MODULE}.CustomPropertyValue")
+    def test_other_integrity_errors_are_not_masked_as_conflicts(self, mock_value_model):
+        definition = self._create_property_definition()
+        mock_value_model.objects.for_team.return_value.create.side_effect = IntegrityError(
+            'new row violates check constraint "custom_property_value_exactly_one_value"'
+        )
+
+        with pytest.raises(IntegrityError):
+            self._set(definition=definition, value="enterprise")
+
+
+class TestCustomPropertyValueFacade(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    @parameterized.expand(
+        [
+            ("text", DisplayType.TEXT, "enterprise", "enterprise"),
+            ("number", DisplayType.NUMBER, 9.99, 9.99),
+            ("boolean", DisplayType.BOOLEAN, True, True),
+            (
+                "datetime",
+                DisplayType.DATETIME,
+                "2026-01-01T12:00:00Z",
+                datetime(2026, 1, 1, 12, tzinfo=UTC),
+            ),
+        ]
+    )
+    def test_set_returns_a_contract_with_the_typed_value(self, _name, display_type, value, expected_value):
+        definition = create_custom_property_definition(team_id=self.team.id, name=_name, display_type=display_type)
+
+        result = facade.set_custom_property_value(
+            self.team.id, self.account.id, definition.id, value, created_by_id=self.user.id
+        )
+
+        assert isinstance(result, contracts.CustomPropertyValue)
+        assert result.value == expected_value
+        # the union must not coerce across types (e.g. bool True -> 1.0)
+        assert type(result.value) is type(expected_value)
+        assert result.account_id == self.account.id
+        assert result.definition_id == definition.id
+        assert result.created_by_id == self.user.id
+
+    def test_list_active_returns_contracts(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        facade.set_custom_property_value(self.team.id, self.account.id, plan.id, "enterprise")
+
+        result = facade.list_active_custom_property_values(self.team.id, self.account.id)
+
+        assert len(result) == 1
+        assert isinstance(result[0], contracts.CustomPropertyValue)
+        assert result[0].value == "enterprise"
+        assert result[0].definition_id == plan.id

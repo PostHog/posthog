@@ -22,11 +22,11 @@ from products.data_warehouse.backend.direct_postgres import (
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING, DataWarehouseTable
 from products.warehouse_sources.backend.models.util import postgres_column_to_dwh_column
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTable(BaseTest):

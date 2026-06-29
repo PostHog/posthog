@@ -4,6 +4,8 @@ import { cleanup, configure, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildStickinessQuery, chart, getHogChart, personsModal, renderInsight } from '~/test/insight-testing'
 
@@ -87,7 +89,7 @@ describe('StickinessLineChart', () => {
     })
 
     describe('click → persons modal', () => {
-        it('opens the modal with a "Stickiness on {interval} {day}" title', async () => {
+        it('opens the modal with a "stickiness on {interval} {day}" title', async () => {
             renderInsight({ query: buildStickinessQuery() })
 
             await chart.clickAtIndex(2)
@@ -96,8 +98,9 @@ describe('StickinessLineChart', () => {
                 expect(personsModal.get()).toBeInTheDocument()
             })
             // The clicked bucket is index 2, days are 1-indexed in the mock, so day == 3.
-            expect(personsModal.title()).toMatch(/Stickiness on day 3/)
-            expect(personsModal.title()).toMatch(/Pageview/i)
+            expect(personsModal.title()).toMatch(/stickiness on day 3/)
+            // Case-sensitive: the core event must be humanized ("Pageview"), not the raw "$pageview".
+            expect(personsModal.title()).toMatch(/Pageview/)
         })
 
         it('fires context.onDataPointClick with the integer day instead of opening the modal', async () => {
@@ -115,6 +118,33 @@ describe('StickinessLineChart', () => {
             const [seriesArg] = onDataPointClick.mock.calls[0]
             expect(seriesArg.day).toBe(3)
             expect(personsModal.get()).not.toBeInTheDocument()
+        })
+    })
+
+    describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {
+        const quillLegendFlag = { [FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_LEGEND]: true }
+        const twoSeriesLine = buildStickinessQuery({
+            series: [
+                { kind: NodeKind.EventsNode, event: '$pageview', name: '$pageview' },
+                { kind: NodeKind.EventsNode, event: 'Napped', name: 'Napped' },
+            ],
+            stickinessFilter: { showLegend: true },
+        })
+
+        const getInChartLegend = (container: HTMLElement): HTMLElement =>
+            container.querySelector<HTMLElement>('[data-attr="hog-chart-timeseries-line-legend"]')!
+
+        it('humanizes core event names in the legend, leaving custom events as-is', async () => {
+            const { container } = renderInsight({ query: twoSeriesLine, featureFlags: quillLegendFlag })
+
+            await waitFor(() => {
+                expect(screen.getByRole('img', { name: /chart with 2 data series/i })).toBeInTheDocument()
+            })
+
+            const legendEl = getInChartLegend(container)
+            expect(legendEl.textContent).toContain('Pageview')
+            expect(legendEl.textContent).not.toContain('$pageview')
+            expect(legendEl.textContent).toContain('Napped')
         })
     })
 })

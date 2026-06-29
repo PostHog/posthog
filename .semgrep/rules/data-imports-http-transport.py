@@ -3,7 +3,7 @@
 # ruff: noqa: F401, F841, E501
 #
 # `paths.include` in the rule scopes the matchers to
-# `posthog/temporal/data_imports/sources/**`, but for the test fixture the
+# `products/warehouse_sources/backend/temporal/data_imports/sources/**`, but for the test fixture the
 # paths setting is ignored — semgrep applies the rule directly to this file.
 
 import httpx
@@ -131,7 +131,7 @@ def do_something() -> None:
 
 
 def ok_tracked_session():
-    from posthog.temporal.data_imports.sources.common.http import make_tracked_session
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
     session = make_tracked_session()
     return session.get("https://api.example.com/")

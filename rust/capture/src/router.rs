@@ -83,6 +83,7 @@ pub struct State {
     /// When present, the v1 analytics handler publishes events through this.
     pub v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     pub capture_v1_scatter_gather_min_batch: usize,
+    pub ai_gateway_signing_secret: Option<String>,
 }
 
 #[derive(Clone, Copy)]
@@ -151,6 +152,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
     replay_overflow_limiter: Option<Arc<RedisLimiter>>,
     v1_sink_router: Option<Arc<crate::v1::sinks::Router>>,
     capture_v1_scatter_gather_min_batch: usize,
+    ai_gateway_signing_secret: Option<String>,
 ) -> Router {
     let state = State {
         sink,
@@ -177,6 +179,7 @@ pub fn router<TZ: TimeSource + Send + Sync + 'static, R: Client + Send + Sync + 
         replay_overflow_limiter,
         v1_sink_router,
         capture_v1_scatter_gather_min_batch,
+        ai_gateway_signing_secret,
     };
 
     // Very permissive CORS policy, as old SDK versions

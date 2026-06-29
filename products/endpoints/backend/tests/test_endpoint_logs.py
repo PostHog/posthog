@@ -40,8 +40,8 @@ class TestBuildExecutionMessage(SimpleTestCase):
             ),
             (
                 "success_partial_tokens_omitted",
-                {"succeeded": True, "execution_type": "ducklake", "version": 1},
-                "Endpoint executed · path=ducklake version=1",
+                {"succeeded": True, "execution_type": "inline", "version": 1},
+                "Endpoint executed · path=inline version=1",
             ),
         ]
     )

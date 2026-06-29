@@ -18,6 +18,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 from posthog.hogql_queries.query_runner import get_query_runner
+from posthog.models import User
 from posthog.models.team import Team
 
 ENDPOINT_BREAKDOWN_LIMIT = 10_000
@@ -60,22 +61,37 @@ def _add_series_index_to_select(query: ast.SelectQuery, index: int) -> None:
         query.group_by = [*list(query.group_by), ast.Field(chain=["__series_index"])]
 
 
-def _print_materialized_hogql(query: ast.Expr, team: Team, modifiers: HogQLQueryModifiers | None = None) -> str:
+def _print_materialized_hogql(
+    query: ast.Expr,
+    team: Team,
+    modifiers: HogQLQueryModifiers | None = None,
+    *,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> str:
     """Like to_printed_hogql, but without the implicit top-level row cap — a materialized table must hold every row."""
     return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
         context=HogQLContext(
             team_id=team.pk,
+            user=user,
             enable_select_queries=True,
             limit_top_select=False,
             modifiers=create_default_modifiers_for_team(team, modifiers),
+            bypass_warehouse_access_control=bypass_warehouse_access_control,
         ),
         pretty=True,
     )[0]
 
 
-def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[str, Any]:
+def convert_insight_query_to_hogql(
+    query: dict[str, Any],
+    team: Team,
+    *,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> dict[str, Any]:
     query_kind = query.get("kind")
 
     if query_kind == "HogQLQuery":
@@ -86,6 +102,7 @@ def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[st
         team=team,
         timings=HogQLTimings(),
         modifiers=HogQLQueryModifiers(),
+        user=user,
     )
 
     combined_query_ast = query_runner.to_query()
@@ -95,7 +112,13 @@ def convert_insight_query_to_hogql(query: dict[str, Any], team: Team) -> dict[st
     if query_kind in SERIES_INDEX_QUERY_TYPES:
         inject_series_index(combined_query_ast)
 
-    hogql_string = _print_materialized_hogql(combined_query_ast, team, query_runner.modifiers)
+    hogql_string = _print_materialized_hogql(
+        combined_query_ast,
+        team,
+        query_runner.modifiers,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
 
     result = HogQLQuery(query=hogql_string, modifiers=query_runner.modifiers).model_dump()
     if "variables" in query:
@@ -408,7 +431,84 @@ def analyze_variables_for_materialization(
                 plans[d_cte_name] = plan
             var.downstream_plans = plans
 
+    # A variable whose code_name collides with a SELECT alias for a different expression
+    # can't be materialized (the table would need two columns of that name). This is the one
+    # limitation only the transform could detect, so reject it here — sharing the check with
+    # the transformer — instead of letting enable_materialization fail mid-transform.
+    conflict_reason = _find_alias_conflict(ast_node, result_vars)
+    if conflict_reason is not None:
+        return False, conflict_reason, []
+
     return True, "OK", result_vars
+
+
+def _alias_conflict_reason(code_name: str) -> str:
+    """Single source of truth for the variable/alias-conflict message, so the analyzer's
+    rejection reason and the transformer's exception always read identically."""
+    return (
+        f"Variable '{code_name}' conflicts with an existing SELECT alias for a different expression. "
+        f"Rename the variable or the conflicting column alias."
+    )
+
+
+def _variable_column_expr(var: MaterializableVariable) -> ast.Expr:
+    """Expression a variable contributes to SELECT/GROUP BY, without aliasing.
+
+    Uses the original AST expression when available (e.g. function calls like
+    toDate(timestamp) that can't be reconstructed from column_chain). Always returns a fresh
+    copy so SELECT and GROUP BY don't share nodes. Wraps with bucket_fn when set.
+    """
+    if var.column_ast is not None:
+        base = CloningVisitor().visit(var.column_ast)
+    else:
+        base = ast.Field(chain=list(var.column_chain))
+
+    if var.bucket_fn:
+        return ast.Call(name=var.bucket_fn, args=[base])
+
+    return base
+
+
+def _select_alias_conflict(select: ast.SelectQuery, vars_in_context: list[MaterializableVariable]) -> Optional[str]:
+    """code_name of the first variable colliding with a SELECT alias bound to a *different*
+    expression, or None. Shared by the analyzer (pre-flight reject) and the transformer
+    (enable-time backstop) so both agree on what's unmaterializable."""
+    existing_aliases = {
+        alias.alias: alias.expr.to_hogql() for alias in select.select or [] if isinstance(alias, ast.Alias)
+    }
+    for var in vars_in_context:
+        existing = existing_aliases.get(var.code_name)
+        if existing is not None and existing != _variable_column_expr(var).to_hogql():
+            return var.code_name
+    return None
+
+
+def _context_select(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, cte_name: Optional[str]
+) -> Optional[ast.SelectQuery]:
+    """The SELECT a variable's columns get added to — the CTE body for CTE-bound variables,
+    else the top-level query — mirroring the contexts the transformer visits."""
+    if cte_name is None:
+        return ast_node if isinstance(ast_node, ast.SelectQuery) else None
+    if isinstance(ast_node, ast.SelectQuery) and ast_node.ctes and cte_name in ast_node.ctes:
+        body = ast_node.ctes[cte_name].expr
+        return body if isinstance(body, ast.SelectQuery) else None
+    return None
+
+
+def _find_alias_conflict(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, result_vars: list[MaterializableVariable]
+) -> Optional[str]:
+    """Pre-flight equivalent of the transformer's per-context alias-conflict check: group
+    variables by their context and run the shared conflict check on each."""
+    contexts: dict[Optional[str], list[MaterializableVariable]] = {}
+    for var in result_vars:
+        contexts.setdefault(var.cte_name, []).append(var)
+    for cte_name, vars_in_context in contexts.items():
+        select = _context_select(ast_node, cte_name)
+        if select is not None and (conflict := _select_alias_conflict(select, vars_in_context)) is not None:
+            return _alias_conflict_reason(conflict)
+    return None
 
 
 def _has_joins(node: ast.SelectQuery) -> bool:
@@ -1116,6 +1216,9 @@ def transform_query_for_materialization(
     variable_infos: MaterializableVariable | list[MaterializableVariable],
     team: Team,
     bucket_overrides: dict[str, str] | None = None,
+    *,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
 ) -> dict[str, Any]:
     """
     Transform query by:
@@ -1155,7 +1258,12 @@ def transform_query_for_materialization(
     transformer = MaterializationTransformer(variable_infos)
     transformed_ast = transformer.visit(parsed_ast)
 
-    transformed_query_str = _print_materialized_hogql(transformed_ast, team)
+    transformed_query_str = _print_materialized_hogql(
+        transformed_ast,
+        team,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
 
     return {
         **hogql_query,
@@ -1298,20 +1406,16 @@ class MaterializationTransformer(CloningVisitor):
 
     def _add_variable_columns(self, node: ast.SelectQuery, vars_for_context: list[MaterializableVariable]) -> None:
         """Add aliased variable columns to SELECT, update GROUP BY, and remove variable WHERE clauses."""
-        existing_aliases: dict[str, str] = {
-            expr.alias: expr.expr.to_hogql() for expr in node.select or [] if isinstance(expr, ast.Alias)
-        }
-        vars_to_add: list[MaterializableVariable] = []
-        for var in vars_for_context:
-            existing_expr = existing_aliases.get(var.code_name)
-            if existing_expr is not None:
-                if existing_expr == self._variable_expr(var).to_hogql():
-                    # SELECT already exposes this column under the variable's name
-                    continue
-                raise ValueError(
-                    f"Variable '{var.code_name}' conflicts with an existing SELECT alias for a different expression"
-                )
-            vars_to_add.append(var)
+        # Backstop: pre-flight analysis normally rejects this first (analyze_variables_for_materialization),
+        # so reaching here means a pre-flight gap. Surfaced as a 400, not a server fault.
+        conflict = _select_alias_conflict(node, vars_for_context)
+        if conflict is not None:
+            raise MaterializationNotSupportedError(_alias_conflict_reason(conflict))
+
+        # A code_name already aliased here is — after the conflict check — the same expression
+        # already exposed under that name, so skip it; add the rest.
+        existing_alias_names = {expr.alias for expr in node.select or [] if isinstance(expr, ast.Alias)}
+        vars_to_add = [var for var in vars_for_context if var.code_name not in existing_alias_names]
 
         select_additions = [self._create_column_field(var) for var in vars_to_add]
         if select_additions:
@@ -1384,7 +1488,7 @@ class MaterializationTransformer(CloningVisitor):
                 if use_field_ref:
                     group_by_additions.append(ast.Field(chain=[var.code_name]))
                 else:
-                    group_by_additions.append(self._variable_expr(var))
+                    group_by_additions.append(_variable_column_expr(var))
 
         if node.group_by:
             node.group_by = [*list(node.group_by), *group_by_additions]
@@ -1394,27 +1498,8 @@ class MaterializationTransformer(CloningVisitor):
     def _create_column_field(self, var: MaterializableVariable) -> ast.Expr:
         return ast.Alias(
             alias=var.code_name,
-            expr=self._variable_expr(var),
+            expr=_variable_column_expr(var),
         )
-
-    @staticmethod
-    def _variable_expr(var: MaterializableVariable) -> ast.Expr:
-        """Expression used for the variable column without aliasing.
-
-        Uses the original AST expression when available (e.g. for function calls
-        like toDate(timestamp) that can't be reconstructed from column_chain).
-        Always returns a fresh copy to avoid sharing AST nodes between SELECT and GROUP BY.
-        When bucket_fn is set, wraps the column expression with the bucket function.
-        """
-        if var.column_ast is not None:
-            base = CloningVisitor().visit(var.column_ast)
-        else:
-            base = ast.Field(chain=list(var.column_chain))
-
-        if var.bucket_fn:
-            return ast.Call(name=var.bucket_fn, args=[base])
-
-        return base
 
     def _remove_variable_from_where(self, where_node: Optional[ast.Expr]) -> Optional[ast.Expr]:
         if where_node is None:
@@ -1486,11 +1571,23 @@ def replace_breakdown_sentinels_in_query(hogql_query: dict) -> dict:
     return {**hogql_query, "query": query_text}
 
 
-def build_endpoint_hogql(insight_query: dict, team: Team, bucket_overrides: dict[str, str] | None = None) -> dict:
+def build_endpoint_hogql(
+    insight_query: dict,
+    team: Team,
+    bucket_overrides: dict[str, str] | None = None,
+    *,
+    user: User | None = None,
+    bypass_warehouse_access_control: bool = False,
+) -> dict:
     """Run the full endpoint conversion pipeline: prepare → convert insight to HogQL → apply variable
     materialization plan → strip breakdown sentinels. Pure function; no DB side effects."""
     mat_query = prepare_insight_query_for_endpoint(insight_query)
-    hogql_query = convert_insight_query_to_hogql(mat_query, team)
+    hogql_query = convert_insight_query_to_hogql(
+        mat_query,
+        team,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
+    )
 
     if insight_query.get("variables"):
         can_materialize, _reason, variable_infos = analyze_variables_for_materialization(
@@ -1498,7 +1595,12 @@ def build_endpoint_hogql(insight_query: dict, team: Team, bucket_overrides: dict
         )
         if can_materialize and variable_infos:
             hogql_query = transform_query_for_materialization(
-                hogql_query, variable_infos, team, bucket_overrides=bucket_overrides
+                hogql_query,
+                variable_infos,
+                team,
+                bucket_overrides=bucket_overrides,
+                user=user,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
             )
 
     return replace_breakdown_sentinels_in_query(hogql_query)
