@@ -24,6 +24,11 @@ _AUTH_ERROR_MARKERS = ("invalid key", "forbidden", "unauthorized", "expired", "n
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+# Every ticker costs one request per enabled ticker-backed table on each sync, so cap the list to bound
+# the outbound fan-out (and the credit burn) a single config can trigger. 500 comfortably covers a large
+# watchlist like the S&P 500 while rejecting paste-the-whole-exchange configs.
+MAX_TICKERS = 500
+
 
 class FinnworldsRetryableError(Exception):
     """A transient API error (429 / 5xx) worth retrying."""
@@ -38,6 +43,9 @@ def parse_tickers(raw: str | None) -> list[str]:
 
     Accepts commas, whitespace, and newlines as separators so users can paste a watchlist in any
     common shape. Order is preserved (first occurrence wins) for stable, predictable sync output.
+
+    Raises ``ValueError`` when more than ``MAX_TICKERS`` distinct symbols are supplied so an oversized
+    config is rejected before the pipeline starts scheduling a request per ticker per table.
     """
     if not raw:
         return []
@@ -49,6 +57,8 @@ def parse_tickers(raw: str | None) -> list[str]:
         if symbol and symbol not in seen:
             seen.add(symbol)
             tickers.append(symbol)
+    if len(tickers) > MAX_TICKERS:
+        raise ValueError(f"Too many tickers: at most {MAX_TICKERS} are allowed per source.")
     return tickers
 
 

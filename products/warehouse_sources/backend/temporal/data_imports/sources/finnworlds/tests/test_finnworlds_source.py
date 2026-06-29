@@ -11,6 +11,7 @@ from posthog.schema import (
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds import source as source_module
+from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.finnworlds import MAX_TICKERS
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnworlds.settings import (
     ENDPOINTS,
     FINNWORLDS_ENDPOINTS,
@@ -104,6 +105,16 @@ class TestFinnworldsSource:
             ok, message = self.source.validate_credentials(self.config, self.team_id)
         assert ok is False
         assert message is not None
+
+    def test_validate_credentials_rejects_oversized_ticker_list(self) -> None:
+        # Too many tickers is rejected at setup without ever probing the API, bounding outbound fan-out.
+        config = FinnworldsSourceConfig(api_key="fw-test", tickers=",".join(f"T{i}" for i in range(MAX_TICKERS + 1)))
+        with mock.patch.object(source_module, "validate_finnworlds_credentials") as probe:
+            ok, message = self.source.validate_credentials(config, self.team_id)
+        assert ok is False
+        assert message is not None
+        assert "Too many tickers" in message
+        probe.assert_not_called()
 
     def test_get_non_retryable_errors_includes_auth(self) -> None:
         errors = self.source.get_non_retryable_errors()

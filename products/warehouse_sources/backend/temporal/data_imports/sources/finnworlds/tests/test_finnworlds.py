@@ -68,6 +68,16 @@ class TestParseTickers:
     def test_parse_tickers(self, _name: str, raw: str | None, expected: list[str]) -> None:
         assert parse_tickers(raw) == expected
 
+    def test_at_max_tickers_is_allowed(self) -> None:
+        raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS))
+        assert len(parse_tickers(raw)) == finnworlds.MAX_TICKERS
+
+    def test_over_max_tickers_is_rejected(self) -> None:
+        # Bounds the per-sync outbound fan-out (one request per ticker per table).
+        raw = ",".join(f"T{i}" for i in range(finnworlds.MAX_TICKERS + 1))
+        with pytest.raises(ValueError, match="Too many tickers"):
+            parse_tickers(raw)
+
 
 class TestBuildUrl:
     def test_includes_key_and_ticker(self) -> None:

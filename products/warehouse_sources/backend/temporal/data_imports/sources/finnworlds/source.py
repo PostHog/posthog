@@ -84,6 +84,11 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
     def validate_credentials(
         self, config: FinnworldsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        try:
+            parse_tickers(config.tickers)
+        except ValueError as exc:
+            return False, str(exc)
+
         return validate_finnworlds_credentials(config.api_key)
 
     def source_for_pipeline(self, config: FinnworldsSourceConfig, inputs: SourceInputs) -> SourceResponse:
