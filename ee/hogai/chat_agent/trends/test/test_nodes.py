@@ -3,7 +3,13 @@ from unittest.mock import patch
 
 from langchain_core.runnables import RunnableConfig, RunnableLambda
 
-from posthog.schema import ArtifactContentType, ArtifactSource, AssistantTrendsQuery, HumanMessage
+from posthog.schema import (
+    ArtifactContentType,
+    ArtifactSource,
+    AssistantTrendsEventsNode,
+    AssistantTrendsQuery,
+    HumanMessage,
+)
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
@@ -17,7 +23,7 @@ class TestTrendsGeneratorNode(BaseTest):
 
     def setUp(self):
         super().setUp()
-        self.schema = AssistantTrendsQuery(series=[])
+        self.schema = AssistantTrendsQuery(series=[AssistantTrendsEventsNode(event="$pageview")])
         self.conversation = Conversation.objects.create(team=self.team, user=self.user)
 
     async def test_node_runs(self):
@@ -52,3 +58,32 @@ class TestTrendsGeneratorNode(BaseTest):
             self.assertIsNone(new_state.intermediate_steps)
             self.assertIsNone(new_state.plan)
             self.assertIsNone(new_state.rag_context)
+
+    async def test_empty_series_triggers_retry_instead_of_producing_artifact(self):
+        node = TrendsGeneratorNode(self.team, self.user)
+        config = RunnableConfig(configurable={"thread_id": str(self.conversation.id)})
+
+        with patch.object(TrendsGeneratorNode, "_model") as generator_model_mock:
+            generator_model_mock.return_value = RunnableLambda(
+                lambda _: TrendsSchemaGeneratorOutput(
+                    query=AssistantTrendsQuery(series=[]), name="", description=""
+                ).model_dump()
+            )
+            new_state = await node(
+                AssistantState(
+                    messages=[HumanMessage(content="Text")],
+                    plan="Plan",
+                    root_tool_insight_plan="question",
+                ),
+                config,
+            )
+
+            # An empty series must not be persisted as an artifact; it should route into the retry loop
+            # with a validation message the LLM can act on.
+            assert new_state is not None
+            self.assertFalse(any(isinstance(m, ArtifactRefMessage) for m in (new_state.messages or [])))
+            assert new_state.intermediate_steps is not None
+            self.assertEqual(len(new_state.intermediate_steps), 1)
+            action, _ = new_state.intermediate_steps[-1]
+            self.assertIn("at least one series", action.log)
+            self.assertEqual(new_state.query_generation_retry_count, 1)
