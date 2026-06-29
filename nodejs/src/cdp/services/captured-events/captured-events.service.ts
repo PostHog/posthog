@@ -1,10 +1,10 @@
 import { Gauge } from 'prom-client'
 
 import { InternalCaptureEvent, InternalCaptureService } from '~/common/services/internal-capture'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
+import { TeamManager } from '~/common/utils/team-manager'
 
-import { logger } from '../../../utils/logger'
-import { captureException } from '../../../utils/posthog'
-import { TeamManager } from '../../../utils/team-manager'
 import { CyclotronJobInvocationResult } from '../../types'
 
 const capturedEventsPending = new Gauge({

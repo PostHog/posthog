@@ -149,6 +149,8 @@ export interface TooltipContext<Meta = unknown> {
         value: number
         color: string
         fraction?: number
+        /** Canvas y-pixel of this series at the hovered x — used for cursor-proximity sorting. */
+        yPixel?: number
     }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
@@ -302,9 +304,14 @@ export interface TooltipConfig {
     // DefaultTooltipProps for semantics — these mirror it.
     /** Second arg is the row's `seriesData` entry, for per-series formatting. */
     valueFormatter?: (value: number, entry: TooltipContext['seriesData'][number]) => string
+    /** Transforms the raw x-axis label before showing it in the tooltip header — use to convert
+     *  ISO datetime strings to human-readable dates. */
+    labelFormatter?: (label: string) => string
     showTotal?: boolean
     totalLabel?: string
     totalFormatter?: (value: number) => string
+    /** Sort series rows by value descending so the highest value appears at the top. */
+    sortedByValue?: boolean
 }
 
 /** How the value axis domain is determined (y for vertical/line/area charts, x for horizontal

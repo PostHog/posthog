@@ -33,6 +33,7 @@ import {
     UserBlastRadiusType,
 } from '~/types'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import type { featureFlagReleaseConditionsLogicType } from './featureFlagReleaseConditionsLogicType'
 
 // A property filter targets people by their raw distinct id.
@@ -187,8 +188,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                         ...state,
                         aggregation_group_type_index: value,
                         groups: state.groups.map((group) => {
-                            const previousEffective =
-                                group.aggregation_group_type_index ?? state.aggregation_group_type_index ?? null
+                            const previousEffective = resolveAggregationGroupTypeIndex(
+                                group.aggregation_group_type_index,
+                                state.aggregation_group_type_index
+                            )
                             // Use == to treat null and undefined equivalently
                             const scopeChanged = previousEffective != value
                             return {
@@ -456,8 +459,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             }
 
             await breakpoint(1000) // in ms
-            const groupTypeIndex =
-                group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+            const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                group.aggregation_group_type_index,
+                values.filters?.aggregation_group_type_index
+            )
             const response: UserBlastRadiusType = await api.create(
                 `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
                 {
@@ -472,8 +477,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         setConditionAggregation: ({ index }) => {
             const group = values.filters.groups[index]
             if (group?.sort_key) {
-                const groupTypeIndex =
-                    group.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                    group.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
                 actions.calculateBlastRadiusForCondition(group.sort_key, group.properties, groupTypeIndex)
             }
         },
@@ -481,8 +488,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
                 actions.openCondition(newGroup.sort_key)
-                const groupTypeIndex =
-                    newGroup.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                    newGroup.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
                 actions.calculateBlastRadiusForCondition(newGroup.sort_key, newGroup.properties, groupTypeIndex)
             }
         },
@@ -545,8 +554,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         },
         calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {
-                const groupTypeIndex =
-                    condition.aggregation_group_type_index ?? values.filters?.aggregation_group_type_index ?? null
+                const groupTypeIndex = resolveAggregationGroupTypeIndex(
+                    condition.aggregation_group_type_index,
+                    values.filters?.aggregation_group_type_index
+                )
                 actions.calculateBlastRadiusForCondition(condition.sort_key, condition.properties, groupTypeIndex)
             })
         },
@@ -691,7 +702,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (s) => [s.filters, s.aggregationLabel],
             (filters, aggregationLabel) =>
                 (conditionGroupTypeIndex?: number | null): string => {
-                    const effectiveIndex = conditionGroupTypeIndex ?? filters.aggregation_group_type_index
+                    const effectiveIndex = resolveAggregationGroupTypeIndex(
+                        conditionGroupTypeIndex,
+                        filters.aggregation_group_type_index
+                    )
                     if (effectiveIndex != null) {
                         return aggregationLabel(effectiveIndex).plural
                     }
@@ -702,7 +716,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             (s) => [s.filters, s.groupTypes],
             (filters, groupTypes) =>
                 (conditionGroupTypeIndex: number | null | undefined): TaxonomicFilterGroupType[] => {
-                    const effectiveIndex = conditionGroupTypeIndex ?? filters?.aggregation_group_type_index
+                    const effectiveIndex = resolveAggregationGroupTypeIndex(
+                        conditionGroupTypeIndex,
+                        filters?.aggregation_group_type_index
+                    )
                     const targetGroupTypes: TaxonomicFilterGroupType[] = []
 
                     if (effectiveIndex != null) {

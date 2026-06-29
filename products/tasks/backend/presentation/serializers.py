@@ -326,6 +326,51 @@ class TaskWriteSerializer(serializers.Serializer):
         allow_blank=True,
         help_text="Custom prompt for CI fixes. If blank, a default prompt will be used.",
     )
+    branch = serializers.CharField(
+        max_length=255,
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Branch the user has selected for this cloud task. Write-only and not persisted on the "
+            "task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch "
+            "is otherwise carried on the run). Omit to match a warm Run on the default branch."
+        ),
+    )
+    # These three warm-reuse hints are all optional: clients send an explicit
+    # null when nothing is selected, so they take allow_null=True (null == "no
+    # selection", same as omitting the key — it's read back as None downstream).
+    # null and "" are not interchangeable: model keeps allow_blank=False so an
+    # empty string, which is never a valid model id, is still rejected.
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: "
+            "used only to reuse a pre-warmed Run started on the same runtime. A value differing from the "
+            "warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime."
+        ),
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        allow_null=True,
+        write_only=True,
+        help_text="Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        allow_null=True,
+        write_only=True,
+        help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1165,6 +1210,75 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         return attrs
 
 
+class WarmTaskRequestSerializer(serializers.Serializer):
+    """Request body for warming a full idling Run while composing a Code-app cloud task.
+
+    Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
+    interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
+    the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
+    it to the caller's team before use.
+    """
+
+    repository = serializers.CharField(
+        max_length=255,
+        help_text="Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).",
+    )
+    github_integration = serializers.IntegerField(
+        help_text="Primary key of the team's GitHub integration to clone with.",
+    )
+    branch = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=True,
+        allow_null=True,
+        max_length=255,
+        help_text="Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.",
+    )
+    runtime_adapter = serializers.ChoiceField(
+        choices=[adapter.value for adapter in RuntimeAdapter],
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text=(
+            "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the "
+            "agent on this runtime so a matching submit reuses it; a submit selecting a different runtime "
+            "falls through to a cold Run instead of reusing a mismatched warm session."
+        ),
+    )
+    model = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        allow_null=True,
+        help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
+    )
+    reasoning_effort = serializers.ChoiceField(
+        choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
+        required=False,
+        default=None,
+        allow_null=True,
+        help_text="Reasoning effort to warm the sandbox on for models that expose an effort control.",
+    )
+
+    def validate_repository(self, value: str) -> str:
+        normalized = value.strip().lower()
+        parts = normalized.split("/")
+        if len(parts) != 2 or not parts[0] or not parts[1]:
+            raise serializers.ValidationError("Repository must be in the format organization/repository")
+        return normalized
+
+
+class WarmTaskResponseSerializer(serializers.Serializer):
+    """Response for a successful warm request — the draft Task + idling warm Run reused on submit."""
+
+    task_id = serializers.UUIDField(
+        help_text="Id of the draft Task birthed for the warm Run.",
+    )
+    run_id = serializers.UUIDField(
+        help_text="Id of the idling warm Run. The normal create+run path reuses and activates it on submit.",
+    )
+
+
 class TaskRunStartRequestSerializer(serializers.Serializer):
     pending_user_message = serializers.CharField(
         required=False,
@@ -1600,6 +1714,15 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                 if not tasks_facade.is_valid_sandbox_env_var_key(key):
                     raise serializers.ValidationError(
                         f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
+                    )
+                if tasks_facade.is_blocked_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Environment variable key {key!r} is not allowed: it can change how sandbox "
+                        "processes execute code (e.g. NODE_OPTIONS, LD_PRELOAD)."
+                    )
+                if tasks_facade.is_reserved_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
                     )
         return value
 

@@ -28,7 +28,7 @@ from typing import Any, Union, cast
 from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.db import transaction
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -50,7 +50,7 @@ from posthog.utils import capture_exception_throttled, get_safe_cache
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, is_cohort_recalculation_only_save
 from products.cohorts.backend.models.util import get_nested_cohort_ids
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.flags_cache import (
     _compare_flag_fields,
     get_team_ids_with_recently_updated_flags,
@@ -523,8 +523,13 @@ def update_flag_caches(team: Team):
         # two variants can't drift out of sync.
         without_cohorts = _get_flags_response_for_local_evaluation(team, include_cohorts=False)
 
-        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts)
-        size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(team, without_cohorts)
+        # Signal-driven rebuilds skip the write when the payload is unchanged: most
+        # saves that trigger this (notably the nightly cohort recalculation) don't alter
+        # flag definitions, so the ETag is identical and a rewrite would only add load.
+        size_with_cohorts = flag_definitions_hypercache.set_cache_value(team, with_cohorts, skip_if_unchanged=True)
+        size_without_cohorts = flag_definitions_without_cohorts_hypercache.set_cache_value(
+            team, without_cohorts, skip_if_unchanged=True
+        )
 
         success = True
     except GroupTypesUnavailable as e:
@@ -613,7 +618,7 @@ def _get_flags_response_for_local_evaluation_batch(
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             ),
-            has_experiment_agg=Exists(Experiment.objects.filter(feature_flag_id=OuterRef("pk"), deleted=False)),
+            has_experiment_agg=live_experiment_exists(),
         )
         .order_by("team_id", "key")
     )

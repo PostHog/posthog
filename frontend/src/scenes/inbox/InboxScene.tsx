@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
+import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -14,7 +14,9 @@ import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
@@ -85,8 +87,9 @@ function InboxListView(): JSX.Element {
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
-                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
+                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
+                    pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
+                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
                     {!onboarding && isReportListTab(effectiveTab) && (
                         <div className="pb-1.5">
@@ -135,6 +138,29 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+/**
+ * Shared chrome for the full-width scout panels (scratchpad, findings): a "Scouts" back link over the
+ * panel body, rendered full-width over the list like the scout detail. Reached from their callouts.
+ */
+function InboxPanelView({ onBack, children }: { onBack: () => void; children: JSX.Element }): JSX.Element {
+    return (
+        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+            <div className="px-4 pt-3">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={onBack}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            </div>
+            {children}
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
     const {
         isRunningSessionAnalysis,
@@ -142,8 +168,10 @@ export function InboxScene(): JSX.Element {
         selectedReport,
         selectedReportLoading,
         selectedScoutSkillName,
+        isScratchpadOpen,
+        isFindingsOpen,
     } = useValues(inboxSceneLogic)
-    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
@@ -151,7 +179,7 @@ export function InboxScene(): JSX.Element {
     // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
     // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
     // instead of remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId || !!selectedScoutSkillName
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen || isFindingsOpen
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
@@ -192,7 +220,15 @@ export function InboxScene(): JSX.Element {
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {selectedScoutSkillName ? (
+                    {isFindingsOpen ? (
+                        <InboxPanelView onBack={() => setFindingsOpen(false)}>
+                            <FindingsPanel />
+                        </InboxPanelView>
+                    ) : isScratchpadOpen ? (
+                        <InboxPanelView onBack={() => setScratchpadOpen(false)}>
+                            <ScratchpadPanel />
+                        </InboxPanelView>
+                    ) : selectedScoutSkillName ? (
                         <ScoutDetailView skillName={selectedScoutSkillName} />
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />

@@ -46,6 +46,18 @@ pub struct ProcessingConfig {
     #[envconfig(from = "CYMBAL_CYCLOTRON_KAFKA_TLS")]
     pub cyclotron_kafka_tls: Option<bool>,
 
+    // Optional override for the brokers used to produce `clickhouse_app_metrics2`. When set,
+    // cymbal opens a dedicated producer pointed at this host list (the warpstream-ingestion VC,
+    // where ClickHouse consumes app_metrics2). When unset, app metrics go through the primary
+    // `kafka` producer — which only carries that topic where the cluster has it (e.g. local dev).
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_HOSTS")]
+    pub app_metrics_kafka_hosts: Option<String>,
+
+    // Optional TLS override for the app-metrics producer. When unset, it inherits `KAFKA_TLS`
+    // from the primary kafka config.
+    #[envconfig(from = "CYMBAL_APP_METRICS_KAFKA_TLS")]
+    pub app_metrics_kafka_tls: Option<bool>,
+
     #[envconfig(default = "cdp_internal_events")]
     pub internal_events_topic: String,
 
@@ -106,6 +118,35 @@ pub struct ProcessingConfig {
 
     #[envconfig(default = "5000")]
     pub redis_connection_timeout_ms: u64,
+
+    #[envconfig(from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED", default = "false")]
+    pub error_tracking_rate_limiter_enabled: bool,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_REDIS_URL",
+        default = "redis://localhost:6379/"
+    )]
+    pub error_tracking_rate_limiter_redis_url: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_KEY_PREFIX",
+        default = "@posthog/error-tracking-cymbal-rate-limiter"
+    )]
+    pub error_tracking_rate_limiter_key_prefix: String,
+
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_BUCKET_TTL_SECONDS",
+        default = "86400"
+    )]
+    pub error_tracking_rate_limiter_bucket_ttl_seconds: u64,
+
+    // Comma separated list of team IDs the error-tracking rate limiter applies to.
+    // If empty, it applies to all teams (that have limits configured).
+    #[envconfig(
+        from = "ERROR_TRACKING_CYMBAL_RATE_LIMITER_ENABLED_TEAM_IDS",
+        default = ""
+    )]
+    pub error_tracking_rate_limiter_enabled_team_ids: String,
 
     // Comma separated list of team IDs that can receive spike alerts.
     // If empty, all teams can receive alerts

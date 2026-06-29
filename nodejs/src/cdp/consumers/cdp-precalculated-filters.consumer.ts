@@ -1,18 +1,18 @@
 import { Message } from 'node-rdkafka'
 import { Histogram } from 'prom-client'
 
+import { KAFKA_EVENTS_JSON } from '~/common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { yieldEach } from '~/common/utils/event-loop-yield'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import {
     RealtimeSupportedFilter,
     RealtimeSupportedFilterManagerCDP,
-} from '~/utils/realtime-supported-filter-manager-cdp'
+} from '~/common/utils/realtime-supported-filter-manager-cdp'
 
-import { KAFKA_EVENTS_JSON } from '../../config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, RawClickHouseEvent } from '../../types'
-import { yieldEach } from '../../utils/event-loop-yield'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
 import { PRECALCULATED_PERSON_PROPERTIES_OUTPUT, PREFILTERED_EVENTS_OUTPUT } from '../outputs/outputs'
 import { HogFunctionFilterGlobals } from '../types'
 import { ProducedPersonPropertiesEvent } from '../types-person-properties'

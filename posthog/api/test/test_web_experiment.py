@@ -98,6 +98,7 @@ class TestWebExperiment(APIBaseTest):
                 "status": "draft",
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
