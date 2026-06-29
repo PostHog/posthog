@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.workflow_activitie
     MAX_PROMPT_CHARS,
     EnrichTableSemanticsInputs,
     EnrichTableSemanticsWorkflow,
-    _columns_from_table,
+    _columns_for_enrichment,
     _extract_json_object,
     build_bounded_enrichment_prompt,
     build_enrichment_prompt,
@@ -316,7 +316,7 @@ class TestColumnsFromTable:
                 "_ph_partition_key": {"clickhouse": "String"},
             }
         )
-        names = {column["name"] for column in _columns_from_table(table)}
+        names = {column["name"] for column in table.get_user_facing_columns()}
         assert names == {"id", "amount"}
 
     def test_skips_columns_whose_name_exceeds_annotation_key_length(self):
@@ -324,7 +324,7 @@ class TestColumnsFromTable:
         # crash the whole table's enrichment with a DataError. It must be dropped, not enriched.
         long_name = "a" * (_MAX_COLUMN_NAME_LENGTH + 1)
         table = DataWarehouseTable(columns={"id": {"clickhouse": "String"}, long_name: {"clickhouse": "String"}})
-        names = {column["name"] for column in _columns_from_table(table)}
+        names = {column["name"] for column in _columns_for_enrichment(table)}
         assert names == {"id"}
 
 
