@@ -731,13 +731,6 @@ class ModalSandbox(SandboxBase):
         else:
             return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
 
-    def _launch_and_check(self, command: str) -> bool:
-        result = self.execute(command, timeout_seconds=30)
-        if result.exit_code != 0:
-            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
-            return False
-        return self._wait_for_health_check()
-
     def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
         diagnostics: dict[str, str] = {}
         try:
@@ -858,7 +851,7 @@ class ModalSandbox(SandboxBase):
         if launch_result.exit_code != 0:
             logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
             raise SandboxExecutionError(
-                "Agent-server process failed to launch",
+                "Agent-server failed to start",
                 {"sandbox_id": self.id, "stderr": launch_result.stderr, "exit_code": str(launch_result.exit_code)},
                 cause=RuntimeError(launch_result.stderr or "launch command returned non-zero exit"),
             )
