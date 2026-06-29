@@ -1,4 +1,5 @@
 from .automation import RunTaskAutomationWorkflow, run_task_automation_activity
+from .code_workstreams.activities.auto_run_actions import auto_run_workstream_actions
 from .code_workstreams.activities.discover_branch_prs import discover_branch_prs
 from .code_workstreams.activities.list_active_teams import list_active_code_teams
 from .code_workstreams.activities.load_pr_urls import load_team_pr_urls
@@ -86,4 +87,5 @@ ACTIVITIES = [
     discover_branch_prs,
     poll_team_pull_requests,
     rebuild_team_workstreams,
+    auto_run_workstream_actions,
 ]

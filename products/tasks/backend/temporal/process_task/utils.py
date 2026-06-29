@@ -41,6 +41,8 @@ class GitHubCredentialSource(StrEnum):
 class RunSource(StrEnum):
     MANUAL = "manual"
     SIGNAL_REPORT = "signal_report"
+    # A Home-tab quick action the classifier fired automatically (auto-run toggle).
+    HOME_AUTO = "home_auto"
 
 
 class RuntimeAdapter(StrEnum):

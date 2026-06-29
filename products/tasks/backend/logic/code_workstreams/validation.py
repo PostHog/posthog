@@ -97,5 +97,16 @@ def validate_bindings(bindings: Mapping[str, Any]) -> ValidationResult:
                     )
                 )
 
+            if "auto" in action and not isinstance(action["auto"], bool):
+                diagnostics.append(
+                    ValidationDiagnostic(
+                        severity="error",
+                        code="action_auto_not_bool",
+                        message=f'Action "{label}" in {sid} has a non-boolean auto flag',
+                        situation_id=sid,
+                        action_id=action_id,
+                    )
+                )
+
     can_save = not any(d.severity == "error" for d in diagnostics)
     return ValidationResult(diagnostics=diagnostics, can_save=can_save)

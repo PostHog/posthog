@@ -342,6 +342,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_resources: "SandboxResources | None" = None,
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
+        home_quick_action: str | None = None,
+        run_source: str | None = None,
     ) -> tuple["Task", dict[str, Any]]:
         """Create the Task row and assemble the initial run's `extra_state`.
 
@@ -444,6 +446,14 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         if branch:
             extra_state["pr_base_branch"] = branch
+
+        # Records which Home quick action started this run (shown on the workstream)
+        # and tags the run's origin (e.g. an auto-fired quick action). Mirrors the
+        # warm run-create path in `facade/api.bootstrap_task_run`.
+        if home_quick_action:
+            extra_state["home_quick_action"] = home_quick_action
+        if run_source:
+            extra_state["run_source"] = run_source
 
         if model:
             extra_state["model"] = model
@@ -562,6 +572,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
         sandbox_timeout_seconds: int | None = None,
         inactivity_timeout_seconds: int | None = None,
         ai_stage: str | None = None,
+        home_quick_action: str | None = None,
+        run_source: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -587,6 +599,8 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
             sandbox_timeout_seconds=sandbox_timeout_seconds,
             inactivity_timeout_seconds=inactivity_timeout_seconds,
             ai_stage=ai_stage,
+            home_quick_action=home_quick_action,
+            run_source=run_source,
         )
 
         task_run = task.create_run(mode=mode, extra_state=extra_state or None, branch=branch)
@@ -1693,6 +1707,11 @@ class CodeWorkstream(TeamScopedRootMixin):
     primary_situation = models.CharField(max_length=20, null=True, blank=True, help_text="Board column placement")
     state = models.CharField(max_length=20, choices=WorkstreamState.choices)
     tasks = models.JSONField(default=list, help_text="List of {id, title, status} for grouped tasks")
+    auto_run_state = models.JSONField(
+        default=dict,
+        help_text="Per-action auto-run markers ({action_id: {fired_at, task_id, situation}}) so a "
+        "fired auto action isn't relaunched every cycle. Owned by the auto-run step, not the rebuild.",
+    )
     last_activity_at = models.DateTimeField()
     generated_at = models.DateTimeField(default=django_timezone.now, help_text="When this row was last rebuilt")
     created_at = models.DateTimeField(default=django_timezone.now)

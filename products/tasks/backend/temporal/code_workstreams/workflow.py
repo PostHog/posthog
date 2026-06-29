@@ -8,6 +8,10 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.tasks.backend.temporal.code_workstreams.activities.auto_run_actions import (
+    AutoRunWorkstreamActionsInput,
+    auto_run_workstream_actions,
+)
 from products.tasks.backend.temporal.code_workstreams.activities.discover_branch_prs import (
     DiscoverBranchPrsInput,
     DiscoverBranchPrsOutput,
@@ -95,6 +99,16 @@ class EvaluateTeamCodeWorkstreamsWorkflow(PostHogWorkflow):
             RebuildTeamWorkstreamsInput(team_id=input.team_id),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+
+        # Auto-run quick actions for the workstreams just classified. Separate from
+        # rebuild (which stays side-effect-free) and capped/idempotent, so a single
+        # attempt is enough — a retry could double-fire a task that already started.
+        await workflow.execute_activity(
+            auto_run_workstream_actions,
+            AutoRunWorkstreamActionsInput(team_id=input.team_id),
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(maximum_attempts=1),
         )
 
 
