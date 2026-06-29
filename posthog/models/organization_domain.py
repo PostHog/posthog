@@ -11,7 +11,11 @@ import dns.resolver
 from posthog.constants import AvailableFeature
 from posthog.models import Organization
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
-from posthog.models.identity_provider_config import IdentityProviderConfig, sync_identity_provider_config_from_domain
+from posthog.models.identity_provider_config import (
+    IDP_CONFIG_SYNCED_FIELDS,
+    IdentityProviderConfig,
+    sync_identity_provider_config_from_domain,
+)
 from posthog.models.utils import UUIDTModel
 from posthog.utils import get_instance_available_sso_providers
 
@@ -252,6 +256,15 @@ class OrganizationDomain(ModelActivityMixin, UUIDTModel):
     def save(self, *args, **kwargs) -> None:
         # Atomic so the domain write and the mirrored IdP config write cannot diverge.
         with transaction.atomic():
+            # When a brand-new domain is linked to an already-populated config, adopt the config's
+            # values onto the domain's columns first. Otherwise the forward mirror would see the
+            # new domain's empty columns as a "change" and blank the (possibly shared) config. This
+            # mirrors the adopt-on-link the serializer does for updates; here it covers creation
+            # (including direct ORM creates).
+            if self._state.adding and self.identity_provider_config_id is not None:
+                config = self.identity_provider_config
+                for field in IDP_CONFIG_SYNCED_FIELDS:
+                    setattr(self, f"_{field}", getattr(config, field))
             super().save(*args, **kwargs)
             sync_identity_provider_config_from_domain(self)
 

@@ -184,6 +184,29 @@ class TestIdentityProviderConfigSync(BaseTest):
         config = IdentityProviderConfig.objects.create(organization=self.organization, saml_entity_id="entity-id")
         assert sync_domains_from_identity_provider_config(config) == 0
 
+    def test_linking_populated_config_to_new_domain_does_not_clobber(self):
+        # A new domain linked to an already-populated config must adopt the config's values, not
+        # blank the (potentially shared) config via the forward mirror.
+        config = IdentityProviderConfig.objects.create(
+            organization=self.organization,
+            saml_entity_id="entity-id",
+            saml_acs_url="https://idp.example.com/acs",
+            saml_x509_cert="cert",
+            scim_enabled=True,
+            scim_bearer_token="hashed",
+        )
+        domain = OrganizationDomain.objects.create(
+            organization=self.organization, domain="new.example.com", identity_provider_config=config
+        )
+
+        config.refresh_from_db()
+        assert config.saml_entity_id == "entity-id"
+        assert config.scim_enabled is True
+        assert config.scim_bearer_token == "hashed"
+        # The new domain adopts the config's values (config is the source of truth for reads).
+        assert domain.has_saml
+        assert domain._saml_entity_id == "entity-id"
+
     def test_domain_save_does_not_clobber_config_written_directly(self):
         domain = self._create_domain(
             saml_entity_id="entity-id",
