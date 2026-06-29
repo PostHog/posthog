@@ -488,6 +488,8 @@ class ExperimentService:
         "-duration",
         "status",
         "-status",
+        "conclusion",
+        "-conclusion",
     }
 
     ELIGIBLE_FLAGS_ORDER_ALLOWLIST = {
@@ -2565,6 +2567,13 @@ class ExperimentService:
                         F("created_by__email"),
                     )
                 ).order_by(f"{prefix}created_by_display")
+            elif order_value in ["conclusion", "-conclusion"]:
+                # Sort by conclusion label; experiments with no conclusion (null) always
+                # sort last so the "active / in-progress" rows don't get buried.
+                descending = order_value.startswith("-")
+                queryset = queryset.order_by(
+                    F("conclusion").desc(nulls_last=True) if descending else F("conclusion").asc(nulls_last=True)
+                )
             else:
                 queryset = queryset.order_by(order_value)
         else:
