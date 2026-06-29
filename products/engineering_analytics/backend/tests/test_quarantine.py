@@ -22,7 +22,6 @@ from products.engineering_analytics.backend.logic.quarantine import (
     _canonical_entry,
     _lifecycle_for,
     _remove_entry,
-    _repo_is_tracked,
     _selector_kind,
     _upsert_entry,
     build_quarantine,
@@ -473,20 +472,19 @@ class TestQuarantineRender(TestCase):
 
 
 class TestQuarantineRequest(BaseTest):
-    def _install(self, github: mock.Mock, *, has_integration: bool = True, tracked: bool = True) -> mock.Mock:
+    def _install(self, github: mock.Mock, *, has_integration: bool = True, connected: bool = True) -> mock.Mock:
         gh_patch = mock.patch(f"{_Q}.GitHubIntegration", return_value=github)
         integration_patch = mock.patch(f"{_Q}.Integration")
-        # The explicit repo override is authorized against the team's warehouse via the real
-        # _repo_is_tracked; mock the curated-source boundary so a matching (or empty) run row
-        # drives the actual authz path rather than stubbing our own helper.
-        rows = [("PostHog", "posthog")] if tracked else []
-        for_team_patch = mock.patch(_FOR_TEAM, return_value=_curated_source(rows))
+        # The explicit repo override is authorized against the team's connected GitHub sources;
+        # mock that list so the real _repo_is_connected runs against a matching source (or none).
+        sources = [SimpleNamespace(repo="PostHog/posthog")] if connected else []
+        sources_patch = mock.patch(f"{_Q}.list_github_sources", return_value=sources)
         gh_patch.start()
         integration_cls = integration_patch.start()
-        for_team_patch.start()
+        sources_patch.start()
         self.addCleanup(gh_patch.stop)
         self.addCleanup(integration_patch.stop)
-        self.addCleanup(for_team_patch.stop)
+        self.addCleanup(sources_patch.stop)
         integration_cls.objects.filter.return_value.first.return_value = object() if has_integration else None
         return github
 
@@ -568,9 +566,9 @@ class TestQuarantineRequest(BaseTest):
             request_quarantine(team=self.team, request=_request())
 
     def test_explicit_repo_outside_the_team_is_rejected_before_any_write(self) -> None:
-        # A client-supplied repo the team doesn't track (no matching warehouse runs) must not get
-        # the App's write token, even when it sits in the install's org.
-        github = self._install(_github_mock(), tracked=False)
+        # A client-supplied repo the team hasn't connected as a GitHub source must not get the
+        # App's write token, even when it sits in the install's org.
+        github = self._install(_github_mock(), connected=False)
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request(repo="PostHog/not-ours"))
         github.create_branch.assert_not_called()
@@ -615,10 +613,6 @@ class TestQuarantineRequest(BaseTest):
         self._install(_github_mock())
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request(**overrides))
-
-    def test_repo_is_tracked_is_false_without_a_connected_source(self) -> None:
-        with mock.patch(_FOR_TEAM, side_effect=contracts.GitHubSourceNotConnectedError("no source")):
-            assert _repo_is_tracked(self.team, "PostHog", "posthog") is False
 
 
 class TestQuarantineRequestAPI(APIBaseTest):
@@ -666,16 +660,6 @@ class TestQuarantineRequestAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         called.assert_called_once()
-
-    def test_write_that_cannot_proceed_is_a_400_with_safe_detail(self) -> None:
-        # A QuarantineWriteError (App not installed, malformed file, GitHub failure) must surface
-        # as a user-safe 400, not a 500.
-        with mock.patch(
-            f"{_VIEWS}.request_quarantine", side_effect=contracts.QuarantineWriteError("connect the App first")
-        ):
-            response = self.client.post(self._url(), self._body(), format="json")
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert response.json()["detail"] == "connect the App first"
 
     def test_write_error_becomes_400_with_detail(self) -> None:
         with mock.patch(
