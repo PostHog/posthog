@@ -85,15 +85,11 @@ def test_main_rejects_unknown_mode():
     assert guard.main(["check", "--bogus"]) == 2
 
 
-def test_main_staged_blocks_historical(monkeypatch, tmp_path):
+@pytest.mark.parametrize("on_master,expected", [(True, 1), (False, 0)])
+def test_main_staged_historical_vs_branch_local(monkeypatch, tmp_path, on_master, expected):
+    # exists_on_ref(origin/master) is what distinguishes a historical deletion (block)
+    # from a branch-local one (allow).
     monkeypatch.setattr(guard, "ALLOWLIST_PATH", tmp_path / "none.txt")
     monkeypatch.setattr(guard, "staged_deletions", lambda: ["posthog/migrations/0001_initial.py"])
-    monkeypatch.setattr(guard, "exists_on_ref", lambda path, ref: True)  # on master => historical
-    assert guard.main(["check", "--staged"]) == 1
-
-
-def test_main_staged_allows_branch_local(monkeypatch, tmp_path):
-    monkeypatch.setattr(guard, "ALLOWLIST_PATH", tmp_path / "none.txt")
-    monkeypatch.setattr(guard, "staged_deletions", lambda: ["posthog/migrations/0001_initial.py"])
-    monkeypatch.setattr(guard, "exists_on_ref", lambda path, ref: False)  # absent on master => branch-local
-    assert guard.main(["check", "--staged"]) == 0
+    monkeypatch.setattr(guard, "exists_on_ref", lambda path, ref: on_master)
+    assert guard.main(["check", "--staged"]) == expected

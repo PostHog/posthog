@@ -1021,7 +1021,8 @@ jobs:
         needs: [changes]
         if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
         name: Check deleted migrations
-        runs-on: depot-ubuntu-latest
+        # Free GitHub-hosted runner: this check needs no Docker/cache, just gh + python3.
+        runs-on: ubuntu-latest
         timeout-minutes: 5
         permissions:
             contents: read
@@ -1044,7 +1045,6 @@ jobs:
                   # (base...head), so a "removed" file existed on the base branch — i.e. a
                   # historical migration. Renames carry the old path in previous_filename.
                   # Retry transient API errors so a hiccup can't red this required check.
-                  removed=""
                   for attempt in 1 2 3; do
                       if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
                             --jq '.[] | select(.status == "removed" or .status == "renamed") | .previous_filename // .filename'); then

@@ -32,10 +32,7 @@ from pathlib import Path, PurePosixPath
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
-_env_allowlist = os.environ.get("MIGRATION_DELETION_ALLOWLIST")
-ALLOWLIST_PATH = (
-    Path(_env_allowlist) if _env_allowlist else REPO_ROOT / ".github" / "scripts" / "migration-deletion-allowlist.txt"
-)
+ALLOWLIST_PATH = REPO_ROOT / ".github" / "scripts" / "migration-deletion-allowlist.txt"
 BASE_REF = os.environ.get("BASE_REF", "origin/master")
 
 # ClickHouse and async migrations are separate systems with their own safety checks;
