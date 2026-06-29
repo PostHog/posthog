@@ -82,6 +82,9 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
     # non-dict auth_method from crashing; the fallback reads the flat top-level id.
     integration_id = auth.get("github_integration_id") or job_inputs.get("github_integration_id")
     repo = job_inputs.get("repository")
+    # PAT-auth sources have no github_integration_id and fall through to None here — intentionally
+    # skipped: the worker fetches under the App installation token + per-installation egress budget,
+    # which PAT has no equivalent for. Supporting PAT would need a separate fetch path (deferred).
     if not integration_id or not isinstance(repo, str) or not _is_safe_github_repo_path(repo):
         return None
     try:
