@@ -112,6 +112,20 @@ def _console_line(message: str = "agentsh network events", method: str = "_posth
     return json.dumps({"notification": {"method": method, "params": {"level": "debug", "message": message}}})
 
 
+def _progress_line(status: str = "failed", step: str = "agent", label: str = "Running agent") -> str:
+    # A `_posthog/progress` notification. The workflow's failure/cancel handlers emit one with
+    # status="failed" BEFORE the TaskRun reaches its terminal status — that line must stay decisive
+    # in the dropped-finalization tail check, not be skipped as informational setup progress.
+    return json.dumps(
+        {
+            "notification": {
+                "method": "_posthog/progress",
+                "params": {"step": step, "status": status, "label": label, "group": "setup"},
+            }
+        }
+    )
+
+
 def _cost_less_usage_update_line(used: int = 1000) -> str:
     # Older sandbox builds omit cost entirely — must NOT read as the null-cost fingerprint.
     return json.dumps(

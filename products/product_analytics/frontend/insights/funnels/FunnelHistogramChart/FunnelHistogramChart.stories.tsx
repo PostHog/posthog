@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelTimeToConvertFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
+import funnelTimeToConvertCompareFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvertCompare.json'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import type { DataNodeLogicProps } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -61,4 +62,8 @@ function renderFunnelHistogramChart(insightFixture: any): JSX.Element {
 
 export const Default: Story = {
     render: () => renderFunnelHistogramChart(funnelTimeToConvertFixture),
+}
+
+export const Compare: Story = {
+    render: () => renderFunnelHistogramChart(funnelTimeToConvertCompareFixture),
 }

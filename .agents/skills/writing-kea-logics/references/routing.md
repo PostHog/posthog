@@ -5,9 +5,6 @@ PostHog uses `kea-router` for URL state. Two builders cover almost everything:
 - `urlToAction` — URL change → fire an action
 - `actionToUrl` — action fires → update the URL
 
-For scene root logics, use `tabAwareUrlToAction` / `tabAwareActionToUrl` instead.
-See [making-scenes-tab-aware](../../making-scenes-tab-aware/SKILL.md).
-
 For imperative navigation, dispatch `router.actions.push(urls.foo())` inside a listener.
 
 ## Why a router builder and not `useNavigate` / `useParams`

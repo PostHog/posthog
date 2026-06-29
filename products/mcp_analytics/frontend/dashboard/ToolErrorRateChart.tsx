@@ -1,6 +1,5 @@
 import { useCallback, useMemo } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     BarChart,
     type BarChartConfig,
@@ -9,8 +8,9 @@ import {
     type TooltipContext,
     ValueLabels,
 } from '@posthog/quill-charts'
+import { Skeleton } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
@@ -90,7 +90,7 @@ export function ToolErrorRateChart({
                 skeleton={
                     <div className="space-y-2 py-3">
                         {Array.from({ length: 5 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-7 w-full" />
+                            <Skeleton key={i} className="h-7 w-full" />
                         ))}
                     </div>
                 }

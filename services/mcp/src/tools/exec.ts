@@ -40,6 +40,10 @@ export interface ExecInnerCallProperties {
 
 export type ExecInnerCallTracker = (toolName: string, properties: ExecInnerCallProperties) => void
 
+export interface ExecToolOptions {
+    requireDestructiveConfirmation?: boolean
+}
+
 function makeExecSchema(commandReference: string): z.ZodObject<{ command: z.ZodString }> {
     return z.object({
         command: z.string().describe(commandReference),
@@ -55,6 +59,29 @@ function parseCommand(input: string): { verb: string; rest: string } {
     return { verb: trimmed.slice(0, idx), rest: trimmed.slice(idx + 1).trim() }
 }
 
+function parseCallFlags(input: string): { forceJson: boolean; confirmed: boolean; rest: string } {
+    let rest = input.trim()
+    let forceJson = false
+    let confirmed = false
+
+    while (rest) {
+        const parsed = parseCommand(rest)
+        if (parsed.verb === '--json') {
+            forceJson = true
+            rest = parsed.rest
+            continue
+        }
+        if (parsed.verb === '--confirm') {
+            confirmed = true
+            rest = parsed.rest
+            continue
+        }
+        break
+    }
+
+    return { forceJson, confirmed, rest }
+}
+
 // Extracts the inner tool name from an exec `call` command, e.g.
 // "call my-tool {...}" → "my-tool". Returns undefined for other verbs or
 // malformed input. Used by analytics to surface the real tool being invoked
@@ -64,11 +91,11 @@ export function parseExecCallInnerToolName(command: string): string | undefined 
     if (verb !== 'call' || !rest) {
         return
     }
-    const argv = rest.startsWith('--json ') ? rest.slice('--json '.length).trim() : rest === '--json' ? '' : rest
-    if (!argv) {
+    const callArgs = parseCallFlags(rest).rest
+    if (!callArgs) {
         return
     }
-    const innerName = parseCommand(argv).verb
+    const innerName = parseCommand(callArgs).verb
     return innerName || undefined
 }
 
@@ -93,11 +120,17 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools that were removed from the MCP server. When the model attempts to call
-// one, surface a targeted redirect to the replacement instead of dumping the
-// full tool catalog. Keep the redirect text editorial — schemas don't carry
-// "use X instead" guidance.
+// Tools that were removed from the MCP server — or flag-gated out of the active
+// catalog. When the model attempts to call one that isn't present, surface a
+// targeted redirect to the replacement instead of dumping the full tool catalog.
+// Keep the redirect text editorial — schemas don't carry "use X instead"
+// guidance. A redirect only fires when the tool is absent, so an entry for a
+// conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
+    // Disabled while `mcp-sql-schema-discovery` is on; the SQL information_schema
+    // path replaces it. See readDataWarehouseSchema.ts for the flag/TODO.
+    'read-data-warehouse-schema': () =>
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
     'entity-search': () =>
         'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>
@@ -160,12 +193,13 @@ function findTool(tools: Tool<ZodObjectAny>[], name: string): Tool<ZodObjectAny>
 
 export function createExecTool(
     allTools: Tool<ZodObjectAny>[],
-    context: Context,
+    context: Context | undefined,
     toolDescription: string,
     commandReference: string,
     mcpConsumer: string | undefined,
     trackInnerCall?: ExecInnerCallTracker,
-    scopeGatedTools: ScopeGatedTool[] = []
+    scopeGatedTools: ScopeGatedTool[] = [],
+    options: ExecToolOptions = {}
 ): Tool<ExecSchema> {
     const ExecSchema = makeExecSchema(commandReference)
 
@@ -316,15 +350,22 @@ export function createExecTool(
 
                 case 'call': {
                     if (!rest) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
-                    const forceJson = rest.startsWith('--json ') || rest === '--json'
-                    const callArgs = forceJson ? rest.slice('--json'.length).trim() : rest
+                    if (!context) {
+                        throw new Error('Cannot call PostHog tools without an API context')
+                    }
+                    const { forceJson, confirmed, rest: callArgs } = parseCallFlags(rest)
                     if (!callArgs) {
-                        throw new Error('Usage: call [--json] <tool_name> <json_input>')
+                        throw new Error('Usage: call [--json] [--confirm] <tool_name> <json_input>')
                     }
                     const { verb: toolName, rest: jsonBody } = parseCommand(callArgs)
                     const tool = findTool(allTools, toolName)
+                    if (options.requireDestructiveConfirmation && tool.annotations.destructiveHint && !confirmed) {
+                        throw new Error(
+                            `Tool "${tool.name}" is destructive. Re-run with "call --confirm ${tool.name} ..." after verifying the target IDs. Use "info ${tool.name}" to inspect the tool first.`
+                        )
+                    }
                     let input: Record<string, unknown>
                     if (!jsonBody) {
                         input = {}

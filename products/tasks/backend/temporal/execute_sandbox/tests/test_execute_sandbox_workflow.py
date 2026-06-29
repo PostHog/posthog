@@ -21,8 +21,14 @@ from products.tasks.backend.temporal.execute_sandbox.workflow import (
     ExecuteSandboxWorkflow,
     OutboundSignal,
     PendingFollowup,
+    SandboxEvent,
+)
+from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
+    GetSandboxForRepositoryOutput,
 )
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
+from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
+from products.tasks.backend.temporal.process_task.credential_refresh import CredentialRefreshExitReason
 
 
 def _build_context(
@@ -518,6 +524,83 @@ class TestPersistSandboxId:
 
 
 class TestRun:
+    async def test_credential_refresh_exit_marks_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        refresh_loop_mock = AsyncMock(return_value=CredentialRefreshExitReason.SANDBOX_GONE)
+
+        monkeypatch.setattr(execute_sandbox_workflow_module, "run_credential_refresh_loop", refresh_loop_mock)
+
+        await workflow._run_credential_refresh_until_sandbox_gone("sandbox-123")
+
+        assert workflow._sandbox_gone is True
+        refresh_loop_mock.assert_awaited_once_with(workflow.context, "sandbox-123")
+        silent_workflow_logger.warning.assert_called_once_with(
+            "execute_sandbox_sandbox_gone_detected",
+            run_id="run-id",
+            sandbox_id="sandbox-123",
+        )
+
+    async def test_run_ends_session_without_failing_when_sandbox_gone(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        context = _build_context(state={"mode": "interactive"}, use_modal_resume_snapshots=False)
+        update_status_mock = AsyncMock()
+        cleanup_sandbox_mock = AsyncMock()
+
+        monkeypatch.setattr(workflow, "_reap_orphaned_sandbox", AsyncMock())
+        monkeypatch.setattr(workflow, "_get_task_processing_context", AsyncMock(return_value=context))
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_status_mock)
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_persist_sandbox_id", AsyncMock())
+        monkeypatch.setattr(workflow, "_read_sandbox_logs", AsyncMock())
+        monkeypatch.setattr(workflow, "_cleanup_sandbox", cleanup_sandbox_mock)
+        monkeypatch.setattr(workflow, "_clear_persisted_sandbox_id", AsyncMock())
+        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+        monkeypatch.setattr(workflow, "_relay_sandbox_events", AsyncMock())
+        monkeypatch.setattr(workflow, "_run_credential_refresh_until_sandbox_gone", AsyncMock())
+        monkeypatch.setattr(
+            workflow,
+            "_get_sandbox_for_repository",
+            AsyncMock(
+                return_value=GetSandboxForRepositoryOutput(
+                    sandbox_id="sandbox-123",
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                    used_snapshot=False,
+                    should_create_snapshot=False,
+                )
+            ),
+        )
+        monkeypatch.setattr(
+            workflow,
+            "_start_agent_server",
+            AsyncMock(
+                return_value=StartAgentServerOutput(
+                    sandbox_url="https://sandbox.example",
+                    connect_token="connect-token",
+                )
+            ),
+        )
+        monkeypatch.setattr(workflow, "_wait_for_event", AsyncMock(return_value=SandboxEvent.SANDBOX_GONE))
+
+        result = await workflow.run(ExecuteSandboxInput(run_id="run-id", parent_workflow_id="parent-wf-id"))
+
+        assert result.success is True
+        assert workflow._completion_status == "completed"
+        terminal_status_writes = [
+            call for call in update_status_mock.await_args_list if call.args[:1] in (("failed",), ("cancelled",))
+        ]
+        assert terminal_status_writes == []
+        cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+        completed_signals = [
+            outbound for outbound in workflow._pending_outbound if outbound.target_signal == PARENT_COMPLETED_SIGNAL
+        ]
+        assert len(completed_signals) == 1
+        payload = completed_signals[0].args[0]
+        assert isinstance(payload, ChildCompletionPayload)
+        assert payload.success is True
+
     async def test_context_load_failure_marks_run_failed(self, monkeypatch, silent_workflow_logger):
         workflow = ExecuteSandboxWorkflow()
         get_context_mock = AsyncMock(side_effect=RuntimeError("database connection closed"))

@@ -1,6 +1,8 @@
 import { useValues } from 'kea'
 
-import { Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonCard, Spinner, Tooltip } from '@posthog/lemon-ui'
+
+import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { QUOTA_STATUS_STYLES, type QuotaStatus, projectQuota, splitProjectedPct } from '../../utils/quotaProjection'
@@ -61,9 +63,9 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
     )
 
     return (
-        <div className="border rounded p-3 bg-bg-light space-y-2">
+        <LemonCard hoverEffect={false} className="p-3 space-y-2">
             <div className="flex items-baseline justify-between gap-3">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted">Estimated impact</div>
+                <LemonLabel>Estimated impact</LemonLabel>
                 {hasCap && projected !== null && (
                     <Tooltip title={breakdown}>
                         <span className={`text-xs tabular-nums ${styles.text}`}>
@@ -140,6 +142,6 @@ export function ScannerQuotaForecast({ scannerId }: Props): JSX.Element | null {
             ) : (
                 <div className="text-xs text-muted">Estimate unavailable. Try adjusting your filters.</div>
             )}
-        </div>
+        </LemonCard>
     )
 }

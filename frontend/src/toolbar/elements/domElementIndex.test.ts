@@ -1,6 +1,6 @@
 import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-shadow-dom'
 
-import { elementToSelector } from 'lib/actionUtils'
+import { elementToSelector } from 'lib/utils/actions'
 
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
 

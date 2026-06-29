@@ -2,8 +2,9 @@ use chrono::{DateTime, TimeZone, Utc};
 use common_types::HasEventName;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
 use opentelemetry_proto::tonic::common::v1::{any_value, KeyValue};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
+use super::error_status::apply_error_status_properties;
 use super::identity::extract_distinct_id_for_span;
 use super::providers;
 
@@ -59,7 +60,7 @@ fn any_value_to_json(value: &any_value::Value) -> Value {
     }
 }
 
-fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
+pub(super) fn attributes_to_map(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
@@ -76,7 +77,7 @@ fn attributes_to_map(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
 /// pass through since they don't match these prefixes.
 const NOISY_RESOURCE_PREFIXES: &[&str] = &["host.", "process.", "os.", "telemetry."];
 
-fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Value> {
+fn filter_resource_attributes(attrs: &[KeyValue]) -> Map<String, Value> {
     attrs
         .iter()
         .filter_map(|kv| {
@@ -94,7 +95,7 @@ fn filter_resource_attributes(attrs: &[KeyValue]) -> serde_json::Map<String, Val
         .collect()
 }
 
-fn apply_geoip_default(properties: &mut serde_json::Map<String, Value>) {
+fn apply_geoip_default(properties: &mut Map<String, Value>) {
     let alias = properties.remove("posthog.geoip_disable");
     if properties.contains_key("$geoip_disable") {
         return;
@@ -189,6 +190,7 @@ pub fn expand_into_events(
                     "$otel_end_time_unix_nano".to_string(),
                     Value::String(span.end_time_unix_nano.to_string()),
                 );
+                apply_error_status_properties(span, &mut properties);
 
                 let timestamp = nanos_to_datetime(span.start_time_unix_nano);
 

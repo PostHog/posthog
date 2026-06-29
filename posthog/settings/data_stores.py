@@ -190,6 +190,21 @@ product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
 configured_product_databases: set[str] = set()
 PRODUCT_DB_WRITER_URLS: dict[str, str] = {}
 
+
+# Per-product SSL for the migration DIRECT_URL only. Runtime writer/reader route
+# through PgBouncer (in-cluster, plaintext, no SSL); only the direct migration
+# connection reaches Aurora, whose pg_hba requires SSL (hostssl). dj_database_url
+# sets only connect_timeout, so set sslmode here. Scoped per product (e.g.
+# PRODUCT_DB_AGENT_PLATFORM_SSL_MODE); unset for local dev/test (plain Postgres).
+def _apply_product_db_ssl_options(db: str, options: dict) -> None:
+    ssl_mode = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_MODE")
+    ssl_root_cert = os.getenv(f"PRODUCT_DB_{db.upper()}_SSL_ROOT_CERT")
+    if ssl_mode:
+        options["sslmode"] = ssl_mode
+    if ssl_root_cert:
+        options["sslrootcert"] = ssl_root_cert
+
+
 # Fail-fast circuit breaker for product databases. When a product DB is
 # unreachable, the custom backend raises immediately on connect instead of
 # blocking the worker on `connect_timeout`, so one product's outage can't
@@ -273,6 +288,7 @@ for route in product_routes:
         direct_alias = f"{db}_db_direct"
         DATABASES[direct_alias] = dict(dj_database_url.parse(direct_url, conn_max_age=0))
         DATABASES[direct_alias].setdefault("OPTIONS", {})["connect_timeout"] = 10
+        _apply_product_db_ssl_options(db, DATABASES[direct_alias]["OPTIONS"])
         if DISABLE_SERVER_SIDE_CURSORS:
             DATABASES[direct_alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
@@ -383,7 +399,9 @@ CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "l
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
 CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
-CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
+    CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", CLICKHOUSE_DATABASE)
+)
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
@@ -542,9 +560,19 @@ if not CDP_API_URL:
         "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
-# Shared secret for internal API authentication between Django and Node.js services
+# Shared secret for internal API authentication between Django and Node.js services.
+# Only the services that make/serve internal calls get this injected, so a missing value must not
+# block startup. Defaults to the public dev secret in DEBUG/TEST; elsewhere it defaults to empty and
+# internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
+# running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
+# cause a spurious mismatch; get_list already strips the fallbacks.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
+INTERNAL_API_SECRET = get_from_env(
+    "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
+).strip()
+# Previous secrets still accepted for verification during zero-downtime rotation, newest first.
+# Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
+INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -556,14 +584,31 @@ if not EMBEDDING_API_URL:
 # This allows feature-flags service to have dedicated Redis for better resource isolation
 FLAGS_REDIS_URL = os.getenv("FLAGS_REDIS_URL", None)
 
-# Dedicated Redis for ai-gateway HyperCache reads
-AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", None)
+# Dedicated Redis for ai-gateway HyperCache reads. In local dev defaults to the
+# sibling ai-gateway's valkey (host port 6381) so the gateway-credential blob is
+# published where the gateway reads it — zero config for the agent-platform e2e
+# (see bin/setup-gateway-e2e). Prod sets it explicitly; tests leave it unset.
+AI_GATEWAY_REDIS_URL = os.getenv("AI_GATEWAY_REDIS_URL", "redis://localhost:6381" if DEBUG and not TEST else None)
 
 TASKS_REDIS_URL = os.getenv("TASKS_REDIS_URL", None)
+
+# Public base URL of the LLM gateway, surfaced in the app's per-gateway endpoint
+# examples (…/v1/<slug>/messages). Deployment-specific; empty until configured,
+# except in local dev where it defaults to the gateway's local listen addr
+# (AI_GATEWAY_LISTEN_ADDR=:8080 in PostHog/ai-gateway).
+AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:8080" if DEBUG else "")
 
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+# Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
+FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
+
+# Temporary (Rust remote_config port, phase 2): when true, each Django remote_config response is
+# shadow-compared against Rust. Off by default; flip per environment to start/stop without a deploy.
+# Delete with remote_config_shadow.py at the phase-3 cutover.
+REMOTE_CONFIG_SHADOW_ENABLED = get_from_env("REMOTE_CONFIG_SHADOW_ENABLED", False, type_cast=str_to_bool)
 
 # Bearer token for marking Django -> Rust /flags calls as internal (non-billable).
 # When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this

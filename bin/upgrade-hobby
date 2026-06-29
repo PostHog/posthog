@@ -110,6 +110,31 @@ else
     fi
 fi
 
+# PostHog's AI features (the Max assistant, SQL/regex assist) run on your own LLM provider key.
+# If none is configured yet, offer to add one. Existing keys are never touched — we only append
+# when the key is absent, so this is safe to run on every upgrade.
+# Only prompt on an interactive terminal so a non-interactive upgrade doesn't block on stdin.
+# Match `KEY=<value>` (note the trailing `.+`): a blank `KEY=` counts as missing, so a user who
+# skipped the key at install still gets prompted. Read silently (-s) — these are secrets.
+if [ -t 0 ] && ! grep -qE "^ANTHROPIC_API_KEY=.+" .env; then
+    echo ""
+    echo "PostHog AI runs on an Anthropic API key, which isn't configured yet."
+    read -rsp "Enter an Anthropic API key to enable PostHog AI (leave blank to skip): " ANTHROPIC_API_KEY_INPUT
+    echo
+    if [ -n "$ANTHROPIC_API_KEY_INPUT" ]; then
+        echo "ANTHROPIC_API_KEY=$ANTHROPIC_API_KEY_INPUT" >> .env
+        echo "Added ANTHROPIC_API_KEY to .env file"
+    fi
+fi
+if [ -t 0 ] && ! grep -qE "^OPENAI_API_KEY=.+" .env; then
+    read -rsp "Enter an OpenAI API key to enable SQL and regex AI assist (leave blank to skip): " OPENAI_API_KEY_INPUT
+    echo
+    if [ -n "$OPENAI_API_KEY_INPUT" ]; then
+        echo "OPENAI_API_KEY=$OPENAI_API_KEY_INPUT" >> .env
+        echo "Added OPENAI_API_KEY to .env file"
+    fi
+fi
+
 # Check if session recording storage migration marker exists
 if ! grep -q "SESSION_RECORDING_STORAGE_MIGRATED_TO_SEAWEEDFS" .env; then
   echo ""

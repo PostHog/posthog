@@ -1,3 +1,5 @@
+import type { MCPAnalyticsIntentSource } from '@posthog/mcp-analytics'
+
 import { MCP_ANALYTICS_SOURCE, MCP_SERVER_NAME, MCP_SERVER_VERSION } from '@/lib/constants'
 import { getPostHogClient } from '@/lib/posthog'
 import {
@@ -55,17 +57,37 @@ function buildBaseProperties(
 
 export async function trackInitEvent(state: ResolvedState): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
         const initDurationMs = requestContext.requestStartTime
             ? Date.now() - requestContext.requestStartTime
             : undefined
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
+        // Emits `$mcp_initialize`. The SDK maps `durationMs` → `$mcp_duration_ms`
+        // and `sessionId` → `$session_id`; everything else rides on `properties`.
+        getPostHogClient().captureInitialize({
+            distinctId: state.distinctId,
+            groups,
+            durationMs: initDurationMs ?? 0,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            properties: {
+                ...properties,
+                $mcp_is_error: false,
+                tool_count: state.allTools.length,
+                has_organization_id: !!requestContext.organizationId,
+                has_project_id: !!requestContext.projectId,
+                read_only: !!requestContext.readOnly,
+                via_sse_redirect: !!requestContext.viaSseRedirect,
+            },
+        })
+
+        // TRANSITION SHIM — DELETE once the MCP insights + taxonomy are migrated to
+        // the `$mcp_*` event names. `$mcp_initialize` (above) is the canonical event
+        // going forward, but the existing dashboards/insights still key on the legacy
+        // `mcp_initialize`, so we dual-emit it through the cutover to keep them working.
         getPostHogClient().capture({
             distinctId: state.distinctId,
             event: 'mcp_initialize',
@@ -87,19 +109,25 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
     }
 }
 
+export interface ToolCallIntentMeta {
+    /** The agent's stated intent (the injected `context` arg) → `$mcp_intent`. */
+    intent?: string
+    /** Where it came from → `$mcp_intent_source`. */
+    intentSource?: MCPAnalyticsIntentSource
+}
+
 export async function trackToolCall(
     toolName: string,
     durationMs: number,
     isError: boolean,
     state: ResolvedState,
-    extraProperties?: Record<string, unknown>
+    extraProperties?: Record<string, unknown>,
+    intentMeta?: ToolCallIntentMeta
 ): Promise<void> {
     try {
-        const analyticsContext = await state.reqCtx.getAnalyticsContextSafe(state.context)
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
         const requestContext = state.requestContext
-        const sessionUuid = requestContext.sessionId
-            ? await state.reqCtx.getSessionUuid(requestContext.sessionId)
-            : undefined
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
@@ -112,6 +140,34 @@ export async function trackToolCall(
         // buckets those as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
 
+        // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
+        // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
+        // `$mcp_is_error`, `intent` → `$mcp_intent`, and `sessionId` →
+        // `$session_id`. `$exception` fan-out is disabled on the client, so an
+        // errored call stays a single event. The intent pipeline reads
+        // `$mcp_intent` off this canonical event, so it only needs to land here
+        // (not on the legacy dual-emit below).
+        getPostHogClient().captureToolCall({
+            toolName,
+            durationMs,
+            isError,
+            distinctId: state.distinctId,
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            ...(intentMeta?.intent ? { intent: intentMeta.intent } : {}),
+            ...(intentMeta?.intentSource ? { intentSource: intentMeta.intentSource } : {}),
+            properties: {
+                ...properties,
+                tool_name: toolName,
+                ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
+                ...extraProperties,
+            },
+        })
+
+        // TRANSITION SHIM — DELETE once the MCP insights + taxonomy are migrated to
+        // the `$mcp_*` event names. `$mcp_tool_call` (above) is the canonical event
+        // going forward, but the existing dashboards/insights still key on the legacy
+        // `mcp_tool_call`, so we dual-emit it through the cutover to keep them working.
         getPostHogClient().capture({
             distinctId: state.distinctId,
             event: 'mcp_tool_call',
@@ -125,6 +181,32 @@ export async function trackToolCall(
                 ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
                 ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                 ...extraProperties,
+            },
+        })
+    } catch {
+        // never break the request for analytics
+    }
+}
+
+export async function trackToolsList(toolNames: string[], state: ResolvedState): Promise<void> {
+    try {
+        const analyticsContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
+        const requestContext = state.requestContext
+        const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(requestContext)
+
+        const { properties, groups } = buildBaseProperties(state, analyticsContext)
+
+        // Emits `$mcp_tools_list`. The SDK maps `toolNames` → `$mcp_listed_tool_names`,
+        // which powers "advertised but never called" analysis. No legacy dual-emit:
+        // `mcp_tools_list` has had no consumers since the cutover.
+        getPostHogClient().captureToolsList({
+            toolNames,
+            distinctId: state.distinctId,
+            groups,
+            ...(sessionUuid ? { sessionId: sessionUuid } : {}),
+            properties: {
+                ...properties,
+                tool_count: toolNames.length,
             },
         })
     } catch {

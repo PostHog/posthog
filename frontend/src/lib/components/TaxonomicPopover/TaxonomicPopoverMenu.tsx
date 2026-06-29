@@ -22,7 +22,6 @@ import { useValues } from 'kea'
 import { ReactElement, useMemo, useState } from 'react'
 
 import { IconChevronDown, IconFilter } from '@posthog/icons'
-import { InputGroupButton } from '@posthog/quill'
 
 import { TaxonomicFilterHeadless } from 'lib/components/TaxonomicFilter/headless'
 import { MenuFilterEntry, TaxonomicFilterMenu } from 'lib/components/TaxonomicFilter/menu'
@@ -169,21 +168,21 @@ export function TaxonomicPopoverMenu<ValueType extends TaxonomicFilterValue = Ta
             {useInputTrigger ? (
                 <MenuInputTrigger
                     iconButton={
-                        <InputGroupButton
-                            variant="outline"
-                            size="icon-sm"
+                        // Keep the resting placeholder visually identical to the armed trigger.
+                        // data-attr differs from the armed trigger's — intentional for analytics.
+                        <LemonButton
+                            size="small"
+                            icon={<IconFilter />}
                             aria-label="Open filter menu"
                             data-attr="taxonomic-popover-menu-trigger"
                             // Stop the click bubbling to the LemonInput wrapper, whose
                             // onClick focuses the input, whose onFocus arms the combobox.
                             // Without this the icon would open the combobox, not the menu.
-                            onClick={(e: React.MouseEvent) => {
+                            onClick={(e) => {
                                 e.stopPropagation()
                                 arm('menu')
                             }}
-                        >
-                            <IconFilter />
-                        </InputGroupButton>
+                        />
                     }
                     fullWidth={!!triggerButtonProps?.fullWidth}
                     placeholder={typeof placeholder === 'string' ? placeholder : 'Add filter'}

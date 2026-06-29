@@ -1,10 +1,10 @@
 import base64
-from typing import Optional
 
-import pytest
 from posthog.test.base import APIBaseTest
 from unittest import TestCase
 from unittest.mock import MagicMock, patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -20,7 +20,6 @@ from products.exports.backend.tasks.failure_handler import (
     FAILURE_TYPE_USER,
     is_user_query_error_type,
 )
-from products.exports.backend.tasks.image_exporter import get_driver
 
 
 class TestIsUserQueryErrorType(TestCase):
@@ -52,15 +51,8 @@ class TestIsUserQueryErrorType(TestCase):
         assert is_user_query_error_type(exception_type) == expected
 
 
-class MockWebDriver(MagicMock):
-    def find_element_by_css_selector(self, name: str) -> Optional[MagicMock]:
-        return MagicMock()  # Always return something for wait_for_css_selector
-
-    def find_element_by_class_name(self, name: str) -> Optional[MagicMock]:
-        return None  # Never return anything for Spinner
-
-
 @patch("products.exports.backend.tasks.image_exporter.uuid")
+@override_settings(BROWSERLESS_CDP_URL="wss://chrome.browserless.example")
 class TestExporterTask(APIBaseTest):
     exported_asset: ExportedAsset = None  # type: ignore
 
@@ -77,10 +69,9 @@ class TestExporterTask(APIBaseTest):
         with open("/tmp/posthog_test_exporter.png", "wb") as fh:
             fh.write(base64.decodebytes(example_png))
 
-    @patch("products.exports.backend.tasks.image_exporter.get_driver")
-    def test_exporter_runs(self, mock_get_driver: MagicMock, mock_uuid: MagicMock) -> None:
+    @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
+    def test_exporter_runs(self, mock_screenshot: MagicMock, mock_uuid: MagicMock) -> None:
         mock_uuid.uuid4.return_value = "posthog_test_exporter"
-        mock_get_driver.return_value = MockWebDriver()
 
         assert self.exported_asset.content is None
         assert self.exported_asset.content_location is None
@@ -90,17 +81,6 @@ class TestExporterTask(APIBaseTest):
 
         assert self.exported_asset.content is None
         assert self.exported_asset.content_location is not None
-
-    @pytest.mark.skip("Currently broken due to an issue with ChromeDriver")
-    def test_exporter_setsup_selenium(self, mock_uuid: MagicMock) -> None:
-        driver = get_driver()
-
-        assert driver is not None
-
-        driver.get("https://example.com")
-
-        if driver:
-            driver.close()
 
     @patch("products.exports.backend.tasks.image_exporter.export_image")
     def test_export_stores_exception_type_on_failure(self, mock_export: MagicMock, mock_uuid: MagicMock) -> None:

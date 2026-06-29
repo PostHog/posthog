@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { timeZoneLabel } from 'lib/utils'
+import { timeZoneLabel } from 'lib/utils/timezones'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'

@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react'
 import { IconInfo, IconX } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { compareInsightTopLevelSections } from 'scenes/insights/utils'
 
 import { Node } from '~/queries/schema/schema-general'

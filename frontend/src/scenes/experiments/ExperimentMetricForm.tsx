@@ -4,7 +4,6 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -41,6 +40,7 @@ import {
     ExperimentMetricOutlierHandling,
     ExperimentRatioMetricOutlierHandling,
 } from './ExperimentMetricOutlierHandling'
+import { ExperimentMetricThreshold, isThresholdAvailableForMath } from './ExperimentMetricThreshold'
 import { filterToMetricConfig, filterToMetricSource } from './metricQueryUtils'
 import { createFilterForSource, getFilter } from './metricQueryUtils'
 import { commonActionFilterProps } from './Metrics/Selectors'
@@ -138,8 +138,6 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    const isExperimentFunnelDWHSupport = useFeatureFlag('EXPERIMENT_FUNNEL_DWH_SUPPORT')
-
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
@@ -155,10 +153,16 @@ export function ExperimentMetricForm({
     const handleSetFilters = ({ actions, events, data_warehouse }: Partial<FilterType>): void => {
         const metricConfig = filterToMetricConfig(metric.metric_type, actions, events, data_warehouse)
         if (metricConfig) {
-            handleSetMetric({
-                ...metric,
-                ...metricConfig,
-            })
+            const updatedMetric = { ...metric, ...metricConfig }
+            /**
+             * Switching to a math type that doesn't support thresholds must clear any stale
+             * threshold, otherwise the disabled threshold input traps the value and outlier
+             * handling stays disabled with no way to recover.
+             */
+            if (isExperimentMeanMetric(updatedMetric) && !isThresholdAvailableForMath(updatedMetric.source.math)) {
+                updatedMetric.threshold = undefined
+            }
+            handleSetMetric(updatedMetric)
         }
     }
 
@@ -189,23 +193,13 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                // Filter sources based on feature flag support
-                if (isExperimentFunnelDWHSupport) {
-                    // Include all supported types including DataWarehouseNode
-                    newMetric.series = sources.filter(
-                        (s): s is ExperimentFunnelMetricStep =>
-                            s &&
-                            (s.kind === NodeKind.EventsNode ||
-                                s.kind === NodeKind.ActionsNode ||
-                                s.kind === NodeKind.ExperimentDataWarehouseNode)
-                    )
-                } else {
-                    // Legacy: only support EventsNode and ActionsNode
-                    newMetric.series = sources.filter(
-                        (s): s is ExperimentFunnelMetricStep =>
-                            s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
-                    )
-                }
+                newMetric.series = sources.filter(
+                    (s): s is ExperimentFunnelMetricStep =>
+                        s &&
+                        (s.kind === NodeKind.EventsNode ||
+                            s.kind === NodeKind.ActionsNode ||
+                            s.kind === NodeKind.ExperimentDataWarehouseNode)
+                )
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
@@ -366,6 +360,25 @@ export function ExperimentMetricForm({
                                 </Link>
                             </div>
                         )}
+                        <ExperimentMetricThreshold
+                            math={metric.source.math}
+                            value={metric.threshold}
+                            onChange={(value) =>
+                                handleSetMetric({
+                                    ...metric,
+                                    threshold: value,
+                                    /**
+                                     * Setting a threshold disables outlier handling, so clear any stale
+                                     * bounds to keep the metric consistent with the UI and pass validation.
+                                     */
+                                    ...(value !== undefined && {
+                                        lower_bound_percentile: undefined,
+                                        upper_bound_percentile: undefined,
+                                        ignore_zeros: undefined,
+                                    }),
+                                })
+                            }
+                        />
                     </>
                 )}
 
@@ -384,17 +397,9 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        actionsTaxonomicGroupTypes={
-                            isExperimentFunnelDWHSupport
-                                ? commonActionFilterProps.actionsTaxonomicGroupTypes
-                                : commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
-                                      (type) => type !== 'data_warehouse'
-                                  )
-                        }
+                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
-                        dataWarehousePopoverFields={
-                            isExperimentFunnelDWHSupport ? dataWarehousePopoverFields : undefined
-                        }
+                        dataWarehousePopoverFields={dataWarehousePopoverFields}
                     />
                 )}
 

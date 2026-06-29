@@ -6,15 +6,16 @@ endpoints.
 
 ## How it works
 
-tool handlers and Zod validation schemas. Operations are discovered by matching URL paths
-against product names (e.g., `error_tracking` matches all paths containing `/error_tracking/`),
-same approach as the frontend type generator.
+tool handlers and Zod validation schemas. Operations are discovered by their `x-product`
+attribution in the OpenAPI spec — auto-derived from the ViewSet module path
+(`products/<name>/backend/` → `<name>`) or declared explicitly via
+`@extend_schema(extensions={"x-product": "<name>"})`.
 
 ```text
 OpenAPI schema (Django)
         │
         ▼
-  scaffold-yaml          ← discovers operations by tag + URL path, writes YAML stubs
+  scaffold-yaml          ← discovers operations by x-product, writes YAML stubs
         │
         ▼
   YAML definitions       ← product teams enable tools, add scopes/annotations/descriptions
@@ -38,12 +39,11 @@ Run the full pipeline: `hogli build:openapi`
        --output ../../products/your_product/mcp/tools.yaml
    ```
 
-   `--product` is a **substring match** on URL paths:
-   it selects every endpoint whose path contains `/<name>/`
+   `--product` matches endpoints by their **`x-product`** attribution
    (hyphens are normalized to underscores before matching).
-   The value doesn't have to be an exact product name —
-   any string that appears as a path segment will work
-   (e.g. `--product actions` matches `/api/projects/{project_id}/actions/`).
+   ViewSets in `products/<name>/backend/` are attributed automatically;
+   ViewSets elsewhere need `@extend_schema(extensions={"x-product": "<name>"})`.
+   URL paths are never used for discovery.
 
 2. **Configure** — edit the YAML to enable the tools you want. Each enabled tool needs
    `scopes`, `annotations`, and ideally a `description`:

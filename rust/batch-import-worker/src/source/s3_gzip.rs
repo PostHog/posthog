@@ -1,15 +1,17 @@
-use crate::error::ToUserError;
-use crate::extractor::{ExtractedPartData, PartExtractor};
-use anyhow::{Context, Error};
-use async_trait::async_trait;
-use aws_sdk_s3::Client as S3Client;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+
+use anyhow::{Context, Error};
+use async_trait::async_trait;
+use aws_sdk_s3::Client as S3Client;
 use tempfile::TempDir;
 use tokio::sync::Mutex;
 use tokio::{fs::File, io::AsyncReadExt, io::AsyncSeekExt, io::AsyncWriteExt};
 use tracing::{debug, info, warn};
+
+use crate::error::ToUserError;
+use crate::extractor::{ExtractedPartData, PartExtractor};
 
 use super::s3::extract_user_friendly_error;
 use super::DataSource;
@@ -27,6 +29,7 @@ pub struct GzipS3Source {
     bucket: String,
     prefix: String,
     extractor: Arc<dyn PartExtractor>,
+    staging_dir: PathBuf,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
     prepared_keys: Arc<Mutex<HashMap<String, ExtractedPartData>>>,
 }
@@ -37,12 +40,14 @@ impl GzipS3Source {
         bucket: String,
         prefix: String,
         extractor: Arc<dyn PartExtractor>,
+        staging_dir: PathBuf,
     ) -> Self {
         Self {
             client,
             bucket,
             prefix,
             extractor,
+            staging_dir,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -163,8 +168,15 @@ impl DataSource for GzipS3Source {
     }
 
     async fn prepare_for_job(&self) -> Result<(), Error> {
-        let temp_dir =
-            tempfile::tempdir().with_context(|| "Failed to create temp directory for job")?;
+        let temp_dir = tempfile::Builder::new()
+            .prefix("job-")
+            .tempdir_in(&self.staging_dir)
+            .with_context(|| {
+                format!(
+                    "Failed to create temp directory in staging dir: {}",
+                    self.staging_dir.display()
+                )
+            })?;
         debug!("Created temp directory for job: {:?}", temp_dir.path());
 
         {
@@ -183,8 +195,12 @@ impl DataSource for GzipS3Source {
         {
             let mut temp_dir_guard = self.temp_dir.lock().await;
             if let Some(temp_dir) = temp_dir_guard.take() {
-                drop(temp_dir);
-                debug!("Cleaned up temp directory");
+                let path = temp_dir.path().to_path_buf();
+                if let Err(e) = temp_dir.close() {
+                    warn!("Failed to remove temp directory {}: {e}", path.display());
+                } else {
+                    debug!("Cleaned up temp directory: {}", path.display());
+                }
             }
         }
         debug!("Job cleanup complete");
@@ -213,18 +229,42 @@ impl DataSource for GzipS3Source {
                 Err(sdk_error).user_error(friendly_msg)
             })?;
 
-        let data = get.body.collect().await.with_context(|| {
+        let temp_dir = self.get_temp_dir_path().await?;
+        let safe_key = sanitize_key_for_path(key);
+
+        let raw_file_path = temp_dir.join(format!("{}.raw", safe_key));
+        let mut raw_file = File::create(&raw_file_path)
+            .await
+            .with_context(|| format!("Failed to create raw file: {}", raw_file_path.display()))?;
+
+        let mut stream = get.body;
+        let mut total_bytes: u64 = 0;
+        while let Some(chunk) = stream.try_next().await.with_context(|| {
             format!(
                 "Failed to read body data from S3 object s3://{0}/{key}",
                 self.bucket,
             )
-        })?;
+        })? {
+            raw_file.write_all(&chunk).await.with_context(|| {
+                format!("Failed to write raw file: {}", raw_file_path.display())
+            })?;
+            total_bytes += chunk.len() as u64;
+        }
 
-        let bytes = data.to_vec();
-        let temp_dir = self.get_temp_dir_path().await?;
-        let safe_key = sanitize_key_for_path(key);
+        raw_file
+            .sync_all()
+            .await
+            .with_context(|| format!("Failed to sync raw file: {}", raw_file_path.display()))?;
+        drop(raw_file);
 
-        if bytes.is_empty() {
+        if total_bytes == 0 {
+            if let Err(e) = tokio::fs::remove_file(&raw_file_path).await {
+                warn!(
+                    "Failed to remove empty raw file {}: {e}",
+                    raw_file_path.display()
+                );
+            }
+
             let empty_data_file_path = temp_dir.join(format!("{}.data", safe_key));
             let empty_file = File::create(&empty_data_file_path)
                 .await
@@ -241,19 +281,10 @@ impl DataSource for GzipS3Source {
             return Ok(());
         }
 
-        let raw_file_path = temp_dir.join(format!("{}.raw", safe_key));
-        let mut raw_file = File::create(&raw_file_path)
-            .await
-            .with_context(|| format!("Failed to create raw file: {}", raw_file_path.display()))?;
-        raw_file
-            .write_all(&bytes)
-            .await
-            .with_context(|| format!("Failed to write raw file: {}", raw_file_path.display()))?;
-        raw_file
-            .sync_all()
-            .await
-            .with_context(|| format!("Failed to sync raw file: {}", raw_file_path.display()))?;
-        drop(raw_file);
+        debug!(
+            "Streamed {total_bytes} bytes to {} for key: {key}",
+            raw_file_path.display()
+        );
 
         let extracted_part = self
             .extractor

@@ -80,16 +80,15 @@ Legend: ✅ live · ⏳ in-flight (PR) · ➕ this stack adds it · — n/a
 
 ## Local validation (the priority) — fully functional metrics on a laptop
 
-No charts/cloud-infra needed locally. The `metrics` dev intent boots the whole pipe.
+No charts/cloud-infra needed locally. The `metrics` dev intent boots the whole pipe, and the dev `otel-collector` container **already scrapes our logs services and pushes them into `metrics1`** — no manual collector to run.
 
-1. `hogli dev:setup` → select the **`metrics`** intent (boots `capture-logs`, `ingestion-metrics`, deps; `metrics1` created by CH bootstrap). `hogli start`.
+1. `hogli dev:setup` → select the **`metrics`** intent (boots `capture-logs`, `ingestion-metrics`, `ingestion-logs`, the dev `otel-collector`, deps; `metrics1` created by CH bootstrap). `hogli start`.
 2. Enable the `metrics` feature flag for your user.
-3. Pipe a real PostHog logs service through (its `prom-client` metrics):
-   - `logs-ingestion` exposes `/_metrics` on `:6743`; `metrics-ingestion` on `:6744`.
-   - Run the local OTel collector recipe (see `bin/`/docker-compose profile added by the "local pipe" task) to scrape `:6743` and push OTLP to `http://localhost:8010/i/v1/metrics` with the project-2 capture token.
-4. Search/validate:
-   - `/metrics` SQL tab: `SELECT metric_name, count() FROM posthog.metrics WHERE metric_name ILIKE '%logs_ingestion%' GROUP BY 1 ORDER BY 2 DESC`
-   - `/metrics` Viewer: the new query layer (filters/group-by/rate/histogram_quantile) against the same data.
+3. Real PostHog logs services pipe through automatically: the dev collector (`otel-collector-config.dev.yaml`) scrapes `/_metrics` on `logs-ingestion` (`:6743`), `metrics-ingestion` (`:6744`), and the plugin server (`:6738`) every 15s and exports OTLP to `capture-logs` (token `phc_local` → team*id 1). Their `prom-client` counters (`logs_ingestion*_`, `metrics*ingestion*_`, consumer lag, batch utilization) are exactly the Grafana logs-dashboard metrics.
+4. Validate:
+   - `bin/verify-metrics-pipe` — checks `metrics1` for the piped service metrics and prints what arrived (pass/fail with troubleshooting).
+   - `/metrics` SQL tab: `SELECT metric_name, count() FROM posthog.metrics WHERE service_name = 'logs-ingestion' GROUP BY 1 ORDER BY 2 DESC` (note: data lands on **team_id 1** via `phc_local`).
+   - `/metrics` Viewer: the query layer (filters/group-by/rate/histogram_quantile) against the same data.
 
 Ad-hoc seed without the pipe (no PRs needed):
 

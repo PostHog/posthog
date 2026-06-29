@@ -1,6 +1,7 @@
+import { isDevEnv } from '~/common/utils/env-utils'
+
 import { CommonConfig } from './common/config'
 import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
-import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
 // Capability Groups for Local Development
@@ -24,6 +25,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
 export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
     cdpBatchHogFlow: true,
+    cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
     cdpCyclotronV2Janitor: isDevEnv(),
@@ -135,6 +137,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpCyclotronWorkerEmail: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_email_legacy_pg:
+            return {
+                cdpCyclotronWorkerEmailLegacyPg: true,
+            }
         case PluginServerMode.cdp_precalculated_filters:
             return {
                 cdpPrecalculatedFilters: true,
@@ -172,6 +178,10 @@ export function getPluginServerCapabilities(
         case PluginServerMode.cdp_batch_hogflow_requests:
             return {
                 cdpBatchHogFlow: true,
+            }
+        case PluginServerMode.cdp_cyclotron_worker_batch_resolve:
+            return {
+                cdpCyclotronWorkerBatchResolve: true,
             }
         case PluginServerMode.cdp_data_warehouse_events:
             return {

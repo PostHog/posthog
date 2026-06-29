@@ -11,7 +11,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import UUIDTModel
 
-from .evaluation_configs import EvaluationType, OutputType, validate_evaluation_configs
+from .evaluation_configs import (
+    EVALUATION_CONFIG_MODELS,
+    EvaluationType,
+    OutputType,
+    evaluation_configs_allow_empty,
+    evaluation_uses_model_configuration,
+    validate_evaluation_configs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +33,13 @@ class EvaluationStatusReason(models.TextChoices):
     TRIAL_LIMIT_REACHED = "trial_limit_reached", "Trial evaluation limit reached"
     MODEL_NOT_ALLOWED = "model_not_allowed", "Model not available on the trial plan"
     PROVIDER_KEY_DELETED = "provider_key_deleted", "Provider API key was deleted"
+    NO_DEFAULT_MODEL = "no_default_model", "No default model available for the selected provider"
+    PROVIDER_KEY_INVALID = "provider_key_invalid", "Provider API key is invalid"
+    PROVIDER_KEY_PERMISSION_DENIED = "provider_key_permission_denied", "Provider API key lacks model access"
+    PROVIDER_KEY_QUOTA_EXCEEDED = "provider_key_quota_exceeded", "Provider API key quota exceeded"
+    PROVIDER_KEY_RATE_LIMITED = "provider_key_rate_limited", "Provider API key is rate limited"
+    MODEL_NOT_FOUND = "model_not_found", "Model not found"
+    HOG_ERROR = "hog_error", "Hog evaluation code failed"
 
 
 class Evaluation(ModelActivityMixin, UUIDTModel):
@@ -48,6 +62,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     enabled = models.BooleanField(default=False)
     status = models.CharField(max_length=20, choices=EvaluationStatus, default=EvaluationStatus.PAUSED)
     status_reason = models.CharField(max_length=50, choices=EvaluationStatusReason, null=True, blank=True)
+    status_reason_detail = models.TextField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType)
     evaluation_config = models.JSONField(default=dict)
@@ -106,8 +121,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         `status` directly take effect even when `enabled` is stale in memory.
 
         Post-reconciliation invariants are always enforced:
-            - ACTIVE  → enabled=True,  status_reason=None
-            - PAUSED  → enabled=False, status_reason=None
+            - ACTIVE  → enabled=True,  status_reason/detail=None
+            - PAUSED  → enabled=False, status_reason/detail=None
             - ERROR   → enabled=False, status_reason required (raises otherwise)
         """
         # UUIDTModel assigns pk in __init__, so we can't use `self.pk is None` to detect new rows.
@@ -128,24 +143,30 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         if self.status == EvaluationStatus.ACTIVE:
             self.enabled = True
             self.status_reason = None
+            self.status_reason_detail = None
         elif self.status == EvaluationStatus.PAUSED:
             self.enabled = False
             self.status_reason = None
+            self.status_reason_detail = None
         elif self.status == EvaluationStatus.ERROR:
             self.enabled = False
             if not self.status_reason:
                 raise ValidationError({"status_reason": "status_reason is required when status is ERROR"})
 
     def set_status(
-        self, status: "EvaluationStatus | str", reason: "EvaluationStatusReason | str | None" = None
+        self,
+        status: "EvaluationStatus | str",
+        reason: "EvaluationStatusReason | str | None" = None,
+        reason_detail: str | None = None,
     ) -> None:
         """Transition helper. Prefer this (or .save()) over .update() so invariants stay enforced.
 
-        Callers using QuerySet.update() bypass save() — they must write all three fields together.
+        Callers using QuerySet.update() bypass save() — they must write the status fields together.
         """
         self.status = EvaluationStatus(status)
         self.status_reason = EvaluationStatusReason(reason) if reason else None
-        self.save(update_fields=["status", "status_reason", "enabled", "updated_at"])
+        self.status_reason_detail = reason_detail
+        self.save(update_fields=["status", "status_reason", "status_reason_detail", "enabled", "updated_at"])
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
@@ -155,8 +176,18 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # either field — typically `enabled` from user PATCHes, `status` from system transitions.
         self._coerce_status_and_enabled()
 
-        # Validate evaluation and output configs
-        if self.evaluation_config or self.output_config:
+        if not evaluation_uses_model_configuration(self.evaluation_type) and self.model_configuration_id:
+            raise ValidationError({"model_configuration": "This evaluation type does not use model configuration."})
+
+        if (self.evaluation_type, self.output_type) not in EVALUATION_CONFIG_MODELS:
+            raise ValidationError(f"Unsupported combination: {self.evaluation_type} + {self.output_type}")
+
+        # Validate configs when callers provide them, or when the selected config models can supply every default.
+        if (
+            evaluation_configs_allow_empty(self.evaluation_type, self.output_type)
+            or self.evaluation_config
+            or self.output_config
+        ):
             try:
                 self.evaluation_config, self.output_config = validate_evaluation_configs(
                     self.evaluation_type, self.output_type, self.evaluation_config, self.output_config
@@ -193,6 +224,11 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 @receiver(post_save, sender=Evaluation)
 def evaluation_saved(sender, instance, created, **kwargs):
     from posthog.plugins.plugin_server_api import reload_evaluations_on_workers
+
+    from .evaluation_reports import EvaluationReport
+
+    if instance.deleted:
+        EvaluationReport.objects.filter(evaluation_id=instance.id, deleted=False).update(deleted=True, enabled=False)
 
     # Defer publishing to workers until the surrounding transaction commits — otherwise
     # workers can fire before the row is visible, especially now that perform_create wraps

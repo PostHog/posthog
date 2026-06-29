@@ -4,6 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonCollapse, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
+import { supportsOngoingInterval } from 'lib/components/Alerts/types'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { AlertCalculationInterval } from '~/queries/schema/schema-general'
@@ -53,32 +54,34 @@ export function AlertAdvancedOptionsSection({
                         },
                         content: (
                             <div className="space-y-2">
-                                <Group name={['config']}>
-                                    <div className="flex gap-1">
-                                        <LemonField name="check_ongoing_interval">
-                                            <LemonCheckbox
-                                                checked={
-                                                    can_check_ongoing_interval &&
-                                                    alertForm?.config.check_ongoing_interval
-                                                }
-                                                data-attr="alertForm-check-ongoing-interval"
-                                                fullWidth
-                                                label="Check ongoing period"
-                                                disabledReason={
-                                                    !can_check_ongoing_interval &&
-                                                    'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
-                                                }
-                                            />
-                                        </LemonField>
-                                        <Tooltip
-                                            title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
-                                            placement="right"
-                                            delayMs={0}
-                                        >
-                                            <IconInfo />
-                                        </Tooltip>
-                                    </div>
-                                </Group>
+                                {supportsOngoingInterval(alertForm?.config) && (
+                                    <Group name={['config']}>
+                                        <div className="flex gap-1">
+                                            <LemonField name="check_ongoing_interval">
+                                                <LemonCheckbox
+                                                    checked={
+                                                        can_check_ongoing_interval &&
+                                                        alertForm.config.check_ongoing_interval
+                                                    }
+                                                    data-attr="alertForm-check-ongoing-interval"
+                                                    fullWidth
+                                                    label="Check ongoing period"
+                                                    disabledReason={
+                                                        !can_check_ongoing_interval &&
+                                                        'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
+                                                    }
+                                                />
+                                            </LemonField>
+                                            <Tooltip
+                                                title="Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"
+                                                placement="right"
+                                                delayMs={0}
+                                            >
+                                                <IconInfo />
+                                            </Tooltip>
+                                        </div>
+                                    </Group>
+                                )}
                                 <LemonField name="skip_weekend">
                                     <LemonCheckbox
                                         checked={

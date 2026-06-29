@@ -5,7 +5,7 @@
  * vars share the same prefix so deployment config is unambiguous (e.g.
  * `WARPSTREAM_INGESTION_PRODUCER` ↔ `KAFKA_WARPSTREAM_INGESTION_PRODUCER_*`).
  */
-import { AllowedConfigKey } from '../../ingestion/outputs/kafka-producer-config'
+import { AllowedConfigKey } from '~/common/outputs/kafka-producer-config'
 
 /** Targets the shared Warpstream cluster used by ingestion. Current default for CDP. */
 export const WARPSTREAM_INGESTION_PRODUCER = 'WARPSTREAM_INGESTION_PRODUCER' as const

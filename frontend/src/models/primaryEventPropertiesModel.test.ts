@@ -17,12 +17,12 @@ describe('the primary event properties model', () => {
                 '/api/projects/:team_id/event_definitions/by_name/': () => [200, { id: 'def-1', name: 'my_event' }],
             },
             patch: {
-                '/api/projects/:team_id/event_definitions/:id/': (req) => [
+                '/api/projects/:team_id/event_definitions/:id/': async ({ request }) => [
                     200,
                     {
                         id: 'def-1',
                         name: 'my_event',
-                        primary_property: (req.body as Record<string, any>).primary_property,
+                        primary_property: ((await request.json()) as Record<string, any>).primary_property,
                     },
                 ],
             },

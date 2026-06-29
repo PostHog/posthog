@@ -4,10 +4,11 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
+
 import { maxWebAnalyticsNudgeLogic } from '../logics/maxWebAnalyticsNudgeLogic'
 import { maxLogic, ThreadMessage } from '../maxLogic'
 import { maxThreadLogic } from '../maxThreadLogic'
-import { MessageTemplate } from '../messages/MessageTemplate'
 
 export interface MaxWebAnalyticsNudgeProps {
     message: ThreadMessage

@@ -27,12 +27,11 @@ export const awsS3Definition: DestinationDefinition = {
     }),
     eventTableExtraFields: S3_FAMILY_EVENT_TABLE_EXTRA_FIELDS,
     eventTableOverrides: { includeGenericPersonFields: false },
-    Fields: function AwsS3Fields({ isNew, formValues, configurationChanged }) {
+    Fields: function AwsS3Fields({ isNew, formValues }) {
         return (
             <S3FamilyFields
                 isNew={isNew}
                 formValues={formValues}
-                configurationChanged={configurationChanged}
                 regionOptions={AWS_ONLY_REGION_OPTIONS}
                 awsBranded
                 showEncryption

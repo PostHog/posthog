@@ -28,6 +28,7 @@ import type {
     SnapshotApi,
     ToleratedHashEntryApi,
 } from '../generated/api.schemas'
+import { isReportingOnlyRun } from '../lib/runPredicates'
 import { visualReviewPreferencesLogic } from './visualReviewPreferencesLogic'
 import type { visualReviewRunSceneLogicType } from './visualReviewRunSceneLogicType'
 
@@ -276,6 +277,7 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
         ],
         isRunInProgress: [(s) => [s.run], (run): boolean => run?.status === 'pending' || run?.status === 'processing'],
         isRunProcessing: [(s) => [s.run], (run): boolean => run?.status === 'processing'],
+        isReportingOnly: [(s) => [s.run], (run): boolean => isReportingOnlyRun(run)],
         breadcrumbs: [
             (s) => [s.run],
             (run): Breadcrumb[] => [
@@ -363,10 +365,18 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 ],
             }
 
-            // Find the next pending snapshot in sorted order before the async call
+            // Find the next pending snapshot in sorted order before the async call.
+            // Skip quarantined snapshots when they're hidden, otherwise approving advances
+            // onto an unrelated quarantined item the user can't see in the thumbnail strip.
             const sorted = values.sortedChangedSnapshots
             const currentIdx = sorted.findIndex((s) => s.id === snapshot.id)
-            const nextPending = sorted.slice(currentIdx + 1).find((s) => s.review_state === 'pending')
+            const nextPending = sorted
+                .slice(currentIdx + 1)
+                .find(
+                    (s) =>
+                        s.review_state === 'pending' &&
+                        (values.showQuarantinedThumbnails || !values.quarantinedIdentifierSet.has(s.identifier))
+                )
 
             try {
                 await visualReviewRunsApproveCreate(String(values.currentProjectId), props.runId, approvalPayload)

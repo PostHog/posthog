@@ -1,6 +1,6 @@
 import { LemonTag, Link } from '@posthog/lemon-ui'
 
-import { lowercaseFirstLetter } from 'lib/utils'
+import { lowercaseFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { EventType } from '~/types'

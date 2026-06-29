@@ -6,7 +6,8 @@ from typing import Any, Optional, cast
 
 from django.contrib.auth.models import AnonymousUser
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, QuerySet
+from django.db.models import Count, Q, QuerySet, Value
+from django.db.models.functions import Coalesce, Lower, NullIf
 from django.utils.timezone import now
 
 import structlog
@@ -14,7 +15,7 @@ import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from loginas.utils import is_impersonated_session
+from opentelemetry import trace
 from rest_framework import request, response, serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.pagination import LimitOffsetPagination
@@ -28,6 +29,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import SessionRecording, SessionRecordingPlaylist, SessionRecordingPlaylistItem, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.team.team import Team
@@ -51,6 +53,7 @@ from posthog.session_recordings.synthetic_playlists import (
 from posthog.utils import relative_date_parse
 
 logger = structlog.get_logger(__name__)
+tracer = trace.get_tracer(__name__)
 
 PLAYLIST_COUNT_REDIS_PREFIX = "@posthog/replay/playlist_filters_match_count/"
 
@@ -69,6 +72,54 @@ MAX_SAVED_FILTER_SESSION_IDS_PER_PLAYLIST = 1000
 class SessionRecordingPlaylistPagination(LimitOffsetPagination):
     default_limit = 100
     max_limit = PLAYLIST_LIST_MAX_LIMIT
+
+
+DEFAULT_PLAYLIST_ORDER = "-last_modified_at"
+# Orders the list endpoint supports. An unrecognised `order` normalises to the
+# default so the DB slice and the synthetic-rank maths can't disagree on an unknown
+# field — and so order_by() can't 500 on malformed input.
+SUPPORTED_PLAYLIST_ORDER_FIELDS = frozenset({"last_modified_at", "created_at", "name"})
+
+
+def resolve_playlist_order(req: request.Request) -> str:
+    """Normalise the requested `order` to a supported value, else the default.
+
+    Single source of truth shared by safely_get_queryset, _order_playlists and
+    _synthetic_global_ranks so the three never drift on what "the order" is.
+    """
+    order = req.GET.get("order") or DEFAULT_PLAYLIST_ORDER
+    return order if order.lstrip("-") in SUPPORTED_PLAYLIST_ORDER_FIELDS else DEFAULT_PLAYLIST_ORDER
+
+
+def playlist_name_sort_expression() -> Coalesce:
+    """DB ordering key for playlist names: case-insensitive, NULL- and empty-safe.
+
+    playlist_name_sort_key is its in-memory twin; the two MUST stay equivalent or
+    pagination silently skips/duplicates rows. NullIf mirrors the Python `or`, which
+    treats an empty name as absent and falls through to derived_name — Coalesce alone
+    only falls through on NULL.
+    """
+    return Coalesce(Lower(NullIf("name", Value(""))), Lower("derived_name"), Value(""))
+
+
+def playlist_name_sort_key(playlist: SessionRecordingPlaylist) -> str:
+    """In-memory twin of playlist_name_sort_expression."""
+    return (playlist.name or playlist.derived_name or "").lower()
+
+
+def parse_non_negative_int(value: Any, default: int) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def parse_positive_int(value: Any, default: int) -> int:
+    """Like parse_non_negative_int but rejects 0. A limit of 0 makes the paginator's
+    next link point back at the same offset — an infinite-paging loop — so non-positive
+    input falls back to the default, matching DRF's LimitOffsetPagination."""
+    parsed = parse_non_negative_int(value, default)
+    return parsed if parsed > 0 else default
 
 
 def create_synthetic_playlist_instance(
@@ -148,7 +199,7 @@ def count_synthetic_playlist(
     playlist: SessionRecordingPlaylist, user: User, team: Team
 ) -> dict[str, int | bool | None]:
     """Count recordings in a synthetic playlist using efficient database-level counting"""
-    synthetic_def = get_synthetic_playlist(playlist.short_id, team=team)
+    synthetic_def = get_synthetic_playlist(playlist.short_id)
     if not synthetic_def:
         return {
             "count": None,
@@ -513,7 +564,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team.id,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
         )
 
         return playlist
@@ -552,7 +603,7 @@ class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccess
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
         )
 
@@ -579,87 +630,160 @@ class SessionRecordingPlaylistViewSet(
 
         # Check if this is a synthetic playlist
         if lookup_value and lookup_value.startswith("synthetic-"):
-            synthetic_def = get_synthetic_playlist(lookup_value, team=self.team)
+            synthetic_def = get_synthetic_playlist(lookup_value)
             if synthetic_def:
                 return create_synthetic_playlist_instance(synthetic_def, self.team, cast(User, self.request.user))
 
         # Fall back to normal DB lookup
         return super().safely_get_object(queryset)
 
+    @tracer.start_as_current_span("session_recording_playlists_list")
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
-        """Override list to include synthetic playlists"""
-        # Get regular DB playlists
-        queryset = self.safely_get_queryset(self.get_queryset())
+        """Override list to include synthetic playlists.
 
-        # Get the total count of DB playlists before pagination
+        Synthetics have no DB row, so we compute each one's position in the merged
+        sort and split the requested page between synthetics and a DB queryset slice.
+        The merge/rank/sort is all in-memory, so each phase is wrapped in a span and
+        the input sizes are recorded as span attributes — a slow response on a team
+        with many playlists then shows up as a wide span against a large db_count.
+        """
+        span = trace.get_current_span()
+        queryset = self.safely_get_queryset(self.get_queryset())
         db_count = queryset.count()
 
-        # Apply pagination to DB playlists
-        page = self.paginate_queryset(queryset)
+        with tracer.start_as_current_span("gather_synthetics"):
+            all_synthetic_playlists = get_all_synthetic_playlists()
+            synthetic_instances = [
+                create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
+                for sp in all_synthetic_playlists
+            ]
+            filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
+            sorted_synthetics = self._order_playlists(request, filtered_synthetics)
 
-        # Check if we're on the first page by looking at offset parameter
-        # Synthetic playlists should only appear on the first page to avoid duplicates
-        offset = int(request.GET.get("offset", 0))
-        page_number = int(request.GET.get("page", 1))
-        is_first_page = offset == 0 and page_number == 1
+        synth_count = len(sorted_synthetics)
+        total_count = db_count + synth_count
 
-        # Create synthetic playlist instances (includes both static and dynamic)
-        all_synthetic_playlists = get_all_synthetic_playlists(self.team)
-        synthetic_instances = [
-            create_synthetic_playlist_instance(sp, self.team, cast(User, request.user))
-            for sp in all_synthetic_playlists
-        ]
+        limit = min(parse_positive_int(request.GET.get("limit"), 100), PLAYLIST_LIST_MAX_LIMIT)
+        offset = parse_non_negative_int(request.GET.get("offset"), 0)
 
-        # Filter synthetic playlists based on request filters
-        filtered_synthetics = self._filter_synthetic_playlists(request, synthetic_instances)
+        span.set_attribute("team_id", self.team.id)
+        span.set_attribute("db_count", db_count)
+        span.set_attribute("synth_count", synth_count)
+        span.set_attribute("limit", limit)
+        span.set_attribute("offset", offset)
 
-        # Only include synthetic playlists on the first page
-        synthetics_to_include = filtered_synthetics if is_first_page else []
+        # Pair each synthetic with its global rank at the source so the two never
+        # drift, then split the requested window into in-page synthetics + DB slice.
+        with tracer.start_as_current_span("rank_synthetics"):
+            synth_ranks = self._synthetic_global_ranks(request, queryset, db_count, sorted_synthetics)
+            ranked_synthetics = list(zip(synth_ranks, sorted_synthetics))
 
-        # Combine DB and synthetic playlists
-        if page is not None:
-            combined = list(page) + synthetics_to_include
-        else:
-            combined = list(queryset) + synthetics_to_include
+        with tracer.start_as_current_span("split_page"):
+            synth_for_page, db_items = self._split_page(offset, limit, ranked_synthetics, queryset)
 
-        # Apply ordering to the combined list
-        combined = self._order_playlists(request, combined)
+        with tracer.start_as_current_span("order_combined_page"):
+            combined = self._order_playlists(request, synth_for_page + db_items)
 
-        # Enforce page size on the combined result so synthetic playlists
-        # don't cause the response to exceed the requested limit. The paginator
-        # already caps DB-backed pages at PLAYLIST_LIST_MAX_LIMIT; clamp here too
-        # so the synthetic slice is bounded identically.
-        limit = min(int(request.GET.get("limit", 100)), PLAYLIST_LIST_MAX_LIMIT)
-        combined = combined[:limit]
+        span.set_attribute("page_size", len(combined))
 
         # Batch-fetch recording counts for the page to avoid the per-playlist
         # N+1 queries performed by SessionRecordingPlaylistSerializer.get_recordings_counts.
         # On failure we log and attach empty prefetched attrs so the serializer
         # short-circuits to default empty counts instead of retrying per-playlist
         # (which amplifies load during a Redis/DB partial outage).
-        try:
-            precompute_recordings_counts(combined, cast(User, request.user), self.team)
-        except Exception as e:
-            logger.exception(
-                "playlist_recordings_counts_precompute_failed",
-                team_id=self.team.id,
-                page_size=len(combined),
+        with tracer.start_as_current_span("precompute_recordings_counts"):
+            try:
+                precompute_recordings_counts(combined, cast(User, request.user), self.team)
+            except Exception as e:
+                logger.exception(
+                    "playlist_recordings_counts_precompute_failed",
+                    team_id=self.team.id,
+                    page_size=len(combined),
+                )
+                posthoganalytics.capture_exception(e)
+                _attach_empty_recordings_counts(combined)
+
+        with tracer.start_as_current_span("serialize"):
+            results = self.get_serializer(combined, many=True).data
+
+        next_link, previous_link = self._pagination_links(request, total_count, limit, offset)
+        return response.Response(
+            {
+                "count": total_count,
+                "next": next_link,
+                "previous": previous_link,
+                "results": results,
+            }
+        )
+
+    def _split_page(
+        self,
+        offset: int,
+        limit: int,
+        ranked_synthetics: builtins.list[tuple[int, SessionRecordingPlaylist]],
+        queryset: QuerySet,
+    ) -> tuple[builtins.list[SessionRecordingPlaylist], builtins.list[SessionRecordingPlaylist]]:
+        """Split one page into its in-window synthetics and the aligned DB slice.
+
+        Synthetics whose global rank falls in [offset, offset+limit) belong on this
+        page; the DB slice fills the rest, shifted left by however many synthetics
+        sort ahead of the page so the two never overlap or leave a gap.
+        """
+        page_end = offset + limit
+        synth_for_page = [s for r, s in ranked_synthetics if offset <= r < page_end]
+        synths_before_page = sum(1 for r, _ in ranked_synthetics if r < offset)
+
+        db_offset = max(0, offset - synths_before_page)
+        db_take = max(0, limit - len(synth_for_page))
+        db_items = list(queryset[db_offset : db_offset + db_take]) if db_take > 0 else []
+        return synth_for_page, db_items
+
+    def _pagination_links(
+        self, request: request.Request, total_count: int, limit: int, offset: int
+    ) -> tuple[Optional[str], Optional[str]]:
+        """next/previous links over the merged total via a directly-seeded paginator."""
+        paginator = SessionRecordingPlaylistPagination()
+        paginator.count = total_count
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.request = request
+        return paginator.get_next_link(), paginator.get_previous_link()
+
+    def _synthetic_global_ranks(
+        self,
+        request: request.Request,
+        queryset: QuerySet,
+        db_count: int,
+        sorted_synthetics: builtins.list[SessionRecordingPlaylist],
+    ) -> builtins.list[int]:
+        """Return the 0-based position of each synthetic in the global merged sort.
+
+        Timestamp orders put synthetics at one extreme; name order ranks each by the
+        count of DB rows before it (case-insensitive, matching _order_playlists).
+        """
+        if not sorted_synthetics:
+            return []
+
+        order = resolve_playlist_order(request)
+        is_descending = order.startswith("-")
+        sort_field = order.lstrip("-")
+
+        if sort_field == "name":
+            annotated = queryset.annotate(_name_lower=playlist_name_sort_expression())
+            synth_names = [playlist_name_sort_key(s) for s in sorted_synthetics]
+            lookup = "_name_lower__gt" if is_descending else "_name_lower__lt"
+            # One query: a conditional COUNT of DB rows sorting before each synthetic.
+            counts = annotated.aggregate(
+                **{f"c{i}": Count("pk", filter=Q(**{lookup: name})) for i, name in enumerate(synth_names)}
             )
-            posthoganalytics.capture_exception(e)
-            _attach_empty_recordings_counts(combined)
+            return [counts[f"c{i}"] + i for i in range(len(synth_names))]
 
-        serializer = self.get_serializer(combined, many=True)
-
-        # Calculate total count including synthetic playlists (only counted once on first page)
-        total_count = db_count + len(filtered_synthetics)
-
-        if page is not None:
-            # Manually construct paginated response with correct count
-            paginated_response = self.get_paginated_response(serializer.data)
-            # Override the count with the total including synthetic playlists
-            paginated_response.data["count"] = total_count
-            return paginated_response
-        return response.Response({"count": total_count, "next": None, "previous": None, "results": serializer.data})
+        # resolve_playlist_order guarantees a timestamp field here. Synthetics have no
+        # timestamp, so _order_playlists sorts them to datetime.max — the front of a
+        # descending list, the back of an ascending one.
+        if is_descending:
+            return list(range(len(sorted_synthetics)))
+        return [db_count + i for i in range(len(sorted_synthetics))]
 
     def safely_get_queryset(self, queryset) -> QuerySet:
         if not self.action.endswith("update"):
@@ -671,11 +795,18 @@ class SessionRecordingPlaylistViewSet(
             queryset = queryset.filter(deleted=False)
             queryset = self._filter_request(self.request, queryset)
 
-        order = self.request.GET.get("order", None)
-        if order:
-            queryset = queryset.order_by(order)
+        # Append a unique "id" tiebreaker: LIMIT/OFFSET needs a total order, or rows with
+        # an equal name/timestamp can be skipped or repeated across pages — including when
+        # a user collection shares a name with a synthetic.
+        order = resolve_playlist_order(self.request)
+        if order.lstrip("-") == "name":
+            # Case-insensitive so the DB order matches _synthetic_global_ranks;
+            # otherwise the rank-derived offsets skip/duplicate items.
+            name_order = playlist_name_sort_expression()
+            name_ordered = name_order.desc() if order.startswith("-") else name_order.asc()
+            queryset = queryset.order_by(name_ordered, "id")
         else:
-            queryset = queryset.order_by("-last_modified_at")
+            queryset = queryset.order_by(order, "id")
 
         return queryset
 
@@ -694,8 +825,8 @@ class SessionRecordingPlaylistViewSet(
                 elif request_value == SessionRecordingPlaylist.PlaylistType.FILTERS:
                     queryset = queryset.filter(type=SessionRecordingPlaylist.PlaylistType.FILTERS)
             elif key == "collection_type":
-                if request_value in ("synthetic", "new-urls"):
-                    # Exclude all DB playlists when filtering for synthetic or new-urls
+                if request_value == "synthetic":
+                    # Exclude all DB playlists when filtering for synthetic
                     queryset = queryset.none()
             elif key == "pinned":
                 queryset = queryset.filter(pinned=True)
@@ -738,9 +869,6 @@ class SessionRecordingPlaylistViewSet(
                 if request_value == "custom":
                     # Custom means user-created only, exclude all synthetic playlists
                     return []
-                elif request_value == "new-urls":
-                    # Filter for only new-urls synthetic playlists
-                    filtered = [p for p in filtered if p.short_id.startswith("synthetic-new-url-")]
             elif key == "pinned":
                 # Synthetic playlists are never pinned, so exclude them
                 return []
@@ -758,12 +886,12 @@ class SessionRecordingPlaylistViewSet(
     def _order_playlists(
         self, request: request.Request, playlists: builtins.list[SessionRecordingPlaylist]
     ) -> builtins.list[SessionRecordingPlaylist]:
-        order = request.GET.get("order", "-last_modified_at")
+        order = resolve_playlist_order(request)
         is_descending = order.startswith("-")
 
         def get_sort_key(playlist: SessionRecordingPlaylist):
             if order in ("name", "-name"):
-                return (playlist.name or playlist.derived_name or "").lower()
+                return playlist_name_sort_key(playlist)
 
             timestamp = playlist.created_at if order in ("created_at", "-created_at") else playlist.last_modified_at
 
@@ -789,7 +917,7 @@ class SessionRecordingPlaylistViewSet(
 
         # Handle synthetic playlists differently
         if getattr(playlist, "_is_synthetic", False):
-            synthetic_def = get_synthetic_playlist(playlist.short_id, team=self.team)
+            synthetic_def = get_synthetic_playlist(playlist.short_id)
             if synthetic_def:
                 playlist_items = synthetic_def.get_session_ids(self.team, cast(User, request.user), limit, offset)
             else:

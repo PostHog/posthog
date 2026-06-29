@@ -23,7 +23,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationResult,
     LazyComputationTable,
-    ensure_precomputed,
 )
 from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute import (
     LAZY_TTL_SECONDS,
@@ -39,6 +38,7 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     test_account_filter_expr,
     user_filter_expr,
 )
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import web_ensure_precomputed
 
 _FAMILY = "web_stats"
 
@@ -274,7 +274,7 @@ def ensure_web_stats_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
 
-    return ensure_precomputed(
+    return web_ensure_precomputed(
         team=runner.team,
         insert_query=INSERT_QUERY_TEMPLATE,
         time_range_start=time_range_start,
@@ -283,6 +283,7 @@ def ensure_web_stats_precomputed(
         table=LazyComputationTable.WEB_STATS_PREAGGREGATED,
         placeholders=placeholders,
         query_type=f"web_stats_{runner.query.breakdownBy.value}_lazy_insert",
+        spill_to_disk=True,  # high-cardinality breakdown GROUP BY; can build a large hash table
     )
 
 
@@ -321,9 +322,12 @@ GROUP BY breakdown_value
 #
 # `m` computes the prefix-level visitor/view metrics: `uniqMergeIf` over a GROUP BY
 # prefix dedups users across regions exactly (no double-count), matching the raw
-# query's prefix-level `uniq`. `r` derives the most-common region per prefix via
-# `argMax(region, region_views)` — the precompute-side equivalent of the raw query's
-# `topK(1)` over the region part. The `splitByChar('-', ..., 2)` limit mirrors the raw
+# query's prefix-level `uniq`. `r` derives the displayed region per prefix via
+# `argMax(region, region_views)` — a best-effort *approximation* of the raw query's
+# `topK(1)` over the region part, NOT an exact equivalent: `topK(1)` weights by session
+# count, which the precompute does not store, so the region *suffix* on a multi-region
+# language (e.g. `cs-CZ` vs `cs-`) can differ from raw. Counts are unaffected; see the
+# module-level LANGUAGE note above for why this is accepted. The `splitByChar('-', ..., 2)` limit mirrors the raw
 # query's exact split signature so the prefix/region split stays identical to the raw
 # path for multi-part BCP-47 tags (e.g. `zh-Hans-CN`) regardless of the cluster's
 # `splitby_max_substrings_includes_remaining_string` setting. Empty/null languages are
@@ -405,6 +409,26 @@ def _resolve_sort_metric(query: WebStatsTableQuery) -> tuple[str, bool]:
     return sort_metric, descending
 
 
+# Breakdowns where the raw query keeps NULL rows (surfaced as a "(none)" row) instead
+# of dropping them — must stay in lockstep with the `outer_where_breakdown() is None`
+# cases in `WebStatsTableQueryRunner`. `test_breakdown_having_matches_live_null_handling`
+# enforces the parity so the two can't drift.
+_KEEP_NULL_BREAKDOWNS = {
+    WebStatsBreakdown.COUNTRY,
+    WebStatsBreakdown.BROWSER,
+    WebStatsBreakdown.OS,
+    WebStatsBreakdown.DEVICE_TYPE,
+    WebStatsBreakdown.LANGUAGE,
+    WebStatsBreakdown.TIMEZONE,
+    WebStatsBreakdown.INITIAL_REFERRING_DOMAIN,
+    WebStatsBreakdown.INITIAL_UTM_SOURCE,
+    WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
+    WebStatsBreakdown.INITIAL_UTM_MEDIUM,
+    WebStatsBreakdown.INITIAL_UTM_TERM,
+    WebStatsBreakdown.INITIAL_UTM_CONTENT,
+}
+
+
 def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
     """HAVING-clause equivalent of the raw query's `outer_where_breakdown()` —
     operates on the JSON-encoded `breakdown_value` column produced by the INSERT.
@@ -423,14 +447,10 @@ def _breakdown_having_expr(breakdown_by: WebStatsBreakdown) -> ast.Expr:
             "JSONExtractRaw(breakdown_value, 1) NOT IN ('null', '0') "
             "AND JSONExtractRaw(breakdown_value, 2) NOT IN ('null', '0')"
         )
-    if breakdown_by in {
-        WebStatsBreakdown.INITIAL_UTM_SOURCE,
-        WebStatsBreakdown.INITIAL_UTM_CAMPAIGN,
-        WebStatsBreakdown.INITIAL_UTM_MEDIUM,
-        WebStatsBreakdown.INITIAL_UTM_TERM,
-        WebStatsBreakdown.INITIAL_UTM_CONTENT,
-    }:
-        # The raw query intentionally keeps null UTM values.
+    if breakdown_by in _KEEP_NULL_BREAKDOWNS:
+        # Mirror the raw query's `outer_where_breakdown() is None` set: missing data is
+        # real for these dimensions and surfaces as a "(none)" row, so it must not be
+        # dropped. Source of truth is `WebStatsTableQueryRunner.outer_where_breakdown`.
         return ast.Constant(value=True)
     if breakdown_by == WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
         # JSON scalars: 'null' is genuine null, '""' is empty string.

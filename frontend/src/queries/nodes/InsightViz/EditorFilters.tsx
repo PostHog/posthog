@@ -4,7 +4,7 @@ import { IconInfo } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { NON_BREAKDOWN_DISPLAY_TYPES } from 'lib/constants'
-import { pluralize } from 'lib/utils'
+import { pluralize } from 'lib/utils/strings'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { Attribution } from 'scenes/insights/EditorFilters/AttributionFilter'
 import { FunnelsAdvanced } from 'scenes/insights/EditorFilters/FunnelsAdvanced'
@@ -339,7 +339,10 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                     key: 'paths-exclusions',
                     label: 'Exclusions',
                     tooltip: (
-                        <>Exclude events from Paths visualisation. You can use wildcard groups in exclusions as well.</>
+                        <>
+                            Exclude events from Paths visualization. You can also use wildcard groups in exclusions if
+                            you are on a paid plan.
+                        </>
                     ),
                     component: PathsExclusions,
                     show: isPaths,
