@@ -46,10 +46,10 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
 )
 
 # Per-file memory guard for gallery uploads: up to DEFAULT_MAX_ASSET_COUNT assets' full image
-# bytes are held in memory at once. 5 MB is well above a typical insight PNG (usually under 1 MB)
-# while keeping worst-case memory bounded as the asset-count limit grows; oversized assets are
+# bytes are held in memory at once. Typical insight exports are well under 100 KB, so 1 MB is ample
+# headroom while keeping worst-case memory tiny as the asset-count limit grows; oversized assets are
 # skipped with a warning (chunking is a possible future option, out of scope here).
-MAX_SLACK_UPLOAD_BYTES = 5 * 1024 * 1024
+MAX_SLACK_UPLOAD_BYTES = 1 * 1024 * 1024
 
 
 def _next_delivery_date_display(subscription: Subscription) -> str:
