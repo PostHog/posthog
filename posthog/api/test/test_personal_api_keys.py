@@ -787,7 +787,7 @@ class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
     def test_allows_batch_endpoint_with_person_read_scope(self, action):
         self.key.scopes = ["person:read"]
         self.key.save()
-        body = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
         response = self.client.post(
             f"/api/projects/{self.team.id}/persons/{action}/",
             body,
@@ -801,7 +801,7 @@ class TestPersonalAPIKeysWithPersonScope(PersonalAPIKeysBaseTest):
     def test_denies_batch_endpoint_without_person_scope(self, action):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
-        body = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
+        body: dict[str, list[str]] = {"distinct_ids": []} if action == "batch_by_distinct_ids" else {"uuids": []}
         response = self.client.post(
             f"/api/projects/{self.team.id}/persons/{action}/",
             body,
