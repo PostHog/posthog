@@ -271,6 +271,8 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         groups = filters.get("groups") or []
         if groups and groups[0].get("rollout_percentage") is not None:
             parameters["rollout_percentage"] = groups[0]["rollout_percentage"]
+        else:
+            parameters.pop("rollout_percentage", None)
 
         data["parameters"] = parameters
 
