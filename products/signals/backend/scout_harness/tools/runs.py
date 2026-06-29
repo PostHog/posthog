@@ -58,6 +58,10 @@ class RunSummary:
     # (which count weak `emit_signal` findings), so a run that only authored a report still reads as
     # having emitted something.
     emitted_report_ids: list[str] = field(default_factory=list)
+    # Reports this run *mutated* via the `edit_report` channel (rewrote title/summary and/or appended a
+    # note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are
+    # generally not reports the run authored. Lets "which reports did this run edit?" be a column lookup.
+    edited_report_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -93,6 +97,10 @@ class RunDetail:
     # (which count weak `emit_signal` findings), so a run that only authored a report still reads as
     # having emitted something.
     emitted_report_ids: list[str] = field(default_factory=list)
+    # Reports this run *mutated* via the `edit_report` channel (rewrote title/summary and/or appended a
+    # note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are
+    # generally not reports the run authored. Lets "which reports did this run edit?" be a column lookup.
+    edited_report_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -185,6 +193,7 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         emitted_count=row.emitted_count or 0,
         emitted_finding_ids=list(row.emitted_finding_ids or []),
         emitted_report_ids=list(row.emitted_report_ids or []),
+        edited_report_ids=list(row.edited_report_ids or []),
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),

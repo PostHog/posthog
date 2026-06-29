@@ -14,6 +14,7 @@ from typing import Any, Literal, cast
 import structlog
 
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.marketing_analytics.backend.services.attribution_health import (
@@ -110,6 +111,7 @@ async def get_marketing_diagnostic(
     source_type: str | None = None,
     include_conversion_goals: bool = True,
     attribution_lookback_days: int = 7,
+    user: User | None = None,
 ) -> MarketingDiagnosticResponse:
     """Fetch all per-domain signals in parallel and combine into a unified view.
 
@@ -129,7 +131,7 @@ async def get_marketing_diagnostic(
         ),
     ]
     if include_conversion_goals:
-        coros.append(list_conversion_goals(team))
+        coros.append(list_conversion_goals(team, user=user))
 
     # `return_exceptions=True` so one failing sub-service doesn't abort the whole
     # diagnostic. Data-source and attribution health are required to diagnose, so

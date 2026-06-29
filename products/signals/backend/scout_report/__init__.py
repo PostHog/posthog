@@ -13,6 +13,7 @@ from products.signals.backend.scout_report.persistence import (
     ScoutReportSignal,
     append_report_note,
     create_scout_report,
+    record_report_edit,
     soft_delete_scout_signal,
     update_scout_report,
 )
@@ -24,6 +25,7 @@ __all__ = [
     "ScoutReportSignal",
     "append_report_note",
     "create_scout_report",
+    "record_report_edit",
     "soft_delete_scout_signal",
     "update_scout_report",
 ]

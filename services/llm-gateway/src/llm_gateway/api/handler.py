@@ -48,6 +48,7 @@ OPENAI_TRANSCRIPTION_CONFIG = ProviderConfig(name="openai", endpoint_name="audio
 # Split endpoint labels so an adapter-specific regression is distinguishable in metrics.
 CLOUDFLARE_ANTHROPIC_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_anthropic_messages")
 CLOUDFLARE_OPENAI_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_chat_completions")
+CLOUDFLARE_OPENAI_RESPONSES_CONFIG = ProviderConfig(name="cloudflare", endpoint_name="cloudflare_responses")
 
 _KNOWN_LITELLM_PROVIDER_PREFIXES = (
     "anthropic/",

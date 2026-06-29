@@ -6,9 +6,7 @@ from unittest.mock import MagicMock, patch
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 pytestmark = [
     pytest.mark.django_db,

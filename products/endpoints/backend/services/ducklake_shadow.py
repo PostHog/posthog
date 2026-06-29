@@ -97,6 +97,8 @@ def run_ducklake_shadow_comparison(
             query=hogql_query,
             organization_id=str(team.organization_id),
             team=team,
+            # Shadow comparisons run off-request after the endpoint query already executed.
+            bypass_warehouse_access_control=True,
         )
         ducklake_ms = (time.monotonic() - _start) * 1000
         ducklake_connect_ms = result.connect_ms

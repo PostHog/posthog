@@ -40,6 +40,12 @@ Pick the **lowest tier** that does the job.
 `api/run` (Tier 1) is built on `api/primitives` (Tier 2); `api/primitives` consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
 
+`RunViewer` is **lazy by default** — code-split behind a `RunLogSkeleton` Suspense fallback — because the
+embeds that use it (the inbox detail views) show it as a secondary panel. A surface where the run viewer is
+the _primary_ content of an already-code-split route (the `/tasks` runner scene) is the exception: it renders
+the eager implementation directly so it doesn't pay a second chunk fetch + Suspense flash for the one thing
+the route exists to show.
+
 ## 3. Recipes
 
 Each recipe shows the granular import to copy.

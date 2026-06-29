@@ -26,7 +26,7 @@ export const VisionObservationsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
         ),
     session_id: zod.string().describe('Session recording id to return observations for.'),
 })
@@ -302,8 +302,12 @@ export const VisionScannersObservationsListQueryParams = /* @__PURE__ */ zod.obj
         .string()
         .optional()
         .describe(
-            'Sort observations. Plain keys: created_at, started_at, completed_at, status. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
+            'Sort observations. Plain keys: created_at, started_at, completed_at, status, recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), scanner_version. Prefix with `-` for descending.'
         ),
+    recording_subject: zod
+        .string()
+        .optional()
+        .describe('Filter to observations whose recording subject email contains this value (case-insensitive).'),
     session_id: zod
         .string()
         .optional()

@@ -38,7 +38,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentHoldout,
     ExperimentMetricsRecalculation,
     experiment_has_legacy_metrics,
-    get_excluded_variants,
 )
 from products.experiments.backend.running_time_calculator import METRIC_TYPE_CHOICES
 from products.feature_flags.backend.api.feature_flag import MinimalFeatureFlagSerializer
@@ -153,10 +152,9 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Experiment parameters JSON. Supported keys include "
             "`feature_flag_variants`, `rollout_percentage`, "
-            "`custom_exposure_filter`, `excluded_variants` "
-            "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded), "
-            "and `variant_notes` (free-text notes per variant, keyed by variant key)."
+            "`custom_exposure_filter`, and `variant_notes` "
+            "(free-text notes per variant, keyed by variant key). "
+            "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
     running_time_calculation = ExperimentRunningTimeCalculationField(
@@ -176,7 +174,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "Variant keys to exclude from metric result calculations. Excluded variants are still "
             "served to users but omitted from statistical analysis. The baseline variant and holdout "
             "pseudo-variants cannot be excluded. Canonical home for what historically lived in "
-            "`parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window."
+            "`parameters.excluded_variants`."
         ),
     )
     conclusion = serializers.ChoiceField(
@@ -421,7 +419,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=get_excluded_variants(instance),
+                        excluded_variants=instance.excluded_variants or [],
                     )
 
         return data

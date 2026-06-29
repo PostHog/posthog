@@ -46,7 +46,7 @@
     .BridgePage__content {
         position: relative;
         width: 100%;
-        padding: 2rem;
+        padding: 1.25rem;
         background-color: var(--color-bg-surface-primary);
         border-radius: var(--radius);
         box-shadow: var(--shadow-elevation-3000);
@@ -54,6 +54,10 @@
         h2 {
             font-weight: bold;
             text-align: center;
+        }
+
+        @include screen($md) {
+            padding: 2rem;
         }
     }
 

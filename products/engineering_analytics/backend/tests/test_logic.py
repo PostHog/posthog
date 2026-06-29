@@ -647,6 +647,37 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert cost.costed_jobs == job_count
         assert cost.estimated_cost_usd == pytest.approx(2.40)
 
+    def test_pr_cost_clamps_clock_skewed_negative_durations(self) -> None:
+        # Two jobs share one run/label group: a normal +120s job and a clock-skewed -120s one
+        # (completed_at < started_at). The grouped sum must clamp the negative per-job (greatest(.,0))
+        # so it doesn't cancel its group-mate's elapsed before the even-split expansion. Without the
+        # clamp the group sums to 0s and the PR reads $0.00; with it, the skewed job contributes 0 and
+        # the normal job's 120s survives = 2 billable min, depot 4-core (2x) at $0.004/min = $0.016.
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(72, "alice", "open", 0, _ago(1), head_sha="sha72")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [_run_row(9800, "CI", "sha72", "completed", "success", _ago(1), _ago(1), pr_number=72)],
+        )
+        self._create_table(
+            "github_workflow_jobs",
+            WORKFLOW_JOBS_COLUMNS,
+            [
+                _job_row(98000, 9800, "ok", "success", started="2026-01-01 00:00:00", completed="2026-01-01 00:02:00"),
+                _job_row(
+                    98001, 9800, "skew", "success", started="2026-01-01 00:02:00", completed="2026-01-01 00:00:00"
+                ),
+            ],
+        )
+        cost = api.get_pr_cost(team=self.team, pr_number=72, repo="PostHog/posthog")
+        assert cost.costed_jobs == 2
+        assert cost.billable_minutes == pytest.approx(2.0)
+        assert cost.estimated_cost_usd == pytest.approx(0.016)
+
     def test_pull_request_list_author_filter(self) -> None:
         # The author filter scopes the list to one author's PRs (drives the author page).
         self._create_table(

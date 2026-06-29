@@ -4,6 +4,7 @@ import json
 from io import BytesIO
 from typing import Any
 
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -19,7 +20,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql_queries.query_runner import get_query_runner
-from posthog.models import GroupTypeMapping, Organization, PropertyDefinition, Team
+from posthog.models import Organization, PropertyDefinition, Team
 from posthog.persons_db import persons_db_connection
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -42,6 +43,8 @@ from ee.hogai.eval.schema import (
     TeamSnapshot,
     TeamTaxonomyItemSnapshot,
 )
+
+pytestmark = pytest.mark.persons_db_direct
 
 
 class TestSnapshotLoader(BaseTest):
@@ -223,7 +226,11 @@ class TestSnapshotLoader(BaseTest):
     def test_restores_models_counts(self):
         _org, _user, _dataset, team = self._load_with_mocks()
         self.assertEqual(PropertyDefinition.objects.filter(team_id=team.id).count(), 2)
-        self.assertEqual(GroupTypeMapping.objects.filter(team_id=team.id).count(), 2)
+        with persons_db_connection(writer=False) as conn, conn.cursor() as cursor:
+            cursor.execute("SELECT count(*) FROM posthog_grouptypemapping WHERE team_id = %s", (team.id,))
+            row = cursor.fetchone()
+            group_type_mapping_count = row[0] if row else 0
+        self.assertEqual(group_type_mapping_count, 2)
         self.assertEqual(DataWarehouseTable.objects.filter(team_id=team.id).count(), 2)
 
     def test_loads_team_taxonomy_data_source(self):

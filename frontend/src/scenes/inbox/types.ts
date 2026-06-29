@@ -245,6 +245,12 @@ export interface SignalScoutRunSummary {
     summary: string
     emitted_count: number
     emitted_finding_ids: string[]
+    /** Reports this run authored directly via the `emit_report` channel. Distinct from `emitted_count`
+     * (weak `emit_signal` findings): a report-authoring run writes a full report instead of a finding. */
+    emitted_report_ids: string[]
+    /** Reports this run mutated via the `edit_report` channel (retitled/resummarized and/or appended a
+     * note), deduped. Can target any inbox report, so these are generally not reports the run authored. */
+    edited_report_ids: string[]
 }
 
 /** One finding a scout run emitted to the inbox. */

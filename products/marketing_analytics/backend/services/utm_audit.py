@@ -12,6 +12,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY, Team
+from posthog.models.user import User
 
 from products.marketing_analytics.backend.hogql_queries.adapters.base import QueryContext
 from products.marketing_analytics.backend.hogql_queries.adapters.factory import MarketingSourceFactory
@@ -119,7 +120,13 @@ def _build_known_sources(mappings: TeamMappings) -> set[str]:
     return known
 
 
-def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = None) -> UtmAuditResponse:
+def run_utm_audit(
+    team: Team,
+    date_from: str = "-30d",
+    date_to: str | None = None,
+    *,
+    user: User | None = None,
+) -> UtmAuditResponse:
     """
     Run a UTM audit for all marketing integrations.
 
@@ -137,8 +144,8 @@ def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = Non
     mappings = _load_team_mappings(team)
     known_sources = _build_known_sources(mappings)
 
-    campaigns = _get_campaigns_with_spend(team, date_range)
-    utm_events = _get_utm_events(team, date_range)
+    campaigns = _get_campaigns_with_spend(team, date_range, user=user)
+    utm_events = _get_utm_events(team, date_range, user=user)
 
     results = _cross_reference(campaigns, utm_events, mappings, known_sources) if campaigns else []
     all_utm = _build_all_utm_events(campaigns, utm_events, mappings)
@@ -155,7 +162,7 @@ def run_utm_audit(team: Team, date_from: str = "-30d", date_to: str | None = Non
     )
 
 
-def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Campaign]:
+def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> list[Campaign]:
     """Get all campaigns with spend from marketing integrations."""
     context = QueryContext(
         date_range=date_range,
@@ -216,7 +223,7 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Ca
     )
 
     with tags_context(product=Product.MARKETING_ANALYTICS, feature=Feature.HEALTH_CHECK, team_id=team.pk):
-        result = execute_hogql_query(query, team)
+        result = execute_hogql_query(query, team, user=user)
     campaigns = []
     for row in result.results or []:
         campaigns.append(
@@ -232,7 +239,7 @@ def _get_campaigns_with_spend(team: Team, date_range: QueryDateRange) -> list[Ca
     return campaigns
 
 
-def _get_utm_events(team: Team, date_range: QueryDateRange) -> dict[tuple[str, str], int]:
+def _get_utm_events(team: Team, date_range: QueryDateRange, *, user: User | None = None) -> dict[tuple[str, str], int]:
     """
     Get distinct utm_campaign + utm_source combinations from pageview events.
     Returns a dict mapping (campaign, source) -> event_count.
@@ -258,6 +265,7 @@ def _get_utm_events(team: Team, date_range: QueryDateRange) -> dict[tuple[str, s
         result = execute_hogql_query(
             hogql,
             team,
+            user=user,
             placeholders={
                 "date_from": date_range.date_from_as_hogql(),
                 "date_to": date_range.date_to_as_hogql(),
