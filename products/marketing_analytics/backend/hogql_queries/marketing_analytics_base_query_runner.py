@@ -229,7 +229,17 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             )
             return None
 
-        ttl_seconds = {"0d": 6 * 60 * 60, "1d": 24 * 60 * 60, "default": 7 * 24 * 60 * 60}
+        # Ad platforms revise historical cost downward for days-to-weeks after the fact (invalid-traffic
+        # credits, currency settlement), so a cached cost row drifts above the live figure until it is
+        # re-materialized. Refresh the volatile recent window often and cap older-day staleness, instead
+        # of letting everything sit on a 7-day TTL. Values are a freshness/recompute-load tradeoff.
+        ttl_seconds = {
+            "0d": 1 * 60 * 60,  # today: hourly
+            "1d": 3 * 60 * 60,  # yesterday
+            "7d": 12 * 60 * 60,  # last week
+            "30d": 24 * 60 * 60,  # last month (still being revised)
+            "default": 3 * 24 * 60 * 60,  # older: mostly settled, cap drift at 3 days
+        }
         job_ids: list = []
         for adapter in mat_adapters:
             insert_query = adapter.build_materialization_query(adapter.get_source_id())
