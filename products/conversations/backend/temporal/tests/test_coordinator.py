@@ -16,8 +16,12 @@ from products.conversations.backend.temporal.coordinator import (
     EligibleTicket,
     SupportReplyCoordinatorWorkflow,
     _collect_eligible,
+    _is_master_flag_enabled,
     support_collect_eligible_tickets_activity,
 )
+
+TEST_TEAM_UUID = uuid.UUID("11111111-1111-4111-8111-111111111111")
+TEST_ORG_UUID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 COORD_MODULE = "products.conversations.backend.temporal.coordinator"
 
@@ -50,6 +54,8 @@ def _make_ticket(
     org.is_ai_data_processing_approved = ai_data_processing_approved
     team = MagicMock()
     team.id = team_id
+    team.uuid = TEST_TEAM_UUID
+    team.organization_id = TEST_ORG_UUID
     team.organization = org
     settings: dict = {"ai_suggestions_enabled": ai_suggestions_enabled}
     if ai_resolution_channels is not None:
@@ -62,6 +68,31 @@ def _make_ticket(
     # Default well past the settle window so eligibility tests aren't gated on debounce.
     ticket.created_at = timezone.now() - timedelta(minutes=created_minutes_ago)
     return ticket, ticket_id, team
+
+
+class TestMasterFlagEnabled:
+    @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    def test_evaluates_flag_with_team_uuid_and_groups(self, mock_feature_enabled):
+        team = MagicMock()
+        team.id = 2
+        team.uuid = TEST_TEAM_UUID
+        team.organization_id = TEST_ORG_UUID
+
+        assert _is_master_flag_enabled(team) is True
+        mock_feature_enabled.assert_called_once_with(
+            "product-support-ai-suggestion",
+            str(TEST_TEAM_UUID),
+            groups={
+                "organization": str(TEST_ORG_UUID),
+                "project": "2",
+            },
+            group_properties={
+                "organization": {"id": str(TEST_ORG_UUID)},
+                "project": {"id": "2"},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
 
 
 class TestCollectEligible:
