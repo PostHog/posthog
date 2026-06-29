@@ -6477,6 +6477,13 @@ def parser_test_factory(backend: HogQLParserBackend):
                 ("INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
                 ("INTERVAL 'x'", "Unsupported interval type: must be in the format '<count> <unit>'"),
                 ("now() - INTERVAL ''", "Unsupported interval type: must be in the format '<count> <unit>'"),
+                # A nested string-valued interval (`INTERVAL INTERVAL '<count> <unit>' <unit>`) reaches the same count/unit validation through a different call site; assert the edge cases there too so the two sites can't drift.
+                ("INTERVAL INTERVAL ' day' MONTH", "Unsupported interval count: '' is not a valid integer"),
+                (
+                    "INTERVAL INTERVAL '9223372036854775808 day' MONTH",
+                    "Unsupported interval count: '9223372036854775808' is too large",
+                ),
+                ("INTERVAL INTERVAL '1 dayss' MONTH", "Unsupported interval unit: dayss"),
             )
             for src, expected_msg in cases:
                 with self.assertRaises(ExposedHogQLError, msg=src) as cpp_cm:
