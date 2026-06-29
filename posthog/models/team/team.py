@@ -125,8 +125,8 @@ class TeamManager(models.Manager):
             team.extra_settings = {}
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
-        # Create default dashboards (A/B via starter-dashboard-v2; demo projects skip above)
-        from posthog.helpers.signup_dashboard_experiment import (  # noqa: PLC0415 — breaks team import cycle
+        # Create default dashboards (demo projects skip above)
+        from posthog.helpers.signup_dashboard import (  # noqa: PLC0415 — breaks team import cycle
             create_signup_primary_dashboard,
         )
 

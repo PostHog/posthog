@@ -400,11 +400,7 @@ def team_api_test_factory():
             )
 
         @freeze_time("2022-02-08")
-        @mock.patch(
-            "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-            return_value="test",
-        )
-        def test_delete_team_activity_log(self, _mock_variant):
+        def test_delete_team_activity_log(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
