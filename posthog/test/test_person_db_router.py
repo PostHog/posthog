@@ -1,6 +1,7 @@
 import pytest
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 
 from posthog.models import Organization
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -59,6 +60,15 @@ class TestPersonDBRouterGuard:
             assert self.router.db_for_read(Person) is None
         with pytest.raises(PersonsDBORMBlockedError):
             self.router.db_for_read(Person)
+
+    def test_records_orm_access_metric(self):
+        # The counter is the production canary — the block is off in prod, so a stray persons
+        # ORM access must still be observable. Guards against the increment being dropped.
+        labels = {"model": "person", "operation": "read"}
+        before = REGISTRY.get_sample_value("posthog_persons_orm_access_total", labels) or 0.0
+        self.router.db_for_read(Person)
+        after = REGISTRY.get_sample_value("posthog_persons_orm_access_total", labels) or 0.0
+        assert after == before + 1
 
 
 @pytest.mark.django_db

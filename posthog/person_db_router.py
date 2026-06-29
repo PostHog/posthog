@@ -3,6 +3,18 @@
 import threading
 import contextlib
 
+from prometheus_client import Counter
+
+# A persons-DB model resolved through the Django ORM. personhog serves person/group/cohort data,
+# so this should stay at zero in production — a nonzero value means a code path still reaches a
+# persons model via the ORM, which now routes to the main database instead of the persons DB.
+# Alert on any increase; the model/operation labels point at the offending callsite.
+PERSONS_ORM_ACCESS_COUNTER = Counter(
+    "posthog_persons_orm_access_total",
+    "Persons-DB model resolved through the Django ORM (expected zero in production).",
+    labelnames=["model", "operation"],
+)
+
 
 class PersonsDBORMBlockedError(RuntimeError):
     """Raised when the Django ORM attempts to touch a persons-DB model while ORM
@@ -72,9 +84,11 @@ class PersonDBRouter:
 
     The persons data lives behind the personhog service, not the Django ORM, so
     this router never routes to a separate database — it returns ``None`` and lets
-    the default selection stand. Its sole job is to raise when a persons-DB model is
-    queried through the ORM while the block is active (the test fixture enables it),
-    turning an otherwise-silent read of the main database into a loud failure.
+    the default selection stand. It raises when a persons-DB model is queried through
+    the ORM while the block is active (the test fixture enables it), turning an
+    otherwise-silent read of the main database into a loud failure, and increments
+    ``PERSONS_ORM_ACCESS_COUNTER`` on every persons-model ORM resolution so the same
+    access is observable in production, where the block is off.
     """
 
     # Apps whose models can live in the persons DB. FeatureFlagHashKeyOverride was
@@ -85,6 +99,7 @@ class PersonDBRouter:
 
     def db_for_read(self, model, **hints):
         if self.is_persons_model(model._meta.app_label, model._meta.model_name):
+            self._record_orm_access(model, "read")
             self._raise_if_blocked(model)
         return None  # Allow default db selection
 
@@ -97,8 +112,15 @@ class PersonDBRouter:
             # pass the model's own instance (save/create) or no instance (queryset writes).
             instance = hints.get("instance")
             if instance is None or isinstance(instance, model):
+                self._record_orm_access(model, "write")
                 self._raise_if_blocked(model)
         return None  # Allow default db selection
+
+    @staticmethod
+    def _record_orm_access(model, operation: str) -> None:
+        # Emit on every persons-model ORM resolution so production stray access is observable
+        # even though the block is off there (see PERSONS_ORM_ACCESS_COUNTER).
+        PERSONS_ORM_ACCESS_COUNTER.labels(model=model._meta.model_name, operation=operation).inc()
 
     @staticmethod
     def _raise_if_blocked(model) -> None:
