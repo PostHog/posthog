@@ -1,18 +1,12 @@
-"""Coordinator: find recently-failed CI jobs and fan out one log-fetch workflow per job.
+"""Find recently-failed CI jobs and fan out one idempotent log-fetch workflow per job.
 
-Scans each connected team's ``github_workflow_jobs`` warehouse metadata for ``conclusion='failure'``
-jobs in a recent window and starts an idempotent per-job ``FetchGithubJobLogWorkflow`` (id = the job
-id, reuse = ``ALLOW_DUPLICATE_FAILED_ONLY``) so each job's log is fetched and emitted at most once —
-re-running only if a prior attempt failed. That single-fetch guarantee is also what keeps duplicate
-records out of the Logs product.
+Per-job workflow id (``gh-logs-{team}-{job}``, reuse ``ALLOW_DUPLICATE_FAILED_ONLY``) means each
+job's log is fetched and emitted at most once, re-running only after a failed attempt.
 
-NOT YET WIRED LIVE: the ``github_workflow_jobs`` metadata table is synced and queryable — discovery
-runs against the raw warehouse table by name (not the curated read layer, which doesn't expose jobs
-yet), so this coordinator finds real failed jobs today. What's deliberately deferred is *activation*:
-the schedule is NOT registered in ``posthog/temporal/schedule.py`` and these workflows/activities are
-NOT added to the worker until the Logs lane is confirmed — the internal capture-logs endpoint
-configured (``settings.OTLP_LOGS_INGEST_ENDPOINT``) and the destination team marked unsampled/trusted
-with the agreed retention. This discovery path therefore has no end-to-end test yet.
+NOT WIRED LIVE: discovery works (it queries the raw ``{prefix}github_workflow_jobs`` table, since the
+curated read layer doesn't expose jobs yet), but the schedule and worker stay unregistered until the
+Logs lane is confirmed — ``OTLP_LOGS_INGEST_ENDPOINT`` set and the destination team trusted/unsampled.
+No end-to-end test yet.
 """
 
 import re
@@ -41,7 +35,6 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_MAX_CONCURRENT = 50
 # How far back to look each tick. With the per-job workflow id (one fetch per job) this bounds
 # re-scanning without a separate "already fetched" store.
 DEFAULT_LOOKBACK = timedelta(hours=2)
@@ -71,7 +64,11 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
 
 def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
-    sources = ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB).exclude(deleted=True)
+    sources = (
+        ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB)
+        .exclude(deleted=True)
+        .select_related("team")
+    )
     for source in sources.iterator():
         auth = (source.job_inputs or {}).get("auth_method") or {}
         integration_id = auth.get("github_integration_id")
@@ -80,8 +77,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         if not integration_id or not repo or not _PREFIX.match(prefix):
             continue
         try:
-            team = Team.objects.get(id=source.team_id)
-            rows = _query_failed_jobs(team, prefix, cutoff_iso)
+            rows = _query_failed_jobs(source.team, prefix, cutoff_iso)
         except Exception:
             # A source whose jobs table isn't synced (most teams don't enable the workflow_jobs
             # schema) or a transient query error shouldn't fail the whole sweep — skip it.
@@ -126,20 +122,19 @@ class GithubJobLogsCoordinatorWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
         started = 0
-        for index in range(0, len(jobs), DEFAULT_MAX_CONCURRENT):
-            for job in jobs[index : index + DEFAULT_MAX_CONCURRENT]:
-                inputs = FetchJobLogInputs(**job)
-                try:
-                    await workflow.start_child_workflow(
-                        FetchGithubJobLogWorkflow.run,
-                        inputs,
-                        id=f"gh-logs-{inputs.team_id}-{inputs.job_id}",
-                        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
-                        execution_timeout=timedelta(minutes=15),
-                        parent_close_policy=workflow.ParentClosePolicy.ABANDON,
-                    )
-                    started += 1
-                except WorkflowAlreadyStartedError:
-                    # Already fetched (a prior tick succeeded) — the reuse policy coalesces it.
-                    continue
+        for job in jobs:
+            inputs = FetchJobLogInputs(**job)
+            try:
+                await workflow.start_child_workflow(
+                    FetchGithubJobLogWorkflow.run,
+                    inputs,
+                    id=f"gh-logs-{inputs.team_id}-{inputs.job_id}",
+                    id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                    execution_timeout=timedelta(minutes=15),
+                    parent_close_policy=workflow.ParentClosePolicy.ABANDON,
+                )
+                started += 1
+            except WorkflowAlreadyStartedError:
+                # Already started by a prior tick — reuse policy coalesces it.
+                continue
         return {"jobs_discovered": len(jobs), "workflows_started": started}

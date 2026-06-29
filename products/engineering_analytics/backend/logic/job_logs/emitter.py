@@ -1,20 +1,12 @@
-"""Ship fetched GitHub Actions log content into the Logs product via OTLP.
+"""Ship fetched CI log content into Logs via OTLP — one record per line so each line is
+independently searchable, countable, and groupable. Emits through the OpenTelemetry SDK to the
+internal ``capture-logs`` endpoint (``/i/v1/logs``) with the destination team's project token as the
+``Authorization: Bearer`` — the token is what routes records to that team's Logs, so there's no
+public-internet round-trip. Each record carries the job attributes, the line's GitHub timestamp, and
+a severity from GitHub's ``##[error]`` / ``##[warning]`` markers.
 
-The Logs product's only ingress is the OTLP endpoint (the dedicated ``capture-logs`` service at
-``/i/v1/logs``); we emit through the OpenTelemetry SDK to that endpoint, with the destination team's
-project token as the ``Authorization: Bearer`` header — the token is what routes records to that
-team's Logs. The endpoint is supplied by the caller (``settings.OTLP_LOGS_INGEST_ENDPOINT``, the
-in-cluster capture-logs address in prod), so there is no public-internet round-trip and no token in a
-worker env var. One Logs record per CI log
-**line** so each line is independently searchable, countable, and groupable in Logs — that's what
-makes "count failing tests / patterns / flaky across branches" work; a whole-log blob would only
-be openable one at a time. Each record carries the job's attributes (``job_id`` / ``run_id`` /
-``branch`` / ``conclusion``), the line's own GitHub timestamp so build order is preserved, and a
-severity derived from GitHub's ``##[error]`` / ``##[warning]`` markers (so a future warning-scout
-is just a severity filter).
-
-A Temporal activity is short-lived, so callers MUST ``flush()`` before returning (use the emitter
-as a context manager) — the batch processor would otherwise drop buffered records.
+A Temporal activity is short-lived, so callers MUST ``flush()`` before returning (use the context
+manager) — the batch processor would otherwise drop buffered records.
 """
 
 import re
@@ -61,12 +53,9 @@ def _severity(body: str) -> tuple[str, SeverityNumber]:
 
 
 class JobLogsEmitter:
-    """Emits CI log lines into the Logs product, one record per line.
-
-    Construct once per activity run (ideally via ``with JobLogsEmitter(...) as emitter:`` so the
-    batch is flushed on exit). Pass ``endpoint`` + ``token`` for production export (the capture-logs
-    URL and the destination team's project token); pass ``exporter`` in tests to capture records.
-    With neither, the emitter is a safe no-op — harmless until the Logs lane is configured.
+    """One record per line into Logs. Use as a context manager so the batch flushes on exit. Pass
+    ``endpoint`` + ``token`` for production, ``exporter`` in tests; with neither it's a safe no-op
+    (harmless until the Logs lane is configured).
     """
 
     def __init__(
@@ -74,7 +63,6 @@ class JobLogsEmitter:
     ) -> None:
         self._provider = LoggerProvider(resource=Resource.create({"service.name": _SERVICE_NAME}))
         if exporter is None and endpoint and token:
-            # Target the internal capture-logs endpoint; the project token routes to the team's Logs.
             exporter = OTLPLogExporter(endpoint=endpoint, headers={"authorization": f"Bearer {token}"})
         self._enabled = exporter is not None
         if exporter is not None:

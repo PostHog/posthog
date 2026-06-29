@@ -1,10 +1,7 @@
-"""Per-job activity + workflow: fetch one GitHub Actions job log under the shared egress budget and
-emit it into the Logs product.
+"""Fetch one GitHub Actions job log under the shared egress budget and emit it into Logs.
 
-The activity resolves a fresh installation token, gates the fetch on the shared GitHub installation
-budget (raising on denial so Temporal retries with backoff rather than blocking a worker), fetches
-the log, and emits it line-by-line. It returns only small counts — the log content never flows back
-through the workflow (which would hit Temporal's payload limit).
+Returns small counts only; the log content never flows back through the workflow (Temporal's payload
+limit). A budget denial raises so Temporal retries with backoff instead of blocking a worker.
 """
 
 import json
@@ -44,11 +41,8 @@ class FetchJobLogInputs:
 
 
 def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, str]:
-    """Return ``(github_access_token, installation_id, log_ingest_token)`` for the source's team.
-
-    ``log_ingest_token`` is the owning team's project API token — the OTLP Bearer that routes the
-    emitted CI logs into that team's Logs. The GitHub token refresh is a low-frequency App-level call
-    (a new installation token lasts ~1h), so it's not gated by the per-installation log-fetch budget.
+    """Return ``(github_access_token, installation_id, log_ingest_token)``. ``log_ingest_token`` is
+    the owning team's project API token — the OTLP Bearer that routes emitted logs to that team's Logs.
     """
     integration = Integration.objects.get(id=integration_id, team_id=team_id, kind="github")
     github = GitHubIntegration(integration)
@@ -66,8 +60,7 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
     if not await acquire_github_installation(installation_id):
-        # Over the shared GitHub budget — hand back to Temporal's retry (with backoff) instead of
-        # blocking a worker; the per-job workflow id coalesces duplicate attempts.
+        # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
         raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
     if archive is None:
@@ -81,16 +74,14 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "conclusion": inputs.conclusion or "",
     }
 
-    # Failures-only today, so always thin with the failure preset; when all-jobs ingestion lands,
-    # pass a different ThinningConfig here for non-failure logs.
-    thinned = thin_log(archive)
-
-    def _emit() -> int:
+    def _thin_and_emit() -> int:
+        # Failures-only today; pass a different ThinningConfig once all-jobs ingestion lands.
+        thinned = thin_log(archive)
         with JobLogsEmitter(endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT, token=log_ingest_token) as emitter:
             return emitter.emit_log_archive(thinned, attributes=attributes)
 
-    lines = await asyncio.to_thread(_emit)
-    log.info("github_job_log_emitted", lines=lines, raw_lines=archive.count("\n") + 1)
+    lines = await asyncio.to_thread(_thin_and_emit)
+    log.info("github_job_log_emitted", lines=lines)
     return {"status": "emitted", "job_id": inputs.job_id, "lines": lines}
 
 

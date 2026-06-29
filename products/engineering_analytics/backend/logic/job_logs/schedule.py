@@ -33,8 +33,7 @@ async def create_github_job_logs_coordinator_schedule(client: Client) -> None:
             task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
         ),
         spec=ScheduleSpec(intervals=[ScheduleIntervalSpec(every=SCHEDULE_INTERVAL)]),
-        # The egress limiter, not the cron, caps GitHub spend — a frequent drain over a throttled
-        # queue is cheap. SKIP so a slow tick doesn't stack.
+        # SKIP so a slow tick doesn't stack; the egress limiter (not cron frequency) caps spend.
         policy=SchedulePolicy(overlap=ScheduleOverlapPolicy.SKIP, catchup_window=SCHEDULE_INTERVAL),
     )
     if await a_schedule_exists(client, SCHEDULE_ID):

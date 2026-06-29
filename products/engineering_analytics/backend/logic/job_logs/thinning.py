@@ -1,33 +1,23 @@
 """Thin a GitHub Actions job log down to its failure-relevant lines.
 
-A failed job's full log is mostly noise — dependency downloads, hundreds of passing migrations,
-setup chatter — wrapped around a small failure region. We keep that region (every line matching a
-high-precision failure marker, plus surrounding context) and always the tail, where test runners
-print their final summary (pytest's ``FAILED`` list, cargo's ``test result: FAILED``, jest /
-playwright's ``N failed``). Everything else collapses to a ``... N lines omitted ...`` marker. This
-turns multi-MB logs into a few hundred lines without losing the cause.
+A failed job's log is mostly noise (dependency downloads, hundreds of passing migrations) around a
+small failure region. We keep that region — lines matching a high-precision failure marker plus
+context — and a short tail fallback; everything else collapses to a ``... N lines omitted ...``
+marker, turning multi-MB logs into a few hundred lines without losing the cause.
 
-This is a pure transform over log text, independent of how the log is fetched or emitted, so the
-same path can later thin *non-failure* logs (once all-jobs ingestion lands) by passing a different
-``ThinningConfig`` — a narrower marker set, a shorter tail, whatever that case wants.
+Pure transform, decoupled from fetch/emit: all-jobs ingestion can later thin *non-failure* logs by
+passing a different ``ThinningConfig``. (A structured alternative — the check-run annotations API or
+JUnit XML — is a cleaner future upgrade but depends on per-workflow instrumentation we don't control.)
 
-A richer, structured alternative exists for instrumented workflows — GitHub's check-run *annotations*
-API and JUnit XML test reports — but both depend on per-workflow problem matchers / artifact uploads
-we don't control. Raw-log thinning is the universal fallback; the annotations API is a clean future
-upgrade for the jobs that have them.
-
-Markers are matched as exact, case-sensitive substrings and are deliberately high-precision: bare
-``error`` / ``failed`` are NOT markers, because real logs are full of them (``errortracking``
-migrations, ``0 failed`` summaries, non-fatal setup warnings) and would defeat the thinning.
+Markers are exact, case-sensitive substrings, deliberately high-precision: bare ``error`` / ``failed``
+are NOT markers — real logs are full of them (``errortracking`` migrations, ``0 failed`` summaries)
+and they would defeat the thinning.
 """
 
 import dataclasses
 
-# Failure anchors. The first two are GitHub's own workflow-command annotations (the documented
-# ::error / ::warning mechanism, rendered into the raw log): ##[error] is present on every failed
-# step, and ##[warning] surfaces non-fatal issues worth seeing in engineering analytics (e.g. a
-# GeoIP setup warning). The rest are framework fallbacks for steps that emit no annotation.
-# Substring match, case-sensitive on purpose.
+# Failure anchors. First two are GitHub's own ::error / ::warning annotations; the rest are framework
+# fallbacks for steps that emit no annotation. Substring match, case-sensitive.
 DEFAULT_FAILURE_MARKERS: tuple[str, ...] = (
     "##[error]",  # GitHub step failure — emitted on every failed step
     "##[warning]",  # GitHub warning annotation — non-fatal but worth surfacing
@@ -47,9 +37,8 @@ class ThinningConfig:
     markers: tuple[str, ...] = DEFAULT_FAILURE_MARKERS
     leading_context: int = 15  # lines kept before a marker (the cause usually precedes the marker)
     trailing_context: int = 10  # lines kept after a marker (a traceback's frames follow it)
-    # Keep a small tail as a non-empty fallback for the rare marker-less log. It is NOT where the
-    # summary lives: Actions appends "Post job cleanup" steps after the test step, so the failing
-    # step's summary sits just before its ##[error], which a marker window already captures.
+    # Fallback for the rare marker-less log; the summary itself is already caught by the ##[error]
+    # window (Actions appends cleanup steps after the test step, so the literal tail is mostly noise).
     tail_lines: int = 50
     max_lines: int = 400  # hard cap on kept lines; logs at or under this pass through untouched
 
