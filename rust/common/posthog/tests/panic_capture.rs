@@ -94,6 +94,7 @@ async fn init_enables_panic_capture() {
         .expect("posthog init");
 
     common_posthog::capture_exception(Arc::new(TestError), [("request_id", json!("req-1"))]);
+    posthog_rs::flush().await;
     for _ in 0..100 {
         if handled_capture.hits_async().await > 0 {
             break;
