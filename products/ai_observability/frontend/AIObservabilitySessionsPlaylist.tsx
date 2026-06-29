@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -89,10 +89,9 @@ function DetailPane({ className }: { className?: string }): JSX.Element {
 }
 
 function ListPane({ className }: { className?: string }): JSX.Element {
-    const { sessions, sessionsLoading, selectedSessionId, getSessionTitle } = useValues(
-        aiObservabilitySessionsViewLogic
-    )
-    const { selectSession } = useActions(aiObservabilitySessionsViewLogic)
+    const { sessions, sessionsLoading, selectedSessionId, getSessionTitle, hasMoreSessions, moreSessionsLoading } =
+        useValues(aiObservabilitySessionsViewLogic)
+    const { selectSession, loadMoreSessions } = useActions(aiObservabilitySessionsViewLogic)
 
     return (
         <div
@@ -111,18 +110,34 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                 ) : sessions.length === 0 ? (
                     <div className="p-4 text-center text-sm text-secondary">No sessions yet</div>
                 ) : (
-                    <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
-                        {sessions.map((session) => (
-                            <li key={session.sessionId}>
-                                <SessionPreview
-                                    session={session}
-                                    title={getSessionTitle(session.sessionId)}
-                                    isActive={session.sessionId === selectedSessionId}
-                                    onClick={() => selectSession(session.sessionId)}
-                                />
-                            </li>
-                        ))}
-                    </ul>
+                    <>
+                        <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
+                            {sessions.map((session) => (
+                                <li key={session.sessionId}>
+                                    <SessionPreview
+                                        session={session}
+                                        title={getSessionTitle(session.sessionId)}
+                                        isActive={session.sessionId === selectedSessionId}
+                                        onClick={() => selectSession(session.sessionId)}
+                                    />
+                                </li>
+                            ))}
+                        </ul>
+                        {hasMoreSessions && (
+                            <div className="border-t border-primary p-2">
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    fullWidth
+                                    loading={moreSessionsLoading}
+                                    onClick={loadMoreSessions}
+                                    data-attr="llma-load-more-sessions"
+                                >
+                                    Load more sessions
+                                </LemonButton>
+                            </div>
+                        )}
+                    </>
                 )}
             </div>
         </div>

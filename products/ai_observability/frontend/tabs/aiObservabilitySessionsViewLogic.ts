@@ -1,5 +1,4 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
-import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
 
@@ -18,6 +17,8 @@ import type { aiObservabilitySessionsViewLogicType } from './aiObservabilitySess
 
 export type AIObservabilitySessionsViewLogicProps = Record<string, never>
 
+const SESSIONS_PAGE_SIZE = 50
+
 export interface SessionListRow {
     sessionId: string
     distinctId: string
@@ -26,6 +27,29 @@ export interface SessionListRow {
     totalLatency: number
     errors: number
     lastSeen: string
+}
+
+function buildSessionsQuery(sessionsSort: SortState, offset: number): string {
+    return sessionsQueryTemplate
+        .replace('__ORDER_BY__', sessionsSort.column)
+        .replace('__ORDER_DIRECTION__', sessionsSort.direction)
+        .replace('__LIMIT__', String(SESSIONS_PAGE_SIZE))
+        .replace('__OFFSET__', String(offset))
+}
+
+function parseSessionsResponse(response: { columns?: unknown[]; results?: unknown[] }): SessionListRow[] {
+    const columns = (response.columns ?? []) as string[]
+    const at = (name: string): number => columns.indexOf(name)
+    const rows = (response.results ?? []) as unknown[][]
+    return rows.map((row) => ({
+        sessionId: String(row[at('session_id')] ?? ''),
+        distinctId: String(row[at('distinct_id')] ?? ''),
+        traces: Number(row[at('traces')] ?? 0),
+        totalCost: Number(row[at('total_cost')] ?? 0),
+        totalLatency: Number(row[at('total_latency')] ?? 0),
+        errors: Number(row[at('errors')] ?? 0),
+        lastSeen: String(row[at('last_seen')] ?? ''),
+    }))
 }
 
 export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewLogicType>([
@@ -46,9 +70,49 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
     actions({
         setSessionsSort: (column: string, direction: SortDirection) => ({ column, direction }),
         selectSession: (sessionId: string | null) => ({ sessionId }),
+        loadSessions: (payload?: { refresh?: RefreshType }) => ({ refresh: payload?.refresh }),
+        loadSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({ sessions, hasMoreSessions }),
+        loadSessionsFailure: true,
+        loadMoreSessions: true,
+        loadMoreSessionsSuccess: (sessions: SessionListRow[], hasMoreSessions: boolean) => ({
+            sessions,
+            hasMoreSessions,
+        }),
+        loadMoreSessionsFailure: true,
     }),
 
     reducers({
+        sessions: [
+            [] as SessionListRow[],
+            {
+                loadSessionsSuccess: (_, { sessions }) => sessions,
+                loadMoreSessionsSuccess: (state, { sessions }) => [...state, ...sessions],
+            },
+        ],
+        sessionsLoading: [
+            false,
+            {
+                loadSessions: () => true,
+                loadSessionsSuccess: () => false,
+                loadSessionsFailure: () => false,
+            },
+        ],
+        moreSessionsLoading: [
+            false,
+            {
+                loadMoreSessions: () => true,
+                loadMoreSessionsSuccess: () => false,
+                loadMoreSessionsFailure: () => false,
+            },
+        ],
+        hasMoreSessions: [
+            false,
+            {
+                loadSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
+                loadMoreSessionsSuccess: (_, { hasMoreSessions }) => hasMoreSessions,
+                loadSessionsFailure: () => false,
+            },
+        ],
         selectedSessionId: [
             null as string | null,
             {
@@ -63,32 +127,35 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         ],
     }),
 
-    loaders(({ values }) => ({
-        sessions: [
-            [] as SessionListRow[],
-            {
-                loadSessions: async (payload?: { refresh?: RefreshType }): Promise<SessionListRow[]> => {
-                    const source = values.sessionsQuery.source as HogQLQuery
-                    // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
-                    const response = await api.query(source, { refresh: payload?.refresh })
-                    const columns = (response.columns ?? []) as string[]
-                    const at = (name: string): number => columns.indexOf(name)
-                    const rows = (response.results ?? []) as unknown[][]
-                    return rows.map((row) => ({
-                        sessionId: String(row[at('session_id')] ?? ''),
-                        distinctId: String(row[at('distinct_id')] ?? ''),
-                        traces: Number(row[at('traces')] ?? 0),
-                        totalCost: Number(row[at('total_cost')] ?? 0),
-                        totalLatency: Number(row[at('total_latency')] ?? 0),
-                        errors: Number(row[at('errors')] ?? 0),
-                        lastSeen: String(row[at('last_seen')] ?? ''),
-                    }))
-                },
-            },
-        ],
-    })),
-
     listeners(({ actions, values }) => ({
+        loadSessions: async ({ refresh }) => {
+            const source = values.sessionsQuery.source as HogQLQuery
+            try {
+                // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
+                const response = await api.query(source, { refresh })
+                const sessions = parseSessionsResponse(response)
+                actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+            } catch {
+                actions.loadSessionsFailure()
+            }
+        },
+        loadMoreSessions: async () => {
+            if (!values.hasMoreSessions) {
+                actions.loadMoreSessionsFailure()
+                return
+            }
+            const source = values.sessionsQuery.source as HogQLQuery
+            try {
+                const response = await api.query({
+                    ...source,
+                    query: buildSessionsQuery(values.sessionsSort, values.sessions.length),
+                })
+                const sessions = parseSessionsResponse(response)
+                actions.loadMoreSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+            } catch {
+                actions.loadMoreSessionsFailure()
+            }
+        },
         // Pre-load titles for the whole list (batched + deduped), so each row shows
         // its name and re-selecting a listed session never re-queries its title.
         loadSessionsSuccess: ({ sessions }) => {
@@ -114,15 +181,11 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 sessionsSort: { column: string; direction: 'ASC' | 'DESC' },
                 groupsTaxonomicTypes: TaxonomicFilterGroupType[]
             ): DataTableNode => {
-                const query = sessionsQueryTemplate
-                    .replace('__ORDER_BY__', sessionsSort.column)
-                    .replace('__ORDER_DIRECTION__', sessionsSort.direction)
-
                 return {
                     kind: NodeKind.DataTableNode,
                     source: {
                         kind: NodeKind.HogQLQuery,
-                        query,
+                        query: buildSessionsQuery(sessionsSort, 0),
                         filters: {
                             dateRange: {
                                 date_from: dateFilter.dateFrom || null,
@@ -148,7 +211,6 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                     ],
                     showDateRange: true,
                     showReload: true,
-                    showSearch: true,
                     showPropertyFilter: [
                         TaxonomicFilterGroupType.EventProperties,
                         TaxonomicFilterGroupType.PersonProperties,
@@ -157,9 +219,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                         TaxonomicFilterGroupType.HogQLExpression,
                     ],
                     showTestAccountFilters: true,
-                    showExport: true,
                     showColumnConfigurator: true,
-                    allowSorting: true,
                 }
             },
         ],

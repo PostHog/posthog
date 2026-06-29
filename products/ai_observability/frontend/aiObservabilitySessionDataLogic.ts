@@ -75,6 +75,17 @@ function getTraceQueryDateRange(dateRange: SessionDateRange): TraceQuery['dateRa
     }
 }
 
+function getDateRangeCacheKey(dateRange: SessionDateRange): string {
+    return `${dateRange?.dateFrom ?? ''}\0${dateRange?.dateTo ?? ''}`
+}
+
+function getFirstTraceStepEventId(trace: LLMTrace): string | null {
+    const firstEvent = trace.events
+        ?.filter((e) => e.event === '$ai_generation' || e.event === '$ai_span' || e.event === '$ai_embedding')
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())[0]
+    return firstEvent?.id ?? null
+}
+
 // Maps a clicked tool/error pill to the trace event it represents so the drawer
 // can pre-expand that step. Tool spans and error labels both derive from the
 // event's `$ai_span_name`/`$ai_model` (via `eventLabel`), so an exact label match
@@ -103,7 +114,12 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             teamLogic,
             ['currentTeamId'],
         ],
-        actions: [dataNodeLogic(getDataNodeLogicProps(props)), ['loadNextData']],
+        actions: [
+            aiObservabilitySessionLogic,
+            ['setDateRange'],
+            dataNodeLogic(getDataNodeLogicProps(props)),
+            ['loadNextData'],
+        ],
     })),
 
     actions({
@@ -114,8 +130,13 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
         toggleGenerationExpanded: (generationId: string) => ({ generationId }),
         // Expand only this step, collapsing the rest (timeline / pill focus).
         focusGenerationExpanded: (generationId: string) => ({ generationId }),
+        clearTraceDetails: true,
         loadFullTrace: (traceId: string) => ({ traceId }),
-        loadFullTraceSuccess: (traceId: string, trace: LLMTrace) => ({ traceId, trace }),
+        loadFullTraceSuccess: (traceId: string, trace: LLMTrace, dateRangeCacheKey: string) => ({
+            traceId,
+            trace,
+            dateRangeCacheKey,
+        }),
         loadFullTraceFailure: (traceId: string) => ({ traceId }),
         loadCachedSummaries: (traceIds: string[]) => ({ traceIds }),
         loadCachedSummariesSuccess: (summaries: Array<{ trace_id: string; title: string }>) => ({ summaries }),
@@ -132,6 +153,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
             {
                 openStepsDrawer: (_, { traceId }) => traceId,
                 closeStepsDrawer: () => null,
+                clearTraceDetails: () => null,
             },
         ],
         // A pending tool/error label to focus once the drawer's trace finishes loading.
@@ -141,6 +163,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 openStepsDrawer: (_, { focusEventKey }) => focusEventKey,
                 closeStepsDrawer: () => null,
                 focusGenerationExpanded: () => null,
+                clearTraceDetails: () => null,
             },
         ],
         expandedGenerationIds: [
@@ -156,6 +179,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     return newSet
                 },
                 focusGenerationExpanded: (_, { generationId }) => new Set([generationId]),
+                clearTraceDetails: () => new Set<string>(),
             },
         ],
         fullTraces: [
@@ -165,6 +189,17 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     ...state,
                     [traceId]: trace,
                 }),
+                clearTraceDetails: () => ({}),
+            },
+        ],
+        fullTraceDateRangeCacheKeys: [
+            {} as Record<string, string>,
+            {
+                loadFullTraceSuccess: (state, { traceId, dateRangeCacheKey }) => ({
+                    ...state,
+                    [traceId]: dateRangeCacheKey,
+                }),
+                clearTraceDetails: () => ({}),
             },
         ],
         loadingFullTraces: [
@@ -181,6 +216,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     newSet.delete(traceId)
                     return newSet
                 },
+                clearTraceDetails: () => new Set<string>(),
             },
         ],
         traceSummaries: [
@@ -255,6 +291,9 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
         const inFlightTraceFetches = new Set<string>()
 
         return {
+            setDateRange: () => {
+                actions.clearTraceDetails()
+            },
             loadCachedSummaries: async ({ traceIds }) => {
                 if (traceIds.length === 0) {
                     return
@@ -283,10 +322,14 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 }
             },
             loadFullTrace: async ({ traceId }) => {
-                if (values.fullTraces[traceId] || inFlightTraceFetches.has(traceId)) {
+                const dateRangeCacheKey = getDateRangeCacheKey(values.dateRange)
+                if (
+                    (values.fullTraces[traceId] && values.fullTraceDateRangeCacheKeys[traceId] === dateRangeCacheKey) ||
+                    inFlightTraceFetches.has(`${traceId}:${dateRangeCacheKey}`)
+                ) {
                     return
                 }
-                inFlightTraceFetches.add(traceId)
+                inFlightTraceFetches.add(`${traceId}:${dateRangeCacheKey}`)
                 const dateRange = getTraceQueryDateRange(values.dateRange)
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
@@ -296,8 +339,11 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                 }
                 try {
                     const response = await api.query(traceQuery)
+                    if (dateRangeCacheKey !== getDateRangeCacheKey(values.dateRange)) {
+                        return
+                    }
                     if (response.results && response.results[0]) {
-                        actions.loadFullTraceSuccess(traceId, response.results[0])
+                        actions.loadFullTraceSuccess(traceId, response.results[0], dateRangeCacheKey)
                     } else {
                         actions.loadFullTraceFailure(traceId)
                     }
@@ -305,26 +351,32 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     console.error('Error loading full trace:', error)
                     actions.loadFullTraceFailure(traceId)
                 } finally {
-                    inFlightTraceFetches.delete(traceId)
+                    inFlightTraceFetches.delete(`${traceId}:${dateRangeCacheKey}`)
                 }
             },
             openStepsDrawer: ({ traceId, focusEventKey }) => {
                 const trace = values.fullTraces[traceId]
-                if (!trace && !values.loadingFullTraces.has(traceId)) {
+                const dateRangeCacheKey = getDateRangeCacheKey(values.dateRange)
+                const isTraceFresh = !!trace && values.fullTraceDateRangeCacheKeys[traceId] === dateRangeCacheKey
+                if (!isTraceFresh && !values.loadingFullTraces.has(traceId)) {
                     actions.loadFullTrace(traceId)
                 }
                 // Already loaded: focus the clicked step now. Otherwise the
                 // loadFullTraceSuccess listener picks it up once events arrive.
-                if (trace && focusEventKey) {
-                    const id = resolveFocusEventId(trace, focusEventKey)
+                if (isTraceFresh && trace) {
+                    const id = focusEventKey
+                        ? resolveFocusEventId(trace, focusEventKey)
+                        : getFirstTraceStepEventId(trace)
                     if (id) {
                         actions.focusGenerationExpanded(id)
                     }
                 }
             },
             loadFullTraceSuccess: ({ traceId, trace }) => {
-                if (values.drawerFocusKey && traceId === values.drawerTraceId) {
-                    const id = resolveFocusEventId(trace, values.drawerFocusKey)
+                if (traceId === values.drawerTraceId) {
+                    const id = values.drawerFocusKey
+                        ? resolveFocusEventId(trace, values.drawerFocusKey)
+                        : getFirstTraceStepEventId(trace)
                     if (id) {
                         actions.focusGenerationExpanded(id)
                     }

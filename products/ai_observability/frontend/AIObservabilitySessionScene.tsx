@@ -305,7 +305,7 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
                 isOpen={!!drawerTraceId}
                 onClose={closeStepsDrawer}
                 title={drawerTurn?.trace.traceName || 'Trace steps'}
-                width={680}
+                width={960}
                 data-attr="llm-session-steps-drawer"
                 description={
                     drawerTraceUrl ? (

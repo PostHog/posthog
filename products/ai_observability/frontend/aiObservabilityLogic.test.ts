@@ -177,6 +177,7 @@ describe('aiObservabilitySessionsViewLogic', () => {
     let sharedLogic: ReturnType<typeof aiObservabilitySharedLogic.build>
     let logic: ReturnType<typeof aiObservabilitySessionsViewLogic.build>
     let querySpy: jest.SpyInstance
+    const sessionColumns = ['session_id', 'distinct_id', 'traces', 'total_cost', 'total_latency', 'errors', 'last_seen']
 
     const urlState = {
         propertyFilters: [],
@@ -196,10 +197,22 @@ describe('aiObservabilitySessionsViewLogic', () => {
         sceneLogic.actions.setScene('AIObservability', sceneKey, emptySceneParams)
     }
 
+    function sessionRow(index: number): unknown[] {
+        return [
+            `session-${index}`,
+            `person-${index}`,
+            1,
+            0,
+            0.5,
+            0,
+            `2026-01-01T00:${String(index).padStart(2, '0')}:00Z`,
+        ]
+    }
+
     beforeEach(() => {
         initKeaTests()
         querySpy = jest.spyOn(api, 'query').mockResolvedValue({
-            columns: ['session_id', 'distinct_id', 'traces', 'total_cost', 'total_latency', 'errors', 'last_seen'],
+            columns: sessionColumns,
             results: [],
         } as any)
         sceneLogic.mount()
@@ -234,6 +247,29 @@ describe('aiObservabilitySessionsViewLogic', () => {
         await settleListeners()
 
         expect(querySpy).not.toHaveBeenCalled()
+    })
+
+    it('appends additional session pages', async () => {
+        let page = 0
+        querySpy.mockImplementation(() => {
+            page += 1
+            return Promise.resolve({
+                columns: sessionColumns,
+                results: page === 1 ? Array.from({ length: 50 }, (_, i) => sessionRow(i)) : [sessionRow(50)],
+            })
+        })
+
+        logic.actions.loadSessions()
+        await settleListeners()
+        expect(logic.values.sessions).toHaveLength(50)
+        expect(logic.values.hasMoreSessions).toBe(true)
+
+        logic.actions.loadMoreSessions()
+        await settleListeners()
+        expect(logic.values.sessions).toHaveLength(51)
+        expect(logic.values.sessions[50].sessionId).toBe('session-50')
+        expect(logic.values.hasMoreSessions).toBe(false)
+        expect(querySpy).toHaveBeenCalledTimes(2)
     })
 })
 
