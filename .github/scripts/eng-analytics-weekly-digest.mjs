@@ -106,6 +106,11 @@ function fmtDuration(seconds) {
     return s === 0 ? `${m}m` : `${m}m${s}s`
 }
 
+// '14m→17m' — a prior→current pair of CI durations.
+function fmtTransition(prior, current) {
+    return `${fmtDuration(prior)}→${fmtDuration(current)}`
+}
+
 function pctChange(current, previous) {
     if (previous == null || current == null || previous === 0) {
         return null
@@ -117,10 +122,10 @@ function fmtPct(p) {
     if (p == null) {
         return ''
     }
+    // Math.round(-0.3) is -0, which stringifies to '0' and isn't > 0, so a sub-0.5% dip reads '(0%)'.
     const rounded = Math.round(p)
-    const display = rounded === 0 ? 0 : rounded // collapse -0 to 0 so a sub-0.5% dip isn't '(-0%)'
-    const sign = display > 0 ? '+' : ''
-    return ` (${sign}${display}%)`
+    const sign = rounded > 0 ? '+' : ''
+    return ` (${sign}${rounded}%)`
 }
 
 function workflowKey(item) {
@@ -171,26 +176,25 @@ async function ciSpeedSection(now) {
 
     const ranked = compared.filter((c) => c.p50Pct != null).sort((a, b) => b.p50Pct - a.p50Pct)
     const slower = ranked.filter((c) => c.p50Pct > 0).slice(0, TOP_N)
-    const faster = ranked
-        .filter((c) => c.p50Pct < 0)
-        .slice(-2)
-        .reverse()
+    // Two biggest speedups, biggest first.
+    const faster = ranked.filter((c) => c.p50Pct < 0).sort((a, b) => a.p50Pct - b.p50Pct).slice(0, 2)
 
     const lines = [header]
     if (slower.length) {
         lines.push('🔺 Slower:')
         for (const c of slower) {
             lines.push(
-                `• \`${label(c)}\` — p50 ${fmtDuration(c.p50Prior)}→${fmtDuration(c.p50)}${fmtPct(
-                    c.p50Pct
-                )}, p95 ${fmtDuration(c.p95Prior)}→${fmtDuration(c.p95)}`
+                `• \`${label(c)}\` — p50 ${fmtTransition(c.p50Prior, c.p50)}${fmtPct(c.p50Pct)}, p95 ${fmtTransition(
+                    c.p95Prior,
+                    c.p95
+                )}`
             )
         }
     }
     if (faster.length) {
         lines.push('🟢 Faster:')
         for (const c of faster) {
-            lines.push(`• \`${label(c)}\` — p50 ${fmtDuration(c.p50Prior)}→${fmtDuration(c.p50)}${fmtPct(c.p50Pct)}`)
+            lines.push(`• \`${label(c)}\` — p50 ${fmtTransition(c.p50Prior, c.p50)}${fmtPct(c.p50Pct)}`)
         }
     }
     return lines.join('\n')
@@ -217,7 +221,11 @@ async function quarantineSection() {
     if (!file.available) {
         return `*Flaky-test quarantine*\n_No quarantine file for ${slackEscape(REPO)}._`
     }
-    const count = (lifecycle) => file.entries.filter((e) => e.lifecycle === lifecycle).length
+    const tally = {}
+    for (const e of file.entries) {
+        tally[e.lifecycle] = (tally[e.lifecycle] || 0) + 1
+    }
+    const count = (lifecycle) => tally[lifecycle] || 0
     return [
         '*Flaky-test quarantine*',
         `• ${count('active')} active, ${count('expiring_soon')} expiring soon, ${count('in_grace')} in grace, ${count(
@@ -233,21 +241,26 @@ async function buildDigest(now) {
     const blocks = [
         { type: 'header', text: { type: 'plain_text', text: `📈 Weekly CI digest — ${dateLabel}`, emoji: true } },
     ]
-    // Run each section independently — one failing endpoint shouldn't sink the digest.
-    const sections = [ciSpeedSection(now), backlogSection(), quarantineSection()]
-    const results = await Promise.allSettled(sections)
+    // Run each section independently — one failing endpoint shouldn't sink the digest. Named so a
+    // failure block can say which section broke, not just the raw error.
+    const sections = [
+        { name: 'CI speed', run: () => ciSpeedSection(now) },
+        { name: 'Backlog', run: backlogSection },
+        { name: 'Quarantine', run: quarantineSection },
+    ]
+    const results = await Promise.allSettled(sections.map((s) => s.run()))
     let succeeded = 0
-    for (const r of results) {
+    results.forEach((r, i) => {
         if (r.status === 'rejected') {
             blocks.push({
                 type: 'section',
-                text: { type: 'mrkdwn', text: `⚠️ _Section failed: ${slackEscape(r.reason.message)}_` },
+                text: { type: 'mrkdwn', text: `⚠️ _${sections[i].name} failed: ${slackEscape(r.reason.message)}_` },
             })
         } else if (r.value) {
             succeeded += 1
             blocks.push({ type: 'section', text: { type: 'mrkdwn', text: r.value } })
         }
-    }
+    })
     blocks.push({
         type: 'context',
         elements: [
