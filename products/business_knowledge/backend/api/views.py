@@ -526,14 +526,18 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         return queryset.filter(team_id=self.team_id)
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
-        # The per-ticket list path (`?ticket_id=`) returns data derived from a specific support
-        # ticket (topic, status, outcome, ticket type), so a token reaching it must also carry
-        # `ticket:read` — `business_knowledge:read` alone must not be a backdoor to ticket data.
-        # Only applies to token auth; session users are gated by team membership (and already have
-        # ticket access via the ticket API). Returning None elsewhere falls back to the default
-        # `business_knowledge` scope for the action.
+        # Any path that exposes data derived from a specific support ticket (topic, status,
+        # outcome, ticket type, ticket id) must also require `ticket:read` — `business_knowledge`
+        # alone must not be a backdoor to ticket data. This covers the per-ticket list path
+        # (`?ticket_id=`) and the single-row `accept`/`dismiss` actions, whose responses serialize
+        # the ticket-linked fields. Only applies to token auth; session users are gated by team
+        # membership (and already have ticket access via the ticket API). The topic-level
+        # `accept_topic`/`dismiss_topic` actions and the aggregated list expose no ticket data, so
+        # they fall through to the default `business_knowledge` scope.
         if self.action == "list" and request.query_params.get("ticket_id"):
             return ["business_knowledge:read", "ticket:read"]
+        if self.action in ("accept", "dismiss"):
+            return ["business_knowledge:write", "ticket:read"]
         return None
 
     @extend_schema(

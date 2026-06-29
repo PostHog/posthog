@@ -201,3 +201,22 @@ class TestKnowledgeGapSuggestionScopes(APIBaseTest):
         data = response.json()
         results = data if isinstance(data, list) else data.get("results", data)
         assert len(results) == 1
+
+    def _first_gap_id(self) -> str:
+        gap = KnowledgeGapSuggestion.objects.for_team(self.team.id).first()
+        assert gap is not None
+        return str(gap.id)
+
+    @parameterized.expand(["accept", "dismiss"])
+    def test_detail_action_denied_without_ticket_read(self, _ff, verb: str) -> None:
+        gap_id = self._first_gap_id()
+        self._auth_with_pak(["business_knowledge:write"])
+        response = self.client.post(f"{self.url}{gap_id}/{verb}/", {}, format="json")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    @parameterized.expand(["accept", "dismiss"])
+    def test_detail_action_allowed_with_ticket_read(self, _ff, verb: str) -> None:
+        gap_id = self._first_gap_id()
+        self._auth_with_pak(["business_knowledge:write", "ticket:read"])
+        response = self.client.post(f"{self.url}{gap_id}/{verb}/", {}, format="json")
+        assert response.status_code == status.HTTP_200_OK
