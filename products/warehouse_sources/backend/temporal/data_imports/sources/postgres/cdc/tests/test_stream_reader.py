@@ -121,6 +121,19 @@ class TestPgCDCStreamReaderConnectOptions:
         # A stalled server-side WAL decode can't hang the streaming connection indefinitely.
         assert "statement_timeout=1800000" in connect.call_args.kwargs["options"]
 
+    def test_connect_disables_idle_in_transaction_timeout(self, params):
+        connect = mock.MagicMock(return_value=mock.MagicMock())
+        reader = PgCDCStreamReader(params)
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.stream_reader._connect_to_postgres",
+            connect,
+        ):
+            reader.connect()
+
+        # The named cursor holds a transaction open while the caller flushes between yields, so the
+        # source must not cull the backend (SQLSTATE 25P03) for sitting idle in that transaction.
+        assert "idle_in_transaction_session_timeout=0" in connect.call_args.kwargs["options"]
+
 
 class TestPgCDCStreamReaderReadChanges:
     def _reader_serving(self, params, rows):
