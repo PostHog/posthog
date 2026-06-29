@@ -660,6 +660,29 @@ export const hogFlowsUserBlastRadiusCreate = async (
     })
 }
 
+export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status`
+}
+
+/**
+ * Internal endpoint for the Node-side batch resolver to write the terminal
+ * status of a HogFlowBatchJob run. Idempotent: if the row is already in a
+ * terminal status, returns 200 without re-writing — the resolver retries
+ * this call via cyclotron retry semantics, so safe repeats are required.
+ *
+ * Accepts: { status: "completed" | "failed" }
+ */
+export const internalHogFlowsBatchJobsStatusUpdate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsStatusUpdateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'PUT',
+    })
+}
+
 export const getInternalHogFlowsUserBlastRadiusCreateUrl = (teamId: string) => {
     return `/api/projects/${teamId}/internal/hog_flows/user_blast_radius`
 }
