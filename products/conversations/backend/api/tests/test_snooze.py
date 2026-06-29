@@ -288,9 +288,9 @@ class TestWakeSnoozedTickets(BaseTest):
         defaults.update(kwargs)
         return Ticket.objects.create_with_number(**defaults)
 
-    @parameterized.expand([(Status.ON_HOLD,), (Status.PENDING,), (Status.RESOLVED,), (Status.NEW,)])
+    @parameterized.expand([(Status.ON_HOLD,), (Status.PENDING,), (Status.RESOLVED,)])
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
-    def test_expired_snooze_reopens_ticket_from_any_status(self, start_status, mock_capture):
+    def test_expired_snooze_reopens_inactive_ticket(self, start_status, mock_capture):
         ticket = self._make_ticket(
             status=start_status,
             snoozed_until=timezone.now() - timedelta(minutes=5),
@@ -377,17 +377,18 @@ class TestWakeSnoozedTickets(BaseTest):
         self.assertEqual(status_change["before"], Status.ON_HOLD)
         self.assertEqual(status_change["after"], Status.OPEN)
 
+    @parameterized.expand([(Status.OPEN,), (Status.NEW,)])
     @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
-    def test_wake_clears_snooze_on_already_open_ticket_without_status_change(self, mock_capture):
+    def test_wake_clears_snooze_on_active_ticket_without_status_change(self, start_status, mock_capture):
         ticket = self._make_ticket(
-            status=Status.OPEN,
+            status=start_status,
             snoozed_until=timezone.now() - timedelta(minutes=5),
         )
 
         wake_snoozed_tickets()
 
         ticket.refresh_from_db()
-        self.assertEqual(ticket.status, Status.OPEN)
+        self.assertEqual(ticket.status, start_status)
         self.assertIsNone(ticket.snoozed_until)
         mock_capture.assert_not_called()
 

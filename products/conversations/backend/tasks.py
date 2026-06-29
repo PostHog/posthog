@@ -1430,7 +1430,7 @@ def _log_snooze_expired(ticket: Ticket, old_status: str, old_snoozed_until: date
             action="changed",
         )
     ]
-    if old_status != Status.OPEN:
+    if old_status not in (Status.OPEN, Status.NEW):
         changes.append(Change(type="Ticket", field="status", before=old_status, after=Status.OPEN, action="changed"))
 
     try:
@@ -1471,9 +1471,9 @@ def wake_snoozed_tickets() -> None:
                 old_snoozed_until = ticket.snoozed_until
                 ticket.snoozed_until = None
 
-                # An expiring snooze reopens the ticket regardless of its status, unless it's
-                # already open (then there's just the snooze to clear, no status change).
-                if old_status != Status.OPEN:
+                # An expiring snooze reopens the ticket, unless it's already active (open or
+                # new) — then there's just the snooze to clear, no status change.
+                if old_status not in (Status.OPEN, Status.NEW):
                     ticket.status = Status.OPEN
                     ticket.save(update_fields=["status", "snoozed_until", "updated_at"])
                     try:
