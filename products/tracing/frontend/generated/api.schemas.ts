@@ -312,6 +312,24 @@ export interface _TracingQueryRequestApi {
     query: _TracingQueryBodyApi
 }
 
+export interface _TracingSparklineQueryBodyApi {
+    /** Date range for the query. Defaults to last hour. */
+    dateRange?: _TracingDateRangeApi
+    /** Filter by service names. */
+    serviceNames?: string[]
+    /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+    statusCodes?: number[]
+    /** Property filters for the query. */
+    filterGroup?: _SpanPropertyFilterApi[]
+    /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
+    rootSpans?: boolean
+}
+
+export interface _TracingSparklineRequestApi {
+    /** The sparkline query to execute. */
+    query: _TracingSparklineQueryBodyApi
+}
+
 export interface _SymbolStatsSymbolApi {
     /**
      * Opaque identifier (e.g. the function name) echoed back on the matching result row.

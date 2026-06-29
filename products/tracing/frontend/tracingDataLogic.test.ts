@@ -235,6 +235,20 @@ describe('tracingDataLogic', () => {
             tracingFiltersLogic().actions.setViewMode('spans')
             expect(logic.values.totalMatchingFilters).toBe(5000)
         })
+
+        it('sparkline counts root spans in traces mode and all spans in spans mode', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenCalledWith(expect.objectContaining({ rootSpans: true }), expect.anything())
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ rootSpans: false }),
+                expect.anything()
+            )
+            sparklineSpy.mockRestore()
+        })
     })
 
     describe('matching counts', () => {

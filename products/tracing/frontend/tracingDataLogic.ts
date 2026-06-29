@@ -502,6 +502,7 @@ export const tracingDataLogic = kea<tracingDataLogicType>([
                             serviceNames:
                                 values.filters.serviceNames.length > 0 ? values.filters.serviceNames : undefined,
                             filterGroup: values.filters.filterGroup as PropertyGroupFilter,
+                            rootSpans: values.filters.viewMode === 'traces',
                         },
                         controller.signal
                     )
