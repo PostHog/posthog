@@ -167,14 +167,14 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
                 # structure instead, e.g. {"foo": {"bar": Constant}}.
                 dummy_placeholders: dict[str, object] = {}
                 for chain in finder.placeholder_fields:
-                    current = dummy_placeholders
+                    current: dict[str, object] = dummy_placeholders
                     for segment in chain[:-1]:
                         key = str(segment)
                         nested = current.get(key)
                         if not isinstance(nested, dict):
                             nested = {}
                             current[key] = nested
-                        current = nested
+                        current = cast(dict[str, object], nested)
                     current[str(chain[-1])] = ast.Constant(value=1)
                 parsed_query = cast(
                     ast.SelectQuery, replace_placeholders(parsed_query, cast(dict[str, ast.Expr], dummy_placeholders))
