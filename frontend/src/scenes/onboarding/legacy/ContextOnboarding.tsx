@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconInfo, IconPullRequest, IconTerminal } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconCloud, IconInfo, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -16,6 +16,8 @@ import { ProductKey } from '~/queries/schema/schema-general'
 
 import selfDrivingHog from 'public/hedgehog/self-driving-hog.png'
 
+import { useWizardCommand } from '../shared/SetupWizardBanner'
+import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
 import { ContextBillingStep } from './ContextBillingStep'
 import { ContextInviteStep } from './ContextInviteStep'
 import { ContextWarehouseStep } from './ContextWarehouseStep'
@@ -24,8 +26,6 @@ import { WizardCloudRunBlock } from './sdks/OnboardingInstallStep/WizardCloudRun
 import { WizardCommandBlock } from './sdks/OnboardingInstallStep/WizardCommandBlock'
 import { WizardFrameworkBadges } from './sdks/OnboardingInstallStep/WizardModeShell'
 import { useWizardTakeoverActive, WizardProgressTracker } from './sdks/OnboardingInstallStep/WizardProgressTracker'
-import { useWizardCommand } from '../shared/SetupWizardBanner'
-import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../shared/utils'
 
 /**
  * Context-first onboarding (prototype, legacy variant). A fixed linear flow, one thing per step,
@@ -39,11 +39,7 @@ import { availableOnboardingProducts, getProductIcon, toSentenceCase } from '../
 function WelcomeStep(): JSX.Element {
     return (
         <div className="flex flex-col items-center text-center gap-5">
-            <img
-                src={selfDrivingHog}
-                alt="A hedgehog riding in a self-driving car"
-                className="w-full rounded-lg"
-            />
+            <img src={selfDrivingHog} alt="A hedgehog riding in a self-driving car" className="w-full rounded-lg" />
             <div className="flex flex-col gap-2">
                 <h1 className="text-2xl font-bold m-0">Let's make your product self-driving</h1>
                 <p className="text-muted max-w-md mx-auto m-0">
@@ -73,10 +69,11 @@ function InstallOptions(): JSX.Element {
         return (
             <div className="flex flex-col gap-3">
                 <p className="text-sm text-muted m-0">
-                    Install the PostHog SDK for your framework, then events start flowing here automatically.
+                    Install the PostHog SDK for your framework and your product's context starts flowing in, ready for
+                    agents to act on.
                 </p>
                 <LemonButton type="primary" to="https://posthog.com/docs/getting-started/install" targetBlank>
-                    Installation docs
+                    Read the install docs
                 </LemonButton>
             </div>
         )
@@ -84,6 +81,18 @@ function InstallOptions(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
+            {/* Establishes the priority order: the easy path (we run it, you get a PR) up front; the
+                toggle below is the actor sub-choice; manual docs are the quiet fallback at the bottom. */}
+            {offerCloud ? (
+                <p className="text-sm text-muted text-center m-0">
+                    Get your product's context flowing so agents can start finding and fixing things. The easiest way is
+                    to let us set it up and open a PR you just review and merge.
+                </p>
+            ) : (
+                <p className="text-sm text-muted text-center m-0">
+                    Run the wizard to get your product's context flowing so agents can start finding and fixing things.
+                </p>
+            )}
             {/* Frameworks are the same whichever way the wizard runs, so the badges sit above the selector. */}
             {isCloudOrDev && (
                 <div className="pb-2">
@@ -99,7 +108,7 @@ function InstallOptions(): JSX.Element {
                         {
                             value: 'cloud',
                             label: 'Open a pull request',
-                            icon: <IconPullRequest />,
+                            icon: <IconCloud />,
                             'data-attr': 'context-wizard-mode-cloud',
                         },
                         {
@@ -115,9 +124,9 @@ function InstallOptions(): JSX.Element {
                 enabled (install is non-blocking), so a queued cloud run needs no extra unblock signal. */}
             {offerCloud && mode === 'cloud' ? <WizardCloudRunBlock hideHog /> : <WizardCommandBlock hideHog />}
             <p className="text-xs text-muted m-0 text-center">
-                Prefer to do it by hand?{' '}
+                Rather wire it up by hand?{' '}
                 <Link to="https://posthog.com/docs/getting-started/install" target="_blank">
-                    Manual install docs
+                    Read the install docs
                 </Link>
             </p>
         </div>
@@ -165,10 +174,7 @@ function tint(color: string): string {
 
 // Card status reflects both config and the SDK: turned-on sources can't actually collect until the
 // posthog-js SDK is installed, so they read as "Needs install" rather than "Active" until then.
-function statusFor(
-    active: boolean,
-    sdkInstalled: boolean
-): { type: 'muted' | 'success' | 'warning'; label: string } {
+function statusFor(active: boolean, sdkInstalled: boolean): { type: 'muted' | 'success' | 'warning'; label: string } {
     if (!active) {
         return { type: 'muted', label: 'Off' }
     }

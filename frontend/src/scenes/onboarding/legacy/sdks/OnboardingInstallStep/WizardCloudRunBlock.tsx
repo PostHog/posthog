@@ -67,8 +67,8 @@ export function WizardCloudRunBlock({
                         <>
                             <div className="font-semibold">Starting your cloud run…</div>
                             <div className="text-sm text-muted">
-                                Kicking off the wizard on {repoLabel}. Progress will appear here in a moment and stays in
-                                the corner as you keep going.
+                                Kicking off the wizard on {repoLabel}. Progress will appear here in a moment and stays
+                                in the corner as you keep going.
                             </div>
                         </>
                     ) : (
@@ -88,7 +88,7 @@ export function WizardCloudRunBlock({
     return (
         <WizardModeShell hideHog={hideHog} data-attr="wizard-cloud-run-block">
             <p className="text-sm text-muted mb-0">
-                We'll run the wizard against your repo and open a pull request with the SDK installed and events
+                We'll run the wizard against your repo and open a pull request with the SDK installed and your context
                 flowing. Review it and merge whenever you're ready.
             </p>
 
@@ -107,12 +107,14 @@ export function WizardCloudRunBlock({
                 <div className="flex w-full flex-col gap-2">
                     <div className="flex items-center gap-2">
                         <div className="relative flex-1">
-                            <IconPullRequest className="absolute left-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
+                            <IconGithub className="absolute left-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
                             <GitHubRepositoryPicker
                                 integrationId={githubIntegration.id}
                                 value={selectedRepository ?? ''}
                                 onChange={(repository) => setSelectedRepository(repository)}
-                                className="pl-7 pr-7"
+                                // Make the combobox read as a dropdown, not a text field: the LemonInput
+                                // root defaults to `cursor: text` (unlayered SCSS), so override with `!`.
+                                className="pl-7 pr-7 !cursor-pointer"
                             />
                             {!selectedRepository && (
                                 <IconChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />

@@ -36,11 +36,43 @@ const githubIntegration: IntegrationType = {
     created_at: '2024-01-01T00:00:00Z',
 }
 
+// Metadata-rich repos so the picker's option rows (language, default branch, recency, private/archived,
+// write access) are exercised. pushed_at values are relative to the story's mockDate (2023-05-25).
 const githubReposResponse = {
     repositories: [
-        { id: 1, name: 'web', full_name: 'acme-co/web' },
-        { id: 2, name: 'api', full_name: 'acme-co/api' },
-        { id: 3, name: 'mobile-app', full_name: 'acme-co/mobile-app' },
+        {
+            id: 1,
+            name: 'web',
+            full_name: 'acme-co/web',
+            private: false,
+            default_branch: 'main',
+            language: 'TypeScript',
+            pushed_at: '2023-05-24T10:00:00Z',
+            archived: false,
+            can_push: true,
+        },
+        {
+            id: 2,
+            name: 'api',
+            full_name: 'acme-co/api',
+            private: true,
+            default_branch: 'master',
+            language: 'Python',
+            pushed_at: '2023-05-11T10:00:00Z',
+            archived: false,
+            can_push: true,
+        },
+        {
+            id: 3,
+            name: 'mobile-app',
+            full_name: 'acme-co/mobile-app',
+            private: true,
+            default_branch: 'develop',
+            language: 'Swift',
+            pushed_at: '2023-02-01T10:00:00Z',
+            archived: true,
+            can_push: false,
+        },
     ],
     has_more: false,
 }
@@ -149,6 +181,27 @@ export const RepoSelected: Story = cloudRunStory({
     integrations: [githubIntegration],
     drive: () => wizardCloudRunLogic.actions.setSelectedRepository('web'),
     waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]',
+})
+
+/** Repo picker opened — shows the metadata-rich option rows: language, default branch, recency, a lock
+ * for private repos, an "Archived" tag, and a "No write access" warning where we can't open PRs. */
+export const RepoPickerOpen: Story = cloudRunStory({
+    integrations: [githubIntegration],
+    waitForSelector: '[data-attr="select-github-repository"]',
+    extraPlay: async () => {
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="select-github-repository"] input')) {
+                throw new Error('repo picker not ready')
+            }
+        })
+        await userEvent.click(document.querySelector('[data-attr="select-github-repository"] input') as Element)
+        // full_name only appears in the open dropdown (nothing is selected), so this confirms it's open.
+        await waitFor(() => {
+            if (!Array.from(document.querySelectorAll('span')).some((el) => el.textContent === 'acme-co/mobile-app')) {
+                throw new Error('repo options not open')
+            }
+        })
+    },
 })
 
 /** Run kicked off — non-blocking confirmation; the FAB takes over from here. */

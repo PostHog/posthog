@@ -28,7 +28,8 @@ export function WizardCommandBlock({ hideHog = false }: { hideHog?: boolean } = 
                 onCopy={(key) => setCastKey(key)}
             />
             <p className="text-xs text-muted mb-0">
-                Auto-detects your framework, installs the SDK, and sets up event capture.
+                Auto-detects your framework, installs the SDK, and sets up event capture. Commit the changes and open a
+                PR when you're ready.
             </p>
         </WizardModeShell>
     )
