@@ -113,6 +113,7 @@ the row lists both.
 | everhour            | HTTP                        | requests                                                        | ✅                          |
 | fillout             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | financial_modelling | HTTP                        | requests                                                        | ✅                          |
+| finnhub             | HTTP                        | requests                                                        | ✅                          |
 | finnworlds          | HTTP                        | requests                                                        | ✅                          |
 | front               | HTTP                        | requests                                                        | ✅                          |
 | fullstory           | HTTP                        | requests                                                        | ✅                          |
@@ -394,7 +395,6 @@ doesn't conflict with concurrent PRs.
 - fauna
 - feishu
 - finage
-- finnhub
 - firebase
 - firebolt
 - firehydrant
