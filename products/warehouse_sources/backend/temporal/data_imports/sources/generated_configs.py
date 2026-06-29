@@ -1069,7 +1069,7 @@ class EventzillaSourceConfig(config.Config):
 
 @config.config
 class EverhourSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
