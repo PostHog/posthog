@@ -747,11 +747,6 @@ const BAR_TRACK_HATCH_ALPHA = 0.18
  *  hover callback can match the resting track's tuning. */
 export const BAR_TRACK_HOVER_ALPHA = 0.2
 
-/** Fallback fill for the "beyond `trackMax`" band when the caller supplies no
- *  {@link BarsConfig.trackBeyondColor}. A faint mode-neutral grey — flat, no hatch — so the
- *  capped headroom reads as "not applicable" rather than a (hatched) drop-off track. */
-export const DEFAULT_BAR_NOT_PRESENT_COLOR = 'rgba(128, 128, 128, 0.1)'
-
 function fillTrackRects(ctx: CanvasRenderingContext2D, tracks: BarRect[], cornerRadius: number): void {
     for (const track of tracks) {
         ctx.beginPath()

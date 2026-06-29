@@ -7,12 +7,6 @@ import type { Series } from '@posthog/quill-charts'
 
 export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
 export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
-export const FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY = 'funnel-bar-horizontal-not-present'
-
-/** Faint flat fill for the headroom a shorter compare period leaves below the shared baseline — the
- *  volume difference vs the larger period, not drop-off. Mode-neutral and kept in sync with the
- *  vertical chart's `trackBeyondColor` so both layouts read the "not applicable" zone the same way. */
-export const FUNNEL_NOT_PRESENT_FILL = 'rgba(128, 128, 128, 0.12)'
 
 /** Every step's bar is its own single-band chart, so they only line up if they share this
  *  value domain (passed to BarChart as `bars.valueDomain`). Segment data are basis-step
@@ -30,10 +24,6 @@ export function funnelConversionRate(count: number, basisCount: number): number 
 export interface FunnelBarHorizontalSegmentMeta {
     isDropOff: boolean
     breakdownIndex: number | null
-    /** The inert volume-gap band (compare mode): the headroom a shorter period leaves below the
-     *  shared baseline. The click handler skips it; absent/false for conversion, drop-off, and
-     *  breakdown segments. */
-    isNotPresent?: boolean
 }
 
 /** Series for one step's single-band bar. Each series' `data` has exactly one value. */
@@ -47,7 +37,8 @@ export interface FunnelBarHorizontalStepData {
  *  default). `breakdownIndex` tags the filler with its period/variant in compare mode so a drop-off
  *  click resolves the right series; it stays null for the single-bar and breakdown paths. In compare
  *  mode `maxPercent` is capped at the period's own entry level so the band covers only genuine
- *  drop-off — the remaining headroom is the inert "not present" band, not drop-off. */
+ *  drop-off — the bar then stops there, leaving the headroom up to 100% empty (a shorter period's
+ *  missing volume isn't drop-off). */
 export function buildFunnelBarHorizontalFiller(
     segments: Series<FunnelBarHorizontalSegmentMeta>[],
     color: string,
@@ -62,28 +53,6 @@ export function buildFunnelBarHorizontalFiller(
         color,
         visibility: { tooltip: false },
         meta: { isDropOff: true, breakdownIndex },
-    }
-}
-
-/** The inert "not present" band from `capPercent` up to 100% — the headroom a shorter compare period
- *  leaves below the shared baseline. Distinct faint fill and its own meta flag so the click handler
- *  skips it (no actors); hidden from the tooltip like the drop-off filler. Returns null when there's
- *  no gap (`capPercent` at or above 100%, i.e. the larger period or a non-compare bar). */
-export function buildFunnelBarHorizontalNotPresent(
-    capPercent: number,
-    breakdownIndex: number | null = null
-): Series<FunnelBarHorizontalSegmentMeta> | null {
-    const gap = RATE_TO_PERCENT - capPercent
-    if (gap <= 0) {
-        return null
-    }
-    return {
-        key: FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY,
-        label: 'Not in this period',
-        data: [gap],
-        color: FUNNEL_NOT_PRESENT_FILL,
-        visibility: { tooltip: false },
-        meta: { isDropOff: false, isNotPresent: true, breakdownIndex },
     }
 }
 

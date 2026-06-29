@@ -82,7 +82,6 @@ function BarChartInner<Meta = unknown>({
     const {
         cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
-        trackBeyondColor: barTrackBeyondColor,
         shadow: barShadow,
         divergingStack = false,
         maxBandRange,
@@ -271,7 +270,6 @@ function BarChartInner<Meta = unknown>({
                 roundStackEnds,
                 barCornerRadius,
                 barTrack,
-                barTrackBeyondColor,
                 barShadow,
                 barFillStyle,
             }),
@@ -285,7 +283,6 @@ function BarChartInner<Meta = unknown>({
             roundStackEnds,
             barCornerRadius,
             barTrack,
-            barTrackBeyondColor,
             xTickFormatter,
             barShadow,
             barFillStyle,
@@ -375,6 +372,41 @@ function BarChartInner<Meta = unknown>({
         [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
     )
 
+    // Whether the cursor is over an interactive region of the hovered band — a drawn bar/segment,
+    // or (with a capped `track`) the drop-off zone up to `trackMax`, but not the empty headroom
+    // beyond it. Reuses the click resolver so the pointer cursor and the click agree on what's
+    // actionable (e.g. a funnel's "fewer entrants" headroom is inert).
+    const isPointInteractive = useCallback(
+        (cursor: { x: number; y: number }, dataIndex: number, scales: ChartScales): boolean => {
+            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+            const currentSeries = seriesRef.current
+            const currentLabels = labelsRef.current
+            if (!d3Scales || currentSeries.length === 0 || dataIndex < 0 || dataIndex >= currentLabels.length) {
+                return true
+            }
+            const resolved = resolveClickedBarSeries<Meta>({
+                clickData: {
+                    seriesIndex: 0,
+                    dataIndex,
+                    series: currentSeries[0],
+                    value: currentSeries[0].data[dataIndex] ?? 0,
+                    label: currentLabels[dataIndex],
+                    crossSeriesData: currentSeries.map((s) => ({ series: s, value: s.data[dataIndex] ?? 0 })),
+                    cursor,
+                },
+                scales: d3Scales,
+                barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+                series: currentSeries,
+                labels: currentLabels,
+            })
+            return resolved != null && !resolved.beyondTrackMax
+        },
+        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
+    )
+
     const chart = (
         <Chart
             series={visibleSeries}
@@ -398,6 +430,7 @@ function BarChartInner<Meta = unknown>({
             )}
             onPointClick={onPointClick}
             wrapClickData={onPointClick ? wrapClickData : undefined}
+            isPointInteractive={onPointClick ? isPointInteractive : undefined}
             className={className}
             dataAttr={dataAttr}
             resolveValue={resolveValue}

@@ -89,6 +89,10 @@ export interface ChartProps<Meta = unknown> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Chart-type seam: whether the cursor is over an interactive region of the hovered band. When
+     *  it returns false the pointer cursor is suppressed and `onPointClick` doesn't fire — e.g. the
+     *  empty headroom above a capped funnel track. Chart-type adapters provide this. */
+    isPointInteractive?: (cursor: { x: number; y: number }, dataIndex: number, scales: ChartScales) => boolean
 }
 
 export function Chart<Meta = unknown>({
@@ -110,6 +114,7 @@ export function Chart<Meta = unknown>({
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
+    isPointInteractive,
 }: ChartProps<Meta>): React.ReactElement {
     const {
         xTickFormatter,
@@ -219,6 +224,7 @@ export function Chart<Meta = unknown>({
         interactionAxis,
         labelToCoord,
         wrapClickData,
+        isPointInteractive,
     })
 
     // ref keeps composedDrawHover stable across drawHover identity changes
@@ -317,7 +323,14 @@ export function Chart<Meta = unknown>({
                     overlayCanvasRef={overlayCanvasRef}
                     className={className}
                     dataAttr={dataAttr}
-                    pointer={hoverIndex >= 0 && !!onPointClick}
+                    pointer={
+                        hoverIndex >= 0 &&
+                        !!onPointClick &&
+                        (!isPointInteractive ||
+                            !hoverPosition ||
+                            !scales ||
+                            isPointInteractive(hoverPosition, hoverIndex, scales))
+                    }
                     crosshair={!!onDateRangeZoom}
                     ariaLabel={ariaLabel}
                     handlers={handlers}

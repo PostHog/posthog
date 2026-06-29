@@ -6,13 +6,11 @@ import {
     BAR_TRACK_HOVER_ALPHA,
     type BarShadow,
     clipToRoundedRects,
-    DEFAULT_BAR_NOT_PRESENT_COLOR,
     drawAxes,
     drawBarHighlight,
     drawBars,
     drawBarTracks,
     drawGrid,
-    drawSolidBarTracks,
     type DrawContext,
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
@@ -83,8 +81,6 @@ export interface DrawBarChartStaticArgs {
     roundStackEnds: boolean
     barCornerRadius: number
     barTrack: boolean
-    /** Flat fill for the "beyond `trackMax`" band; falls back to {@link DEFAULT_BAR_NOT_PRESENT_COLOR}. */
-    barTrackBeyondColor: string | undefined
     barShadow: BarsConfig['shadow']
     barFillStyle: BarFillStyle
 }
@@ -105,7 +101,6 @@ export function drawBarChartStatic(
         roundStackEnds,
         barCornerRadius,
         barTrack,
-        barTrackBeyondColor,
         barShadow,
         barFillStyle,
     }: DrawBarChartStaticArgs
@@ -161,17 +156,10 @@ export function drawBarChartStatic(
     // a full-height track over the same band with the wrong corners.
     if (barTrack && barLayout === 'grouped') {
         const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
-        const beyondColor = barTrackBeyondColor ?? DEFAULT_BAR_NOT_PRESENT_COLOR
         for (const { series: s, bars } of seriesBars) {
-            // A capped series first lays its flat "not applicable" fill across the *whole* column as a
-            // backdrop, so the rounded corners of the (shorter) hatched track and the bar reveal it
-            // rather than the page background. The hatched track is then capped at `trackMax` on top,
-            // leaving the headroom above it showing only the flat fill — a shorter compare period's
-            // empty space reads as "fewer entrants", not drop-off.
-            if (s.trackMax != null) {
-                const backdrops = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
-                drawSolidBarTracks(ctx, backdrops, beyondColor, barCornerRadius)
-            }
+            // Cap the hatched track at the series' `trackMax` (full axis by default). The headroom
+            // above a cap is left empty and inert (see `isPointInteractive` / `beyondTrackMax`) — a
+            // shorter compare period's missing volume shouldn't read as drop-off.
             const capPixel = s.trackMax != null ? d3Scales.value(s.trackMax) : axisEnd
             const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, capPixel, isHorizontal))
             drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)

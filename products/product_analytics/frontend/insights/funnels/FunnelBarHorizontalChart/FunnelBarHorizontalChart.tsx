@@ -102,11 +102,6 @@ export function FunnelBarHorizontalChart({
                     const isOptional = isStepOptional(stepIndex + 1)
 
                     const onSegmentClick = (meta: FunnelBarHorizontalSegmentMeta): void => {
-                        // The "not present" band is the volume gap vs the other period, not drop-off —
-                        // it has no actors, so it's inert.
-                        if (meta.isNotPresent) {
-                            return
-                        }
                         // Compare: both the bar and its drop-off filler carry a period breakdownIndex, so
                         // route the matching period series (converted vs. dropped-off) — handled before the
                         // generic drop-off branch, which would otherwise open the aggregate step.

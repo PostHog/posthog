@@ -1,6 +1,6 @@
 import type { BarChartConfig, ChartMargins, Series, TooltipConfig } from '@posthog/quill-charts'
 
-import { FUNNEL_NOT_PRESENT_FILL, funnelConversionRate, RATE_TO_PERCENT } from './funnelBarHorizontalShared'
+import { funnelConversionRate, RATE_TO_PERCENT } from './funnelBarHorizontalShared'
 
 // Dependency-neutral primitives for the vertical (grouped) funnel bars, shared by the web container
 // (FunnelStepsBarChart) and the MCP UI app. Like funnelBarHorizontalShared.ts, this is free of `~/`,
@@ -41,9 +41,8 @@ export function buildFunnelStepsBarConfig(options: FunnelStepsBarConfigOptions =
             cornerRadius: 10,
             track: true,
             // Compare bars cap their track at the period's entry level (per-series `trackMax`); the
-            // headroom above it is drawn in this faint flat fill so it reads as "not present", not
-            // drop-off. Matches the top-to-bottom layout's "not present" band.
-            trackBeyondColor: FUNNEL_NOT_PRESENT_FILL,
+            // headroom above it is left empty and inert — a shorter period's missing volume isn't
+            // drop-off.
             shadow: { color: 'rgba(0,0,0,0.15)', blur: 6, offsetY: -2 },
             bandPadding: FUNNEL_STEPS_BAND_PADDING,
         },

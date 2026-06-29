@@ -301,51 +301,49 @@ describe('buildFunnelBarHorizontalData', () => {
             }),
         ]
 
-        it('gives each step a current and a previous bar; the shorter previous period gains a "not present" band', () => {
+        it('gives each step a current and a previous bar, each its own segment + capped drop-off', () => {
             const result = buildFunnelBarHorizontalCompareData(compareSteps, options)
 
             expect(result).toHaveLength(2)
             expect(result.every((step) => step.bars.length === 2)).toBe(true)
-            // current (taller): segment + drop-off; previous (shorter): + the inert "not present" band
-            expect(result.every((step) => step.bars[0].series.length === 2)).toBe(true)
-            expect(result.every((step) => step.bars[1].series.length === 3)).toBe(true)
+            expect(result.every((step) => step.bars.every((bar) => bar.series.length === 2))).toBe(true)
         })
 
-        it('caps the shorter period’s drop-off at its own entry level, with the headroom as a "not present" band', () => {
+        it('caps the shorter period’s drop-off at its own entry level, leaving the headroom empty', () => {
             const result = buildFunnelBarHorizontalCompareData(compareSteps, options)
 
             // current (entry level 100): segment 100→50, drop-off fills the rest to 100
             expect(result.map((s) => s.bars[0].series[0].data[0])).toEqual([100, 50])
             expect(result.map((s) => s.bars[0].series[1].data[0])).toEqual([0, 50])
-            // previous (entry level 80): segment 80→40, drop-off only up to 80, then a constant 20 "not present" band
+            // previous (entry level 80): segment 80→40, drop-off only up to 80 — segment + drop-off sum
+            // to 80, so the bar stops there and the 80→100 headroom is left empty
             expect(result.map((s) => s.bars[1].series[0].data[0])).toEqual([80, 40])
             expect(result.map((s) => s.bars[1].series[1].data[0])).toEqual([0, 40])
-            expect(result.map((s) => s.bars[1].series[2].data[0])).toEqual([20, 20])
         })
 
         it.each([
             {
                 description:
-                    'caps the shorter current period and bands its headroom; the larger previous fills the track',
+                    'caps the shorter current period so it stops at its entry level; the larger previous fills the track',
                 nested_breakdown: [
                     makeStep({ count: 80, fromBasisStep: 0.8, compare_label: 'current' }),
                     makeStep({ count: 100, fromBasisStep: 1, compare_label: 'previous' }),
                 ],
-                // current (entry 80): segment + zero drop-off + 20 "not present"; previous (entry 100) fills the track
+                // current (entry 80): segment + drop-off sum to 80; previous (entry 100) fills the track
                 expectedBars: [
-                    { series: [[80], [0], [20]], breakdownIndex: 0 },
+                    { series: [[80], [0]], breakdownIndex: 0 },
                     { series: [[100], [0]], breakdownIndex: 1 },
                 ],
             },
             {
-                description: 'renders a zeroed previous period as a full "not present" band',
+                description: 'renders a zeroed previous period as an empty bar',
                 nested_breakdown: [
                     makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' }),
                     makeStep({ count: 0, fromBasisStep: 0, compare_label: 'previous' }),
                 ],
                 expectedBars: [
                     { series: [[100], [0]], breakdownIndex: 0 },
-                    { series: [[0], [0], [100]], breakdownIndex: 1 },
+                    { series: [[0], [0]], breakdownIndex: 1 },
                 ],
             },
             {
@@ -379,16 +377,13 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(getColor).toHaveBeenCalledWith(compareSteps[1].nested_breakdown![1])
         })
 
-        it('tags each bar’s segment, drop-off, and "not present" band for click + tooltip routing', () => {
+        it('tags each bar’s segment and drop-off with its period breakdownIndex for click routing', () => {
             const [step] = buildFunnelBarHorizontalCompareData(compareSteps, options)
 
-            // current bar (full height): segment + drop-off
             expect(step.bars[0].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 0 })
             expect(step.bars[0].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 0 })
-            // previous bar (shorter): segment + drop-off + the inert "not present" band
             expect(step.bars[1].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
             expect(step.bars[1].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 1 })
-            expect(step.bars[1].series[2].meta).toEqual({ isDropOff: false, isNotPresent: true, breakdownIndex: 1 })
         })
 
         describe('with breakdown', () => {

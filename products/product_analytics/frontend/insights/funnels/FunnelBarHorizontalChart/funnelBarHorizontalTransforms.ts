@@ -7,7 +7,6 @@ import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/typ
 
 import {
     buildFunnelBarHorizontalFiller,
-    buildFunnelBarHorizontalNotPresent,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
     RATE_TO_PERCENT,
     type FunnelBarHorizontalSegmentMeta,
@@ -116,16 +115,16 @@ export function buildFunnelBarHorizontalCompareData(
                 meta: { isDropOff: false, breakdownIndex },
             }
             // Cap the drop-off filler at this period's own entry level (its step-0 fraction of the
-            // shared baseline) so only genuine within-period drop-off shows; the headroom up to 100%
-            // becomes the inert "not present" band (omitted for the larger period, cap = 100%).
+            // shared baseline) so only genuine within-period drop-off shows; the bar then stops at the
+            // cap, leaving the headroom up to 100% empty and inert (the chart's `isPointInteractive`
+            // seam makes it non-interactive). The larger period (cap = 100%) fills the full track.
             const capPercent = isPureCompare
                 ? (steps[0].nested_breakdown?.[breakdownIndex]?.conversionRates.fromBasisStep ?? 1) * RATE_TO_PERCENT
                 : RATE_TO_PERCENT
             const dropOff = buildFunnelBarHorizontalFiller([segment], options.fillerColor, breakdownIndex, capPercent)
-            const notPresent = buildFunnelBarHorizontalNotPresent(capPercent, breakdownIndex)
             return {
                 label: String(stepIndex),
-                series: notPresent ? [segment, dropOff, notPresent] : [segment, dropOff],
+                series: [segment, dropOff],
             }
         })
         return { bars }

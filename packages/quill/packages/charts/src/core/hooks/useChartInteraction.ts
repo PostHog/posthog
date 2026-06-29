@@ -44,6 +44,10 @@ interface UseChartInteractionOptions<Meta> {
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+    /** Chart-type seam: whether the cursor is over an interactive region of the hovered band, given
+     *  the committed `scales`. Gates the click (a non-interactive point fires no `onPointClick`) and
+     *  the pointer cursor. Defaults to interactive everywhere. Chart-type adapters provide this. */
+    isPointInteractive?: (cursor: { x: number; y: number }, dataIndex: number, scales: ChartScales) => boolean
 }
 
 interface UseChartInteractionResult<Meta> {
@@ -75,6 +79,7 @@ export function useChartInteraction<Meta = unknown>({
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
+    isPointInteractive,
 }: UseChartInteractionOptions<Meta>): UseChartInteractionResult<Meta> {
     // Falls back to the value resolver when the chart doesn't distinguish position from
     // value (i.e. non-stacked charts, where the two are identical).
@@ -261,7 +266,13 @@ export function useChartInteraction<Meta = unknown>({
         }
 
         if (onPointClick) {
-            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, hoverPositionRef.current)
+            const cursor = hoverPositionRef.current
+            // A non-interactive point (e.g. the empty headroom above a capped funnel track) fires
+            // no click — mirrors the pointer-cursor gate in Chart.
+            if (isPointInteractive && cursor && scales && !isPointInteractive(cursor, currentIndex, scales)) {
+                return
+            }
+            const clickData = buildPointClickData(currentIndex, series, labels, resolveValue, cursor)
             if (clickData) {
                 onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
             }
@@ -280,6 +291,7 @@ export function useChartInteraction<Meta = unknown>({
         hoverIndexRef,
         hoverPositionRef,
         wrapClickData,
+        isPointInteractive,
         scales,
     ])
 

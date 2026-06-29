@@ -389,6 +389,35 @@ describe('BarChart', () => {
             await waitFor(() => expect(getHogChartTooltip()?.textContent ?? '').toBe(''))
         })
 
+        it('gates the click to the bar value extent, leaving the empty track inert', () => {
+            // Same geometry as the tooltip-suppression test above: the mid row (Tue) stacks to 35
+            // while the axis runs to 55, so the left of the plot is filled bar and the right is empty
+            // track. The empty track resolves to no segment, so `isPointInteractive` blocks the click.
+            const onPointClick = jest.fn()
+            const { chart } = renderHogChart(
+                <BarChart
+                    series={SERIES}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'stacked', axisOrientation: 'horizontal' }}
+                    onPointClick={onPointClick}
+                />
+            )
+            const yMidRow = dimensions.plotTop + dimensions.plotHeight / 2
+
+            // Over the bar: the click fires.
+            fireEvent.mouseMove(chart.element, { clientX: dimensions.plotLeft + dimensions.plotWidth * 0.2, clientY: yMidRow })
+            fireEvent.click(chart.element)
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+
+            onPointClick.mockClear()
+
+            // Past the bar's value extent (empty track): inert — no click fires.
+            fireEvent.mouseMove(chart.element, { clientX: dimensions.plotLeft + dimensions.plotWidth * 0.95, clientY: yMidRow })
+            fireEvent.click(chart.element)
+            expect(onPointClick).not.toHaveBeenCalled()
+        })
+
         describe('sparse-stacked horizontal (overlap layout)', () => {
             // Mirrors `buildTrendsBarAggregatedSeries`: each series has one non-zero value at
             // its own dataIndex, every label is the same band. Smallest bar paints on top, so

@@ -48,9 +48,9 @@ export interface Series<Meta = unknown> {
     bars?: { color?: string; label?: string; meta?: Meta }[]
     /** Grouped `track: true` bar charts only: cap this series' hatched track at this value (in
      *  value-axis units) instead of the full axis. The region from `trackMax` to the axis max is
-     *  drawn as a faint flat "not applicable" band (see {@link BarsConfig.trackBeyondColor}) rather
-     *  than a track, and clicks there report {@link PointClickData.beyondTrackMax}. Used by funnel
-     *  compare bars so a shorter period's empty headroom reads as "fewer entrants", not drop-off.
+     *  left empty and inert — clicks there report {@link PointClickData.beyondTrackMax}, and the
+     *  chart's `isPointInteractive` seam treats it as non-interactive (no pointer, no click). Used
+     *  by funnel compare bars so a shorter period's empty headroom isn't mistaken for drop-off.
      *  Omit (default) for a track that spans the whole axis. */
     trackMax?: number
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
@@ -354,11 +354,6 @@ export interface BarsConfig {
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
      *  but leave it inert (no highlight when the cursor is over the empty remainder). */
     track?: boolean | { hover?: boolean }
-    /** Fill for the "beyond {@link Series.trackMax}" band — the headroom above a series whose
-     *  track is capped, drawn flat (no hatch) so it reads as "not applicable" rather than drop-off.
-     *  Pass a resolved color (the consumer owns theme/CSS-var resolution). Only drawn for series
-     *  that set `trackMax`; ignored otherwise. Defaults to a faint neutral when omitted. */
-    trackBeyondColor?: string
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal
