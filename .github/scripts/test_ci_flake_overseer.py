@@ -123,7 +123,7 @@ def test_build_decision_events_one_event_per_decision() -> None:
         classify_job(make_job("Build and deploy", failed_step="Compile assets")),
     )
 
-    events = build_decision_events("PostHog/posthog", make_workflow_run(head_branch="master"), decisions)
+    events = build_decision_events("PostHog/posthog", make_workflow_run(), decisions)
 
     assert [event["event"] for event in events] == [DECISION_EVENT, DECISION_EVENT]
     assert all(event["distinct_id"] == "PostHog/posthog" for event in events)
@@ -135,7 +135,6 @@ def test_build_decision_events_one_event_per_decision() -> None:
     assert first["classified_via"] == "job_name"
     assert first["job_conclusion"] == "failure"
     assert first["failed_steps"] == ["Run Core tests"]
-    assert first["is_master"] is True
     assert first["$insert_id"] == "decision:999:1:123"
     assert events[1]["properties"]["action"] == "skip non-test"
     assert events[1]["properties"]["classified_via"] is None
@@ -245,14 +244,24 @@ def test_report_rerun_outcomes_unknown_when_current_name_ambiguous(monkeypatch: 
     assert events[0]["properties"]["outcome"] == "unknown"
 
 
-def test_build_decision_events_pr_run_is_not_master() -> None:
+@pytest.mark.parametrize(
+    ("head_branch", "event", "expected_is_master"),
+    [
+        pytest.param("master", "push", True, id="master-is-master"),
+        pytest.param("main", "push", True, id="main-is-master"),
+        pytest.param("some-feature", "pull_request", False, id="pr-branch-not-master"),
+    ],
+)
+def test_build_decision_events_is_master(head_branch: str, event: str, expected_is_master: bool) -> None:
     decisions = (classify_job(make_job("Django tests - Temporal (1/1)")),)
 
-    events = build_decision_events("PostHog/posthog", make_workflow_run(), decisions)
+    events = build_decision_events(
+        "PostHog/posthog", make_workflow_run(head_branch=head_branch, event=event), decisions
+    )
 
     props = events[0]["properties"]
-    assert props["is_master"] is False
-    assert props["trigger_event"] == "pull_request"
+    assert props["is_master"] is expected_is_master
+    assert props["trigger_event"] == event
 
 
 def test_report_rerun_outcomes_ignores_non_test_jobs(monkeypatch: pytest.MonkeyPatch) -> None:
