@@ -7,9 +7,9 @@ import { Breadcrumb } from '~/types'
 
 import type { replayScannerSceneLogicType } from './replayScannerSceneLogicType'
 
-export type ReplayScannerTab = 'observations' | 'on-demand' | 'configuration'
+export type ReplayScannerTab = 'observations' | 'on-demand' | 'configuration' | 'actions'
 
-const SCANNER_TABS: ReplayScannerTab[] = ['observations', 'on-demand', 'configuration']
+const SCANNER_TABS: ReplayScannerTab[] = ['observations', 'on-demand', 'configuration', 'actions']
 const DEFAULT_TAB: ReplayScannerTab = 'observations'
 
 function parseTab(tab: unknown): ReplayScannerTab {

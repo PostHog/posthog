@@ -90,6 +90,8 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomPropertyDefinition
+                              |CustomPropertyValue
                               |DAG
                               |Dashboard
                               |DashboardTemplate
@@ -109,7 +111,6 @@ rules:
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -258,6 +259,7 @@ rules:
                               |VisionAction
                               |VisionActionRun
                               |WarehouseColumnAnnotation
+                              |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -354,6 +356,8 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomPropertyDefinition
+                        |CustomPropertyValue
                         |DAG
                         |Dashboard
                         |DashboardTemplate
@@ -373,7 +377,6 @@ rules:
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext
@@ -518,6 +521,7 @@ rules:
                         |VisionAction
                         |VisionActionRun
                         |WarehouseColumnAnnotation
+                        |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction

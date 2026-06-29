@@ -3,12 +3,12 @@ import { merge as mergeDeep } from 'lodash'
 import { Settings } from 'luxon'
 
 import { getTransformationFunctions } from '~/cdp/hog-transformations/transformation-functions'
+import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { formatLiquidInput } from '~/cdp/services/hog-inputs.service'
 import { NativeDestinationExecutorService } from '~/cdp/services/native-destination-executor.service'
 import { isNativeHogFunction } from '~/cdp/utils'
-import { defaultConfig } from '~/config/config'
-import { CyclotronInputType } from '~/schema/cyclotron'
-import { GeoIPService, GeoIp } from '~/utils/geoip'
+import { defaultConfig } from '~/common/config/config'
+import { GeoIPService, GeoIp } from '~/common/utils/geoip'
 
 import { PluginsServerConfig } from '../../../types'
 import { HogExecutorService } from '../../services/hog-executor.service'
@@ -211,7 +211,6 @@ export class TemplateTester {
                 fetchRetries: config.CDP_FETCH_RETRIES,
                 fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
                 fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-                emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
                 selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
             },
             { teamManager: undefined as any, siteUrl: config.SITE_URL },

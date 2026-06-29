@@ -1,6 +1,6 @@
 import { ArtifactSource } from '~/queries/schema/schema-assistant-messages'
 
-import type { SandboxToolCallMessage } from '../../maxTypes'
+import type { ToolCallMessage } from '../../maxTypes'
 import {
     extractDashboard,
     extractErrorTrackingResponse,
@@ -13,7 +13,7 @@ function toolMessage(
     rawOutput: unknown,
     innerInput?: Record<string, unknown>,
     resolvedKey = 'test-tool'
-): SandboxToolCallMessage {
+): ToolCallMessage {
     return {
         id: 'call-1',
         resolvedKey,

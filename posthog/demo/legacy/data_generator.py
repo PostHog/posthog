@@ -1,7 +1,13 @@
 from uuid import uuid4
 
-from posthog.models import Person, PersonDistinctId, Team
+from django.conf import settings
+
+from psycopg import sql
+from psycopg.types.json import Jsonb
+
+from posthog.models import Person, Team
 from posthog.models.utils import UUIDT
+from posthog.persons_db import persons_db_connection
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 
@@ -30,13 +36,31 @@ class DataGenerator:
     def create_people(self):
         self.people = [self.make_person(i) for i in range(self.n_people)]
         self.distinct_ids = [str(UUIDT()) for _ in self.people]
-        self.people = Person.objects.bulk_create(self.people)  # nosemgrep: no-direct-persons-db-orm
 
-        pids = [
-            PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id)
-            for person, distinct_id in zip(self.people, self.distinct_ids)
-        ]
-        PersonDistinctId.objects.bulk_create(pids)  # nosemgrep: no-direct-persons-db-orm
+        with persons_db_connection(writer=True) as conn:
+            with conn.cursor() as cur:
+                insert_query = sql.SQL(
+                    "INSERT INTO {} (team_id, uuid, properties, is_identified, created_at) "
+                    "VALUES (%s, %s, %s, %s, now()) RETURNING id"
+                ).format(sql.Identifier(settings.PERSON_TABLE_NAME))
+                for person in self.people:
+                    cur.execute(
+                        insert_query,
+                        (self.team.pk, str(person.uuid), Jsonb(person.properties), person.is_identified),
+                    )
+                    row = cur.fetchone()
+                    assert row is not None
+                    person.pk = row[0]
+
+                cur.executemany(
+                    "INSERT INTO posthog_persondistinctid (team_id, distinct_id, person_id, version) "
+                    "VALUES (%s, %s, %s, %s)",
+                    [
+                        (self.team.pk, distinct_id, person.pk, 0)
+                        for person, distinct_id in zip(self.people, self.distinct_ids)
+                    ],
+                )
+
         from posthog.models.person.util import create_person, create_person_distinct_id
 
         for person in self.people:
@@ -47,8 +71,8 @@ class DataGenerator:
                 is_identified=person.is_identified,
                 version=0,
             )
-        for pid in pids:
-            create_person_distinct_id(pid.team.pk, pid.distinct_id, str(pid.person.uuid))  # use dummy number for id
+        for person, distinct_id in zip(self.people, self.distinct_ids):
+            create_person_distinct_id(person.team.pk, distinct_id, str(person.uuid))
 
     def make_person(self, index):
         return Person(team=self.team, properties={"is_demo": True})

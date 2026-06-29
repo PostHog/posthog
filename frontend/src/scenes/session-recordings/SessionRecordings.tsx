@@ -6,10 +6,10 @@ import { IconDocument, IconGear, IconHeadset, IconOpenSidebar } from '@posthog/i
 import { LemonBadge, LemonButton, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { WarningHog } from 'lib/components/hedgehogs'
 import { LiveRecordingsCount } from 'lib/components/LiveUserCount'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -88,7 +88,7 @@ function Header(): JSX.Element {
                     resourceType={AccessControlResourceType.SessionRecording}
                     minAccessLevel={AccessControlLevel.Editor}
                 >
-                    <AppShortcut
+                    <Shortcut
                         name="NewRecordingCollection"
                         keybind={[keyBinds.new]}
                         intent="New collection"
@@ -105,7 +105,7 @@ function Header(): JSX.Element {
                         >
                             New collection
                         </LemonButton>
-                    </AppShortcut>
+                    </Shortcut>
                 </AccessControlAction>
             )}
 

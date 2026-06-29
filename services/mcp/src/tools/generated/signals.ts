@@ -19,6 +19,10 @@ import {
     SignalsScoutConfigCreateBody,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
+    SignalsScoutEditReportBody,
+    SignalsScoutEditReportParams,
+    SignalsScoutEmitReportBody,
+    SignalsScoutEmitReportParams,
     SignalsScoutEmitSignalBody,
     SignalsScoutEmitSignalParams,
     SignalsScoutProjectProfileGetQueryParams,
@@ -554,6 +558,86 @@ const signalsScoutConfigUpdate = (): ToolBase<
     },
 })
 
+const SignalsScoutEditReportSchema = SignalsScoutEditReportParams.omit({ project_id: true }).extend(
+    SignalsScoutEditReportBody.shape
+)
+
+const signalsScoutEditReport = (): ToolBase<typeof SignalsScoutEditReportSchema, Schemas.EditReportResponse> => ({
+    name: 'signals-scout-edit-report',
+    schema: SignalsScoutEditReportSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutEditReportSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.report_id !== undefined) {
+            body['report_id'] = params.report_id
+        }
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.append_note !== undefined) {
+            body['append_note'] = params.append_note
+        }
+        const result = await context.api.request<Schemas.EditReportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/edit-report/`,
+            body,
+        })
+        return result
+    },
+})
+
+const SignalsScoutEmitReportSchema = SignalsScoutEmitReportParams.omit({ project_id: true }).extend(
+    SignalsScoutEmitReportBody.shape
+)
+
+const signalsScoutEmitReport = (): ToolBase<typeof SignalsScoutEmitReportSchema, Schemas.EmitReportResponse> => ({
+    name: 'signals-scout-emit-report',
+    schema: SignalsScoutEmitReportSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutEmitReportSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.title !== undefined) {
+            body['title'] = params.title
+        }
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        if (params.evidence !== undefined) {
+            body['evidence'] = params.evidence
+        }
+        if (params.actionability_explanation !== undefined) {
+            body['actionability_explanation'] = params.actionability_explanation
+        }
+        if (params.actionability !== undefined) {
+            body['actionability'] = params.actionability
+        }
+        if (params.already_addressed !== undefined) {
+            body['already_addressed'] = params.already_addressed
+        }
+        if (params.repository !== undefined) {
+            body['repository'] = params.repository
+        }
+        if (params.priority !== undefined) {
+            body['priority'] = params.priority
+        }
+        if (params.priority_explanation !== undefined) {
+            body['priority_explanation'] = params.priority_explanation
+        }
+        if (params.suggested_reviewers !== undefined) {
+            body['suggested_reviewers'] = params.suggested_reviewers
+        }
+        const result = await context.api.request<Schemas.EmitReportResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/runs/${encodeURIComponent(String(params.run_id))}/emit-report/`,
+            body,
+        })
+        return result
+    },
+})
+
 const SignalsScoutEmitSignalSchema = SignalsScoutEmitSignalParams.omit({ project_id: true }).extend(
     SignalsScoutEmitSignalBody.shape
 )
@@ -769,6 +853,8 @@ const signalsScoutScratchpadSearch = (): ToolBase<
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/scratchpad/`,
             query: {
                 content_max_chars: params.content_max_chars,
+                date_from: params.date_from,
+                date_to: params.date_to,
                 keys_only: params.keys_only,
                 limit: params.limit,
                 text: params.text,
@@ -797,6 +883,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
+    'signals-scout-edit-report': signalsScoutEditReport,
+    'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
     'signals-scout-project-profile-get': signalsScoutProjectProfileGet,
     'signals-scout-runs-emission-reports': signalsScoutRunsEmissionReports,

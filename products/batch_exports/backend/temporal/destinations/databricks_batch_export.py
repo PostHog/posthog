@@ -1249,6 +1249,7 @@ async def insert_into_databricks_activity_from_stage(inputs: DatabricksInsertInp
                     consumer=consumer,
                     producer_task=producer_task,
                     transformer=transformer,
+                    records_total=inputs.records_total,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

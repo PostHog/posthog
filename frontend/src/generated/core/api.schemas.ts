@@ -1762,6 +1762,10 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2610,14 +2614,10 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-}
-
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months?: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced?: boolean
 }
 
 export interface SharePasswordApi {
@@ -2852,66 +2852,6 @@ export interface PatchedFileSystemShortcutApi {
 export interface FileSystemShortcutReorderApi {
     /** IDs of the current user's shortcuts in the desired display order. */
     ordered_ids: string[]
-}
-
-/**
- * * `home` - Home
- * * `pinned` - Pinned
- * * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
-
-export const PersistedFolderTypeEnumApi = {
-    Home: 'home',
-    Pinned: 'pinned',
-    CustomProducts: 'custom_products',
-} as const
-
-export interface PersistedFolderApi {
-    readonly id: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedPersistedFolderListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PersistedFolderApi[]
-}
-
-export interface PatchedPersistedFolderApi {
-    readonly id?: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type?: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 /**
@@ -3644,6 +3584,11 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
+}
+
 export interface UserGitHubLinkStartRequestApi {
     /**
      * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
@@ -3661,12 +3606,64 @@ export interface UserGitHubLinkStartResponseApi {
     connect_flow: string
 }
 
+export interface UserSlackLinkableWorkspaceItemApi {
+    /** PostHog team/project id owning the Slack workspace install. */
+    posthog_team_id: number
+    /** PostHog team/project name, for display in a picker. */
+    posthog_team_name: string
+    /** PostHog organization name owning the team, for picker disambiguation. */
+    posthog_organization_name: string
+    /** Slack workspace (team) id. */
+    slack_team_id: string
+    /**
+     * Slack workspace display name as known by PostHog.
+     * @nullable
+     */
+    slack_team_name?: string | null
+}
+
+export interface UserSlackLinkableWorkspaceListResponseApi {
+    /** Slack workspaces the user could link to but hasn't yet. */
+    results: UserSlackLinkableWorkspaceItemApi[]
+}
+
+/**
+ * Settings-initiated link can target a specific PostHog team + Slack workspace.
+ *
+ * Both are optional — when omitted we fall back to the user's ``current_team``
+ * and that team's first Slack ``Integration`` (mirrors ``github_start`` for
+ * the simple case). The frontend passes both explicitly once it has the
+ * linkable-workspace list and the user has picked a workspace.
+ */
+export interface UserSlackLinkStartRequestApi {
+    /**
+     * Optional team/project id to link against; defaults to the user's current team.
+     * @nullable
+     */
+    team_id?: number | null
+    /**
+     * Specific Slack workspace id to link against, scoped to the team. Disambiguates when one team has multiple Slack integrations (rare).
+     * @nullable
+     */
+    slack_team_id?: string | null
+}
+
+export interface UserSlackLinkStartResponseApi {
+    /** URL to open in the browser to start the Sign-in-with-Slack flow. */
+    install_url: string
+}
+
 /**
  * A cookie-auth login session shown on the user's 'Web sessions' screen.
  */
 export interface UserAuthSessionApi {
     /** Identifier used to revoke this login session. */
     readonly id: string
+    /**
+     * When this login session was first created — the original sign-in time.
+     * @nullable
+     */
+    readonly created_at: string | null
     /** When this login session last made a request (refreshed periodically). */
     readonly last_activity: string
     /** Approximate city and country derived from the IP address, if known. */
@@ -3866,17 +3863,6 @@ export type DesktopFileSystemShortcutListParams = {
     offset?: number
 }
 
-export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3904,17 +3890,6 @@ export type FileSystemListParams = {
 }
 
 export type FileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */
@@ -4036,6 +4011,10 @@ export type UsersListParams = {
 
 export type UsersIntegrationsListParams = {
     /**
+     * Integration kind to list. Defaults to `github` for back-compat with mobile and the Code SDK, which call this endpoint without a query param and expect GitHub-shaped items.
+     */
+    kind?: UsersIntegrationsListKind
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -4044,6 +4023,13 @@ export type UsersIntegrationsListParams = {
      */
     offset?: number
 }
+
+export type UsersIntegrationsListKind = (typeof UsersIntegrationsListKind)[keyof typeof UsersIntegrationsListKind]
+
+export const UsersIntegrationsListKind = {
+    Github: 'github',
+    Slack: 'slack',
+} as const
 
 export type UsersIntegrationsGithubBranchesRetrieveParams = {
     /**

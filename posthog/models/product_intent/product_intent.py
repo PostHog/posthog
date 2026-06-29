@@ -375,7 +375,16 @@ def enqueue_product_activation_calc_debounced(team_id: int) -> bool:
         capture_exception(e)
         was_added = True
     if was_added:
-        calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        try:
+            calculate_product_activation.delay(team_id, only_calc_if_days_since_last_checked=1)
+        except Exception as e:
+            # Broker errors (e.g. kombu.OperationalError when the broker is unavailable)
+            # must not 500 the callers — this runs on every team/project retrieve. The
+            # debounce key is already set, so the team stays debounced for the window;
+            # capture so a chronic broker problem still surfaces in monitoring.
+            logger.warning("product_activation_enqueue_failure", team_id=team_id, exc_info=True)
+            capture_exception(e)
+            return False
         return True
     return False
 

@@ -8,6 +8,7 @@ import structlog
 from litellm import model_cost_map_url
 from litellm.litellm_core_utils.get_model_cost_map import get_model_cost_map
 
+from llm_gateway.rate_limiting.cost_refresh import set_litellm_model_cost
 from llm_gateway.rate_limiting.model_cost_overrides import apply_model_cost_overrides
 
 logger = structlog.get_logger(__name__)
@@ -76,13 +77,15 @@ class ModelCostService:
         cls._instance = None
 
     def _should_refresh(self) -> bool:
+        if self._last_refresh == 0:
+            return True
         return time.monotonic() - self._last_refresh > CACHE_TTL_SECONDS
 
     def _refresh_cache(self) -> None:
         try:
             model_cost = get_model_cost_map(url=model_cost_map_url)
             apply_model_cost_overrides(model_cost)
-            litellm.model_cost = model_cost
+            set_litellm_model_cost(model_cost)
             # Keep provider sets in sync — see cost_refresh.py.
             litellm.add_known_models(model_cost)
             self._costs = cast(dict[str, ModelCost], model_cost)

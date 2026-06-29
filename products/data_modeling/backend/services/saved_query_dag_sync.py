@@ -11,7 +11,7 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.modeling import UnknownParentError, get_parents_from_model_query
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 if TYPE_CHECKING:
     from posthog.models import Team

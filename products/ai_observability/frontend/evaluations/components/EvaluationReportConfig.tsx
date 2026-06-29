@@ -1,16 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import {
-    LemonCalendarSelectInput,
-    LemonDialog,
-    LemonInput,
-    LemonSelect,
-    LemonSwitch,
-    LemonTag,
-    LemonTextArea,
-} from '@posthog/lemon-ui'
+import { LemonDialog, LemonInput, LemonSelect, LemonSwitch, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
 
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import { DatePicker } from 'lib/components/DatePicker/DatePicker'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker, SlackNotConfiguredBanner } from 'lib/integrations/SlackIntegrationHelpers'
@@ -39,7 +32,7 @@ const TRIGGER_THRESHOLD_MAX = 10_000
 /** RRULE + starts_at + timezone inputs shown when frequency is 'scheduled'.
  * Accepts a raw RRULE string (RFC 5545) — matches the HogFlowSchedule contract in
  * products/workflows. A richer picker (RecurringSchedulePicker) can replace this later. */
-function ScheduleConfig({
+export function ScheduleConfig({
     rrule,
     startsAt,
     timezoneName,
@@ -63,14 +56,14 @@ function ScheduleConfig({
             </div>
             <div>
                 <label className="font-semibold text-sm">Starts at</label>
-                <LemonCalendarSelectInput
-                    buttonProps={{ fullWidth: true }}
+                <DatePicker
                     format="MMMM D, YYYY h:mm A"
                     clearable
                     value={startsAt ? dayjs(startsAt) : null}
                     onChange={(d) => onStartsAtChange(d ? d.toISOString() : null)}
                     granularity="minute"
                     showTimeToggle={false}
+                    maxDate={dayjs().add(5, 'year')}
                 />
                 <p className="text-xs text-muted mt-1">
                     Anchor datetime used when expanding the RRULE. Used as the first occurrence for plain frequencies.

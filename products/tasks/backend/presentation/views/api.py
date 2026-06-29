@@ -12,6 +12,7 @@ from django.conf import settings
 from django.http import HttpResponse, JsonResponse
 
 import requests as http_requests
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
 from rest_framework import status, viewsets
@@ -100,11 +101,16 @@ from products.tasks.backend.presentation.serializers import (
     TaskSummariesRequestSerializer,
     TaskSummarySerializer,
     TaskWriteSerializer,
+    WarmTaskRequestSerializer,
+    WarmTaskResponseSerializer,
 )
 
 from ee.hogai.utils.aio import async_to_sync
 
 logger = logging.getLogger(__name__)
+
+TASKS_PREWARM_SANDBOX_FLAG = "tasks-prewarm-sandbox"
+
 TASK_RUN_STREAM_KEEPALIVE_INTERVAL_SECONDS = 20.0
 TASK_RUN_STREAM_KEEPALIVE_EVENT_NAME = "keepalive"
 TASK_RUN_STREAM_KEEPALIVE_PAYLOAD = {"type": "keepalive"}
@@ -210,19 +216,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
-        # Flatten the query-param multidict to single values, matching the original `params.get(...)`.
         filters = {key: request.query_params.get(key) for key in request.query_params}
-        # internal/archived come from the validated query serializer (typed bool / choice).
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade.list_tasks(
+        tasks = tasks_facade._list_tasks_queryset(
             self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
         )
         page = self.paginate_queryset(tasks)
-        if page is not None:
-            return self.get_paginated_response(TaskSerializer(page, many=True).data)
-        return Response(TaskSerializer(tasks, many=True).data)
+        assert page is not None, "TaskViewSet list requires an active paginator"
+        return self.get_paginated_response(
+            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+        )
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -520,6 +525,73 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if result.error is not None:
             return self._task_error_response(result.error)
         return Response(TaskSerializer(result.task).data)
+
+    def _warm_enabled(self) -> bool:
+        """Person + org level gate for the sandbox-warming feature. Fail-closed on any error."""
+        user = self.request.user
+        distinct_id = getattr(user, "distinct_id", None) or str(getattr(user, "uuid", ""))
+        organization_id = str(getattr(self.team, "organization_id", "") or "")
+        try:
+            return bool(
+                posthoganalytics.feature_enabled(
+                    TASKS_PREWARM_SANDBOX_FLAG,
+                    distinct_id,
+                    groups={"organization": organization_id},
+                    group_properties={"organization": {"id": organization_id}},
+                    only_evaluate_locally=False,
+                    send_feature_flag_events=False,
+                )
+            )
+        except Exception:
+            logger.exception("tasks-prewarm-sandbox flag check failed; treating as disabled")
+            return False
+
+    @validated_request(
+        request_serializer=WarmTaskRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=WarmTaskResponseSerializer,
+                description="Warm Run provisioned (`task_id`/`run_id` to activate on submit), or an empty body when the feature is off, capped, or the integration didn't resolve.",
+            ),
+        },
+        summary="Warm a task sandbox",
+        description=(
+            "Warm a full idling Run for a Code-app cloud task while the user composes: boot a sandbox, "
+            "clone the repo, check out the branch, and start the agent, then idle awaiting the first "
+            "message. On submit the normal create+run path transparently reuses and activates this Run; "
+            "abandoned warms are reaped by the Run's inactivity timeout. Best-effort: returns an empty "
+            "body when the feature flag is off, the warm pool is full, or the GitHub integration doesn't "
+            "belong to the team."
+        ),
+    )
+    @action(detail=False, methods=["post"], url_path="warm", required_scopes=["task:write"])
+    def warm(self, request, **kwargs):
+        if not self._warm_enabled():
+            return Response(status=status.HTTP_200_OK)
+
+        user_id = self._user_id()
+        if user_id is None:
+            return Response(status=status.HTTP_200_OK)
+
+        github_integration_id = tasks_facade.resolve_team_github_integration_id(
+            self.team_id, request.validated_data["github_integration"]
+        )
+        if github_integration_id is None:
+            return Response(status=status.HTTP_200_OK)
+
+        result = tasks_facade.warm_task_sandbox(
+            self.team_id,
+            user_id,
+            repository=request.validated_data["repository"],
+            github_integration_id=github_integration_id,
+            branch=request.validated_data.get("branch"),
+            runtime_adapter=request.validated_data.get("runtime_adapter"),
+            model=request.validated_data.get("model"),
+            reasoning_effort=request.validated_data.get("reasoning_effort"),
+        )
+        if result is None:
+            return Response(status=status.HTTP_200_OK)
+        return Response(WarmTaskResponseSerializer({"task_id": result.task_id, "run_id": result.run_id}).data)
 
     @staticmethod
     def _task_error_response(error: tasks_contracts.TaskValidationError) -> Response:

@@ -23,11 +23,14 @@ from posthog.kafka_client.client import _KafkaSecurityProtocol
 from posthog.kafka_client.routing import get_profile_settings, resolve_profile_name
 from posthog.kafka_client.topics import KAFKA_DOCUMENT_EMBEDDING_RESULTS_TOPIC
 from posthog.temporal.common.client import async_connect
-from posthog.temporal.data_imports.pipelines.pipeline_v3.load.health import HealthState, start_health_server
 
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import FingerprintEmbeddingResultInputs
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.health import (
+    HealthState,
+    start_health_server,
 )
 
 logger = structlog.get_logger(__name__)

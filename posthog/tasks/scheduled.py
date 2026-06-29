@@ -7,7 +7,6 @@ from celery import Celery
 from celery.canvas import Signature
 from celery.schedules import crontab
 
-from posthog.approvals.tasks import expire_old_change_requests, validate_pending_change_requests
 from posthog.caching.warming import schedule_warming_for_teams_task
 from posthog.clickhouse.client.execute_async import QueryStatusManager
 from posthog.tasks.ai_observability_usage_report import send_ai_observability_usage_reports
@@ -73,13 +72,14 @@ from posthog.tasks.team_llm_gateway_policy import refresh_expiring_llm_gateway_p
 from posthog.tasks.team_metadata import cleanup_stale_expiry_tracking_task, refresh_expiring_team_metadata_cache_entries
 from posthog.utils import get_crontab, get_instance_region
 
+from products.approvals.backend.tasks import expire_old_change_requests, validate_pending_change_requests
 from products.conversations.backend.tasks import (
     flush_pending_email_replies,
     poll_teams_shared_channels,
     wake_snoozed_tickets,
 )
 from products.data_modeling.backend.tasks.cleanup_test_saved_queries import cleanup_expired_test_saved_queries
-from products.data_warehouse.backend.tasks import send_external_data_failure_digest_catchup
+from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
 from products.endpoints.backend.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,

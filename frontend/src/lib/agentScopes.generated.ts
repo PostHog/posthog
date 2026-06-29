@@ -68,6 +68,7 @@ export const AGENT_USE_CASE_SCOPES = [
     'llm_analytics:write',
     'llm_prompt:read',
     'llm_prompt:write',
+    'llm_provider_key:read',
     'llm_skill:read',
     'llm_skill:write',
     'logs:read',

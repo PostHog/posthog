@@ -137,6 +137,8 @@ export interface HeatmapScreenshotResponseApi {
     readonly snapshots: readonly HeatmapSnapshotMetadataApi[]
     /** Soft-delete flag; deleted heatmaps are hidden from the list. */
     deleted?: boolean
+    /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -232,6 +234,8 @@ export interface SavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 export interface PatchedSavedHeatmapRequestApi {
@@ -267,6 +271,8 @@ export interface PatchedSavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 /**

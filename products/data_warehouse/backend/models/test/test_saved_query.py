@@ -12,7 +12,7 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 DELETE_SAVED_QUERY_SCHEDULE = (
-    "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+    "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
 )
 
 

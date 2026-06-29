@@ -615,6 +615,7 @@ async def execute_and_format_query(
     insight_id: Optional[int] = None,
     truncate_results: bool = True,
     user: Optional["User"] = None,
+    include_prompt_framing: bool = True,
 ) -> str:
     """
     Executes a supported query and formats the results for the AI assistant:
@@ -630,6 +631,9 @@ async def execute_and_format_query(
         query: The query to execute.
         execution_mode: The execution mode to use.
         insight_id: The insight ID to use.
+        include_prompt_framing: When False, return only the formatted results table without the
+            example-format description and the surrounding `QUERY_RESULTS_PROMPT` system reminder.
+            Used by the MCP `execute_sql` tool, which returns data straight to an external agent.
     Returns:
         The formatted query results.
     """
@@ -640,6 +644,8 @@ async def execute_and_format_query(
     results, used_fallback = await query_runner.arun_and_format_query(
         query, execution_mode, insight_id, truncate_results=truncate_results
     )
+    if not include_prompt_framing:
+        return results
     example_prompt = FALLBACK_EXAMPLE_PROMPT if used_fallback else get_example_prompt(query)
     currency = team.base_currency or CurrencyCode.USD.value
 

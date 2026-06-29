@@ -32,7 +32,8 @@ This scans millions of events. If the experiment results page is viewed 10 times
 self.experiment = Experiment.objects.get(id=self.query.experiment_id)
 self.feature_flag = self.experiment.feature_flag
 self.variants = [variant["key"] for variant in self.feature_flag.variants]
-self.date_range = get_experiment_date_range(self.experiment, self.team, self.override_end_date)
+self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
+self.date_range = experiment_window(self.experiment, self.team, self.as_of)
 ```
 
 ---
@@ -46,7 +47,7 @@ def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> Lazy
     query_string, placeholders = builder.get_exposure_query_for_precomputation()
 
     date_from = self.experiment.start_date
-    date_to = self.override_end_date or self.experiment.end_date or datetime.now(UTC)
+    date_to = experiment_window_end(self.experiment, self.as_of)
 
     return ensure_precomputed(
         team=self.team,

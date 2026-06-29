@@ -132,6 +132,14 @@ function getNotebookTextContent(content: JSONContent | null | undefined, editorT
     return getMarkdownNotebookTextContent(content) ?? editorText
 }
 
+function keepNewestNotebookResponse(current: NotebookType | null, incoming: NotebookType | null): NotebookType | null {
+    if (!current || !incoming || current.short_id !== incoming.short_id) {
+        return incoming
+    }
+
+    return incoming.version < current.version ? current : incoming
+}
+
 export type NotebookLogicMode = 'notebook' | 'canvas'
 
 /** A markdown notebook update from the collab SSE stream or a 409 conflict body. */
@@ -905,8 +913,10 @@ export const notebookLogic = kea<notebookLogicType>([
         // Extends the loader reducer: canonical remote states (streamed diffs, 409 replays)
         // land in `notebook` without a refetch.
         notebook: {
+            loadNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
+            saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>
-                state ? { ...state, content, version } : state,
+                state && version > state.version ? { ...state, content, version } : state,
         },
     }),
     selectors({
@@ -1541,6 +1551,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     appendMarkdownNotebookBlock(
                         values.content,
                         serializeMarkdownNotebookComponent('Query', {
+                            hideFilters: true,
                             query: {
                                 kind: NodeKind.SavedInsightNode,
                                 shortId: insightShortId,

@@ -28,7 +28,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_id_resolver import resolve_trace_ids_for_generation_uuids
 from posthog.models.team import Team
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
@@ -409,11 +409,11 @@ def fetch_generation_contents(
 
     ids_tuple = ast.Tuple(exprs=[ast.Constant(value=gid) for gid in generation_ids])
     trace_ids_tuple = ast.Tuple(exprs=[ast.Constant(value=tid) for tid in trace_ids])
-    # Read from `posthog.ai_events` so the heavy `input` / `output_choices`
-    # columns survive the strip; the resolver re-runs against the shared
-    # `events` table when ai_events returns zero rows (rollout window /
-    # kill-switch off). `trace_id IN (...)` gets us the full sorting-key
-    # prefix + single-shard reads instead of an N-shard heavy fan-out.
+    # Read the heavy `input` / `output_choices` columns from `posthog.ai_events`,
+    # where they live as native columns; the resolver re-runs against the shared
+    # `events` table when ai_events returns zero rows (data beyond the retention
+    # window). `trace_id IN (...)` gets us the full sorting-key prefix +
+    # single-shard reads instead of an N-shard heavy fan-out.
     query = parse_select(
         """
         SELECT
@@ -436,11 +436,12 @@ def fetch_generation_contents(
     }
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders=placeholders,
             team=team,
             query_type="GenerationContentsForLabeling",
+            fall_back_to_events=True,
             settings=HogQLGlobalSettings(max_execution_time=CLUSTERING_QUERY_MAX_EXECUTION_TIME),
         )
 

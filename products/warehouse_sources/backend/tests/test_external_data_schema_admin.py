@@ -7,6 +7,8 @@ from django.contrib.admin import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory
 
+from parameterized import parameterized
+
 from products.warehouse_sources.backend.admin.external_data_schema_admin import ExternalDataSchemaAdmin
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -76,3 +78,51 @@ class TestExternalDataSchemaAdmin(BaseTest):
         mock_start.assert_called_once()
         inputs = mock_start.call_args.args[2]
         assert inputs.billable is False
+
+    @parameterized.expand(
+        [
+            (
+                "md5",
+                {"partition_mode": "md5", "partition_count": 72, "partitioning_enabled": True},
+                {"partition_count": "10"},
+                "partition_count_override",
+                10,
+                # The operator's count must land on *_override so it survives the bundled reset;
+                # writing partition_count directly would be wiped and the source would re-derive its own value.
+                {"partition_count": 72},
+            ),
+            (
+                "numerical",
+                {"partition_mode": "numerical", "partition_size": 1_000_000, "partitioning_enabled": True},
+                {"partition_size": "5000000"},
+                "partition_size_override",
+                5_000_000,
+                {},
+            ),
+        ]
+    )
+    def test_repartition_writes_override_key(
+        self,
+        _mode: str,
+        initial_config: dict,
+        post_data: dict,
+        override_key: str,
+        expected_value: int,
+        extra_config_assertions: dict,
+    ) -> None:
+        schema = self._schema(sync_type_config=initial_config)
+
+        with (
+            patch(f"{_ADMIN_MODULE}.sync_connect"),
+            patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
+            patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
+        ):
+            response = self.admin.repartition_view(self._request("post", post_data), schema.id)
+
+        assert response.status_code == 302
+        schema.refresh_from_db()
+        assert schema.sync_type_config[override_key] == expected_value
+        assert schema.sync_type_config["reset_pipeline"] is True
+        for key, value in extra_config_assertions.items():
+            assert schema.sync_type_config[key] == value
+        mock_start.assert_called_once()

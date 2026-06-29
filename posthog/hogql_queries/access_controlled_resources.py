@@ -25,7 +25,7 @@ def queried_access_controlled_resources(query, team: "Team") -> Optional[set[str
     from posthog.hogql.parser import parse_select  # noqa: PLC0415
 
     from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     # Raw HogQL is the only query that references system.* and warehouse tables by name
     if getattr(query, "kind", None) == "HogQLQuery":

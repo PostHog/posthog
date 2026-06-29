@@ -1,7 +1,8 @@
-import { HogFlow } from '../../schema/hogflow'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import * as posthogUtils from '../../utils/posthog'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import * as posthogUtils from '~/common/utils/posthog'
+
 import { HogFunctionInvocationGlobals } from '../types'
 import * as hogExec from '../utils/hog-exec'
 import { CdpHogflowSubscriptionMatcherConsumer } from './cdp-hogflow-subscription-matcher.consumer'
@@ -15,7 +16,7 @@ jest.mock('./cdp-base.consumer', () => {
     }
 })
 
-jest.mock('../../kafka/consumer', () => ({
+jest.mock('~/common/kafka/consumer', () => ({
     createKafkaConsumer: jest.fn().mockReturnValue({}),
 }))
 

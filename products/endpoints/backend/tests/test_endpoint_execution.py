@@ -15,7 +15,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.endpoints.backend.services.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
@@ -59,7 +59,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
 
         # Mock sync_saved_query_workflow to avoid Temporal connection
         self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
         )
         self.sync_workflow_patcher.start()
 

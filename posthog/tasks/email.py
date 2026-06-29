@@ -27,7 +27,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import get_client
+from posthog.ph_client import feature_enabled_or_false, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -1107,7 +1107,7 @@ def login_from_new_device_notification(
     elif user.current_organization is None:
         enabled = False
     else:
-        enabled = posthoganalytics.feature_enabled(
+        enabled = feature_enabled_or_false(
             key="login-from-new-device-notification",
             distinct_id=str(user.distinct_id),
             groups={"organization": str(user.current_organization.id)},

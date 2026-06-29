@@ -1,8 +1,8 @@
 import './storybook.css'
 
-import { DocsContainer } from '@storybook/addon-docs'
+import { DocsContainer } from '@storybook/addon-docs/blocks'
 import type { Preview } from '@storybook/react'
-import { themes } from '@storybook/theming'
+import { themes } from 'storybook/theming'
 import React, { useEffect, useState } from 'react'
 import { useDarkMode } from 'storybook-dark-mode'
 

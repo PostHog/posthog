@@ -1,7 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Literal
 
-from django.conf import settings
 from django.db.models import Q
 
 import structlog
@@ -235,23 +234,19 @@ def resolve_user_for_workspace(
         )
         return UserAndIntegrationsResolution(failure_reason="user_not_found")
 
-    # Look the Slack email up once and pass it through so the user resolver
-    # doesn't repeat the cache hit and so the routing layer can mention it in
-    # the user-facing failure reply.
     probe = workspace_result.candidates[0]
-    slack_email = get_slack_email_for_user(probe, slack_user_id)
 
-    if settings.DEBUG:
-        # When running locally - match the local user
-        slack_email = "test@posthog.com"
-
+    # Pass slack_email=None so the linked-user path short-circuits before
+    # users.info; the resolver fetches lazily on the email-fallback branch.
+    # Re-fetch on the failure branches below is a cache hit.
     posthog_user = resolve_posthog_user_from_event(
         slack_user_id=slack_user_id,
         probe_integration=probe,
         candidate_integrations=workspace_result.candidates,
-        slack_email=slack_email,
+        slack_email=None,
     )
     if posthog_user is None:
+        slack_email = get_slack_email_for_user(probe, slack_user_id)
         logger.warning(
             "slack_app_no_integration_found",
             reason="user_not_found",
@@ -275,6 +270,9 @@ def resolve_user_for_workspace(
     ]
     accessible_team_ids = {c.team_id for c in accessible_candidates}
     if not accessible_candidates:
+        # Fetch slack_email lazily for the failure reply (cached after the
+        # earlier resolve_posthog_user_from_event call, so this is free).
+        slack_email = get_slack_email_for_user(probe, slack_user_id)
         logger.warning(
             "slack_app_no_integration_found",
             reason="no_team_access",

@@ -25,7 +25,6 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from posthog.api.embedding_worker import generate_embedding
@@ -34,6 +33,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.scoping import with_team_scope
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.ph_client import feature_enabled_or_false
 from posthog.security.url_validation import is_url_allowed
 
 from ee.hogai.llm import MaxChatAnthropic
@@ -1625,7 +1625,7 @@ def has_feature_flag(team: Team) -> bool:
     check — `ee/hogai/utils/feature_flags.py` delegates here."""
     if settings.DEBUG:
         return True
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "product-business-knowledge",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},

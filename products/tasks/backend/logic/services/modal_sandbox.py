@@ -5,6 +5,7 @@ import time
 import uuid
 import shlex
 import shutil
+import asyncio
 import logging
 import tempfile
 import threading
@@ -23,10 +24,15 @@ if TYPE_CHECKING:
 
 import modal
 import requests
+from modal.exception import (
+    ConnectionError as ModalConnectionError,
+    TimeoutError as ModalTimeoutError,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -35,6 +41,7 @@ from products.tasks.backend.exceptions import (
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
+    SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
@@ -85,6 +92,17 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+
+# Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
+# connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
+# Temporal should retry them rather than treating them as hard snapshot failures.
+TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
+    ModalTimeoutError,
+    ModalConnectionError,
+    TimeoutError,
+    ConnectionError,
+    asyncio.CancelledError,
+)
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -231,15 +249,20 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     )
 
 
+# Templates whose image bundles the agent-server at /scripts and can therefore
+# take a live local dist overlay in DEBUG. Add new agent-server-bearing templates here.
+AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
-    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
-    local packages are available.
+    via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
+    and local packages are available.
 
     Transitive deps are resolved from the baked /scripts/node_modules/ tree;
     only compiled output is swapped live.
     """
-    if template != SandboxTemplate.DEFAULT_BASE:
+    if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:
@@ -688,8 +711,9 @@ class ModalSandbox(SandboxBase):
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
         # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
+        unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
-            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
+            f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
@@ -916,6 +940,9 @@ class ModalSandbox(SandboxBase):
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
+    def read_agent_server_boot_ms(self) -> int | None:
+        return self._read_health_boot_ms(AGENT_SERVER_PORT)
+
     def _free_agent_server_port(self) -> None:
         self.execute(
             "pkill -TERM -f agent-server 2>/dev/null || true; "
@@ -943,6 +970,17 @@ class ModalSandbox(SandboxBase):
             logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
 
             return snapshot_id
+
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
+            # skip error-tracking capture to avoid a fresh issue for every recoverable deadline.
+            logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error creating snapshot: {e}",
+                {"sandbox_id": self.id, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")

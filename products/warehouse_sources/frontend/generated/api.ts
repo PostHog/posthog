@@ -10,6 +10,8 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     DatabaseSchemaRequestApi,
+    DraftCustomManifestRequestApi,
+    DraftCustomManifestResponseApi,
     ExternalDataSchemaApi,
     ExternalDataSchemasListParams,
     ExternalDataSchemasLogsRetrieveParams,
@@ -30,6 +32,8 @@ import type {
     SourceConnectLinkApi,
     SourceCredentialApi,
     SourceCredentialCreateApi,
+    SourcePreviewRequestApi,
+    SourcePreviewResponseApi,
     SourceSetupApi,
     SourceSetupResponseApi,
 } from './api.schemas'
@@ -864,6 +868,59 @@ export const externalDataSourcesDatabaseSchemaCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(databaseSchemaRequestApi),
+    })
+}
+
+export const getExternalDataSourcesDraftCustomManifestCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/draft_custom_manifest/`
+}
+
+/**
+ * Draft a Custom REST source manifest from API documentation using an LLM.
+ *
+ * Reads the docs (a URL fetched server-side, or pasted text / OpenAPI spec), asks the model to
+ * author a RESTAPIConfig manifest, and validates it against the create-path checks — repairing
+ * against validation errors up to a small budget. Returns the manifest for the user to review
+ * and tweak in the builder before creating the source; it does NOT create anything. Gated by the
+ * `dwh-custom-source-ai-builder` flag, and requires the org to have approved AI data processing,
+ * since the docs are sent to the LLM gateway.
+ */
+export const externalDataSourcesDraftCustomManifestCreate = async (
+    projectId: string,
+    draftCustomManifestRequestApi?: DraftCustomManifestRequestApi,
+    options?: RequestInit
+): Promise<DraftCustomManifestResponseApi> => {
+    return apiMutator<DraftCustomManifestResponseApi>(getExternalDataSourcesDraftCustomManifestCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(draftCustomManifestRequestApi),
+    })
+}
+
+export const getExternalDataSourcesPreviewResourceCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/external_data_sources/preview_resource/`
+}
+
+/**
+ * Read a bounded sample of rows for one resource of a Custom REST source.
+ *
+ * Lets a manifest author verify `data_selector`, `primary_key`, and the incremental
+ * `cursor_path` against live data before creating the source. Only `source_type: "Custom"`
+ * is supported — other source types return 400. The read is bounded (single page per
+ * resource, capped row count, short timeouts, no redirects). Manifest, validation, and SSRF
+ * problems return 400; a live fetch failure returns 200 with `error` set and empty `rows`.
+ */
+export const externalDataSourcesPreviewResourceCreate = async (
+    projectId: string,
+    sourcePreviewRequestApi: SourcePreviewRequestApi,
+    options?: RequestInit
+): Promise<SourcePreviewResponseApi> => {
+    return apiMutator<SourcePreviewResponseApi>(getExternalDataSourcesPreviewResourceCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(sourcePreviewRequestApi),
     })
 }
 

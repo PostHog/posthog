@@ -33,15 +33,16 @@ emitting:
 The scratchpad has no tags. Encode the category in the **key prefix** so future
 runs can find an entry with a single `text=` search:
 
-| Prefix        | Use for                                                                          |
-| ------------- | -------------------------------------------------------------------------------- |
-| `pattern:`    | Durable observation about how this team's data normally shapes (baselines, etc). |
-| `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).          |
-| `addressed:`  | Team-confirmed fix shipped or topic the team has moved on from.                  |
-| `dedupe:`     | Gates future emits on a specific issue / fingerprint / finding id.               |
-| `allowlist:`  | Vetted entities the scout should never re-surface.                               |
-| `not-in-use:` | Close-out memo for "product not in use on this team".                            |
-| `mcp-gap:`    | Scout-noticed gap in the MCP surface worth raising in a future review.           |
+| Prefix        | Use for                                                                                                                                                         |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pattern:`    | Durable observation about how this team's data normally shapes (baselines, etc).                                                                                |
+| `noise:`      | Patterns to ignore (single-user, dev-only, recurring with no fix path).                                                                                         |
+| `addressed:`  | Team-confirmed fix shipped or topic the team has moved on from.                                                                                                 |
+| `dedupe:`     | Gates future emits on a specific issue / fingerprint / finding id.                                                                                              |
+| `allowlist:`  | Vetted entities the scout should never re-surface.                                                                                                              |
+| `not-in-use:` | Close-out memo for "product not in use on this team".                                                                                                           |
+| `mcp-gap:`    | Scout-noticed gap in the MCP surface worth raising in a future review.                                                                                          |
+| `report:`     | A report this scout authored via the report channel — stores the `report_id` so the next run edits/dedups against it instead of re-filing (opt-in scouts only). |
 
 Format: `<prefix>:<domain>:<entity>` (e.g. `pattern:error_tracking:baseline`,
 `noise:logs:rabbitmq-deploy-window`, `dedupe:csp_violations:a1b2c3d4`).
@@ -71,7 +72,9 @@ duplicating entries.
 ## Entry shape that pays off
 
 Good entries are **future-run actionable**. The next scout reads them and
-changes behavior because of them:
+changes behavior because of them. Write `content` as Markdown — humans read these
+entries directly, so structured Markdown (headings, bullets, `inline code` for ids)
+is far easier to skim than a wall of prose:
 
 ```text
 key:     dedupe:error_tracking:019de34e-2026-05-01

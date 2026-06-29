@@ -873,7 +873,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
-            excluded_variants: true,
             secondary_metrics: true,
             filters: true,
             deleted: true,
@@ -888,7 +887,7 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
     .extend({
         id: z.preprocess(castStringToInt, ExperimentsPartialUpdateParams.shape['id']),
         running_time_calculation: ExperimentsPartialUpdateBody.shape['running_time_calculation'].describe(
-            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with the legacy parameters.* keys during the deprecation window, so prefer this field over writing the calculator keys inside parameters."
+            "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
         ),
         saved_metrics_ids: SavedMetricsAttachSchema.optional(),
     })
@@ -914,6 +913,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
+            }
+            if (params.excluded_variants !== undefined) {
+                body['excluded_variants'] = params.excluded_variants
             }
             if (params.saved_metrics_ids !== undefined) {
                 body['saved_metrics_ids'] = params.saved_metrics_ids

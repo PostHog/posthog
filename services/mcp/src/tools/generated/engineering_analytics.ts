@@ -71,6 +71,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/engineering_analytics/pull_requests/`,
             query: {
+                author: params.author,
                 date_from: params.date_from,
                 source_id: params.source_id,
             },
@@ -81,7 +82,7 @@ const pullRequests = (): ToolBase<typeof PullRequestsSchema, WithPostHogUrl<Sche
 
 const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.extend({
     date_from: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_from'].describe(
-        "Window start — relative ('-30d', '-8w') or ISO8601. Defaults to -30d."
+        "Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h."
     ),
     date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
         'Window end — relative or ISO8601. Defaults to now.'

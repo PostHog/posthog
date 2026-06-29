@@ -32,6 +32,9 @@ export interface PieChartConfig<Meta = unknown> {
     disableHoverOffset?: boolean
     /** Hide on-slice labels for slices smaller than this fraction of the total. Default 0.05. */
     minSlicePercentForLabel?: number
+    /** Where on-slice labels sit along the radius: 0 = center, 1 = outer edge. Default 0.5 (mid-slice).
+     *  Higher values push labels toward the rim, onto the wider part of each wedge. */
+    labelRadiusRatio?: number
     /** Radians gap between slices. Default 0. */
     padAngle?: number
     /** Slice ordering. `null` (default) preserves input order — needed for stable
@@ -69,6 +72,7 @@ export interface PieChartProps<Meta = unknown> {
 const DEFAULT_HOVER_GROWTH = 8
 const DEFAULT_HOVER_ANIMATION_MS = 150
 const DEFAULT_MIN_SLICE_PERCENT = 0.05
+const DEFAULT_LABEL_RADIUS_RATIO = 0.5
 // Hovered slice eases toward white by this fraction at full hover — a subtle highlight.
 const HOVER_HIGHLIGHT_TARGET = '#ffffff'
 const HOVER_HIGHLIGHT_AMOUNT = 0.15
@@ -134,6 +138,7 @@ function PieChartInner<Meta = unknown>({
         hoverAnimationMs = DEFAULT_HOVER_ANIMATION_MS,
         disableHoverOffset = false,
         minSlicePercentForLabel = DEFAULT_MIN_SLICE_PERCENT,
+        labelRadiusRatio = DEFAULT_LABEL_RADIUS_RATIO,
         padAngle = 0,
         sort = null,
         sliceValue,
@@ -240,6 +245,7 @@ function PieChartInner<Meta = unknown>({
                 showValueOnSlice={showValueOnSlice}
                 showLabelOnSlice={showLabelOnSlice}
                 minSlicePercentForLabel={minSlicePercentForLabel}
+                labelRadiusRatio={labelRadiusRatio}
                 isPercent={isPercent}
             />
             <PieCenterLabel>{centerLabel}</PieCenterLabel>

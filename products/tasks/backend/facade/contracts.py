@@ -584,6 +584,14 @@ class SignalReportPrUrlDTO:
 
 
 @dataclass(frozen=True)
+class WarmTaskDTO:
+    """The draft Task + warm Run birthed by a Code-app warm request."""
+
+    task_id: UUID
+    run_id: UUID
+
+
+@dataclass(frozen=True)
 class TaskRunGaugeRow:
     """One metric value keyed by (status, environment, origin_product)."""
 

@@ -21,8 +21,8 @@ from products.data_modeling.backend.models.modeling import (
     ResolutionTimeoutError,
     get_parents_from_model_query,
 )
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 GET_PARENTS_TEST_CASES = [
     ("select events.*, persons.* from events, persons", {"events", "persons"}),

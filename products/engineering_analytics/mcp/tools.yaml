@@ -12,6 +12,15 @@ tools:
     engineering-analytics-ci-cards:
         operation: engineering_analytics_ci_cards
         enabled: false
+    engineering-analytics-pr-cost:
+        operation: engineering_analytics_pr_cost
+        enabled: false
+    engineering-analytics-pr-runs:
+        operation: engineering_analytics_pr_runs
+        enabled: false
+    engineering-analytics-quarantine:
+        operation: engineering_analytics_quarantine
+        enabled: false
     engineering-analytics-sources:
         operation: engineering_analytics_sources
         enabled: true
@@ -28,6 +37,18 @@ tools:
             table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as
             source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific
             source. With a single source you can skip it — the other tools default to the oldest connected source.
+    engineering-analytics-workflow-jobs:
+        operation: engineering_analytics_workflow_jobs
+        enabled: false
+    engineering-analytics-workflow-run:
+        operation: engineering_analytics_workflow_run
+        enabled: false
+    engineering-analytics-workflow-runner-costs:
+        operation: engineering_analytics_workflow_runner_costs
+        enabled: false
+    engineering-analytics-workflow-runs:
+        operation: engineering_analytics_workflow_runs
+        enabled: false
     pr-lifecycle:
         operation: engineering_analytics_pr_lifecycle
         enabled: true
@@ -90,7 +111,7 @@ tools:
             completed runs; to get a trend, call this over two adjacent windows and compare.
         param_overrides:
             date_from:
-                description: Window start — relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+                description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
         url_prefix: /engineering-analytics/workflows

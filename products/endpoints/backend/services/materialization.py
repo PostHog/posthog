@@ -10,7 +10,6 @@ import dataclasses
 from typing import cast
 
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 
@@ -23,6 +22,7 @@ from posthog.hogql.printer.utils import print_prepared_ast
 
 from posthog.clickhouse.query_tagging import Product
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
@@ -43,7 +43,7 @@ from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
 from products.endpoints.backend.services.activity import EndpointContext
 from products.endpoints.backend.services.strategies import apply_where_filter, strategy_for
-from products.warehouse_sources.backend.models.external_data_schema import sync_frequency_to_sync_frequency_interval
+from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 logger = structlog.get_logger(__name__)
 
@@ -64,7 +64,13 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
         )
 
-    saved_query.query = build_endpoint_hogql(version.query, saved_query.team, bucket_overrides=version.bucket_overrides)
+    saved_query.query = build_endpoint_hogql(
+        version.query,
+        saved_query.team,
+        bucket_overrides=version.bucket_overrides,
+        # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
+        bypass_warehouse_access_control=True,
+    )
     saved_query.save(update_fields=["query", "updated_at"])
 
 
@@ -138,7 +144,7 @@ class EndpointMaterializationService:
                     organization_id=self.team.organization_id,
                     team_id=self.team.pk,
                     user=self.user,
-                    was_impersonated=is_impersonated_session(self.request),
+                    was_impersonated=is_impersonated(self.request),
                     item_id=str(version.saved_query.id),
                     scope="DataWarehouseSavedQuery",
                     activity="materialization_enabled",
@@ -155,8 +161,24 @@ class EndpointMaterializationService:
             # (can_materialize) normally catches these, so reaching here is a backstop.
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="validation_error").inc()
             raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
-        except Exception:
+        except Exception as e:
             ENDPOINT_MATERIALIZATION_EVENT_TOTAL.labels(action="enable", status="error").inc()
+            # Genuine system fault (user-query limitations are handled above). Log + capture so
+            # status="error" — which the alert fires on — is never a blind spot.
+            logger.exception(
+                "Failed to enable endpoint materialization",
+                endpoint_name=endpoint.name,
+                version=version.version,
+                team_id=self.team.pk,
+            )
+            capture_exception(
+                e,
+                {
+                    "product": Product.ENDPOINTS,
+                    "team_id": self.team.pk,
+                    "endpoint_name": endpoint.name,
+                },
+            )
             # Not a request-validation problem — surface as a server error, not a 400.
             raise APIException("Failed to enable materialization.")
 
@@ -232,7 +254,12 @@ class EndpointMaterializationService:
         bucket_overrides: dict[str, str] | None,
     ) -> None:
         """Point the saved query at the version's materializable HogQL and sync cadence."""
-        saved_query.query = build_endpoint_hogql(version.query, self.team, bucket_overrides=bucket_overrides)
+        saved_query.query = build_endpoint_hogql(
+            version.query,
+            self.team,
+            bucket_overrides=bucket_overrides,
+            user=self.user,
+        )
         saved_query.external_tables = saved_query.s3_tables
         saved_query.is_materialized = True
         saved_query.sync_frequency_interval = sync_frequency_to_sync_frequency_interval(
@@ -272,7 +299,7 @@ class EndpointMaterializationService:
                 organization_id=self.team.organization_id,
                 team_id=self.team.pk,
                 user=self.user,
-                was_impersonated=is_impersonated_session(self.request),
+                was_impersonated=is_impersonated(self.request),
                 item_id=saved_query_id,
                 scope="DataWarehouseSavedQuery",
                 activity="materialization_disabled",
@@ -296,7 +323,7 @@ class EndpointMaterializationService:
         if not can_mat:
             return MaterializationPreview.cant_materialize(reason)
 
-        hogql_query = convert_insight_query_to_hogql(version.query, self.team)
+        hogql_query = convert_insight_query_to_hogql(version.query, self.team, user=self.user)
 
         range_pairs: list[dict] = []
         aggregates: list[dict] = []
@@ -313,7 +340,11 @@ class EndpointMaterializationService:
 
             if variable_infos:
                 transformed = transform_query_for_materialization(
-                    hogql_query, variable_infos, self.team, bucket_overrides=bucket_overrides
+                    hogql_query,
+                    variable_infos,
+                    self.team,
+                    bucket_overrides=bucket_overrides,
+                    user=self.user,
                 )
                 transformed_query_str = transformed.get("query")
 

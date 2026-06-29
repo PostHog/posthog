@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-23 21:04:45 UTC
+// Generated at: 2026-06-26 20:30:29 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -52,6 +52,7 @@ export type CanonicalProvider =
     | 'dekallm-fp8'
     | 'digitalocean'
     | 'fireworks'
+    | 'fireworks-fast'
     | 'friendli'
     | 'gmicloud-bf16'
     | 'gmicloud-fp8'
@@ -68,6 +69,7 @@ export type CanonicalProvider =
     | 'google-vertex-us-west2'
     | 'groq'
     | 'inception'
+    | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
     | 'infermatic-bf16'
@@ -116,6 +118,7 @@ export type CanonicalProvider =
     | 'reka-fp8'
     | 'relace-bf16'
     | 'relace-fp8'
+    | 'sakana'
     | 'sambanova'
     | 'sambanova-bf16'
     | 'sambanova-fp8'
@@ -142,12 +145,15 @@ export type CanonicalProvider =
     | 'venice-fp4'
     | 'venice-fp8'
     | 'venice-int4'
+    | 'wafer-fast'
     | 'wafer-fp4'
+    | 'wafer-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'
     | 'wandb-fp8'
     | 'xai'
+    | 'xai-zdr'
     | 'xiaomi-fp8'
     | 'z-ai'
     | 'z-ai-fp4'
