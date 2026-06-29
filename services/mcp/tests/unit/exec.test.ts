@@ -172,37 +172,44 @@ describe('exec tool', () => {
             )
         })
 
-        it('propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is posthog-code', async () => {
-            const tool = makeMockTool({
-                _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
-            })
-            const exec = createExec([tool], 'posthog-code')
-            const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
-                content: { type: string; text: string }[]
-                structuredContent: { id: number; name: string; _analytics: { distinctId: string; toolName: string } }
-                _meta: { ui: { resourceUri: string }; [key: string]: unknown }
-                __execBuiltPayload?: true
-            }
+        it.each([['posthog-code'], ['posthog_ai']])(
+            'propagates _meta.ui.resourceUri and structuredContent when the inner tool has a UI app and consumer is %s',
+            async (consumer) => {
+                const tool = makeMockTool({
+                    _meta: { ui: { resourceUri: 'ui://posthog/mock-app.html' } },
+                })
+                const exec = createExec([tool], consumer)
+                const result = (await exec.handler(mockContext, { command: 'call mock-tool' })) as {
+                    content: { type: string; text: string }[]
+                    structuredContent: {
+                        id: number
+                        name: string
+                        _analytics: { distinctId: string; toolName: string }
+                    }
+                    _meta: { ui: { resourceUri: string }; [key: string]: unknown }
+                    __execBuiltPayload?: true
+                }
 
-            // Text content still includes the TOON-formatted result for model context
-            expect(result.content[0]!.text).toContain('id: 1')
-            // structuredContent carries the raw object plus analytics for the UI app
-            expect(result.structuredContent.id).toBe(1)
-            expect(result.structuredContent._analytics).toEqual({
-                distinctId: 'test-distinct-id',
-                toolName: 'mock-tool',
-            })
-            // _meta on the response exposes the UI resource URI to clients that
-            // only see the `exec` tool registered (single-exec mode). Both the
-            // new nested key and the legacy flat key are emitted for
-            // compatibility with older MCP clients.
-            expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
-            expect(result._meta['ui/resourceUri']).toBe('ui://posthog/mock-app.html')
-            // The nominal brand is what `MCP.registerTool` uses to pass the payload
-            // through unchanged; without it the outer wrapper would re-run
-            // buildToolResultPayload and object-rest-destructure the content.
-            expect(result.__execBuiltPayload).toBe(true)
-        })
+                // Text content still includes the TOON-formatted result for model context
+                expect(result.content[0]!.text).toContain('id: 1')
+                // structuredContent carries the raw object plus analytics for the UI app
+                expect(result.structuredContent.id).toBe(1)
+                expect(result.structuredContent._analytics).toEqual({
+                    distinctId: 'test-distinct-id',
+                    toolName: 'mock-tool',
+                })
+                // _meta on the response exposes the UI resource URI to clients that
+                // only see the `exec` tool registered (single-exec mode). Both the
+                // new nested key and the legacy flat key are emitted for
+                // compatibility with older MCP clients.
+                expect(result._meta.ui.resourceUri).toBe('ui://posthog/mock-app.html')
+                expect(result._meta['ui/resourceUri']).toBe('ui://posthog/mock-app.html')
+                // The nominal brand is what `MCP.registerTool` uses to pass the payload
+                // through unchanged; without it the outer wrapper would re-run
+                // buildToolResultPayload and object-rest-destructure the content.
+                expect(result.__execBuiltPayload).toBe(true)
+            }
+        )
 
         it.each([[undefined], ['cline'], ['claude-code'], ['slack'], ['posthog_code']])(
             'returns plain text (no UI payload) when consumer is %s even if the inner tool has a UI app',

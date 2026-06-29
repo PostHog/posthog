@@ -58,7 +58,7 @@ export function resolveMode(args: {
         mode === 'cli' ||
         (mode !== 'tools' &&
             (clientProfile.isCliModeEnabled() ||
-                clientProfile.isPostHogCodeConsumer() ||
+                clientProfile.isPostHogUiAppsConsumer() ||
                 clientProfile.isVibeCodingClient() ||
                 // Claude web/desktop render MCP Apps UI; put them in single-exec so
                 // `render-ui` is available — but only when the feature flag is on.

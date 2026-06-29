@@ -2,7 +2,7 @@ import { stringify as stringifyYaml } from 'yaml'
 import { z } from 'zod'
 
 import { markExecPayload, buildToolResultPayload, estimateResponseTokens } from '@/lib/build-tool-result'
-import { isPostHogCodeConsumer } from '@/lib/client-detection'
+import { isPostHogUiAppsConsumer } from '@/lib/client-detection'
 import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
@@ -416,13 +416,13 @@ export function createExecTool(
                     const durationMs = Date.now() - startedAt
 
                     // If the inner tool has a UI app attached AND the caller self-identifies as
-                    // PostHog Code (the UI-apps host), emit a full `CallToolResult` payload
-                    // carrying `structuredContent` + `_meta.ui.resourceUri`. Clients only see
-                    // the `exec` tool registered in single-exec mode, so the UI metadata has to
-                    // ride on the per-call response. Gated on the consumer because other
-                    // single-exec callers (direct Claude Code, cline, Slack-launched runs, etc.)
-                    // don't render UI apps — they should see plain text.
-                    if (tool._meta?.ui?.resourceUri && isPostHogCodeConsumer(mcpConsumer)) {
+                    // a PostHog UI-apps host (PostHog Code or posthog_ai/Max), emit a full
+                    // `CallToolResult` payload carrying `structuredContent` + `_meta.ui.resourceUri`.
+                    // Clients only see the `exec` tool registered in single-exec mode, so the UI
+                    // metadata has to ride on the per-call response. Gated on the consumer because
+                    // other single-exec callers (direct Claude Code, cline, Slack-launched runs,
+                    // etc.) don't render UI apps — they should see plain text.
+                    if (tool._meta?.ui?.resourceUri && isPostHogUiAppsConsumer(mcpConsumer)) {
                         const isStringResult = typeof result === 'string'
                         const distinctId = isStringResult ? undefined : await context.getDistinctId()
                         const payload = markExecPayload(

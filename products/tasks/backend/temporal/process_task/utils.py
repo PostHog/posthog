@@ -312,13 +312,18 @@ def get_user_mcp_server_configs(
 def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
 
-    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
-    API callers, missing origin) is treated as PostHog Code. The MCP server
-    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
-    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
+    `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
+    origin) is treated as PostHog Code. The MCP server treats both
+    `"posthog-code"` and `"posthog_ai"` as PostHog UI-apps hosts (so they emit
+    UI-apps payloads in single-exec mode) — keep in sync with
+    `POSTHOG_CODE_CONSUMER` / `POSTHOG_AI_CONSUMER` in
+    `services/mcp/src/lib/client-detection.ts`.
     """
     if interaction_origin == "slack":
         return "slack"
+    if interaction_origin == "posthog_ai":
+        return "posthog_ai"
     return "posthog-code"
 
 

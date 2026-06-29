@@ -172,6 +172,7 @@ class TestGetSandboxMcpConfigs(TestCase):
             ("posthog-code", "posthog-code"),
             ("some-other-origin", "posthog-code"),
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
         ]
     )
     def test_consumer_header_reflects_interaction_origin(
@@ -262,6 +263,7 @@ class TestFetchUserMcpServerConfigs(TestCase):
     @parameterized.expand(
         [
             ("slack", "slack"),
+            ("posthog_ai", "posthog_ai"),
             ("posthog_code", "posthog-code"),
             (None, "posthog-code"),
         ]
