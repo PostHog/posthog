@@ -9,18 +9,16 @@ from django.contrib.auth import BACKEND_SESSION_KEY
 from django.http import HttpRequest
 from django.utils import timezone
 
+import structlog
 import posthoganalytics
 from loginas.utils import is_impersonated_session
 
 from posthog.geoip import get_geoip_location
 from posthog.models import User
 from posthog.session.models import Session
-from posthog.utils import _is_valid_ip_address, get_ip_address
+from posthog.utils import get_trusted_client_ip
 
-# Impossible-travel thresholds, tunable via Django settings with these as the fallback defaults.
-RISK_DISTANCE_FLOOR_KM = getattr(settings, "RISK_DISTANCE_FLOOR_KM", 500.0)
-RISK_ELAPSED_FLOOR_S = getattr(settings, "RISK_ELAPSED_FLOOR_S", 300.0)
-RISK_VELOCITY_MAX_KMH = getattr(settings, "RISK_VELOCITY_MAX_KMH", 1000.0)
+logger = structlog.get_logger(__name__)
 
 
 class RiskSignal(str, Enum):
@@ -63,10 +61,11 @@ def ua_signature(user_agent: Optional[str]) -> Optional[str]:
 
 
 def current_request_context(request: HttpRequest) -> Context:
-    """Geo + UA signature for the current request. Shared by the metadata write and the risk
-    middleware so both derive the baseline the same way."""
-    ip = get_ip_address(request)
-    loc = get_geoip_location(ip) if _is_valid_ip_address(ip) else {}
+    """Geo + UA signature for the current request, used by evaluate_session_risk to score against
+    the baseline and to advance it."""
+    # Trusted-proxy-validated IP: a spoofed X-Forwarded-For must not drive a security decision.
+    ip = get_trusted_client_ip(request)
+    loc = get_geoip_location(ip) if ip else {}
     return Context(
         latitude=loc.get("latitude"),
         longitude=loc.get("longitude"),
@@ -99,10 +98,15 @@ def evaluate_signals(baseline: Baseline, ctx: Context, *, now: datetime) -> set[
         and ctx.longitude is not None
     ):
         distance = haversine_km(baseline.latitude, baseline.longitude, ctx.latitude, ctx.longitude)
-        elapsed = (now - baseline.baseline_at).total_seconds()
-        if distance > RISK_DISTANCE_FLOOR_KM and elapsed > RISK_ELAPSED_FLOOR_S:
-            if distance / (elapsed / 3600.0) > RISK_VELOCITY_MAX_KMH:
-                signals.add(RiskSignal.IMPOSSIBLE_TRAVEL)
+        # Clamp elapsed to a floor rather than gating the check on it: a short gap with a huge
+        # distance is the *most* impossible travel, so it must not be skipped. The floor only bounds
+        # the implied velocity (and avoids div-by-zero / negative elapsed from clock skew).
+        elapsed = max((now - baseline.baseline_at).total_seconds(), settings.RISK_ELAPSED_FLOOR_S)
+        if (
+            distance > settings.RISK_DISTANCE_FLOOR_KM
+            and distance / (elapsed / 3600.0) > settings.RISK_VELOCITY_MAX_KMH
+        ):
+            signals.add(RiskSignal.IMPOSSIBLE_TRAVEL)
 
     return signals
 
@@ -233,14 +237,19 @@ def evaluate_session_risk(request: HttpRequest) -> RiskTier:
         request.session.save()
         enforced = True
 
-    posthoganalytics.capture(
-        distinct_id=str(user.distinct_id),
-        event="session_risk_detected",
-        properties={
-            "signals": sorted(signal.value for signal in signals),
-            "tier": tier.name,
-            "enforced": enforced,
-        },
-    )
+    # Telemetry must never break the request: a capture failure here would otherwise 500 an
+    # otherwise-valid authenticated request from the request-phase middleware.
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(user.distinct_id),
+            event="session_risk_detected",
+            properties={
+                "signals": sorted(signal.value for signal in signals),
+                "tier": tier.name,
+                "enforced": enforced,
+            },
+        )
+    except Exception:
+        logger.exception("session_risk telemetry capture failed")
 
     return effective
