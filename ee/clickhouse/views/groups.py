@@ -147,7 +147,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     # DRF requires a queryset for model resolution, but all actions are overridden
     # to read via personhog-routed helpers — this queryset is never evaluated.
-    queryset = GroupTypeMapping.objects.none()
+    queryset = GroupTypeMapping.objects.none()  # nosemgrep: no-direct-persons-db-orm
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
@@ -273,9 +273,7 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
-    # DRF needs a queryset for model/basename resolution, but every action is overridden
-    # to read via personhog-routed helpers — this queryset is never evaluated against the DB.
-    queryset = Group.objects.none()
+    queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
     pagination_class = None
     serializer_classes = {
         "find": FindGroupSerializer,

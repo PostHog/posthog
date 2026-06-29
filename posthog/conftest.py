@@ -266,9 +266,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
             if alias in settings.DATABASES:
                 settings.DATABASES[alias]["NAME"] = test_product_db_name
 
-    # Drop Person-related tables from default database and all FK constraints.
-    # These tables exist only in the persons database, provisioned by sqlx migrations and
-    # reached via off-Django psycopg — never the ORM.
+    # Drop Person-related tables from default database and all FK constraints
+    # These tables will exist in the persons_db_writer database via sqlx migrations
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
@@ -294,8 +293,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
                 END $$;
             """)
 
-            # Drop all persons-related tables from default database. They exist only in the
-            # persons database (provisioned by sqlx migrations).
+            # Drop all persons-related tables from default database
+            # These will exist in the persons_db_writer database via sqlx migrations
             # Drop in correct order: dependent tables first, then referenced tables
             cursor.execute("""
                 DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
