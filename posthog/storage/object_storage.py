@@ -8,7 +8,8 @@ from django.conf import settings
 import structlog
 from boto3 import client
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, HTTPClientError
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.exceptions_capture import capture_exception
 
@@ -17,6 +18,25 @@ logger = structlog.get_logger(__name__)
 
 class ObjectStorageError(Exception):
     pass
+
+
+def _find_soft_time_limit(error: BaseException) -> Optional[SoftTimeLimitExceeded]:
+    """A Celery soft time limit firing mid socket-read should terminate the task, not be
+    masked as an ObjectStorageError. SoftTimeLimitExceeded subclasses Exception, so it can
+    reach our broad handlers directly — or wrapped, since botocore's httpsession catches it
+    during a `recv_into` and re-raises it as HTTPClientError(error=...). Walk the chain and
+    return the original so callers can re-raise it cleanly in either form."""
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if isinstance(current, SoftTimeLimitExceeded):
+            return current
+        wrapped = current.kwargs.get("error") if isinstance(current, HTTPClientError) else None
+        if not isinstance(wrapped, BaseException):
+            wrapped = None
+        current = wrapped or current.__cause__ or current.__context__
+    return None
 
 
 class ObjectStorageClient(metaclass=abc.ABCMeta):
@@ -282,6 +302,8 @@ class ObjectStorage(ObjectStorageClient):
         try:
             s3_response = self.aws_client.put_object(Bucket=bucket, Body=content, Key=key, **(extras or {}))
         except Exception as e:
+            if soft_limit := _find_soft_time_limit(e):
+                raise soft_limit
             logger.exception(
                 "object_storage.write_failed",
                 bucket=bucket,
@@ -307,6 +329,8 @@ class ObjectStorage(ObjectStorageClient):
                 ExtraArgs=extras or {},
             )
         except Exception as e:
+            if soft_limit := _find_soft_time_limit(e):
+                raise soft_limit
             logger.exception(
                 "object_storage.write_stream_failed",
                 bucket=bucket,
@@ -321,6 +345,8 @@ class ObjectStorage(ObjectStorageClient):
         try:
             self.aws_client.upload_file(Filename=file_path, Bucket=bucket, Key=key)
         except Exception as e:
+            if soft_limit := _find_soft_time_limit(e):
+                raise soft_limit
             logger.exception(
                 "object_storage.write_from_file_failed",
                 bucket=bucket,
@@ -423,6 +449,7 @@ def object_storage_client() -> ObjectStorageClient:
         s3_config = Config(
             signature_version="s3v4",
             connect_timeout=1,
+            read_timeout=settings.OBJECT_STORAGE_READ_TIMEOUT_SECONDS,
             retries={"max_attempts": 1},
         )
         aws_client = client(
@@ -570,6 +597,7 @@ def _get_accelerated_presigned_client() -> Optional[Any]:
                 s3_config = Config(
                     signature_version="s3v4",
                     connect_timeout=1,
+                    read_timeout=settings.OBJECT_STORAGE_READ_TIMEOUT_SECONDS,
                     retries={"max_attempts": 1},
                     s3={"use_accelerate_endpoint": True},
                 )

@@ -22,6 +22,12 @@ else:
 OBJECT_STORAGE_ENABLED = get_from_env("OBJECT_STORAGE_ENABLED", True if DEBUG else False, type_cast=str_to_bool)
 OBJECT_STORAGE_PUBLIC_ENDPOINT = os.getenv("OBJECT_STORAGE_PUBLIC_ENDPOINT", "") or OBJECT_STORAGE_ENDPOINT
 OBJECT_STORAGE_REGION = os.getenv("OBJECT_STORAGE_REGION", "us-east-1")
+# Cap the response-read phase of every boto3 call. Without it, a slow/hung
+# upload blocks indefinitely on the socket and a Celery soft time limit can fire
+# mid-read, getting wrapped as an opaque HTTPClientError. boto3 applies this
+# per socket operation (not to the whole transfer), so a generous-but-finite
+# value lets large uploads through while still failing fast on a stuck server.
+OBJECT_STORAGE_READ_TIMEOUT_SECONDS = get_from_env("OBJECT_STORAGE_READ_TIMEOUT_SECONDS", 30, type_cast=int)
 OBJECT_STORAGE_BUCKET = os.getenv("OBJECT_STORAGE_BUCKET", "posthog")
 OBJECT_STORAGE_TRANSFER_ACCELERATION = get_from_env(
     "OBJECT_STORAGE_TRANSFER_ACCELERATION", False, type_cast=str_to_bool

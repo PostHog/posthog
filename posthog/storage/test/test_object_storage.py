@@ -8,7 +8,8 @@ from django.test import SimpleTestCase
 
 from boto3 import resource
 from botocore.client import Config
-from botocore.exceptions import ClientError
+from botocore.exceptions import ClientError, HTTPClientError
+from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 import posthog.storage.object_storage as object_storage_module
@@ -236,6 +237,36 @@ class TestStorage(APIBaseTest):
         assert len(mock_client.delete_objects.call_args_list[0].kwargs["Delete"]["Objects"]) == 1000
         assert len(mock_client.delete_objects.call_args_list[1].kwargs["Delete"]["Objects"]) == 1
 
+    def test_write_propagates_soft_time_limit_instead_of_masking(self) -> None:
+        # A soft time limit firing mid put_object must terminate the task, not get
+        # re-raised as an ObjectStorageError that callers treat as a storage failure.
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = SoftTimeLimitExceeded()
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(SoftTimeLimitExceeded):
+            storage.write("test-bucket", "test-key", b"content", extras=None)
+
+    def test_write_propagates_soft_time_limit_wrapped_by_botocore(self) -> None:
+        # botocore's httpsession catches the soft-limit exception during a socket read and
+        # re-raises it as HTTPClientError(error=...). We still need to surface the original.
+        soft_limit = SoftTimeLimitExceeded()
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = HTTPClientError(error=soft_limit)
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(SoftTimeLimitExceeded) as cm:
+            storage.write("test-bucket", "test-key", b"content", extras=None)
+        assert cm.exception is soft_limit
+
+    def test_write_still_wraps_ordinary_errors(self) -> None:
+        mock_client = MagicMock()
+        mock_client.put_object.side_effect = ValueError("boom")
+        storage = ObjectStorage(mock_client)
+
+        with self.assertRaises(ObjectStorageError):
+            storage.write("test-bucket", "test-key", b"content", extras=None)
+
 
 class TestObjectStorageClientFactory(SimpleTestCase):
     def setUp(self) -> None:
@@ -308,3 +339,15 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is presigned_client
+
+    @patch("posthog.storage.object_storage.client")
+    def test_client_is_built_with_read_timeout(self, patched_client) -> None:
+        with self.settings(
+            OBJECT_STORAGE_ENABLED=True,
+            OBJECT_STORAGE_ENDPOINT="http://objectstorage:19000",
+            OBJECT_STORAGE_READ_TIMEOUT_SECONDS=17,
+        ):
+            object_storage_client()
+
+        config = patched_client.call_args.kwargs["config"]
+        assert config.read_timeout == 17
