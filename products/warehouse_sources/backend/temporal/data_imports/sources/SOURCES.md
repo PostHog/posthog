@@ -106,6 +106,7 @@ the row lists both.
 | elasticsearch     | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus      | HTTP                        | requests                                                        | ✅                          |
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
+| everhour          | HTTP                        | requests                                                        | ✅                          |
 | fillout           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
@@ -381,7 +382,6 @@ doesn't conflict with concurrent PRs.
 - encharge
 - eventee
 - eventzilla
-- everhour
 - exchange_rates_api
 - expensify
 - ezofficeinventory
