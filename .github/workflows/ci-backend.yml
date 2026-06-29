@@ -1016,25 +1016,31 @@ jobs:
 
     # Block deleting historical migration files (see safe-django-migrations.md for why).
     # Gate on `backend` (not just `migrations`): the migrations paths-filter omits
-    # ee/ and posthog/ sub-package migration dirs that the script still flags.
+    # ee/ and posthog/ sub-package migration dirs that the guard still flags.
     check-deleted-migrations:
         needs: [changes]
         if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
         name: Check deleted migrations
-        # Free GitHub-hosted runner: this check needs no Docker/cache, just gh + python3.
         runs-on: ubuntu-latest
-        timeout-minutes: 5
+        timeout-minutes: 10
         permissions:
             contents: read
             pull-requests: read
         steps:
-            # Only the guard script and its allowlist are needed — skip the full tree.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
-                  sparse-checkout: |
-                      .github/scripts/check_no_deleted_migrations.py
-                      .github/scripts/migration-deletion-allowlist.txt
-                  sparse-checkout-cone-mode: false
+                  python-version-file: 'pyproject.toml'
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
             - name: Fail if a historical migration file was deleted
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -1057,7 +1063,7 @@ jobs:
                       echo "::warning::gh api attempt ${attempt} failed; retrying" >&2
                       sleep $((attempt * 5))
                   done
-                  printf '%s\n' "$removed" | python3 .github/scripts/check_no_deleted_migrations.py --stdin
+                  printf '%s\n' "$removed" | ./bin/hogli lint:migration-deletions
 
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline

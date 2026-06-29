@@ -1,6 +1,6 @@
 # Migration files whose deletion is intentional and reviewed.
 #
-# The guard (pre-commit + the check-deleted-migrations CI job) blocks deleting any
+# The check-deleted-migrations CI job (hogli lint:migration-deletions) blocks deleting any
 # Django migration that exists on master: doing so diverges fresh databases from
 # deployed ones and false-flags phantom migrations on other open PRs. See
 # docs/published/handbook/engineering/safe-django-migrations.md.
