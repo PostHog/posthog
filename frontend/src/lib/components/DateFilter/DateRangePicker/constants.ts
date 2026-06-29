@@ -1,6 +1,6 @@
 import { DateMappingOption } from '~/types'
 
-export const LOGS_DATE_OPTIONS: DateMappingOption[] = [
+export const DEFAULT_DATE_RANGE_PICKER_OPTIONS: DateMappingOption[] = [
     { key: 'Last 1 minute', values: ['-1M'], defaultInterval: 'minute' },
     { key: 'Last 5 minutes', values: ['-5M'], defaultInterval: 'minute' },
     { key: 'Last 15 minutes', values: ['-15M'], defaultInterval: 'minute' },
