@@ -1,8 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
-import { LemonSegmentedButton } from '@posthog/lemon-ui'
-
 import { TZLabelProps } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
@@ -25,11 +23,11 @@ import { virtualizedLogsListLogic } from 'products/logs/frontend/components/Virt
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
-import { LogsDisplayBar } from './LogsDisplayBar'
+import { LogsResultsHeader } from './LogsResultsHeader'
 import { logsViewerLogic } from './logsViewerLogic'
 import { logsViewerModalLogic } from './LogsViewerModal/logsViewerModalLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
-import { LogsViewerToolbar, LogsViewerToolbarProps } from './LogsViewerToolbar'
+import { LogsViewerToolbarProps } from './LogsViewerToolbar'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -112,8 +110,7 @@ function LogsViewerContent({
     } = useActions(logsViewerLogic)
     const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
-    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed, setViewMode } =
-        useActions(logsViewerConfigLogic)
+    const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
@@ -304,13 +301,18 @@ function LogsViewerContent({
         </>
     )
 
-    const filterBar = showFilterBar ? <LogsFilterBar showSavedViewsButton={showSavedViewsButton} /> : null
+    // Fullscreen is viewer-level chrome (applies to both Logs and Patterns), so it lives in the top
+    // bar rather than the per-view results toolbar.
+    const onOpenFullScreen = showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined
+
+    const filterBar = showFilterBar ? (
+        <LogsFilterBar showSavedViewsButton={showSavedViewsButton} onOpenFullScreen={onOpenFullScreen} />
+    ) : null
 
     const toolbarProps: LogsViewerToolbarProps = {
         totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
         orderBy,
         onChangeOrderBy: (newOrderBy) => setOrderBy(newOrderBy, 'toolbar'),
-        onOpenFullScreen: showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined,
     }
 
     const logList = (
@@ -353,40 +355,23 @@ function LogsViewerContent({
     const inPatternsMode = showPatternsView && viewMode === 'patterns'
     const resultsRegion = inPatternsMode ? <LogsPatterns id={id} /> : logList
 
-    const modeToggle = showPatternsView ? (
-        <LemonSegmentedButton
-            size="small"
-            value={viewMode}
-            onChange={setViewMode}
-            options={[
-                { value: 'logs', label: 'Logs' },
-                { value: 'patterns', label: 'Patterns' },
-            ]}
-        />
-    ) : null
-
-    // Both layouts share the same results column; only the bar above it differs. Keeping the
-    // mode toggle + "patterns hides the bar" rule in one place avoids drift between the branches.
-    const resultsColumn = (bar: JSX.Element): JSX.Element => (
+    const resultsColumn = (
         <>
-            {modeToggle}
-            {!inPatternsMode && bar}
+            <LogsResultsHeader id={id} toolbarProps={toolbarProps} />
             {resultsRegion}
         </>
     )
 
     if (showFacetRail) {
         // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
-        // row of [facet rail | display bar (operate on the data) + the log lists].
+        // row of [facet rail | results header (view switch + view controls) + the results].
         return (
             <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
-                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} />
+                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} onOpenFullScreen={onOpenFullScreen} />
                 {sparklineSection}
                 <div className="flex flex-row gap-2 flex-1 min-h-0">
                     {!facetRailCollapsed && <FacetRail id={id} />}
-                    <div className="flex flex-col gap-2 flex-1 min-w-0">
-                        {resultsColumn(<LogsDisplayBar {...toolbarProps} />)}
-                    </div>
+                    <div className="flex flex-col gap-2 flex-1 min-w-0">{resultsColumn}</div>
                 </div>
                 <LogDetailsModal timezone={timezone} />
             </div>
@@ -397,7 +382,7 @@ function LogsViewerContent({
         <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
             {sparklineSection}
             {filterBar}
-            {resultsColumn(<LogsViewerToolbar {...toolbarProps} />)}
+            {resultsColumn}
             <LogDetailsModal timezone={timezone} />
         </div>
     )

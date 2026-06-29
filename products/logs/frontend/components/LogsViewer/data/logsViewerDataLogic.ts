@@ -123,7 +123,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             logsViewerFiltersLogic({ id }),
             ['setDateRange', 'setFilterGroup', 'setFilters', 'setSearchTerm', 'setSeverityLevels', 'setServiceNames'],
             logsViewerConfigLogic({ id }),
-            ['setSparklineBreakdownBy', 'setOrderBy'],
+            ['setSparklineBreakdownBy', 'setOrderBy', 'setViewMode'],
         ],
         values: [
             logsViewerFiltersLogic({ id }),
@@ -584,6 +584,13 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         },
         fetchNextLogsPage: () => {
             posthog.capture('logs load more requested')
+        },
+        setViewMode: ({ viewMode }) => {
+            // Patterns mode has no log stream to tail, and its toolbar (with the pause control) is
+            // unmounted — stop live tail so it doesn't keep polling with no way to stop it.
+            if (viewMode === 'patterns' && values.liveTailRunning) {
+                actions.setLiveTailRunning(false)
+            }
         },
         setLiveTailRunning: async ({ enabled }) => {
             if (enabled) {
