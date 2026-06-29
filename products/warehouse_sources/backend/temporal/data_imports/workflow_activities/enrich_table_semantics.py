@@ -344,17 +344,23 @@ def _get_business_context(team: Team) -> str:
 # Never worth enriching: they carry no user-facing meaning and each one would burn an LLM column slot.
 _INTERNAL_COLUMNS = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
+# An annotation is keyed by `column_name`, a varchar(400). A column whose name doesn't fit can't be
+# stored or surfaced, so skip it rather than letting the insert raise (DataError) and crash the whole
+# table's enrichment into a Temporal retry loop.
+_MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
+
 
 def _columns_from_table(table: DataWarehouseTable) -> list[dict[str, Any]]:
     """Source-agnostic `[{name, data_type, is_nullable}]` from `DataWarehouseTable.columns`.
 
     `columns` is populated after every sync for every source type (unlike SQL-only `schema_metadata`),
     keyed by column name with a ClickHouse type. Handles both the dict shape (`{"clickhouse": ...}`)
-    and the legacy plain-string shape. Internal plumbing columns are skipped.
+    and the legacy plain-string shape. Internal plumbing columns, and any whose name exceeds the
+    annotation key length, are skipped.
     """
     result: list[dict[str, Any]] = []
     for name, definition in (table.columns or {}).items():
-        if name in _INTERNAL_COLUMNS:
+        if name in _INTERNAL_COLUMNS or len(name) > _MAX_COLUMN_NAME_LENGTH:
             continue
         if isinstance(definition, dict):
             clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
