@@ -14,6 +14,7 @@ from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    _is_burstable_sandbox_resources_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_sandbox_event_ingest_enabled,
     _vm_sandbox_allowed_origin_products,
@@ -488,6 +489,18 @@ class TestGetTaskProcessingContextActivity:
     )
     def test_vm_sandbox_allowed_origin_products_parsing(self, payload, expected):
         assert _vm_sandbox_allowed_origin_products(payload) == expected
+
+    @pytest.mark.parametrize(
+        "state,expected",
+        [
+            (None, True),
+            ({}, True),
+            ({"burstable_sandbox_resources_enabled": True}, True),
+            ({"burstable_sandbox_resources_enabled": False}, False),
+        ],
+    )
+    def test_burstable_sandbox_resources_defaults_true_and_respects_state(self, state, expected):
+        assert _is_burstable_sandbox_resources_enabled(run_id="run-id", state=state) is expected
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_uses_sandbox_event_ingest_state_override(

@@ -73,6 +73,9 @@ class TaskProcessingContext:
     sandbox_event_ingest_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
+    # Burstable by default; the per-run state can opt out to pin a fixed-size box
+    # (request == limit). Captured at workflow start so it's stable across activity retries.
+    burstable_sandbox_resources_enabled: bool = True
 
     @property
     def mode(self) -> str:
@@ -309,6 +312,23 @@ def _is_modal_vm_sandbox_enabled(
     return result
 
 
+def _is_burstable_sandbox_resources_enabled(
+    *,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    # Burstable by default; the per-run state can pin a fixed-size box (request == limit).
+    state_override = (state or {}).get("burstable_sandbox_resources_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "burstable_sandbox_resources_state_override",
+            run_id=run_id,
+            burstable_sandbox_resources_enabled=state_override,
+        )
+        return state_override
+    return True
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -474,6 +494,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
     )
+    burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -505,4 +534,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
     )
