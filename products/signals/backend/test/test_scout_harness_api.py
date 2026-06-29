@@ -145,12 +145,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert ids == [str(keep.id)]
 
     def test_list_surfaces_emit_tally(self) -> None:
-        _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+        _make_run(
+            self.team,
+            emitted_count=2,
+            emitted_finding_ids=["f-a", "f-b"],
+            emitted_report_ids=["r-1"],
+            edited_report_ids=["r-2"],
+        )
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = response.json()[0]
         assert row["emitted_count"] == 2
         assert row["emitted_finding_ids"] == ["f-a", "f-b"]
+        # Both report-id channels must surface through the serializer. Guards a real gap: these are
+        # carried on the run DTO but were not declared on the serializer, so they were silently dropped
+        # from the API/MCP response.
+        assert row["emitted_report_ids"] == ["r-1"]
+        assert row["edited_report_ids"] == ["r-2"]
 
     @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
     def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:

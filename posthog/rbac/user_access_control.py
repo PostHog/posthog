@@ -395,6 +395,13 @@ class UserAccessControl:
         )
 
     @property
+    def user(self) -> User:
+        """The principal this access control was built for. Callers that run HogQL on a user's behalf
+        need it: warehouse/system table ACL is honored only when a real user reaches the database build
+        (a userless build fails closed), so forwarding just the access control isn't enough."""
+        return self._user
+
+    @property
     def rbac_supported(self) -> bool:
         if not self._organization:
             return False

@@ -621,6 +621,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "status": "draft",
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
@@ -2189,6 +2190,74 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["parameters"]["recommended_sample_size"], 1500)
+
+    def test_parameters_feature_flag_config_is_sourced_from_the_flag(self):
+        """The `parameters` projection sources feature-flag config (variants, rollout percentage,
+        aggregation group type) from the linked flag, not the stored `parameters` column. This is
+        what lets us stop persisting the mirror — a stale column must never surface in the response.
+        """
+        ff_key = "ff-config-from-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Source of truth",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Make the flag (the source of truth) diverge from the stored mirror: new rollouts,
+        # an aggregation group type, and a 20% overall rollout.
+        flag = FeatureFlag.objects.get(key=ff_key, team_id=self.team.id)
+        flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 20}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 60},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 40},
+                ]
+            },
+            "aggregation_group_type_index": 1,
+        }
+        flag.save()
+
+        # Leave a deliberately stale mirror in the column — what the reverse-sync used to keep
+        # fresh. The projection must ignore it entirely and read from the flag.
+        experiment = Experiment.objects.get(id=experiment_id)
+        experiment.parameters = {
+            **(experiment.parameters or {}),
+            "feature_flag_variants": [{"key": "stale", "rollout_percentage": 99}],
+            "rollout_percentage": 100,
+            "aggregation_group_type_index": None,
+        }
+        experiment.save()
+
+        expected_variants = [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 60, "split_percent": 60},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 40, "split_percent": 40},
+        ]
+
+        # Detail endpoint (ExperimentSerializer)
+        detail_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
+            "parameters"
+        ]
+        self.assertEqual(detail_parameters["feature_flag_variants"], expected_variants)
+        self.assertEqual(detail_parameters["rollout_percentage"], 20)
+        self.assertEqual(detail_parameters["aggregation_group_type_index"], 1)
+
+        # List endpoint (ExperimentBasicSerializer shares the same projection)
+        results = self.client.get(f"/api/projects/{self.team.id}/experiments/").json()["results"]
+        list_parameters = next(e["parameters"] for e in results if e["id"] == experiment_id)
+        self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
+        self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
 
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
@@ -3848,6 +3917,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "status": result["status"],
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
@@ -7265,19 +7335,7 @@ class TestExperimentExcludedVariants(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         return response.json()
 
-    def test_create_with_legacy_parameters_populates_column(self):
-        created = self._create_experiment(
-            parameters={"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-2"]}
-        )
-
-        self.assertEqual(created["excluded_variants"], ["test-2"])
-
-        experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(experiment.excluded_variants, ["test-2"])
-        assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
-
-    def test_create_with_excluded_variants_mirrors_into_parameters(self):
+    def test_create_with_excluded_variants_writes_only_column(self):
         created = self._create_experiment(
             parameters={"feature_flag_variants": self.THREE_VARIANTS},
             excluded_variants=["test-2"],
@@ -7286,8 +7344,10 @@ class TestExperimentExcludedVariants(APILicensedTest):
         self.assertEqual(created["excluded_variants"], ["test-2"])
 
         experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # No longer mirrored into the deprecated parameters blob
         assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+        self.assertNotIn("excluded_variants", experiment.parameters)
 
     def test_update_excluded_variants_does_not_require_feature_flag_variants(self):
         """The headline of the parameters split: excluding a variant no longer requires
@@ -7302,9 +7362,9 @@ class TestExperimentExcludedVariants(APILicensedTest):
 
         experiment = Experiment.objects.get(pk=created["id"])
         self.assertEqual(experiment.excluded_variants, ["test-2"])
-        # Legacy mirror updated, and the variants stored in parameters survive the merge
+        # Only the column is written; the deprecated parameters blob is untouched
         assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
+        self.assertNotIn("excluded_variants", experiment.parameters)
         self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
 
     def test_update_excluded_variants_does_not_touch_feature_flag(self):
@@ -7320,44 +7380,6 @@ class TestExperimentExcludedVariants(APILicensedTest):
 
         flag.refresh_from_db()
         self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
-
-    def test_update_parameters_derives_column(self):
-        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
-            {"parameters": {"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-2"]}},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-
-        experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(experiment.excluded_variants, ["test-2"])
-
-        # parameters replaces wholesale, so dropping the key clears the canonical column too
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
-            {"parameters": {"feature_flag_variants": self.THREE_VARIANTS}},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        experiment.refresh_from_db()
-        self.assertIsNone(experiment.excluded_variants)
-
-    def test_excluded_variants_wins_when_both_sent(self):
-        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
-
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
-            {
-                "parameters": {"feature_flag_variants": self.THREE_VARIANTS, "excluded_variants": ["test-1"]},
-                "excluded_variants": ["test-2"],
-            },
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-
-        experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(experiment.excluded_variants, ["test-2"])
-        assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["excluded_variants"], ["test-2"])
 
     @parameterized.expand(
         [

@@ -50,9 +50,9 @@ from posthog.rate_limit import (
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.cdp.backend.facade.api import HogFunctionSerializer
+from products.cdp.backend.facade.models import HogFunction
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.facade.api import (
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
@@ -95,17 +95,20 @@ from products.data_warehouse.backend.presentation.views.external_data_schema imp
     unsupported_row_filter_reason,
 )
 from products.data_warehouse.backend.presentation.views.public_source_configs import build_source_configs
-from products.revenue_analytics.backend.joins import ensure_person_join, remove_person_join
+from products.revenue_analytics.backend.facade.api import ensure_person_join, remove_person_join
+from products.warehouse_sources.backend.facade.api import (
+    mysql_columns_to_dwh_columns,
+    postgres_columns_to_dwh_columns,
+    validate_source_prefix,
+)
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
     ExternalDataSource,
     PendingSourceCredential,
-    mysql_columns_to_dwh_columns,
-    postgres_columns_to_dwh_columns,
     sync_old_schemas_with_new_schemas,
-    validate_source_prefix,
+    update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.source_management import (
     DEFAULT_LAG_CRITICAL_THRESHOLD_MB,
@@ -2462,7 +2465,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": str(e)},
@@ -3287,6 +3292,15 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             capture_exception(e, {"source_id": str(instance.id)})
 
         with transaction.atomic():
+            # Clear any broken marker (recovery contract): leaving a stale cdc_broken in
+            # sync_type_config would make CDC look broken the moment it's re-enabled.
+            # Must be inside the atomic block so a failed schema-state reset rolls this back too.
+            for schema_id in cdc_schema_ids:
+                try:
+                    update_sync_type_config_keys(schema_id, instance.team_id, removes=["cdc_broken"])
+                except ExternalDataSchema.DoesNotExist:
+                    pass
+
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             ExternalDataSchema.objects.filter(
                 source=instance,
