@@ -229,13 +229,14 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
                 return False, _MONGO_HOST_UNRESOLVED_MESSAGE
             return False, _MONGO_UNREACHABLE_MESSAGE
         except Exception as e:
-            capture_exception(e)
             # pymongo raises InvalidURI with the RFC-3986 hint before any network call when the
-            # credentials contain unescaped reserved characters; surface the actionable message
-            # rather than the raw driver string. Any other exception falls back to a generic message
-            # so internal exception text never reaches the user.
+            # credentials contain unescaped reserved characters. This is a malformed connection
+            # string the user must fix — already surfaced with an actionable message — so don't
+            # report it to error tracking as a bug. Any other exception is unexpected: capture it
+            # and fall back to a generic message so internal exception text never reaches the user.
             if "must be escaped according to RFC 3986" in str(e):
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
 
         return True, None
