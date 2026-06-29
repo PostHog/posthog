@@ -40,8 +40,8 @@ import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { GoogleSearchConsoleSiteSelector } from './GoogleSearchConsoleSiteSelector'
 import { SourceIntegrationChoice } from './IntegrationChoice'
 import { parseConnectionStringForSource } from './parsers'
-import { shouldHideSourceField } from './sourceFieldVisibility'
 import { supportsDirectQuery } from './schemaGroupingUtils'
+import { shouldHideSourceField } from './sourceFieldVisibility'
 
 // Stable no-op for the rare misconfigured custom-source case where the form provides no value setter.
 const NO_OP_SET_VALUE = (): void => undefined

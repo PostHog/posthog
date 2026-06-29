@@ -40,13 +40,13 @@ import {
     RowFilter,
 } from '~/types'
 
+import { getUploadedFile } from '../../shared/components/forms/fileUploads'
 import {
     getDefaultExpandedSchemaKeys,
     groupTablesBySchema,
     splitQualifiedTableName,
     supportsDirectQuery,
 } from '../../shared/components/forms/schemaGroupingUtils'
-import { getUploadedFile } from '../../shared/components/forms/fileUploads'
 import type { WebhookCreateResult } from '../../shared/components/forms/WebhookSetupForm'
 import { sourceManagementLogic } from '../../shared/logics/sourceManagementLogic'
 import { selfManagedSourceLogic } from './selfManagedSourceLogic'
