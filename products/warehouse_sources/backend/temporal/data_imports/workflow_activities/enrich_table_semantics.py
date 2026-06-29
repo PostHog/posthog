@@ -25,7 +25,6 @@ from typing import Any
 
 from django.utils import timezone
 
-import structlog
 import posthoganalytics
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -36,6 +35,7 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
+from posthog.temporal.common.logger import get_write_only_logger
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -46,7 +46,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     get_canonical_descriptions_for_source,
 )
 
-logger = structlog.get_logger(__name__)
+# Write-only (no Kafka `log_entries` production): this is an internal background activity, not a
+# user-facing sync, and its workflow type isn't mapped in `resolve_log_source`. The temporal worker's
+# global structlog config still merges workflow_id/run_id/attempt/task_queue onto every line.
+logger = get_write_only_logger(__name__)
 
 ENRICHMENT_FEATURE_FLAG = "data-warehouse-semantic-enrichment"
 ENRICHMENT_MODEL = "claude-haiku-4-5"
