@@ -20,6 +20,7 @@ import {
     buildKpiWindow,
     buildToolDailySeries,
     deltaPct,
+    lastBucketIsInProgress,
     mcpDashboardOverviewLogic,
     normalizeBucket,
     pickNotableSessions,
@@ -226,6 +227,43 @@ describe('mcpDashboardOverviewLogic', () => {
                 successes: [0, 0, 0],
                 errors: [0, 0, 0],
             })
+        })
+
+        // The in-progress-tail dash applies `fromIndex = successes.length - 1` to line up with the
+        // last bucket key, so the series must stay exactly bucketKeys-length — including when rows
+        // fall outside the window. If this drifts, the dashed segment lands on the wrong point.
+        it('keeps series length equal to bucketKeys, ignoring rows outside the window', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            const rows: ActivityRow[] = [
+                { day: '2024-01-02 00:00:00', successes: 5, errors: 1 },
+                { day: '2023-12-31 00:00:00', successes: 9, errors: 9 }, // outside bucketKeys — must be dropped
+            ]
+            const result = buildDailyActivity(rows, bucketKeys)
+            expect(result.labels).toHaveLength(bucketKeys.length)
+            expect(result.successes).toHaveLength(bucketKeys.length)
+            expect(result.errors).toHaveLength(bucketKeys.length)
+            expect(result.successes).toEqual([0, 5, 0])
+        })
+    })
+
+    describe('lastBucketIsInProgress', () => {
+        const tz = 'UTC'
+        const keys = ['2026-06-27 00:00:00', '2026-06-28 00:00:00', '2026-06-29 00:00:00']
+
+        it('flags the tail when the last bucket is the interval containing now', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(true)
+        })
+
+        it('leaves the tail solid when the window ends in the past', () => {
+            const now = dayjs.tz('2026-07-05 09:15:00', tz)
+            expect(lastBucketIsInProgress(keys, tz, 'day', now)).toBe(false)
+        })
+
+        it('does not dash when there is no segment to dash', () => {
+            const now = dayjs.tz('2026-06-29 09:15:00', tz)
+            expect(lastBucketIsInProgress(['2026-06-29 00:00:00'], tz, 'day', now)).toBe(false)
+            expect(lastBucketIsInProgress([], tz, 'day', now)).toBe(false)
         })
     })
 
