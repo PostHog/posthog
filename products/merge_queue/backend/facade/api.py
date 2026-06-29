@@ -124,6 +124,10 @@ def break_glass(pr: PRRef, *, actor: Actor) -> None:
             enrollment.merged_at = timezone.now()
             enrollment.save(update_fields=["state", "merged_at", "updated_at"])
         observability.emit(QueueEventType.BREAK_GLASS_USED, actor=actor, enrollment=enrollment, partition=partition)
+    if partition is not None:
+        # the force-merged enrollment left the line — drive the partition so serial
+        # successors that were waiting on it can start (same as dequeue/unfreeze)
+        lifecycle.advance(partition)
 
 
 # ---- internals ----

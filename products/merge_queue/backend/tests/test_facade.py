@@ -2,7 +2,16 @@ import pytest
 
 from products.merge_queue.backend.facade import api
 from products.merge_queue.backend.facade.types import Actor, ActorKind, PRRef, Scope
-from products.merge_queue.backend.models import Enrollment, EnrollmentState, Partition, QueueEvent, QueueEventType
+from products.merge_queue.backend.models import (
+    Enrollment,
+    EnrollmentState,
+    Partition,
+    QueueEvent,
+    QueueEventType,
+    Slot,
+    SlotState,
+    Strategy,
+)
 
 pytestmark = pytest.mark.django_db
 
@@ -64,6 +73,23 @@ class TestBreakGlass:
 
         assert Enrollment.objects.get(number=42).state == EnrollmentState.MERGED
         assert QueueEvent.objects.filter(type=QueueEventType.BREAK_GLASS_USED).count() == 1
+
+    def test_break_glass_unblocks_serial_successor(self, engine, partition_factory):
+        partition_factory(strategy=Strategy.SERIAL)
+        pr1 = PRRef(repo="PostHog/posthog", number=1, head_sha="a" * 40)
+        pr2 = PRRef(repo="PostHog/posthog", number=2, head_sha="b" * 40)
+        api.enroll(pr1, actor=HUMAN)
+        api.enroll(pr2, actor=HUMAN)
+
+        # serial: #1 trials, #2 is held behind it
+        assert Slot.objects.get(enrollment__number=2).state == SlotState.ENROLLED
+        launched_before = len(engine.launched)
+
+        api.break_glass(pr1, actor=HUMAN)
+
+        # force-merging #1 leaves the line, so advance must start #2's trial
+        assert Slot.objects.get(enrollment__number=2).state == SlotState.TRIALING
+        assert len(engine.launched) == launched_before + 1
 
     @pytest.mark.parametrize("actor", [AGENT, Actor(id="cowboy", kind=ActorKind.COWBOY)])
     def test_break_glass_rejects_non_human(self, engine, partition_factory, actor):
