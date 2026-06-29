@@ -1,6 +1,6 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime, timedelta, tzinfo
 from typing import Optional, Union
 
 from django.db.models import F, Q
@@ -67,20 +67,29 @@ class ReportWindow:
     """Code-computed, timezone-aware analysis bounds for a report run.
 
     `start`/`end` are tz-aware in the team's timezone so the planner never has to do timezone math
-    in HogQL. The half-open convention is `timestamp >= start AND timestamp < end` — `start_iso`/
-    `end_iso` render the bounds for both the planner context and the query filter.
+    in HogQL. The half-open convention is `timestamp >= start AND timestamp < end` — `start_literal`/
+    `end_literal` render the bounds as `YYYY-MM-DD HH:MM:SS` (project-tz wall clock, no offset) for
+    both the planner context and the query filter. HogQL resolves a bare datetime literal against the
+    project timezone, so the offset is implied; this also keeps the filter on the stricter, faster
+    `toDateTime` path rather than the best-effort parser an offset suffix would force.
     """
 
     start: datetime
     end: datetime
 
     @property
-    def start_iso(self) -> str:
-        return self.start.isoformat(timespec="seconds")
+    def start_literal(self) -> str:
+        return self.start.strftime("%Y-%m-%d %H:%M:%S")
 
     @property
-    def end_iso(self) -> str:
-        return self.end.isoformat(timespec="seconds")
+    def end_literal(self) -> str:
+        return self.end.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
+    """Normalise to `tz`. Naive inputs are assumed UTC (Django stores tz-aware UTC datetimes, but
+    management commands / tests may hand us a naive value)."""
+    return (dt if dt.tzinfo is not None else dt.replace(tzinfo=UTC)).astimezone(tz)
 
 
 def compute_report_window(
@@ -97,13 +106,13 @@ def compute_report_window(
     it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
     """
     tz = team.timezone_info
-    # Normalise to the team tz. Naive inputs are assumed UTC (Django stores tz-aware UTC datetimes,
-    # but management commands / tests may hand us a naive value).
-    end = (now if now.tzinfo is not None else now.replace(tzinfo=UTC)).astimezone(tz)
+    end = _in_tz(now, tz)
 
     if last_successful_delivery_at is not None:
-        since = last_successful_delivery_at
-        start = (since if since.tzinfo is not None else since.replace(tzinfo=UTC)).astimezone(tz)
+        # "Since last send" is intentionally gap-free: a re-fire shortly after a successful delivery
+        # yields a small window (and a short report) because there's genuinely little new data — we
+        # don't pad it back to `window_days`, which would double-report data already sent.
+        start = _in_tz(last_successful_delivery_at, tz)
         # A clock skew or a stale finished_at could land start after end; clamp to the fallback
         # window so we never hand the planner an inverted range.
         if start >= end:
@@ -282,10 +291,10 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
         f"- Project: {team_name}",
         f"- Organization: {org_name}",
         f"- Project timezone: {team.timezone}",
-        f"- Analysis window start (inclusive, project timezone): {window.start_iso}",
-        f"- Analysis window end (exclusive, project timezone): {window.end_iso}",
-        f"- Filter timestamps with: timestamp >= toDateTime('{window.start_iso}') "
-        f"AND timestamp < toDateTime('{window.end_iso}')",
+        f"- Analysis window start (inclusive, project timezone): {window.start_literal}",
+        f"- Analysis window end (exclusive, project timezone): {window.end_literal}",
+        f"- Filter timestamps with: timestamp >= toDateTime('{window.start_literal}') "
+        f"AND timestamp < toDateTime('{window.end_literal}')",
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))

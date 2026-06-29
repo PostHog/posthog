@@ -199,23 +199,9 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
-async def test_run_steps_anchors_executor_to_window_end(mock_executor_cls: MagicMock) -> None:
-    # Generation must run queries against the computed window, not wall-clock time: the executor's
-    # `now()` anchor (2nd positional arg) is window.end, so any residual now()-relative date math
-    # resolves consistently with the injected [start, end) bounds rather than drifting between runs.
-    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(return_value=("formatted", None))
-    window = _test_window()
-
-    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), window, None)
-
-    (_team, anchor), _kwargs = mock_executor_cls.call_args
-    assert anchor == window.end
-
-
-@patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_executor_cls: MagicMock) -> None:
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     assert diagnostics[0].ok is False
@@ -234,7 +220,7 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
         side_effect=[ResolutionError("Unable to resolve field 'operaton'"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert mock_fix.await_args is not None
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
 
@@ -272,7 +258,7 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
         side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
@@ -290,7 +276,7 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # degrade rather than burn the retry budget on an identical query.
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad query"))
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.

@@ -1,6 +1,7 @@
 import uuid
 import asyncio
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Optional, Union
 
@@ -132,13 +133,11 @@ async def generate_ai_report(
             team_id=team.id,
             resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
         ),
-        properties={"window_start": window.start_iso, "window_end": window.end_iso},
+        properties={"window_start": window.start_literal, "window_end": window.end_literal},
     ) as slo:
         try:
             spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
-            rendered_results, failed_count, diagnostics = await _execute_plan(
-                spec, team, user, window, trace_correlation_id
-            )
+            rendered_results, failed_count, diagnostics = await _execute_plan(spec, team, user, trace_correlation_id)
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
@@ -191,11 +190,10 @@ async def _execute_plan(
     spec: EnrichedPromptSpec,
     team: Team,
     user: User,
-    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     try:
-        return await _run_steps(spec, team, user, window, trace_correlation_id)
+        return await _run_steps(spec, team, user, trace_correlation_id)
     except Exception as exc:
         # per-step failures degrade to placeholders in run_step; this catches orchestration failure
         raise AiReportStageError(ReportStage.QUERY, exc) from exc
@@ -261,13 +259,9 @@ async def _run_steps(
     spec: EnrichedPromptSpec,
     team: Team,
     user: User,
-    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
-    # Anchor the executor's `now()` to the window end so any residual `now() - INTERVAL` the planner
-    # emits resolves consistently with the explicit `[start, end)` bounds we injected into its context,
-    # rather than drifting to wall-clock time between plan and execution.
-    executor = AssistantQueryExecutor(team, window.end, user=user)
+    executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
 
     async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
         current_hogql = step.hogql

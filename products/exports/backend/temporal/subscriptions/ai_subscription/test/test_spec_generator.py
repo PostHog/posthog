@@ -257,8 +257,9 @@ class TestComputeReportWindow:
         # offset (the UTC-anchored bug had a zero offset regardless of team timezone).
         assert window.end.tzinfo == ZoneInfo(timezone)
         assert window.end.utcoffset() == now.astimezone(ZoneInfo(timezone)).utcoffset()
-        # The ISO strings the planner sees carry the offset, so the LLM never does tz math.
-        assert window.end_iso == now.astimezone(ZoneInfo(timezone)).isoformat(timespec="seconds")
+        # The literal the planner sees is the project-tz wall clock (no offset), so the LLM never does
+        # tz math — HogQL resolves a bare datetime against the project timezone.
+        assert window.end_literal == now.astimezone(ZoneInfo(timezone)).strftime("%Y-%m-%d %H:%M:%S")
 
     def test_clamps_inverted_range_to_fallback(self) -> None:
         # A stale finished_at in the future would invert the range; clamp to the fallback window.
@@ -297,9 +298,12 @@ class TestContextBlob(APIBaseTest):
 
         blob = build_context_blob(self.team, window)
 
-        assert f"Analysis window start (inclusive, project timezone): {window.start_iso}" in blob
-        assert f"Analysis window end (exclusive, project timezone): {window.end_iso}" in blob
-        assert f"timestamp >= toDateTime('{window.start_iso}') AND timestamp < toDateTime('{window.end_iso}')" in blob
+        assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
+        assert f"Analysis window end (exclusive, project timezone): {window.end_literal}" in blob
+        assert (
+            f"timestamp >= toDateTime('{window.start_literal}') AND timestamp < toDateTime('{window.end_literal}')"
+            in blob
+        )
         # The relative "last N day(s)" phrasing the planner used to do tz math against is gone.
         assert "Suggested analysis window" not in blob
         assert "Current UTC time" not in blob
