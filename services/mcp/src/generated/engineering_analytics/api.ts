@@ -43,12 +43,7 @@ export const EngineeringAnalyticsPrLifecycleParams = /* @__PURE__ */ zod.object(
 
 export const EngineeringAnalyticsPrLifecycleQueryParams = /* @__PURE__ */ zod.object({
     pr_number: zod.number().describe('Pull request number to inspect.'),
-    repo: zod
-        .string()
-        .optional()
-        .describe(
-            "Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo."
-        ),
+    repo: zod.string().describe("'owner/name' repository the pull request belongs to."),
     source_id: zod
         .string()
         .optional()

@@ -55,7 +55,7 @@ def get_pr_lifecycle(
     *,
     team: Team,
     pr_number: int,
-    repo: str | None = None,
+    repo: str,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
