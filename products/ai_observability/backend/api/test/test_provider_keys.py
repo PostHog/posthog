@@ -1214,6 +1214,32 @@ class TestTrialEvaluationsEndpoint(APIBaseTest):
         self.assertEqual(len(response.data["evaluations"]), 1)
         self.assertEqual(response.data["evaluations"][0]["name"], "Legacy")
 
+    def test_excludes_non_llm_judge_evals(self):
+        # Hog and Sentiment evals have no model_configuration, so the legacy OpenAI clause would
+        # otherwise sweep them in — but they never use a provider key.
+        Evaluation.objects.create(
+            team=self.team,
+            name="Hog eval",
+            evaluation_type="hog",
+            output_type="boolean",
+            model_configuration=None,
+            enabled=True,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Sentiment eval",
+            evaluation_type="sentiment",
+            output_type="sentiment",
+            model_configuration=None,
+            enabled=True,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=openai"
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.data["evaluations"]), 0)
+
     def test_rejects_invalid_provider(self):
         response = self.client.get(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/trial_evaluations/?provider=invalid"

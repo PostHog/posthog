@@ -86,7 +86,7 @@ def test_non_header_credential_is_skipped(authenticator):
         counter.labels.assert_called_once_with(result="skipped")
 
 
-@override_settings(FEATURE_FLAGS_SERVICE_URL="http://rust:3001")
+@override_settings(FEATURE_FLAGS_DEFINITIONS_SERVICE_URL="http://rust:3001")
 def test_builds_canonical_rust_url():
     with patch.object(shadow, "_SHADOW_SESSION") as session, patch.object(shadow, "REMOTE_CONFIG_SHADOW_COMPARISONS"):
         session.get.return_value = _rust_response(200, b'"v"', "v")

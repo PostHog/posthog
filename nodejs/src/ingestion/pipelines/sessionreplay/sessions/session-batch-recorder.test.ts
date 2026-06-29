@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import { validate as uuidValidate } from 'uuid'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
@@ -8,7 +9,6 @@ import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared
 import { createMockEncryptor, createMockKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/test-helpers'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { parseJSON } from '~/utils/json-parse'
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage, SessionBatchFileWriter } from './session-batch-file-storage'

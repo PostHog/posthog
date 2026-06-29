@@ -381,7 +381,7 @@ def test_only(categories: dict[str, int]) -> bool:
 # Without this, the `auth` deny would force T2-never on essentially every such
 # PR. Other deny categories (crypto/secrets, migrations, …) still apply. Add new
 # exempt trees here rather than special-casing in detect_deny_categories.
-AUTH_EXEMPT_PATH_PREFIXES = ("posthog/temporal/data_imports/sources/",)
+AUTH_EXEMPT_PATH_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
 
 
 def _is_auth_exempt_path(path: str) -> bool:

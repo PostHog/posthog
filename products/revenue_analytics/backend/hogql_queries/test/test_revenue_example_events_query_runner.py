@@ -20,11 +20,11 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.revenue_analytics.backend.hogql_queries.revenue_example_events_query_runner import (
     RevenueExampleEventsQueryRunner,
 )
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE = RevenueAnalyticsEventItem(eventName="purchase", revenueProperty="revenue")
 REVENUE_ANALYTICS_CONFIG_EVENT_PURCHASE_A = RevenueAnalyticsEventItem(

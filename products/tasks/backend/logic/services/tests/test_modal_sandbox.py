@@ -1,11 +1,22 @@
+import asyncio
+import builtins
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
 
+from modal.exception import (
+    ConnectionError as ModalConnectionError,
+    TimeoutError as ModalTimeoutError,
+)
 from requests.exceptions import ConnectionError, Timeout
 
-from products.tasks.backend.exceptions import SandboxExecutionError, SandboxProvisionError
+from products.tasks.backend.exceptions import (
+    SandboxExecutionError,
+    SandboxProvisionError,
+    SnapshotCreationError,
+    SnapshotTimeoutError,
+)
 from products.tasks.backend.logic.services.modal_provision_diagnostics import (
     MAX_PROVISION_LOG_EXCERPT_LINES,
     summarize_modal_output,
@@ -926,3 +937,57 @@ class TestResourceCreateKwargs:
         kwargs = _resource_create_kwargs(config)
 
         assert kwargs == {"cpu": (1.0, 1.0), "memory": (2048, 2048)}
+
+
+class TestModalSandboxCreateSnapshot:
+    @pytest.fixture
+    def mock_sandbox(self) -> Any:
+        mock_modal_sandbox = MagicMock()
+        mock_modal_sandbox.object_id = "test-sandbox-id"
+        mock_modal_sandbox.poll.return_value = None  # None => still running
+
+        config = SandboxConfig(name="test-sandbox")
+        with patch.object(ModalSandbox, "_get_app_for_template", return_value=MagicMock()):
+            return ModalSandbox(sandbox=mock_modal_sandbox, config=config)
+
+    def test_create_snapshot_success(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_filesystem.return_value = MagicMock(object_id="im-123")
+
+        with patch("products.tasks.backend.exceptions.capture_exception") as capture_exception:
+            assert mock_sandbox.create_snapshot() == "im-123"
+
+        capture_exception.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            ModalTimeoutError("Deadline exceeded"),
+            ModalConnectionError("connection reset"),
+            builtins.TimeoutError("timed out"),
+            builtins.ConnectionError("connection error"),
+            asyncio.CancelledError(),
+        ],
+    )
+    def test_transient_modal_errors_are_retryable_and_not_captured(self, mock_sandbox: Any, error: BaseException):
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = error
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SnapshotTimeoutError) as exc,
+        ):
+            mock_sandbox.create_snapshot()
+
+        # Transient timeouts must stay retryable (Temporal retries) and must not create error-tracking issues.
+        assert exc.value.non_retryable is False
+        capture_exception.assert_not_called()
+
+    def test_genuine_failure_raises_snapshot_creation_error_and_is_captured(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_filesystem.side_effect = RuntimeError("Failed to create image")
+
+        with (
+            patch("products.tasks.backend.exceptions.capture_exception") as capture_exception,
+            pytest.raises(SnapshotCreationError),
+        ):
+            mock_sandbox.create_snapshot()
+
+        capture_exception.assert_called_once()

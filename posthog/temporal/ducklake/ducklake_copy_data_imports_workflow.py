@@ -8,7 +8,6 @@ from django.conf import settings
 
 import duckdb
 import deltalake
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -18,12 +17,11 @@ from posthog.ducklake.common import (
     _get_org_id_for_team,
     attach_catalog,
     duckgres_data_imports_schema,
+    duckgres_data_imports_table_name,
     get_config,
+    get_duckgres_server_by_team_org,
     get_duckgres_server_for_organization,
-    get_ducklake_catalog_by_team_org,
-    get_ducklake_catalog_for_organization,
     is_dev_mode,
-    sanitize_ducklake_identifier,
 )
 from posthog.ducklake.storage import (
     cleanup_staged_files,
@@ -42,17 +40,20 @@ from posthog.ducklake.verification import (
 )
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import DUCKGRES_BATCH_SINK_FLAG
 from posthog.temporal.ducklake.metrics import (
     get_ducklake_copy_data_imports_finished_metric,
     get_ducklake_copy_data_imports_verification_metric,
 )
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.enablement import (
+    DUCKGRES_BATCH_SINK_FLAG,
+)
 
 LOGGER = get_logger(__name__)
 DATA_IMPORTS_DUCKLAKE_WORKFLOW_PREFIX = "data_imports"
@@ -161,7 +162,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
     # same posthog_data_imports_team_{id} tables with zero coordination, so a
     # team must never have both enabled. The sink wins.
     try:
-        if posthoganalytics.feature_enabled(
+        if feature_enabled_or_false(
             DUCKGRES_BATCH_SINK_FLAG,
             str(team.uuid),
             groups={
@@ -180,7 +181,7 @@ async def ducklake_copy_data_imports_gate_activity(inputs: DuckLakeCopyWorkflowG
         capture_exception(error)
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "ducklake-data-imports-copy-workflow",
             str(team.uuid),
             groups={
@@ -251,12 +252,7 @@ async def prepare_data_imports_ducklake_metadata_activity(
                 source_normalized_name=normalized_name,
                 source_table_uri=source_table_uri,
                 ducklake_schema_name=ducklake_schema_name,
-                ducklake_table_name=sanitize_ducklake_identifier(
-                    f"{source_type}_{schema.source.prefix}_{normalized_name}"
-                    if schema.source.prefix
-                    else f"{source_type}_{normalized_name}",
-                    default_prefix="data_import",
-                ),
+                ducklake_table_name=duckgres_data_imports_table_name(schema),
                 verification_queries=list(get_data_imports_verification_queries(normalized_name)),
                 source_partition_column=partition_column,
                 staging_uri=staging_uri,
@@ -308,12 +304,12 @@ def _copy_data_imports_via_duckdb(inputs: DuckLakeCopyDataImportsActivityInputs,
 def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInputs, logger: typing.Any) -> None:
     """Stage Delta files and create the DuckLake table via duckgres."""
     org_id = _get_org_id_for_team(inputs.team_id)
-    catalog = get_ducklake_catalog_for_organization(org_id)
     server = get_duckgres_server_for_organization(org_id)
-    if catalog is None:
-        raise ApplicationError(f"No DuckLakeCatalog configured for team {inputs.team_id}", non_retryable=True)
     if server is None:
         raise ApplicationError(f"No DuckgresServer configured for team {inputs.team_id}", non_retryable=True)
+    bucket = server.bucket
+    if not bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {inputs.team_id}", non_retryable=True)
     if not inputs.model.staging_uri:
         raise ApplicationError(f"No staging_uri for model {inputs.model.model_label}", non_retryable=True)
 
@@ -324,7 +320,7 @@ def _copy_data_imports_via_duckgres(inputs: DuckLakeCopyDataImportsActivityInput
     )
     stage_delta_table(
         source_uri=inputs.model.source_table_uri,
-        catalog_bucket=catalog.bucket,
+        catalog_bucket=bucket,
         organization_id=org_id,
     )
 
@@ -356,8 +352,8 @@ class DuckLakeDataImportsStagingCleanupInputs:
 def cleanup_data_imports_staging_activity(inputs: DuckLakeDataImportsStagingCleanupInputs) -> None:
     """Clean up staged Delta files after successful verification."""
     bind_contextvars(team_id=inputs.team_id)
-    catalog = get_ducklake_catalog_by_team_org(inputs.team_id)
-    if catalog is None:
+    server = get_duckgres_server_by_team_org(inputs.team_id)
+    if server is None:
         return
     cleanup_staged_files(
         staging_uri=inputs.staging_uri,
@@ -369,11 +365,13 @@ def _resolve_data_imports_staging_uri(source_uri: str, *, team_id: int) -> str |
     if is_dev_mode():
         return None
 
-    catalog = get_ducklake_catalog_by_team_org(team_id)
-    if catalog is None:
-        raise ApplicationError(f"No DuckLakeCatalog configured for team {team_id}", non_retryable=True)
+    server = get_duckgres_server_by_team_org(team_id)
+    if server is None:
+        raise ApplicationError(f"No DuckgresServer configured for team {team_id}", non_retryable=True)
+    if not server.bucket:
+        raise ApplicationError(f"No S3 bucket configured for team {team_id}", non_retryable=True)
 
-    return compute_staging_uri(source_uri, catalog.bucket)
+    return compute_staging_uri(source_uri, server.bucket)
 
 
 def _detect_data_imports_partition_column(table_uri: str, *, team_id: int) -> str | None:

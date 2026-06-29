@@ -2,7 +2,7 @@ import { Counter } from 'prom-client'
 
 import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
 import { KeyedRateLimit, KeyedRateLimitRequest, KeyedRateLimiter } from '~/common/services/keyed-rate-limiter.service'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 const guardOutcomeCounter = new Counter({
     name: 'error_tracking_per_issue_guard_outcome_total',

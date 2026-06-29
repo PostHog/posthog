@@ -4,26 +4,17 @@
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/logic backend/management -v --tb=short",
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
-    "dependencies": {
-        "fast-deep-equal": "catalog:",
-        "kea-subscriptions": "catalog:",
-        "torph": "^0.0.9"
-    },
+    "dependencies": {},
     "devDependencies": {
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@dnd-kit/core": "*",
-        "@dnd-kit/modifiers": "*",
-        "@dnd-kit/sortable": "*",
-        "@dnd-kit/utilities": "*",
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",
         "clsx": "*",
         "kea": "catalog:",
-        "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "react": "*",
