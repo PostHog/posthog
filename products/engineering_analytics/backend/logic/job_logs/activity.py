@@ -78,6 +78,9 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "conclusion": inputs.conclusion or "",
     }
 
+    # CI failure logs are team-level operational data: they ride the owning team's project Logs
+    # (visible to any logs:read holder) by design and intentionally do NOT inherit the GitHub
+    # source's resource-level access control. Don't emit anything a logs:read holder shouldn't see.
     def _thin_and_emit() -> int:
         # Failures-only today; pass a different ThinningConfig once all-jobs ingestion lands.
         thinned = thin_log(archive)
