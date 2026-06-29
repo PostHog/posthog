@@ -1038,12 +1038,23 @@ AnalyzeChunksWorkflow, ReviewPerspectivesWorkflow, ValidateIssuesWorkflow]` + `A
   via a fresh `run_sandbox_review` single-turn `MultiTurnSession` — N sandboxes per review, each paying cold-start
   - repo-checkout cost. Worth exploring later: run a stage's calls (or even a whole chunk's analyze → review →
     validate chain) as **sequential steps inside one long-lived multi-turn session in the same sandbox**, so the
-    checkout + agent boot amortize across steps and intermediate context can stay warm. Tensions to weigh first: it
+    checkout + agent boot amortize across steps and intermediate context can stay warm. **First concrete candidate: analyze-chunk → issue-search for the same chunk**,
+    run as two steps in one session so the analyze output feeds the search directly without re-establishing context.
+    Tensions to weigh first: it
     trades the current **per-call isolation + independent parallelism** (each sandbox fails / retries / scales on its
     own) for **fewer, fatter sessions** (shared failure blast radius, harder fan-out, ordering constraints), and the
     `head_sha`-pinned checkout must still hold for every step. Purely a future idea to evaluate against real
     sandbox-cost numbers — **do not implement now**; revisit after the Temporal single-turn workflow (step 15) lands
     and per-sandbox cost is measurable.
+- **Evaluate GPT-5.5 (or non-Claude models) as the sandbox model for some steps (not scheduled).** Every sandbox
+  step runs on Claude today; the executor already takes a per-call `model` (`MultiTurnSession.start(model=…)`), so
+  A/B-ing GPT-5.5 as the main model for specific steps (e.g. chunking or validation) where a cheaper/different model
+  may match quality is a per-step config experiment, not a refactor. Measure finding quality + cost per step.
+- **Improve the chunking prompt — it over-splits small PRs (not scheduled).** Observed: a ~155-line PR was split
+  into 2 chunks needlessly, doubling the per-chunk fan-out (2× agents / tokens / sandboxes across analyze + every
+  perspective + validate). Bias `CHUNKING_SYSTEM_PROMPT` / `prompts/chunking/` toward fewer, larger chunks — a small
+  PR should usually be one chunk; pairs with the conditional "skip chunking below a size threshold" gate. Pure
+  prompt/heuristic tuning; measure chunk count vs PR size.
 - **API viewset + frontend** to browse reviews (`/improving-drf-endpoints`).
 - **Emit into the Signals inbox.** Like `replay_vision`, ReviewHog could emit notable findings into Signals via
   the facade `emit_signal` so they surface in the inbox — a product feature, separate from this storage work.
@@ -1643,43 +1654,141 @@ first so the latest fixes are loaded.
 
 ### 🔮 Future directions (product, post-Stage-5 — not scheduled)
 
-#### ⭐ NEXT SCHEDULED DIRECTION — user-customizable lenses (perspectives / validator / chunking), Scouts-style
+#### ⭐ Customizable perspectives — DECIDED 2026-06-29: team-level skills + PER-USER enablement; unified chunking
 
-The goal: **per-user** ownership of the review lenses, mirroring how Signals lets a user create/own **custom
-scouts** — each user has their own editable perspective set + validator, and a review applies _that user's_ set.
-**Not full-researched yet** (that's the next step); this captures the direction + the decisions already made.
+**Decision (AskUserQuestion).** **Skill ownership + editing stay team-level** (perspectives/validator are shared
+team `LLMSkill` rows, edited in place); but **perspective _enablement_ — which perspectives run on a given PR — is
+per-USER** (the ⭐ NEXT IMPLEMENTATION spec below). Chunking stays **one unified logic**. The per-user _skill
+ownership_ idea was dropped after research found **Signals custom scouts are themselves team-scoped** — `load_skill_for_run(team, …)` resolves by team, and a "custom scout"
+is just a team-wide renamed `duplicate_skill`. There is **no per-user skill ownership anywhere** in the codebase
+(`LLMSkill` is `(team, name, version)`-scoped, no user dimension; `created_by` is audit-only), so per-user would be
+net-new infrastructure with no precedent. Team-level matches what Scouts actually do — and is mostly already built.
 
-Sequencing (the user's order):
+**Status — team-level editing of the 3 perspectives + the validator already works, with zero new code.** A team
+edits the canonical-named `LLMSkill` row (e.g. `review-hog-perspective-logic-correctness`,
+`review-hog-validation-criteria`) via the skills API/MCP → `load_perspectives_for_run` /
+`load_validation_skill_for_run` read the team's **latest by name** → the sandbox `skill-get` pulls the edit; the
+cold-start `sync_canonical_*` sees the row's hash diverge from `metadata.canonical_hash` and **leaves it alone**
+(`lazy_seed.py` diverged branch), so the edit survives every run. Disk `SKILL.md` stays the canonical baseline.
+**Guarded by tests:** `test_perspectives.py::{test_leaves_team_edited_row_alone, test_pins_the_latest_version}` and
+`test_validation_skill.py::{test_leaves_team_edited_row_alone, test_pins_the_team_edited_version}`.
 
-- **Now (1): make the 3 perspectives + the single validator per-user-editable**, Scouts-style. Today they're
-  **team-shared** DB-synced skills — `lazy_seed` already seeds per-team `LLMSkill` rows and **respects edits**
-  (hash-diverged rows are left alone), but that's team-wide, so **per-user ownership is the new work**. Reuse the
-  Scouts custom-scout ownership model (the research step pins the exact mechanism — likely `LLMSkill` + a per-user
-  attribution). Keep the canonical set as the default a user starts from / can reset to (a "reset to canonical"
-  affordance is net-new — sync leaves an edited skill diverged forever today). Keep it **one** validator (simple).
-- **Now (2): move chunking into a skill**, same per-user-customizable treatment — today it's a hardcoded
-  `CHUNKING_SYSTEM_PROMPT` + `generate_chunking_prompt` (`tools/split_pr_into_chunks.py`), not a synced skill.
-- **Next (3): add new lenses → dynamic fan-out (4+).** `load_perspectives_for_run` iterates a **hardcoded 3-tuple**
-  (`skill_loader.PERSPECTIVES`); switch it to **discover the user's perspective skills by prefix**
-  (`review-hog-perspective-*`, the sync's prune already works prefix-scoped) so `ReviewPerspectivesWorkflow` spawns
-  one sandbox per (perspective × chunk) for however many exist. **Prereq:** decouple `Issue.source_perspective` from
-  the hardcoded `PerspectiveType` enum (`combine_issues` does `list(PerspectiveType)[pass_number-1]`; a unit test
-  asserts the order) — derive the perspective label from the skill, not a fixed enum.
-- **Next+1 (4): UI + skills to add/manage perspectives**, like the Scouts authoring UX.
-- **Further out:** **self-improvement from review feedback** — a user replying to a ReviewHog comment ("not worth
-  flagging" / "always flag this") triggers a flow to update _their_ skill, so the keep/drop bar personalizes from the
-  thread instead of being one fixed set.
+**Chunking — stays ONE unified logic (decided NO to editable).** Chunk ids are a structural invariant: chunking
+runs **once per PR**, shared by every perspective + the validator, and the id is baked into finding identity
+(`{pass}-{chunk}-{issue}`) and the persistence key. A divergent chunk set silently orphans findings and drops
+validations (`_prepare_validation_prompt` warns-and-skips on a missing chunk id, `activities.py`). It also has no
+skill abstraction today (hardcoded `CHUNKING_SYSTEM_PROMPT`, `tools/split_pr_into_chunks.py`). If team
+customization is ever truly needed, promote chunking to a **team-wide** versioned skill — never per-user.
 
-Two facts that make this safe + straightforward:
+**⏭ DEFERRED — "reset to canonical" (ships with the UI). DON'T FORGET — this is the one missing piece of the
+team-level story.** There is **no revert path today**: `archive_skill` soft-deletes all versions → the next sync
+sees no live row → the **tombstoned** branch, which does **not** recreate; and `sync_review_hog_skills`
+deliberately leaves diverged rows alone. So once a team edits a canonical skill, the only way back is a **force
+re-pull** — overwrite the edited row with disk canonical as a new version, re-stamping `canonical_hash`. Most
+naturally a `sync_review_hog_skills --reset [--skill NAME]` flag backed by a small `lazy_seed` helper. Its main
+consumer is the future UI button, so it's deferred until the ReviewHog skills **UI** lands.
 
-- **The output schema is fixed; only the skill (logic) is editable.** Every perspective validates against the same
-  `IssuesReview` / `Issue` schema, the validator against `IssueValidation`, chunking against `ChunksList` — all
-  **code, not skills**. So editing or adding a lens **cannot** change the output format, and the downstream pipeline
-  (combine → dedup → validate → publish) is schema-uniform — it never destabilizes.
-- **"Whose perspectives apply to a PR review" resolves via the existing GitHub-user → PostHog-user mapping**
-  (near `posthog/models/integration.py`): a per-PR/team trigger carries the GitHub actor (PR author / label-applier)
-  → map to the PostHog user → load _their_ perspective set, falling back to canonical if they haven't customized.
-  The run already threads a `user_id`. **Research step pins:** that mapping's exact API + the default/fallback rule.
+**⏭ DEFERRED — a ReviewHog skills UI.** No ReviewHog scene exists yet (scouts surface their logic in the new
+Signals inbox); editing + reset are API/MCP-only for now. Building the "see + edit + reset my review skills"
+surface is its own step, and is what "reset to canonical" rides in with.
+
+##### ⭐ NEXT IMPLEMENTATION — per-user perspective ENABLEMENT (DECIDED 2026-06-29, design locked, not yet built)
+
+This supersedes the old "per-user not chosen" note. Per-user **skill ownership** stays off (skills remain
+team-level, edited in place as above), but **which perspectives run is per-USER**, mirroring Signals scouts'
+`SignalScoutConfig` enable/disable. Everything below is the settled, grounded design — implement as the next step.
+
+**What a perspective is.** Any team `LLMSkill` named `review-hog-perspective-*` (the prefix is the **sole** marker,
+exactly like `signals-scout-*`). **Canonical and custom are handled identically — no branching anywhere.** The only
+difference: the 3 canonicals are auto-seeded (existing `lazy_seed.sync_canonical_perspectives`); a "custom
+perspective" is just a prefixed team skill a user creates (skills API/MCP now; UI later) — _any_ content, even a
+100% copy of a canonical. Skills stay team-level. The validator (`review-hog-validation-criteria`) stays a **single
+team-level** skill — enablement is **perspectives only**.
+
+**Config model (mirror `SignalScoutConfig`, minus the clock).** New `ReviewPerspectiveConfig(UUIDModel,
+TeamScopedRootMixin)` in `products/review_hog/backend/models.py`:
+
+- `team` FK, `user` FK, `skill_name` CharField(max_length=200), `enabled` BooleanField(default=True,
+  db_default=True), `created_at`/`updated_at`. Unique `(team, user, skill_name)`. **No extra fields** (user: skill
+  name is the identity; nothing else).
+- **Drop** scouts' scheduling fields (`emit`, `run_interval_minutes`, `last_run_at`) — ReviewHog is PR-**triggered**,
+  not scheduled; there is no coordinator/clock. Skip `ModelActivityMixin`/`all_teams` unless an admin page is later
+  wanted. Migration via `makemigrations` (`/django-migrations`; delete stray file, `DEBUG=1 ./manage.py
+makemigrations review_hog`).
+- Mirror: `SignalScoutConfig` = `(team, skill_name, enabled)` on `TeamScopedRootMixin, UUIDModel`
+  (`products/signals/backend/models.py:919, 946-947, 992-994`). Identity is **`skill_name`, never `created_by`**
+  (`created_by` is audit-only and reassigns on edit). We add the `user` dimension scouts lack.
+
+**Default-on-start seeding (per-user `register_missing` analogue).** `register_missing_perspective_configs(team,
+user)` in `lazy_seed.py`: for each **canonical** skill_name, `ReviewPerspectiveConfig.objects.for_team(team.id)
+.get_or_create(team_id=…, user_id=…, skill_name=…, defaults={"enabled": True})` — pass `team_id` explicitly in
+both filter + create (the fail-closed `for_team().get_or_create()` does not inject it, per CLAUDE.md). Auto-enables
+**only the canonicals** (this is the one allowed canonical/custom difference: "auto-added on the start"); customs
+are enabled by the user via the toggle. A new canonical added later auto-enables for everyone on next resolve; a
+row the user disabled is left alone (get_or_create no-op). Scouts call register-missing each coordinator tick
+(`config_registry.py`); we call it when resolving the acting user, before loading.
+
+**PR-author → PostHog user (mandatory gate, no fallback).** The acting user whose perspectives apply = the **PR
+author**, from `pr_metadata.author` (`tools/github_meta.py:244`), resolved via **`resolve_org_github_login_to_users(
+team_id, [login]) -> {login: User}`** (`products/signals/backend/report_generation/resolve_reviewers.py:241`;
+org-scoped, case-insensitive, backed by `User.get_github_login()` precedence UserIntegration-github →
+UserSocialAuth-github → team-integration login, `posthog/models/user.py:438`; already used in prod). **CORRECTION
+to earlier docs: this reverse-lookup DOES exist** (a prior research pass wrongly said it didn't). If the author does
+**not** map to a PostHog org user → **do not review** (no fallback / no canonical default — we rely on
+PostHog-stored skills, so the author must be a PostHog user with an org account). Gate **after fetch, before the
+perspective fan-out** — resolution is needed for selection anyway, so no dead code, nothing wasted. `inputs.user_id`
+today is the integration _creator_ (`trigger.py:54-57, 125`), NOT the PR author — keep it for sandbox/MCP auth, but
+resolve the PR author separately for perspective selection.
+
+**Loader change** — `load_perspectives_for_run(team_id, acting_user_id)` (`skill_loader.py:50`): after
+`register_missing_perspective_configs`, read the user's enabled set
+`ReviewPerspectiveConfig.objects.for_team(team_id).filter(user_id=acting_user_id, enabled=True)
+.values_list("skill_name", flat=True)`; resolve each to its live `LLMSkill` (latest, non-deleted) →
+`LoadedPerspective`. `pass_number` = **per-run index** (`enumerate` over the user's enabled perspectives,
+deterministically ordered, e.g. sorted by skill_name) — NOT the enum ordinal. `source_perspective` carried as the
+**skill_name** (user: skill name is readable enough, no extra label field). **Min-1 floor:** raise if zero enabled.
+Keep the **enabled-but-missing-skill ⇒ raise** branch (real sync error, not a soft skip).
+
+**Decouple `source_perspective` from the enum.** `combine_issues` recovers it via `list(PerspectiveType)[
+pass_number-1]` today (`issue_combination.py:21`) — replace with stamping `source_perspective` from the **skill that
+ran** (the run's `pass_number → skill_name` map = the loaded perspectives). `PerspectiveType` is **demoted** to just
+the canonical-seed list (no identity role). `Issue.source_perspective` becomes the skill_name string; it is
+**code-stamped in `combine_issues`, not LLM-emitted**, so this does NOT touch the fixed LLM output schema — verify
+before editing.
+
+**Keep `pass_number` (DECIDED — demote, don't delete).** It survives ONLY as the compact per-run index inside
+`issue.id = {pass}-{chunk}-{issue}` and the `(pass_number, chunk_id)` result keys (`activities.py:547`). It must
+stay because **dedup keys on `issue.id`** (`issue_deduplicator.py:118` → the id must be perspective-unique) and the
+**validation parser splits `issue.id` on `-`** to recover the chunk (`activities.py:612-620` → the token must be
+hyphen-free/compact). The long, hyphenated `skill_name` cannot live in the id. Net: `pass_number` = dumb per-run
+index; `skill_name` = identity.
+
+**Fan-out / persistence need no structural change.** `ReviewPerspectivesWorkflow` already fans out over exactly
+what the loader returns (`workflow.py:153`; `pass_number=perspective.pass_number` at `:169`); the `(pass, chunk)`
+results read (`activities.py:547`) and the run_index-scoped `_issue_key` (`persistence.py:431`) tolerate a variable,
+non-contiguous set. Only the banner that hardcodes "3 perspectives" (`workflow.py` ~349) should log the resolved
+count instead.
+
+**Toggle surface (this round = API; UI later).** Team+user-scoped `ReviewPerspectiveConfigViewSet` (list +
+`partial_update(enabled)`), on the project (team-scoped) router — NOT the root trigger router; apply
+`/improving-drf-endpoints`. **Min-1 enforced at the toggle** (reject disabling the user's last enabled perspective)
+AND in the loader (raise on zero).
+
+**Tests** (`/writing-tests`): config model + `register_missing` (canonicals auto-seed enabled, idempotent, customs
+NOT auto-seeded); loader (returns only the user's enabled set; `source_perspective`=skill_name; per-run
+`pass_number`; min-1 raise; missing-skill raise; cold user with no rows ⇒ canonicals); `combine_issues` stamps
+`source_perspective` from the skill incl. a **custom** perspective with no enum entry; author-resolution gate
+(mapped ⇒ their set; unmapped ⇒ no review); toggle rejects disabling the last.
+
+**Still deferred (own steps):** the ReviewHog skills **UI** (add / enable-disable perspectives, edit, reset-to-
+canonical) — API/MCP only for now; the **"reset to canonical"** force-re-pull (above) ships with that UI; a future
+per-PR coordinator step that picks _which_ of the enabled perspectives best fit a given PR (the user's "what
+perspectives make sense for this PR").
+
+The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
+perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against
+`ChunksList` — all **code, not skills** — so editing a skill cannot change the output format and the downstream
+pipeline (combine → dedup → validate → publish) stays schema-uniform.
 
 ---
 
