@@ -111,6 +111,7 @@ the row lists both.
 | emailoctopus        | HTTP                        | requests                                                        | ✅                          |
 | eventbrite          | HTTP                        | requests                                                        | ✅                          |
 | everhour            | HTTP                        | requests                                                        | ✅                          |
+| factorial           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | financial_modelling | HTTP                        | requests                                                        | ✅                          |
 | finnhub             | HTTP                        | requests                                                        | ✅                          |
@@ -389,7 +390,6 @@ doesn't conflict with concurrent PRs.
 - expensify
 - ezofficeinventory
 - facebook_pages
-- factorial
 - fastbill
 - fastly
 - fauna
