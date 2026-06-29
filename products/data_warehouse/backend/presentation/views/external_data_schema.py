@@ -385,9 +385,11 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             ]
             if sql_columns:
                 return sql_columns
-        # `schema_metadata` is only populated for SQL sources. Fall back to the synced table's universal
-        # column store so REST sources (Stripe, Hubspot, …) also surface their columns — needed for the
-        # Descriptions UI to list columns and let users annotate them.
+        # `schema_metadata` is only written on source creation and explicit schema reload
+        # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
+        # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
+        # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
+        # UI can still list columns (and surface their existing annotations) and let users edit them.
         table = schema.table
         return table.get_user_facing_columns() if table is not None else []
 
