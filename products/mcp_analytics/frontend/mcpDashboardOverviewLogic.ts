@@ -298,6 +298,22 @@ export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interv
     return keys
 }
 
+// True when the final bucket is the current, still-running interval (open-ended window), so the
+// chart can dash that segment as "in progress" rather than letting the partial period read as data
+// loss. Needs ≥2 buckets to have a segment to dash; `now` is injectable so the logic stays testable.
+export function lastBucketIsInProgress(
+    bucketKeys: string[],
+    timezone: string,
+    interval: IntervalType,
+    now: dayjs.Dayjs = dayjs()
+): boolean {
+    if (bucketKeys.length < 2) {
+        return false
+    }
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format('YYYY-MM-DD HH:mm:ss')
+    return bucketKeys[bucketKeys.length - 1] === currentBucket
+}
+
 export function normalizeBucket(raw: unknown, timezone: string): string {
     const s = String(raw ?? '')
     return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
@@ -585,6 +601,13 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             (s) => [s.dateFilter, s.timezone, s.interval],
             (dateFilter: DateFilter, timezone: string, interval: IntervalType): string[] =>
                 buildBucketKeys(dateFilter, timezone, interval),
+        ],
+        // Whether the activity chart's final bucket is the current, still-running interval — the
+        // chart dashes that segment so a partial period doesn't read as a drop in tool calls.
+        activityIncompleteTail: [
+            (s) => [s.bucketKeys, s.timezone, s.interval],
+            (bucketKeys: string[], timezone: string, interval: IntervalType): boolean =>
+                lastBucketIsInProgress(bucketKeys, timezone, interval),
         ],
         dailyActivity: [
             (s) => [s.activityRows, s.bucketKeys],

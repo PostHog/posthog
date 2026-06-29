@@ -18,20 +18,26 @@ export function ActivityChart({
     theme,
     timezone,
     interval,
+    incompleteTail,
 }: {
     daily: DailyActivity
     loading: boolean
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
+    // When true, the final bucket is the current in-progress interval — dash that segment so the
+    // partial period reads as "not finished yet" rather than a drop in tool calls.
+    incompleteTail?: boolean
 }): JSX.Element {
     const series = useMemo<Series[]>(() => {
         const totals = daily.successes.map((s, i) => s + (daily.errors[i] ?? 0))
+        const dashedFromIndex = incompleteTail && totals.length >= 2 ? totals.length - 1 : undefined
+        const partialStroke = dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined
         return [
-            { key: 'calls', label: 'Tool calls', color: theme.colors[0], data: totals },
-            { key: 'errors', label: 'Errors', color: theme.colors[4], data: daily.errors },
+            { key: 'calls', label: 'Tool calls', color: theme.colors[0], data: totals, stroke: partialStroke },
+            { key: 'errors', label: 'Errors', color: theme.colors[4], data: daily.errors, stroke: partialStroke },
         ]
-    }, [daily, theme])
+    }, [daily, theme, incompleteTail])
     // quill's built-in date tick formatter only kicks in when both interval and timezone are set.
     const config = useMemo<TimeSeriesLineChartConfig>(
         () => ({
