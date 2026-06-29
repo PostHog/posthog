@@ -326,8 +326,9 @@ class TestScoutReportAPI(APIBaseTest):
         # event into the team's own project. (A non-inactive gate-skip like `ai_processing_not_approved`
         # still fans out — covered by the lifecycle test above.)
         run = _make_run(self.team)
+        config = run.scout_config
+        assert config is not None
         if reason == "scout_emit_disabled":
-            config = run.scout_config
             config.emit = False
             config.save(update_fields=["emit"])
         elif reason == "source_disabled":
@@ -336,7 +337,7 @@ class TestScoutReportAPI(APIBaseTest):
             ).update(enabled=False)
         else:
             # Deleting the dispatch-time config nulls the run's FK (SET_NULL) → fail-closed gate-skip.
-            run.scout_config.delete()
+            config.delete()
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
             body = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         assert body["skipped_reason"] == reason
