@@ -74,6 +74,20 @@ pub(crate) fn find_application(slug: &str, debug: bool) -> Result<Option<String>
         .map(str::to_string))
 }
 
+/// A revision's typed bundle: `{ agent_md, skills:[{id,body}], tools:[{id,source}], spec }`.
+pub(crate) fn get_typed_bundle(app_id: &str, rev_id: &str, debug: bool) -> Result<Value> {
+    let payload = get_json(
+        &format!("agent_applications/{app_id}/revisions/{rev_id}/bundle/"),
+        debug,
+    )
+    .with_context(|| format!("read bundle for {rev_id}"))?;
+    payload
+        .get("bundle")
+        .filter(|b| b.is_object())
+        .cloned()
+        .with_context(|| format!("bundle read returned no bundle for {rev_id}"))
+}
+
 // ── command surface ──────────────────────────────────────────────────────────
 
 #[derive(Subcommand)]
@@ -116,6 +130,11 @@ pub struct DeployArgs {
     /// Rewrite every `mcps[].url` (local-dev / cross-region).
     #[arg(long)]
     pub mcp_url: Option<String>,
+
+    /// Show a line-level diff (agent.md, skills, spec) for each updated bundle
+    /// in the plan. Pairs well with `--dry-run`.
+    #[arg(long)]
+    pub diff: bool,
 
     /// Show API request/response detail.
     #[arg(long)]

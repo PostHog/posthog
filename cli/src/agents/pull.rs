@@ -10,7 +10,10 @@ use walkdir::WalkDir;
 
 use crate::invocation_context::context;
 
-use super::{discover_bundles, find_application, get_json, select_bundles, slug_of, PullArgs};
+use super::{
+    discover_bundles, find_application, get_json, get_typed_bundle, select_bundles, slug_of,
+    PullArgs,
+};
 
 /// Top-level spec keys deploy strips before upload, so the platform never stores
 /// them. Preserved from the on-disk `spec.json` when rewriting it.
@@ -187,20 +190,6 @@ fn pick_revision(app_id: &str, latest: bool, debug: bool) -> Result<Option<Strin
     Ok(newest
         .and_then(|r| r.get("id").and_then(Value::as_str))
         .map(str::to_string))
-}
-
-/// `{ agent_md, skills:[{id,body}], tools:[{id,source}], spec }`.
-fn get_typed_bundle(app_id: &str, rev_id: &str, debug: bool) -> Result<Value> {
-    let payload = get_json(
-        &format!("agent_applications/{app_id}/revisions/{rev_id}/bundle/"),
-        debug,
-    )
-    .with_context(|| format!("read bundle for {rev_id}"))?;
-    payload
-        .get("bundle")
-        .filter(|b| b.is_object())
-        .cloned()
-        .with_context(|| format!("bundle read returned no bundle for {rev_id}"))
 }
 
 /// The full frozen spec (includes derived `skills[]` + `tools[]`).

@@ -5,13 +5,14 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 use inquire::Confirm;
 use serde_json::{json, Value};
+use similar::{ChangeTag, TextDiff};
 
 use crate::invocation_context::context;
 
 use super::{
     apply_spec_overrides, build_typed_bundle, debug_error, debug_request, discover_bundles,
-    find_application, get_json, load_bundle, per_file_sha256, select_bundles, DeployArgs,
-    LoadedBundle,
+    find_application, get_json, get_typed_bundle, load_bundle, per_file_sha256, select_bundles,
+    DeployArgs, LoadedBundle,
 };
 
 /// Curated name + description per slug. Bundles not listed fall back to a
@@ -46,6 +47,14 @@ enum Action {
     Skip,
 }
 
+/// One changed artifact in the plan: live content (`from`) vs what we'd deploy
+/// (`to`). Empty `from` reads as added, empty `to` as removed.
+struct FileDiff {
+    label: String,
+    from: String,
+    to: String,
+}
+
 struct Planned {
     bundle: LoadedBundle,
     spec: Value,
@@ -55,6 +64,8 @@ struct Planned {
     live_rev: Option<String>,
     action: Action,
     reason: String,
+    /// Populated only with `--diff`: line-level diffs for the plan display.
+    diffs: Vec<FileDiff>,
 }
 
 pub fn deploy_agents(args: &DeployArgs) -> Result<()> {
@@ -118,6 +129,14 @@ pub fn deploy_agents(args: &DeployArgs) -> Result<()> {
                 p.bundle.slug,
                 p.reason.dimmed()
             ),
+        }
+        for d in &p.diffs {
+            println!("    {} {}", diff_sigil(d).bold(), d.label.bold());
+            // Line-level hunks for modifications; pure add/remove stays label-only
+            // (no point dumping an entire new prompt as one green block).
+            if !d.from.is_empty() && !d.to.is_empty() {
+                print_diff(&d.from, &d.to, "      ");
+            }
         }
     }
 
@@ -206,21 +225,37 @@ fn plan_bundle(root: &Path, host: &str, args: &DeployArgs) -> Result<Planned> {
     )?;
 
     let app_id = find_application(&bundle.slug, args.debug)?;
+    let mut live_spec: Option<Value> = None;
     let (action, reason, live_rev) = match &app_id {
         None => (Action::Create, "new application".to_string(), None),
         Some(id) => {
-            let (live_rev, live_manifest, live_spec) = get_live(id, args.debug);
+            let (rev, live_manifest, spec_live) = get_live(id, args.debug);
+            live_spec = spec_live;
             let target = per_file_sha256(&bundle.files);
-            if live_rev.is_none() {
+            if rev.is_none() {
                 (Action::Update, "no live revision yet".to_string(), None)
             } else if live_manifest.as_ref() == Some(&target) && live_spec.as_ref() == Some(&spec) {
-                (Action::Skip, "matches live".to_string(), live_rev)
+                (Action::Skip, "matches live".to_string(), rev)
             } else if live_manifest.as_ref() != Some(&target) {
-                (Action::Update, "bundle drifted".to_string(), live_rev)
+                (Action::Update, "bundle drifted".to_string(), rev)
             } else {
-                (Action::Update, "spec drifted".to_string(), live_rev)
+                (Action::Update, "spec drifted".to_string(), rev)
             }
         }
+    };
+
+    let diffs = if args.diff {
+        compute_plan_diffs(
+            &action,
+            &bundle,
+            &spec,
+            app_id.as_deref(),
+            live_rev.as_deref(),
+            live_spec.as_ref(),
+            args.debug,
+        )
+    } else {
+        Vec::new()
     };
 
     Ok(Planned {
@@ -230,7 +265,134 @@ fn plan_bundle(root: &Path, host: &str, args: &DeployArgs) -> Result<Planned> {
         live_rev,
         action,
         reason,
+        diffs,
     })
+}
+
+/// Best-effort line-level diffs for the plan: agent.md + skill bodies (live vs
+/// what we'd deploy) and a spec diff. Skips quietly if the live bundle can't be
+/// fetched — a diff is a nicety, not a gate.
+fn compute_plan_diffs(
+    action: &Action,
+    bundle: &LoadedBundle,
+    spec: &Value,
+    app_id: Option<&str>,
+    live_rev: Option<&str>,
+    live_spec: Option<&Value>,
+    debug: bool,
+) -> Vec<FileDiff> {
+    if matches!(action, Action::Skip) {
+        return Vec::new();
+    }
+    let local = build_typed_bundle(bundle, spec);
+    let local_md = local.get("agent_md").and_then(Value::as_str).unwrap_or("");
+    let local_skills = skill_bodies(&local);
+
+    // No live revision to compare against → list what will be added (labels only).
+    let (Some(app_id), Some(rev_id)) = (app_id, live_rev) else {
+        let mut out = vec![FileDiff {
+            label: "agent.md".into(),
+            from: String::new(),
+            to: local_md.to_string(),
+        }];
+        let mut ids: Vec<&String> = local_skills.keys().collect();
+        ids.sort();
+        for id in ids {
+            out.push(FileDiff {
+                label: format!("skills/{id}"),
+                from: String::new(),
+                to: local_skills[id].clone(),
+            });
+        }
+        return out;
+    };
+
+    let mut out: Vec<FileDiff> = Vec::new();
+    if let Ok(live) = get_typed_bundle(app_id, rev_id, debug) {
+        let live_md = live.get("agent_md").and_then(Value::as_str).unwrap_or("");
+        if local_md != live_md {
+            out.push(FileDiff {
+                label: "agent.md".into(),
+                from: live_md.into(),
+                to: local_md.into(),
+            });
+        }
+        let live_skills = skill_bodies(&live);
+        let mut ids: Vec<&String> = local_skills.keys().chain(live_skills.keys()).collect();
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            let l = local_skills.get(id).map(String::as_str).unwrap_or("");
+            let r = live_skills.get(id).map(String::as_str).unwrap_or("");
+            if l != r {
+                out.push(FileDiff {
+                    label: format!("skills/{id}"),
+                    from: r.into(),
+                    to: l.into(),
+                });
+            }
+        }
+    }
+    // Spec diff (frozen live spec vs the spec we'd patch). Normalization noise expected.
+    if let Some(live_spec) = live_spec {
+        if live_spec != spec {
+            out.push(FileDiff {
+                label: "spec (frozen ↔ local)".into(),
+                from: serde_json::to_string_pretty(live_spec).unwrap_or_default(),
+                to: serde_json::to_string_pretty(spec).unwrap_or_default(),
+            });
+        }
+    }
+    out
+}
+
+/// `{ skill_id: body }` from a typed bundle's `skills[]`.
+fn skill_bodies(typed: &Value) -> HashMap<String, String> {
+    typed
+        .get("skills")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|s| {
+                    Some((
+                        s.get("id").and_then(Value::as_str)?.to_string(),
+                        s.get("body")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                            .to_string(),
+                    ))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn diff_sigil(d: &FileDiff) -> colored::ColoredString {
+    if d.from.is_empty() {
+        "+".green()
+    } else if d.to.is_empty() {
+        "-".red()
+    } else {
+        "~".yellow()
+    }
+}
+
+/// Unified line diff (mirrors `exp endpoints`' renderer) using `similar`.
+fn print_diff(from: &str, to: &str, indent: &str) {
+    let diff = TextDiff::from_lines(from, to);
+    for change in diff.iter_all_changes() {
+        let (sign, paint): (&str, fn(&str) -> colored::ColoredString) = match change.tag() {
+            ChangeTag::Delete => ("-", |s: &str| s.red()),
+            ChangeTag::Insert => ("+", |s: &str| s.green()),
+            ChangeTag::Equal => (" ", |s: &str| s.dimmed()),
+        };
+        let line = change.to_string_lossy();
+        println!(
+            "{indent}{} {}",
+            paint(sign),
+            paint(line.trim_end_matches('\n'))
+        );
+    }
 }
 
 /// Run the full deploy pipeline for one planned bundle. Returns the now-live revision id.
