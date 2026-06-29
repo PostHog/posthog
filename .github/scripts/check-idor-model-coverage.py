@@ -89,6 +89,11 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # RoleMembership has a direct user FK but org is indirect (via role), so the
         # script sees it as user_scoped while semgrep correctly has it in org_scoped.
         "RoleMembership",
+        # Billing alerts are scoped by organization_id. The Team FK is execution_team_id,
+        # used only as the HogFunction execution context, so the team-FK heuristic would
+        # incorrectly classify these as team-scoped.
+        "BillingAlertConfiguration",
+        "BillingAlertEvent",
         # --- Ingestion/event tables (not queried by user-supplied ID) ---
         "CoreEvent",
         "ElementGroup",
