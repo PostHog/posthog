@@ -615,6 +615,12 @@ def _do_edit_report(
         raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
 
     attribution = _attribution_for(_resolve_task_id(run))
+    # Resolve reviewers *before* any write. Resolution (user_uuid → login) is the only step that can
+    # reject caller input — an unresolvable user_uuid raises, which the view turns into a 400. Doing it
+    # first means a combined edit (title/summary + a bad reviewer) fails before the content write
+    # commits, rather than leaving the report partially mutated behind a failed call.
+    reviewers = _build_suggested_reviewers(team.id, suggested_reviewers)
+
     updated_fields: list[str] = []
     if title is not None or summary is not None:
         updated_fields = update_scout_report(
@@ -625,11 +631,9 @@ def _do_edit_report(
             attribution=attribution,
             author=run.skill_name,
         )
-    # Reviewers: resolve (user_uuid → login) and replace the report's `suggested_reviewers` status
-    # artefact (latest-wins). This is the routing fix — a report authored without a reviewer (so it
-    # routes to no one) can have one added after the fact. `_build_suggested_reviewers` returning None
-    # (empty/all-blank input) leaves the existing reviewers untouched rather than clearing them.
-    reviewers = _build_suggested_reviewers(team.id, suggested_reviewers)
+    # Replace the report's `suggested_reviewers` status artefact (latest-wins). This is the routing
+    # fix — a report authored without a reviewer (so it routes to no one) can have one added after the
+    # fact. `reviewers` is None for empty/all-blank input, which leaves existing reviewers untouched.
     reviewers_set = (
         set_scout_report_reviewers(
             team_id=team.id,

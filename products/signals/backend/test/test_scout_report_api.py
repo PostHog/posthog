@@ -243,6 +243,26 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [report_id]
 
+    def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
+        # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any
+        # write, so an unresolvable user_uuid 400s without the title change leaking through.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        original_title = SignalReport.objects.get(id=report_id).title
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={
+                "report_id": report_id,
+                "title": "should not stick",
+                "suggested_reviewers": [{"user_uuid": str(uuid4())}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReport.objects.get(id=report_id).title == original_title
+
     def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:
         # An unsafe report is suppressed — it must not write autostart inputs or try to open a PR.
         run = _make_run(self.team)
