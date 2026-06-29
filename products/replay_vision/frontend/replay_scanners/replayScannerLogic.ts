@@ -2,6 +2,7 @@ import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+import uniqBy from 'lodash.uniqby'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -743,16 +744,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     return
                 }
                 const existing = scanner.scanner_config.tags ?? []
-                const seen = new Set(existing.map((t) => t.trim().toLowerCase()))
-                const merged = [...existing]
-                for (const tag of tags) {
-                    const trimmed = tag.trim()
-                    const key = trimmed.toLowerCase()
-                    if (key && !seen.has(key)) {
-                        seen.add(key)
-                        merged.push(trimmed)
-                    }
-                }
+                const incoming = tags.map((t) => t.trim()).filter(Boolean)
+                // uniqBy keeps the first occurrence per lowercase key, so existing tags win over duplicate suggestions.
+                const merged = uniqBy([...existing, ...incoming], (t) => t.toLowerCase())
                 if (merged.length !== existing.length) {
                     actions.setScannerValue(['scanner_config', 'tags'], merged)
                 }
