@@ -47,6 +47,8 @@ jobs:
                   POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
                   POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
                   ENG_ANALYTICS_REPO: PostHog/posthog
+                  # Optional: pin a specific GitHub source if the project has more than one.
+                  ENG_ANALYTICS_SOURCE_ID: ${{ vars.ENG_ANALYTICS_SOURCE_ID }}
                   SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
                   SLACK_CHANNEL: C0AS64N6DJL # #alerts-devex
                   # Manual runs default to dry-run; the scheduled run posts.

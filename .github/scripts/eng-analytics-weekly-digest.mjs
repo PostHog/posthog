@@ -7,36 +7,56 @@
 //
 //   GHA cron ──> GET /api/projects/:id/engineering_analytics/<action>/ ──> Slack
 //
-// What it reports today (everything below is computable from run-level warehouse
-// data — github_workflow_runs + github_pull_requests — already synced):
-//   - CI speed WoW: per-workflow p50/p95 duration, this 7d vs the prior 7d. Precise
-//     (runs are immutable). This is the headline "is CI getting slower" drumbeat.
-//   - Throughput WoW: merged-PR count + median open-to-merge, this 7d vs prior 7d.
+// What it reports today:
+//   - CI speed WoW: per-workflow p50/p95 duration on `master`, this 7d vs prior 7d,
+//     ranked by % change. Scoped to one branch so the comparison is apples-to-apples
+//     (master + PR runs blended would track the week's run-mix, not duration), and to
+//     master specifically because its gating workflows don't supersede-cancel, so
+//     cancelled-run durations barely pollute the percentile there.
 //   - Backlog snapshot: open / stuck (>7d) / failing-CI PR counts.
-//   - Quarantine debt: overdue + expiring-soon flaky-test quarantines.
+//   - Quarantine debt: active / expiring / in-grace / overdue flaky-test quarantines.
 //
-// What it deliberately does NOT report yet (see PR description):
-//   - Total CI minutes / Depot $ WoW — Paul's literal ask. No endpoint returns a
-//     summed-minutes figure, and $ needs the github_workflow_jobs source (cost
-//     endpoints return jobs_available=false until it syncs). Needs a small
-//     sum(duration_seconds)-by-week aggregate in the read layer (follow-up).
-//   - CI re-run waste WoW — pull_requests exposes rerun_cycles/pushes as per-PR
-//     LIFETIME counts, not time-bucketed, so they can't be summed into "reruns this
-//     week". Also needs a new weekly aggregate (follow-up).
+// TODO(eng-analytics): two signals are NOT honestly computable from today's general
+// endpoints and are intentionally omitted until a purpose-built weekly aggregate lands
+// in products/engineering_analytics/backend (defined once in logic/, per SPEC §7):
+//   - Throughput WoW (merged-PR count + median time-to-merge): pull_requests caps at
+//     1000 rows ordered by created_at DESC and always includes every open PR, so on a
+//     busy repo most in-window merges are dropped — biased, not just truncated.
+//     Needs a weekly merged-count aggregate.
+//   - Fully clean CI speed across all branches: workflow_health's p50/p95 is over
+//     status='completed', which includes cancelled runs (no conclusion filter), so
+//     off-master durations are polluted by supersede-cancels. Needs a conclusion=
+//     'success', branch-scoped duration percentile.
+//   - Total CI minutes / Depot $ WoW (the original ask): needs the github_workflow_jobs
+//     source synced (cost endpoints return jobs_available=false until then) plus a
+//     summed-minutes-by-week aggregate. Fold all three into one `weekly_summary`
+//     endpoint and pull it here.
 
 const HOST = (process.env.POSTHOG_HOST || 'https://us.posthog.com').replace(/\/$/, '')
 const PROJECT_ID = process.env.POSTHOG_PROJECT_ID || ''
 const API_KEY = process.env.POSTHOG_API_KEY || ''
 const REPO = process.env.ENG_ANALYTICS_REPO || '' // 'owner/name', for the quarantine line
-const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || '' // optional; defaults to oldest source
+// Pin the source when the project has more than one connected GitHub source; otherwise
+// the endpoints default to the oldest, which may not be the repo you mean.
+const SOURCE_ID = process.env.ENG_ANALYTICS_SOURCE_ID || ''
+const BRANCH = process.env.ENG_ANALYTICS_BRANCH || 'master' // CI-speed comparison branch
 const SLACK_BOT_TOKEN = process.env.SLACK_BOT_TOKEN || ''
 const SLACK_CHANNEL = process.env.SLACK_CHANNEL || 'C0AS64N6DJL' // #alerts-devex
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase())
 
-// Only compare workflows with at least this many runs in BOTH weeks, so a workflow
-// that ran twice doesn't dominate the regression list with noise.
-const MIN_RUNS = Number(process.env.MIN_RUNS || 5)
-const TOP_N = Number(process.env.TOP_N || 5)
+function intEnv(name, fallback) {
+    const raw = process.env[name]
+    if (!raw) {
+        return fallback
+    }
+    const n = Number(raw)
+    return Number.isFinite(n) ? n : fallback
+}
+
+// Only compare workflows with at least this many runs in BOTH weeks, so a workflow that
+// ran twice doesn't dominate the regression list with noise.
+const MIN_RUNS = intEnv('MIN_RUNS', 5)
+const TOP_N = intEnv('TOP_N', 5)
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
 
@@ -52,19 +72,27 @@ async function api(action, params = {}) {
     }
     const res = await fetch(url, { headers: { Authorization: `Bearer ${API_KEY}` } })
     const body = await res.text()
+    let parsed
+    try {
+        parsed = JSON.parse(body)
+    } catch {
+        // A 200 with a non-JSON body (proxy interstitial, maintenance HTML) is still a failure.
+        throw new Error(`${action} -> ${res.status}: non-JSON response (${body.slice(0, 120)})`)
+    }
     if (!res.ok) {
         // The endpoints 400 with a clear `detail` when no GitHub source is connected.
-        let detail = body
-        try {
-            detail = JSON.parse(body).detail || body
-        } catch {
-            // keep raw body
-        }
-        throw new Error(`${action} -> ${res.status}: ${detail}`)
+        throw new Error(`${action} -> ${res.status}: ${parsed.detail || body}`)
     }
-    return JSON.parse(body)
+    return parsed
 }
 
+// Slack mrkdwn treats &, <, > specially; escape any dynamic text before interpolating.
+// Mirrors slackEscape in the sibling ci-alerts-devex.js.
+function slackEscape(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+// CI run durations: seconds → '14m' / '3m20s' / '45s'.
 function fmtDuration(seconds) {
     if (seconds == null) {
         return 'n/a'
@@ -89,71 +117,72 @@ function fmtPct(p) {
     if (p == null) {
         return ''
     }
-    const sign = p >= 0 ? '+' : ''
-    return ` (${sign}${p.toFixed(0)}%)`
-}
-
-function median(values) {
-    const nums = values.filter((v) => v != null).sort((a, b) => a - b)
-    if (nums.length === 0) {
-        return null
-    }
-    const mid = Math.floor(nums.length / 2)
-    return nums.length % 2 ? nums[mid] : (nums[mid - 1] + nums[mid]) / 2
+    const rounded = Math.round(p)
+    const display = rounded === 0 ? 0 : rounded // collapse -0 to 0 so a sub-0.5% dip isn't '(-0%)'
+    const sign = display > 0 ? '+' : ''
+    return ` (${sign}${display}%)`
 }
 
 function workflowKey(item) {
     return `${item.repo.owner}/${item.repo.name}:${item.workflow_name}`
 }
 
-// CI speed WoW — the headline. Per-workflow p50/p95 this 7d vs the prior 7d.
+// CI speed WoW — the headline. Per-workflow p50/p95 on BRANCH, this 7d vs prior 7d,
+// ranked by percentage change so a fast workflow that doubled isn't hidden behind a
+// large-but-flat slow one.
 async function ciSpeedSection(now) {
     const thisFrom = new Date(now.getTime() - WEEK_MS).toISOString()
     const priorFrom = new Date(now.getTime() - 2 * WEEK_MS).toISOString()
-    const priorTo = thisFrom
     const [thisWeek, priorWeek] = await Promise.all([
-        api('workflow_health', { date_from: thisFrom, date_to: now.toISOString() }),
-        api('workflow_health', { date_from: priorFrom, date_to: priorTo }),
+        api('workflow_health', { date_from: thisFrom, date_to: now.toISOString(), branch: BRANCH }),
+        api('workflow_health', { date_from: priorFrom, date_to: thisFrom, branch: BRANCH }),
     ])
     const priorByKey = new Map(priorWeek.map((w) => [workflowKey(w), w]))
 
     const compared = []
     for (const w of thisWeek) {
         const prior = priorByKey.get(workflowKey(w))
-        if (!prior) {
-            continue
-        }
-        if (w.run_count < MIN_RUNS || prior.run_count < MIN_RUNS) {
+        if (!prior || w.run_count < MIN_RUNS || prior.run_count < MIN_RUNS) {
             continue
         }
         if (w.p50_seconds == null || prior.p50_seconds == null) {
             continue
         }
         compared.push({
+            repo: `${w.repo.owner}/${w.repo.name}`,
             name: w.workflow_name,
             p50: w.p50_seconds,
             p50Prior: prior.p50_seconds,
-            p50Delta: w.p50_seconds - prior.p50_seconds,
+            p50Pct: pctChange(w.p50_seconds, prior.p50_seconds),
             p95: w.p95_seconds,
             p95Prior: prior.p95_seconds,
         })
     }
 
+    const header = `*CI speed — \`${BRANCH}\` (p50/p95, vs prior week)*`
     if (compared.length === 0) {
-        return '*CI speed (p50/p95, vs prior week)*\n_No workflow had ≥' + MIN_RUNS + ' runs in both weeks to compare._'
+        return `${header}\n_No workflow had ≥${MIN_RUNS} runs in both weeks to compare._`
     }
 
-    compared.sort((a, b) => b.p50Delta - a.p50Delta)
-    const slower = compared.filter((c) => c.p50Delta > 0).slice(0, TOP_N)
-    const faster = compared.filter((c) => c.p50Delta < 0).slice(-2).reverse()
+    // Qualify with the repo only when the source spans more than one, so single-repo
+    // digests stay terse but multi-repo ones aren't ambiguous.
+    const multiRepo = new Set(compared.map((c) => c.repo)).size > 1
+    const label = (c) => slackEscape(multiRepo ? `${c.repo} ${c.name}` : c.name)
 
-    const lines = ['*CI speed (p50/p95, vs prior week)*']
+    const ranked = compared.filter((c) => c.p50Pct != null).sort((a, b) => b.p50Pct - a.p50Pct)
+    const slower = ranked.filter((c) => c.p50Pct > 0).slice(0, TOP_N)
+    const faster = ranked
+        .filter((c) => c.p50Pct < 0)
+        .slice(-2)
+        .reverse()
+
+    const lines = [header]
     if (slower.length) {
         lines.push('🔺 Slower:')
         for (const c of slower) {
             lines.push(
-                `• \`${c.name}\` — p50 ${fmtDuration(c.p50Prior)}→${fmtDuration(c.p50)}${fmtPct(
-                    pctChange(c.p50, c.p50Prior)
+                `• \`${label(c)}\` — p50 ${fmtDuration(c.p50Prior)}→${fmtDuration(c.p50)}${fmtPct(
+                    c.p50Pct
                 )}, p95 ${fmtDuration(c.p95Prior)}→${fmtDuration(c.p95)}`
             )
         }
@@ -161,52 +190,8 @@ async function ciSpeedSection(now) {
     if (faster.length) {
         lines.push('🟢 Faster:')
         for (const c of faster) {
-            lines.push(
-                `• \`${c.name}\` — p50 ${fmtDuration(c.p50Prior)}→${fmtDuration(c.p50)}${fmtPct(
-                    pctChange(c.p50, c.p50Prior)
-                )}`
-            )
+            lines.push(`• \`${label(c)}\` — p50 ${fmtDuration(c.p50Prior)}→${fmtDuration(c.p50)}${fmtPct(c.p50Pct)}`)
         }
-    }
-    return lines.join('\n')
-}
-
-// Throughput WoW — merged-PR count + median open-to-merge. Note: pull_requests caps
-// at 1000 rows; over a 14d window on a busy repo this can truncate, which would
-// undercount. We surface `truncated` honestly rather than imply a complete count.
-async function throughputSection(now) {
-    const fromIso = new Date(now.getTime() - 2 * WEEK_MS).toISOString()
-    const result = await api('pull_requests', { date_from: fromIso })
-    const thisStart = now.getTime() - WEEK_MS
-    const priorStart = now.getTime() - 2 * WEEK_MS
-
-    const weekStats = (start, end) => {
-        const merged = result.items.filter((pr) => {
-            if (pr.state !== 'merged' || !pr.merged_at) {
-                return false
-            }
-            const t = new Date(pr.merged_at).getTime()
-            return t >= start && t < end
-        })
-        return {
-            count: merged.length,
-            medianOpenToMerge: median(merged.map((pr) => pr.open_to_merge_seconds)),
-        }
-    }
-    const thisWeek = weekStats(thisStart, now.getTime())
-    const priorWeek = weekStats(priorStart, thisStart)
-
-    const lines = ['*Throughput (merged PRs, vs prior week)*']
-    lines.push(
-        `• Merged: ${thisWeek.count} vs ${priorWeek.count}${fmtPct(pctChange(thisWeek.count, priorWeek.count))}`
-    )
-    lines.push(
-        `• Median open→merge: ${fmtDuration(thisWeek.medianOpenToMerge)} vs ${fmtDuration(
-            priorWeek.medianOpenToMerge
-        )} _(coarse: fuses draft + ready time)_`
-    )
-    if (result.truncated) {
-        lines.push(`⚠️ PR list truncated at ${result.limit} — counts may undercount. Needs a dedicated weekly aggregate.`)
     }
     return lines.join('\n')
 }
@@ -222,39 +207,45 @@ async function backlogSection() {
     ].join('\n')
 }
 
-// Quarantine debt — flaky tests parked past (or near) their expiry.
+// Quarantine debt — flaky tests parked past (or near) their expiry. file.entries spans
+// every lifecycle, so count `active` explicitly rather than calling the total "active".
 async function quarantineSection() {
     if (!REPO) {
-        return null
+        return null // no repo configured — nothing to report (distinct from "file missing" below)
     }
     const file = await api('quarantine', { repo: REPO })
     if (!file.available) {
-        return null
+        return `*Flaky-test quarantine*\n_No quarantine file for ${slackEscape(REPO)}._`
     }
-    const overdue = file.entries.filter((e) => e.lifecycle === 'overdue').length
-    const inGrace = file.entries.filter((e) => e.lifecycle === 'in_grace').length
-    const expiring = file.entries.filter((e) => e.lifecycle === 'expiring_soon').length
+    const count = (lifecycle) => file.entries.filter((e) => e.lifecycle === lifecycle).length
     return [
         '*Flaky-test quarantine*',
-        `• ${file.entries.length} active, ${overdue} overdue, ${inGrace} in grace, ${expiring} expiring soon`,
+        `• ${count('active')} active, ${count('expiring_soon')} expiring soon, ${count('in_grace')} in grace, ${count(
+            'overdue'
+        )} overdue`,
     ].join('\n')
 }
 
-async function buildBlocks(now) {
+// Returns { blocks, succeeded } — succeeded counts sections that produced content, so
+// main can refuse to post (and fail loudly) when every section errored.
+async function buildDigest(now) {
     const dateLabel = now.toISOString().slice(0, 10)
     const blocks = [
         { type: 'header', text: { type: 'plain_text', text: `📈 Weekly CI digest — ${dateLabel}`, emoji: true } },
     ]
     // Run each section independently — one failing endpoint shouldn't sink the digest.
-    const sections = [ciSpeedSection(now), throughputSection(now), backlogSection(), quarantineSection()]
+    const sections = [ciSpeedSection(now), backlogSection(), quarantineSection()]
     const results = await Promise.allSettled(sections)
+    let succeeded = 0
     for (const r of results) {
-        if (r.status === 'fulfilled') {
-            if (r.value) {
-                blocks.push({ type: 'section', text: { type: 'mrkdwn', text: r.value } })
-            }
-        } else {
-            blocks.push({ type: 'section', text: { type: 'mrkdwn', text: `⚠️ _Section failed: ${r.reason.message}_` } })
+        if (r.status === 'rejected') {
+            blocks.push({
+                type: 'section',
+                text: { type: 'mrkdwn', text: `⚠️ _Section failed: ${slackEscape(r.reason.message)}_` },
+            })
+        } else if (r.value) {
+            succeeded += 1
+            blocks.push({ type: 'section', text: { type: 'mrkdwn', text: r.value } })
         }
     }
     blocks.push({
@@ -266,7 +257,7 @@ async function buildBlocks(now) {
             },
         ],
     })
-    return blocks
+    return { blocks, succeeded }
 }
 
 async function postToSlack(blocks) {
@@ -293,13 +284,19 @@ async function main() {
         return
     }
     const now = new Date()
-    const blocks = await buildBlocks(now)
-    if (DRY_RUN || !SLACK_BOT_TOKEN) {
+    const { blocks, succeeded } = await buildDigest(now)
+    if (succeeded === 0) {
+        // Every section errored (bad key/scope, disconnected source, API down). Don't post a
+        // digest of only "Section failed" lines — fail the job so the breakage is visible.
+        throw new Error('All digest sections failed — not posting. Check the API key scope and connected source.')
+    }
+    if (DRY_RUN) {
         console.log(JSON.stringify(blocks, null, 2))
-        if (!SLACK_BOT_TOKEN) {
-            console.warn('SLACK_BOT_TOKEN not set — printed digest instead of posting.')
-        }
         return
+    }
+    if (!SLACK_BOT_TOKEN) {
+        // Distinct from dry-run: a real run with no token is a misconfiguration, not a success.
+        throw new Error('SLACK_BOT_TOKEN not set on a non-dry run — refusing to silently skip.')
     }
     await postToSlack(blocks)
     console.log(`Posted weekly CI digest to ${SLACK_CHANNEL}.`)
