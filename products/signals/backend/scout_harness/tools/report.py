@@ -19,6 +19,7 @@ that may have succeeded.
 from __future__ import annotations
 
 import uuid
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -358,6 +359,24 @@ CUSTOMER_REPORT_EMITTED_EVENT = "$scout_report_emitted"
 CUSTOMER_REPORT_EDITED_EVENT = "$scout_report_edited"
 _REPORT_EVENT_SOURCE = "signals_scout_report"
 
+# Gate-skip reasons that mean the scout/source was deliberately turned off (see `_preflight_emit_gates`).
+# A disabled / dry-run scout must produce no side effects, so its attempt is still recorded on the
+# internal stream but is NOT fanned out as a customer-facing, automation-driving event. Other outcomes —
+# including non-disabled gate-skips (e.g. `ai_processing_not_approved`) — still forward the raw event.
+_DISABLED_SKIP_REASONS = frozenset({"scout_emit_disabled", "source_disabled"})
+
+
+@dataclass
+class _ReportForward:
+    """The payload for the customer-facing fan-out, built on the sync/DB thread and handed to
+    `_forward_report_event_to_team` — so the blocking `capture_internal` HTTP can be offloaded off the
+    DB-thread pool (via `asyncio.to_thread` on the async path) instead of running inside it."""
+
+    event_name: str
+    distinct_id: str
+    event_uuid: str
+    properties: dict[str, Any]
+
 
 def _report_url(team_id: int, report_id: str | None) -> str | None:
     """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit). The
@@ -377,30 +396,38 @@ def _report_event_uuid(*parts: object) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report:{key}"))
 
 
-def _forward_report_event_to_team(
-    *, team: Team, event_name: str, distinct_id: str, event_uuid: str, properties: dict[str, Any]
-) -> None:
+def _forward_report_event_to_team(*, team: Team, forward: _ReportForward) -> None:
     """Mirror a report-channel lifecycle event into the scout's own team project through the sanctioned
     `capture_internal` path, so the team can drive HogQL / alerts / CDP destinations off its reports.
     Person processing is OFF with a synthetic per-scout `distinct_id` — a report is the scout's output, not
-    an end-user action, so it must never create or merge a person profile. Best-effort: a forward failure
-    must never fail or mask the emit/edit (it only feeds downstream automation)."""
+    an end-user action, so it must never create or merge a person profile. `capture_internal` is a blocking
+    HTTP call (2s default timeout); the async callers offload it via `asyncio.to_thread` so it never holds a
+    DB-thread-pool thread. Best-effort: a forward failure must never fail or mask the emit/edit (it only
+    feeds downstream automation)."""
     try:
         capture_internal(
             token=team.api_token,
-            event_name=event_name,
+            event_name=forward.event_name,
             event_source=_REPORT_EVENT_SOURCE,
-            distinct_id=distinct_id,
-            properties=properties,
-            event_uuid=event_uuid,
+            distinct_id=forward.distinct_id,
+            properties=forward.properties,
+            event_uuid=forward.event_uuid,
             process_person_profile=False,
         ).raise_for_status()
     except Exception:
         logger.warning(
             "signals_scout: failed to forward report event %s to team project",
-            event_name,
-            extra={"team_id": team.id, "distinct_id": distinct_id},
+            forward.event_name,
+            extra={"team_id": team.id, "distinct_id": forward.distinct_id},
         )
+
+
+async def _forward_report_event_async(team: Team, forward: _ReportForward | None) -> None:
+    """Offload the blocking customer-facing forward to a worker thread on the async path, keeping the
+    DB-thread pool free for DB work (mirrors the `$session_summary_ready` `asyncio.to_thread` pattern).
+    No-op when the capture decided not to fan out (a disabled / dry-run gate-skip)."""
+    if forward is not None:
+        await asyncio.to_thread(_forward_report_event_to_team, team=team, forward=forward)
 
 
 def _capture_report_emitted(
@@ -415,7 +442,7 @@ def _capture_report_emitted(
     already_addressed: bool,
     priority: str | None,
     repository: str | None,
-) -> None:
+) -> _ReportForward | None:
     """Emit the scout-owned `signals_scout_report_emitted` event — the report-channel counterpart to
     `signals_scout_run_finished`, fired once per `emit_report` call that reached a terminal outcome.
 
@@ -427,7 +454,11 @@ def _capture_report_emitted(
     (dashboards, alerts, CDP forwards) can act on a report's substance, not just its ids. Content rides
     every outcome, including `gate_skipped` (it records what would have been authored). Keyed on the team
     and carrying the run / task ids so it joins to the run lifecycle events. Best-effort: a capture failure
-    must never fail or mask the emit. Accesses `team.organization` — call on a sync thread."""
+    must never fail or mask the emit. Accesses `team.organization` — call on a sync thread.
+
+    Returns the customer-facing fan-out payload for the caller to forward, or None to suppress the
+    fan-out — a disabled / dry-run gate-skip records the attempt on the internal stream here but must
+    not fire an automation-driving event into the team's own project."""
     if result.skipped_reason is not None:
         outcome = "gate_skipped"
     elif result.emitted:
@@ -462,8 +493,9 @@ def _capture_report_emitted(
             "signals_scout: failed to capture report-emitted analytics event",
             extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
         )
-    _forward_report_event_to_team(
-        team=team,
+    if result.skipped_reason in _DISABLED_SKIP_REASONS:
+        return None
+    return _ReportForward(
         event_name=CUSTOMER_REPORT_EMITTED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
         event_uuid=_report_event_uuid("emit", run.id, result.report_id, title),
@@ -479,13 +511,14 @@ def _capture_report_edited(
     title: str | None,
     summary: str | None,
     note: str | None,
-) -> None:
+) -> _ReportForward:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
     `note_appended` distinguish a title/summary rewrite from a note-only append; `title` / `summary` /
     `note` carry the content the edit applied (each None when that field wasn't touched) — parity with the
     emit event so a consumer sees *what* changed, not just that something did. Best-effort; never fails the
-    edit. Accesses `team.organization` — call on a sync thread."""
+    edit. Accesses `team.organization` — call on a sync thread. Returns the customer-facing fan-out payload
+    for the caller to forward."""
     properties = {
         **_report_event_base(run),
         "report_id": result.report_id,
@@ -508,11 +541,15 @@ def _capture_report_edited(
             "signals_scout: failed to capture report-edited analytics event",
             extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
         )
-    _forward_report_event_to_team(
-        team=team,
+    # Sort `updated_fields` so a retried edit that changed the same set hashes to one `event_uuid` — the
+    # set's iteration order isn't guaranteed stable across worker processes, and an unstable key would
+    # double-fire a destination on retry.
+    return _ReportForward(
         event_name=CUSTOMER_REPORT_EDITED_EVENT,
         distinct_id=f"signals_scout:{run.skill_name}",
-        event_uuid=_report_event_uuid("edit", run.id, result.report_id, result.updated_fields, title, summary, note),
+        event_uuid=_report_event_uuid(
+            "edit", run.id, result.report_id, sorted(result.updated_fields), title, summary, note
+        ),
         properties=properties,
     )
 
@@ -553,7 +590,7 @@ async def emit_report(
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
         result = _gate_skip_result(preflight)
-        await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
+        forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
             team=team,
             run=run,
             result=result,
@@ -565,6 +602,7 @@ async def emit_report(
             priority=priority,
             repository=repository,
         )
+        await _forward_report_event_async(team, forward)
         return result
 
     task_id = await database_sync_to_async(_resolve_task_id, thread_sensitive=False)(run)
@@ -600,7 +638,7 @@ async def emit_report(
     if surfaced:
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
-    await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
+    forward = await database_sync_to_async(_capture_report_emitted, thread_sensitive=False)(
         team=team,
         run=run,
         result=result,
@@ -612,6 +650,7 @@ async def emit_report(
         priority=priority,
         repository=repository,
     )
+    await _forward_report_event_async(team, forward)
     return result
 
 
@@ -650,7 +689,7 @@ def emit_report_sync(
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         result = _gate_skip_result(preflight)
-        _capture_report_emitted(
+        forward = _capture_report_emitted(
             team=team,
             run=run,
             result=result,
@@ -662,6 +701,8 @@ def emit_report_sync(
             priority=priority,
             repository=repository,
         )
+        if forward is not None:
+            _forward_report_event_to_team(team=team, forward=forward)
         return result
 
     task_id = _resolve_task_id(run)
@@ -697,7 +738,7 @@ def emit_report_sync(
     if surfaced:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
-    _capture_report_emitted(
+    forward = _capture_report_emitted(
         team=team,
         run=run,
         result=result,
@@ -709,6 +750,8 @@ def emit_report_sync(
         priority=priority,
         repository=repository,
     )
+    if forward is not None:
+        _forward_report_event_to_team(team=team, forward=forward)
     return result
 
 
@@ -753,7 +796,6 @@ def _do_edit_report(
     # title rewrite to its current value) must not claim the run touched the report.
     if updated_fields or note_appended:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
-    _capture_report_edited(team=team, run=run, result=result, title=title, summary=summary, note=append_note)
     return result
 
 
@@ -775,9 +817,14 @@ async def edit_report(
     """Edit an existing inbox report: rewrite title/summary and/or append a note. Team-scoped
     fail-closed in the service. Async entry; runs the sync edit core in the thread pool."""
     _validate_edit_inputs(team, run, title, summary, append_note)
-    return await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
+    result = await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
         team=team, run=run, report_id=report_id, title=title, summary=summary, append_note=append_note
     )
+    forward = await database_sync_to_async(_capture_report_edited, thread_sensitive=False)(
+        team=team, run=run, result=result, title=title, summary=summary, note=append_note
+    )
+    await _forward_report_event_async(team, forward)
+    return result
 
 
 def edit_report_sync(
@@ -791,6 +838,9 @@ def edit_report_sync(
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
     _validate_edit_inputs(team, run, title, summary, append_note)
-    return _do_edit_report(
+    result = _do_edit_report(
         team=team, run=run, report_id=report_id, title=title, summary=summary, append_note=append_note
     )
+    forward = _capture_report_edited(team=team, run=run, result=result, title=title, summary=summary, note=append_note)
+    _forward_report_event_to_team(team=team, forward=forward)
+    return result
