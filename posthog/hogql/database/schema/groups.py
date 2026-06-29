@@ -62,18 +62,10 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]], key_l
         argmax_field="updated_at",
     )
     if key_limit is not None:
-        # Two-phase dedup. `groups` is a Distributed table sharded by rand(), so every version of a group is scattered
-        # across shards; a plain `GROUP BY (index, key)` therefore can't be resolved per-shard and gathers every
-        # group's argMax state -- each carrying the full group_properties blob -- at the initiator before the outer
-        # LIMIT can apply, OOMing large teams. So first pick the N group keys from just (index, key) (cheap, no
-        # properties), then argMax the heavy properties for only those keys.
+        # Two-phase dedup: pick the N group keys cheaply, then argMax the heavy properties for only those keys.
         keys = parse_select("SELECT index, key FROM raw_groups GROUP BY index, key")
         keys.limit = ast.Constant(value=key_limit)
-        # GLOBAL IN, not IN: `groups` is Distributed, so a plain IN subquery is evaluated per-shard against only that
-        # shard's local rows -- each shard could pick a different key set and dedup a group over a subset of its
-        # versions. GLOBAL IN computes the key set once on the initiator and broadcasts it, so every shard dedups the
-        # same keys over all their versions. The set is small (bounded by the limit), so the broadcast is cheap.
-        # (Built directly: the HogQL parser has no GLOBAL IN syntax; the op is only ever set on the AST.)
+        # GLOBAL IN, not IN: groups is Distributed(rand()); a plain IN dedups per-shard over a subset of versions.
         select.where = ast.CompareOperation(
             op=ast.CompareOperationOp.GlobalIn,
             left=ast.Tuple(exprs=[ast.Field(chain=["index"]), ast.Field(chain=["key"])]),
@@ -83,8 +75,7 @@ def select_from_groups_table(requested_fields: dict[str, list[str | int]], key_l
 
 
 def _resolved_table(table_type) -> object | None:
-    # Unwrap alias wrappers (e.g. `FROM groups AS g`) to the underlying table, so an aliased select is still
-    # recognised as a direct groups select.
+    # Unwrap alias wrappers (e.g. `FROM groups AS g`) to the underlying table.
     while isinstance(table_type, (ast.TableAliasType, ast.ColumnAliasedTableType)):
         table_type = table_type.table_type
     return getattr(table_type, "table", None)
@@ -98,15 +89,7 @@ def _bare_limit_key_count(node: SelectQuery) -> int | None:
     # Deferred: posthog.hogql.property imports database schema modules, so a top-level import here is circular.
     from posthog.hogql.property import has_aggregation  # noqa: PLC0415
 
-    # The two-phase key limit is only safe for a direct `select ... from groups limit N` whose rows map 1:1 to the
-    # limited groups, with nothing that changes which/how many rows survive. Bail on: an aggregate in the SELECT with
-    # no GROUP BY (e.g. `count()` collapses to one row, so the limit bounds output rows, not groups -- limiting the
-    # dedup would make the aggregate wrong); a WHERE/PREWHERE/HAVING/QUALIFY (filters after the dedup); an ORDER BY
-    # (the keys would need the same ordering); a DISTINCT/GROUP BY (could collapse the limited rows below the count);
-    # an ARRAY JOIN (can drop rows whose array is empty); LIMIT BY/WITH TIES/PERCENT; or a LIMIT/OFFSET that isn't a
-    # non-negative integer constant. In those cases we fall back to the full dedup (correct, just not bounded). The
-    # `revenue_analytics` lazy join is attached to `node` after this runs and is a row-preserving LEFT JOIN, so
-    # limiting the keys underneath it stays correct for an unordered limit.
+    # Only safe for a bare `from groups limit N`; bail to the full dedup on anything that changes the surviving rows.
     if (
         node.select_from is None
         or node.select_from.next_join is not None
@@ -128,10 +111,10 @@ def _bare_limit_key_count(node: SelectQuery) -> int | None:
     ):
         return None
 
-    # The guard above proved both are non-negative integer Constants; cast so mypy sees `.value` (mirrors persons).
+    # Guard above proved these are int Constants; cast so mypy sees `.value`.
     node_limit = cast(ast.Constant, node.limit)
     node_offset = cast(ast.Constant, node.offset)
-    # +1 mirrors persons: leaves room to detect whether more rows exist; the outer LIMIT trims the extra group.
+    # +1 (mirrors persons): lets the outer LIMIT detect whether more rows exist.
     return node_limit.value + (node_offset.value if node.offset else 0) + 1
 
 

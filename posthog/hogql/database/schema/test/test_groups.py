@@ -13,9 +13,7 @@ from posthog.models.group.util import create_group, raw_create_group_ch
 
 class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
     def _team(self) -> Team:
-        # Fresh team per test: ClickHouse isn't rolled back between tests, but the mandatory inner
-        # team_id filter isolates this team's groups (and, being inner, doesn't suppress the pushdown
-        # the way an outer WHERE would).
+        # Fresh team per test: ClickHouse isn't rolled back, and the inner team_id filter isolates this team's groups.
         return Team.objects.create(organization=self.organization)
 
     def _run(self, team: Team, query: str) -> tuple[str, list]:
@@ -25,13 +23,10 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
 
     def test_bare_limit_two_phase_returns_correct_deduplicated_rows(self):
         team = self._team()
-        # Exactly 10 groups so a LIMIT 10 returns all of them -- the inner key subquery is unordered, so seeding more
-        # than the limit would make which keys survive (and thus whether g00 is present) non-deterministic.
+        # Exactly 10 groups so LIMIT 10 returns all of them (the inner key subquery is unordered).
         for i in range(1, 10):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"name": f"name-{i}"})
-        # g00 has two ClickHouse rows: an older stale version and a newer one. The two-phase limits on (index, key),
-        # so both versions of g00 still feed the outer argMax, which must return LATEST. Written straight to ClickHouse
-        # since one group key = one Postgres row.
+        # g00 gets two CH rows (stale + latest) so the outer argMax must still return LATEST under the key limit.
         raw_create_group_ch(team.pk, 0, "g00", {"name": "STALE"}, datetime(2020, 1, 1), timestamp=datetime(2020, 1, 1))
         raw_create_group_ch(team.pk, 0, "g00", {"name": "LATEST"}, datetime(2024, 1, 1), timestamp=datetime(2024, 1, 1))
 
@@ -42,8 +37,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         assert len({key for key, _ in results}) == 10
         # ...and g00's value is the latest, not the stale one
         assert dict(results)["g00"] == "LATEST"
-        # the two-phase is actually applied: keys are picked via an IN-subquery limited to N+1 (results alone can't
-        # prove the heavy argMax was limited rather than run over every group)
+        # Assert the two-phase actually fired (results alone can't prove the argMax was limited).
         assert "globalIn(tuple(" in sql
         assert "LIMIT 11" in sql
 
@@ -52,9 +46,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         for i in range(12):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
 
-        # `count()` collapses to one row, so the LIMIT bounds output rows, not groups. Limiting the dedup would make
-        # the count wrong (it would count only the limited keys). With 12 groups, a buggy pushdown of LIMIT 5 would
-        # return 6, not 12.
+        # count() collapses to one row, so the limit must not bound the dedup: a buggy pushdown would count 6, not 12.
         sql, results = self._run(team, "SELECT count() FROM groups LIMIT 5")
 
         assert results[0][0] == 12
@@ -64,9 +56,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         team = self._team()
         create_group(team_id=team.pk, group_type_index=0, group_key="g00", properties={})
 
-        # `LIMIT NULL` parses to a Constant(value=None); the two-phase guard must bail rather than compute `None + 1`.
-        # ClickHouse rejects `LIMIT NULL` itself (as it does on master), so we only assert the compiler no longer
-        # crashes with a Python TypeError before the query reaches ClickHouse.
+        # LIMIT NULL is Constant(value=None); the guard must bail rather than crash on `None + 1` (CH rejects it later).
         try:
             self._run(team, "SELECT key FROM groups LIMIT NULL")
         except TypeError:
@@ -76,8 +66,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
 
     def test_order_by_limit_returns_global_top_and_is_not_limited(self):
         team = self._team()
-        # rank rises with key for g00..g10, but the global max rank lives on g11, the largest key. If the key limit
-        # were applied, the inner subquery would keep an arbitrary 6 keys and could drop g11 before the ordering runs.
+        # Global max rank lives on g11; a wrongly-pushed limit could drop it before the ordering runs.
         for i in range(11):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"rank": str(i)})
         create_group(team_id=team.pk, group_type_index=0, group_key="g11", properties={"rank": "999"})
@@ -87,8 +76,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         # real-ClickHouse correctness: the global top-by-rank is returned
         assert len(results) == 5
         assert results[0][0] == "g11"
-        # deterministic guard check: the key limit was not applied (which 6 keys the inner subquery would keep is
-        # unordered, so the wrong result it causes isn't deterministic at unit-test scale)
+        # Deterministic check that the key limit was not applied.
         assert "LIMIT 6" not in sql
 
     @parameterized.expand(
@@ -100,8 +88,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
     )
     def test_post_dedup_filter_is_not_pushed(self, _name, query):
         team = self._team()
-        # Only g11 (largest key) matches the filter. A pushed limit would keep the smallest keys, filter after,
-        # and lose the matching row.
+        # Only g11 matches; a pushed limit would keep the smallest keys and lose it after filtering.
         for i in range(11):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={"tag": "haystack"})
         create_group(team_id=team.pk, group_type_index=0, group_key="g11", properties={"tag": "needle"})
@@ -127,8 +114,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         for i in range(8):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
 
-        # DISTINCT can collapse the limited rows below the requested count (e.g. a key shared across group types),
-        # so the limit must not be pushed into the dedup.
+        # DISTINCT can collapse limited rows below the requested count, so the limit must not be pushed.
         sql, results = self._run(team, "SELECT DISTINCT key FROM groups LIMIT 5")
 
         assert len(results) == 5
@@ -139,7 +125,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         for i in range(12):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
 
-        # Aliasing the table must not lose the optimisation -- the OOM this guards against happens for `groups AS g` too.
+        # Aliasing the table must not lose the optimisation; the OOM happens for `groups AS g` too.
         sql, results = self._run(team, "SELECT g.key FROM groups AS g LIMIT 10")
 
         assert len(results) == 10
@@ -150,8 +136,7 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         for i in range(12):
             create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
 
-        # The revenue_analytics lazy join is attached after the pushdown runs, so the limit is pushed through it.
-        # That stays correct because it's a row-preserving LEFT JOIN: all 10 requested groups still come back.
+        # revenue_analytics is a row-preserving LEFT JOIN attached after the pushdown, so pushing the limit is safe.
         sql, results = self._run(team, "SELECT key, revenue_analytics.revenue FROM groups LIMIT 10")
 
         assert len(results) == 10
