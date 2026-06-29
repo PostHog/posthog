@@ -1659,7 +1659,7 @@ jobs:
               if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
-    # Aggregate and commit snapshot changes from all matrix jobs
+    # Read ClickHouse versions for the compat test matrix.
     get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
