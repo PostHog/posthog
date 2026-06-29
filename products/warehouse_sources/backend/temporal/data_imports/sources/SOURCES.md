@@ -59,6 +59,7 @@ the row lists both.
 | azure_devops      | HTTP                        | requests                                                        | ✅                          |
 | bamboohr          | HTTP                        | requests                                                        | ✅                          |
 | beamer            | HTTP                        | requests                                                        | ✅                          |
+| bigmailer         | HTTP                        | requests                                                        | ✅                          |
 | bigquery          | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads          | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | braintree         | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -99,6 +100,7 @@ the row lists both.
 | deel              | HTTP                        | requests                                                        | ✅                          |
 | delighted         | HTTP                        | requests                                                        | ✅                          |
 | dixa              | HTTP                        | requests                                                        | ✅                          |
+| docuseal          | HTTP                        | requests                                                        | ✅                          |
 | doit              | HTTP                        | requests                                                        | ✅                          |
 | drip              | HTTP                        | requests                                                        | ✅                          |
 | easypost          | HTTP                        | requests                                                        | ✅                          |
@@ -108,7 +110,9 @@ the row lists both.
 | elasticsearch     | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus      | HTTP                        | requests                                                        | ✅                          |
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
+| everhour          | HTTP                        | requests                                                        | ✅                          |
 | fillout           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| finnworlds        | HTTP                        | requests                                                        | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
 | github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -307,7 +311,6 @@ doesn't conflict with concurrent PRs.
 - babelforce
 - basecamp
 - bigcommerce
-- bigmailer
 - bitly
 - blogger
 - bluetally
@@ -364,7 +367,6 @@ doesn't conflict with concurrent PRs.
 - ding_connect
 - display_video_360
 - dockerhub
-- docuseal
 - docusign
 - dolibarr
 - dremio
@@ -381,7 +383,6 @@ doesn't conflict with concurrent PRs.
 - encharge
 - eventee
 - eventzilla
-- everhour
 - exchange_rates_api
 - expensify
 - ezofficeinventory
@@ -394,7 +395,6 @@ doesn't conflict with concurrent PRs.
 - finage
 - financial_modelling
 - finnhub
-- finnworlds
 - firebase
 - firebolt
 - firehydrant
