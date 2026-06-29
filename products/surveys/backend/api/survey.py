@@ -72,6 +72,7 @@ from products.product_analytics.backend.models.insight import Insight
 from products.surveys.backend.models import MAX_ITERATION_COUNT, Survey, SurveyResponseArchive, ensure_question_ids
 from products.surveys.backend.responses import fetch_per_question_stats, fetch_response_rows
 from products.surveys.backend.summarization import fetch_responses, format_as_markdown, summarize_responses
+from products.surveys.backend.summarization.sanitize import strip_null_bytes
 from products.surveys.backend.translation import generate_survey_translation
 from products.surveys.backend.util import (
     SurveyEventName,
@@ -3212,7 +3213,9 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                 question_id=question_id,
                 team_id=self.team.pk,
             )
-            content = format_as_markdown(result.summary)
+            # The LLM can echo a null byte from a user's answer into the summary; strip it
+            # so the Postgres text/jsonb write below doesn't raise UntranslatableCharacter.
+            content = strip_null_bytes(format_as_markdown(result.summary))
             trace_id = result.trace_id
         except exceptions.ValidationError:
             raise

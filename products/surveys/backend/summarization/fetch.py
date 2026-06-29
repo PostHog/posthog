@@ -9,6 +9,8 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.models import Team
 
+from .sanitize import strip_null_bytes
+
 
 def fetch_responses(
     survey_id: str,
@@ -78,7 +80,9 @@ def fetch_responses(
         query=cast(ast.SelectQuery, q),
     )
 
-    responses = [x[0] for x in query_response.results if x[0]]
+    # Strip null bytes from raw user input so they never reach the LLM (which would
+    # echo them back) or a Postgres text/jsonb column on save.
+    responses = [strip_null_bytes(x[0]) for x in query_response.results if x[0]]
 
     # Filter out predefined choices for choice questions
     if exclude_values:
