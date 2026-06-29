@@ -1,8 +1,29 @@
-import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue } from '../utils'
+import { toHogDateTime } from '../stl/date'
+import { calculateCost, convertHogToJS, convertJSToHog, getNestedValue, unifyComparisonTypes } from '../utils'
 
 const PTR_COST = 8
 
 describe('hogvm utils', () => {
+    describe('unifyComparisonTypes temporal ordering', () => {
+        // Regression: `is date after`/`is date before` filters compile to `toDateTime(x) > toDateTime(y)`,
+        // and the VM's GT opcode does `unifyComparisonTypes(a, b)` then `a > b`. Two HogDateTime objects
+        // fell through unchanged, so `object > object` coerced to "[object Object]" and was always false —
+        // realtime workflow date filters never matched. They must order by epoch seconds.
+        const later = toHogDateTime(1782988689) // 2026-06-28
+        const earlier = toHogDateTime(1782518400) // 2026-06-23
+
+        test('orders two HogDateTimes chronologically', () => {
+            const [a, b] = unifyComparisonTypes(later, earlier)
+            expect(a > b).toBe(true)
+            expect(a < b).toBe(false)
+        })
+
+        test('equal instants compare equal', () => {
+            const [a, b] = unifyComparisonTypes(later, toHogDateTime(1782988689))
+            expect(a === b).toBe(true)
+        })
+    })
+
     test('calculateCost', async () => {
         expect(calculateCost(1)).toBe(PTR_COST)
         expect(calculateCost('hello')).toBe(PTR_COST + 5)
