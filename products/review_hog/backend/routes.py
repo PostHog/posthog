@@ -1,6 +1,10 @@
 from posthog.api.routing import RouterRegistry
 
-from products.review_hog.backend.api import ReviewHogTriggerViewSet, ReviewPerspectiveConfigViewSet
+from products.review_hog.backend.api import (
+    ReviewHogTriggerViewSet,
+    ReviewPerspectiveConfigViewSet,
+    ReviewValidatorConfigViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -12,5 +16,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"review_hog/perspectives",
         ReviewPerspectiveConfigViewSet,
         "project_review_hog_perspectives",
+        ["team_id"],
+    )
+    # Team-scoped: per-user selection of the single active review validator (the future config UI).
+    routers.projects.register(
+        r"review_hog/validators",
+        ReviewValidatorConfigViewSet,
+        "project_review_hog_validators",
         ["team_id"],
     )
