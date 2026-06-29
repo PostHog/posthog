@@ -30,6 +30,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         harnessRows,
         harnessRowsLoading,
         dailyActivity,
+        activityIncompleteTail,
         activityRowsLoading,
         toolDailySeries,
         toolDailyRowsLoading,
@@ -93,6 +94,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 theme={theme}
                                 timezone={timezone}
                                 interval={interval}
+                                incompleteTail={activityIncompleteTail}
                             />
                         </div>
                         <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />

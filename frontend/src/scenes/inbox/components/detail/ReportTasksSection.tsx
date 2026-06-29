@@ -85,12 +85,16 @@ function TaskRow({
             {expanded ? (
                 <div className="mt-1.5 mb-1 ml-1.5">
                     {runId ? (
-                        <div className="h-[420px] overflow-y-auto rounded border border-primary bg-surface-primary">
+                        // The viewer's virtualized thread owns scroll, so this box only bounds the height and
+                        // clips — an `overflow-y-auto` here would nest a second scrollbar. Content is kept off
+                        // the border via `threadRowClassName`/`threadListClassName`, not padding on this box.
+                        <div className="h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
                             <RunViewer
                                 taskId={task.id}
                                 runId={runId}
                                 interaction={replayOnly ? 'read-only' : 'live'}
-                                className="px-3 py-2"
+                                threadRowClassName="px-3"
+                                threadListClassName="py-3"
                             />
                         </div>
                     ) : (

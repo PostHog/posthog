@@ -55,7 +55,7 @@ type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql"
 # but not Postgres-specific features like PIVOT/UNPIVOT, TRY_CAST, or positional references.
 SQL_TARGET_DIALECTS: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb", "mysql"})
 
-type HogQLParserBackend = Literal["python", "cpp-json", "rust-json", "rust-py"]
+type HogQLParserBackend = Literal["cpp-json", "rust-json", "rust-py"]
 
 
 class LimitContext(StrEnum):

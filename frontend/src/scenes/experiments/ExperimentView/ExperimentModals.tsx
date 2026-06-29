@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { IconCheckCircle, IconGlobe, IconList } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, LemonSelect, LemonTextArea, Link } from '@posthog/lemon-ui'
@@ -198,8 +198,7 @@ export function ResumeExperimentModal(): JSX.Element {
 }
 
 export function FinishExperimentModal(): JSX.Element {
-    const { experiment, variants, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } =
-        useValues(experimentLogic)
+    const { experiment, isSingleVariantShipped, shippedVariantKey, endExperimentLoading } = useValues(experimentLogic)
     const { finishExperiment, endExperimentWithoutShipping, restoreUnmodifiedExperiment } = useActions(experimentLogic)
     const { closeFinishExperimentModal } = useActions(modalsLogic)
     const { isFinishExperimentModalOpen } = useValues(modalsLogic)
@@ -209,13 +208,6 @@ export function FinishExperimentModal(): JSX.Element {
 
     const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>()
     const [releaseToEveryone, setReleaseToEveryone] = useState<boolean>(false)
-
-    useEffect(() => {
-        if (variants.length > 1) {
-            // First test variant selected by default
-            setSelectedVariantKey(variants[1].key)
-        }
-    }, [experiment.id, variants])
 
     const aggregationTargetName =
         experiment.filters.aggregation_group_type_index != null

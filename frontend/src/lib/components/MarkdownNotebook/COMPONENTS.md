@@ -72,9 +72,13 @@ If it is omitted, the component can still render from markdown but does not appe
 `validateProps` returns user-facing validation errors.
 The notebook shell renders those above the component.
 
-`getTitle(node)` returns the toolbar title shown when the component filters panel is hidden.
-Use it for the compact summary a reader needs while filters are collapsed, such as a URL, insight name, code title, or cached AI answer summary.
+`getTitle(node)` returns a computed contextual title — a compact summary such as a URL, insight name, code title, or cached AI answer summary.
 If omitted, the shell falls back to string props such as `title`, `name`, `url`, `href`, `src`, or `id`.
+
+Every component also has a generic, user-editable title backed by the `title` prop.
+In edit mode the shell renders an editable title field in the toolbar, watermarked with the `getTitle` value (or "Add a title").
+In view mode the shell shows the user's title if set, otherwise the `getTitle` value.
+A `title` equal to the component's own label (e.g. code blocks default `title` to "Python") is treated as no user title, so the field reads as empty by default.
 
 `ViewComponent` renders the read panel.
 `EditComponent` is optional; if omitted, the component only has a view panel.
@@ -194,7 +198,7 @@ Add or update tests for:
 
 - parsing and serializing the tag
 - rendering the view component
-- toolbar title behavior when filters are hidden
+- editable toolbar title (edit-mode field, view-mode display, `getTitle` watermark)
 - editing props through `updateProps`
 - slash-menu insertion when `insertCommand` is present
 - validation errors when `validateProps` rejects invalid props

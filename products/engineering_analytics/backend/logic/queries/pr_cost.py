@@ -32,7 +32,7 @@ _SELECT = """
     SELECT
         r.workflow_name, r.id AS run_id, r.run_attempt, j.labels,
         countIf(j.duration_seconds IS NOT NULL) AS finished,
-        sumIf(j.duration_seconds, j.duration_seconds IS NOT NULL) AS elapsed,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL) AS elapsed,
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
@@ -113,7 +113,7 @@ _LIST_SELECT = """
     SELECT
         r.repo_owner, r.repo_name, r.pr_number, j.labels,
         countIf(j.duration_seconds IS NOT NULL) AS finished,
-        sumIf(j.duration_seconds, j.duration_seconds IS NOT NULL) AS elapsed,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL) AS elapsed,
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
@@ -155,7 +155,7 @@ _WINDOW_COST_SELECT = """
     SELECT
         r.workflow_name, j.labels,
         countIf(j.duration_seconds IS NOT NULL) AS finished,
-        sumIf(j.duration_seconds, j.duration_seconds IS NOT NULL) AS elapsed,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL) AS elapsed,
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
@@ -211,7 +211,7 @@ _RUNNER_COST_SELECT = """
     SELECT
         j.labels,
         countIf(j.duration_seconds IS NOT NULL) AS finished,
-        sumIf(j.duration_seconds, j.duration_seconds IS NOT NULL) AS elapsed,
+        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL) AS elapsed,
         countIf(j.duration_seconds IS NULL) AS unfinished
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
@@ -283,7 +283,9 @@ def _expand_jobs(
 ) -> list[tuple[list[str], float | None]]:
     """Re-expand a (labels, finished, elapsed_total, unfinished) group into per-job (labels, elapsed)
     tuples for aggregate_pr_cost. Elapsed is split evenly across finished jobs — cost is linear in
-    elapsed, so the summed cost/minutes/counts are identical to costing each real job."""
+    elapsed, so the summed cost/minutes/counts are identical to costing each real job. The SQL sums
+    ``greatest(duration_seconds, 0)`` so a single clock-skewed negative duration can't cancel its
+    group-mates' elapsed before the split — matching aggregate_pr_cost's per-job ``max(0, elapsed)``."""
     per = (elapsed_total / finished) if finished else 0.0
     return [(labels, per)] * finished + [(labels, None)] * unfinished
 

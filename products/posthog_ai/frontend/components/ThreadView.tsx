@@ -27,7 +27,12 @@ function getThreadItemKey(item: ThreadItem): string {
  * `virtualized={false}` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows
  * then render in document flow, unchanged from the pre-virtualized layout.
  */
-export function ThreadView({ virtualized = true }: { virtualized?: boolean } = {}): JSX.Element {
+export function ThreadView({
+    virtualized = true,
+    className,
+    listClassName,
+    rowClassName,
+}: { virtualized?: boolean; className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
     const { threadItems, toolInvocations, isThinking, streamPhase, runArtifacts, turnComplete, currentRunStatus } =
         useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
@@ -64,7 +69,7 @@ export function ThreadView({ virtualized = true }: { virtualized?: boolean } = {
 
     const renderItem = useCallback(
         (item: ThreadItem, index: number): JSX.Element => (
-            <VirtualizedThread.Row>
+            <VirtualizedThread.Row className={rowClassName}>
                 <ThreadRow
                     item={item}
                     isLast={index === threadItems.length - 1}
@@ -75,7 +80,7 @@ export function ThreadView({ virtualized = true }: { virtualized?: boolean } = {
                 />
             </VirtualizedThread.Row>
         ),
-        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled]
+        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName]
     )
 
     return (
@@ -86,6 +91,8 @@ export function ThreadView({ virtualized = true }: { virtualized?: boolean } = {
             footer={footer}
             stickToBottom
             virtualized={virtualized}
+            className={className}
+            listClassName={listClassName}
         >
             {renderItem}
         </VirtualizedThread.Root>

@@ -269,6 +269,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_STATS_QUERY
             | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+            | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
+            | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
         ):
             return {"product": Product.MCP_ANALYTICS}
         case (
