@@ -239,15 +239,18 @@ def _plan_pending(team_ids: list[int] | None) -> None:
             continue
 
         # Re-check the org cap after winning the claim; the pre-check raced
-        # against other pods. (Still best-effort across orgs — a transient
-        # second concurrent backfill per org is wasteful, not incorrect.)
+        # against other pods. Count against MAX_CONCURRENT_BACKFILLS_PER_ORG so
+        # the cap is honored here too — excluding self, revert once the org is
+        # already at the cap. (Still best-effort across orgs — a transient
+        # over-the-cap backfill is wasteful, not incorrect.)
         if (
             DuckgresSinkSchemaState.objects.filter(
                 state=DuckgresSinkSchemaState.State.BACKFILLING,
                 team__organization_id=org_id,
             )
             .exclude(id=state.id)
-            .exists()
+            .count()
+            >= MAX_CONCURRENT_BACKFILLS_PER_ORG
         ):
             _revert_to_pending(state.id)
             continue
