@@ -88,6 +88,38 @@ const ticketActionsMapping: Record<
             ],
         }
     },
+    snoozed_until: function onSnoozedUntil(change, logItem) {
+        const before = change?.before as string | null
+        const after = change?.after as string | null
+
+        if (!before && after) {
+            return {
+                description: [
+                    <>
+                        snoozed until{' '}
+                        <strong>
+                            <TZLabel time={after} />
+                        </strong>
+                    </>,
+                ],
+            }
+        }
+        if (before && !after) {
+            // The same set→null change happens for a manual unsnooze and for the
+            // system wake task auto-expiring the snooze — tell them apart by actor.
+            return {
+                description: [logItem?.user ? <>removed snooze</> : <>snooze expired – reopened</>],
+            }
+        }
+        return {
+            description: [
+                <>
+                    changed snooze from <strong>{before ? <TZLabel time={before} /> : 'none'}</strong> to{' '}
+                    <strong>{after ? <TZLabel time={after} /> : 'none'}</strong>
+                </>,
+            ],
+        }
+    },
     tag: function onTag(change) {
         const tagName = (change?.after || change?.before) as string
         if (change?.action === 'created') {

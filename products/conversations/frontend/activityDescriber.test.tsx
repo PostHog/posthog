@@ -1,0 +1,62 @@
+import { render } from '@testing-library/react'
+
+import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+
+import { ticketActivityDescriber } from './activityDescriber'
+
+const getTextContent = (describer: { description: JSX.Element | string | null }): string => {
+    if (!describer.description || typeof describer.description === 'string') {
+        return (describer.description as string) || ''
+    }
+    const { container } = render(describer.description)
+    return container.textContent || ''
+}
+
+const ticketLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => ({
+    activity: 'updated',
+    created_at: '2026-06-25T10:00:00Z',
+    scope: 'Ticket',
+    item_id: 'ticket-uuid',
+    detail: { merge: null, trigger: null, changes: null, name: 'Ticket #2043' },
+    ...overrides,
+})
+
+describe('ticketActivityDescriber', () => {
+    const snoozeCleared = {
+        type: 'Ticket' as const,
+        action: 'changed' as const,
+        field: 'snoozed_until',
+        before: '2026-06-25T10:00:00Z',
+        after: null,
+    }
+    const reopened = {
+        type: 'Ticket' as const,
+        action: 'changed' as const,
+        field: 'status',
+        before: 'on_hold',
+        after: 'open',
+    }
+
+    it('describes a manual unsnooze (user present) as "removed snooze"', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { email: 'luke.b@posthog.com', first_name: 'Luke', last_name: 'Belton' },
+                detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [snoozeCleared] },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('removed snooze')
+        expect(text).not.toContain('snooze expired')
+    })
+
+    it('describes a system snooze-expiry (no user) as "snooze expired – reopened"', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [snoozeCleared, reopened] },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('snooze expired')
+        expect(text).toContain('reopened')
+    })
+})

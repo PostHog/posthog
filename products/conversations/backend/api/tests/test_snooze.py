@@ -362,3 +362,47 @@ class TestWakeSnoozedTickets(BaseTest):
     def test_noop_when_no_expired_tickets(self, mock_capture):
         wake_snoozed_tickets()
         mock_capture.assert_not_called()
+
+    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    def test_wake_logs_system_activity_for_reopen(self, _):
+        ticket = self._make_ticket(
+            status=Status.ON_HOLD,
+            snoozed_until=timezone.now() - timedelta(minutes=5),
+        )
+
+        wake_snoozed_tickets()
+
+        activity = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Ticket", item_id=str(ticket.id), activity="updated"
+        ).first()
+        assert activity is not None
+        self.assertTrue(activity.is_system)
+        self.assertIsNone(activity.user_id)
+        changes = activity.detail.get("changes", [])
+
+        snooze_change = next((c for c in changes if c["field"] == "snoozed_until"), None)
+        assert snooze_change is not None
+        self.assertIsNotNone(snooze_change["before"])
+        self.assertIsNone(snooze_change["after"])
+
+        status_change = next((c for c in changes if c["field"] == "status"), None)
+        assert status_change is not None
+        self.assertEqual(status_change["before"], Status.ON_HOLD)
+        self.assertEqual(status_change["after"], Status.OPEN)
+
+    @patch("products.conversations.backend.tasks.capture_ticket_status_changed")
+    def test_wake_logs_snooze_clear_without_status_change(self, _):
+        ticket = self._make_ticket(
+            status=Status.RESOLVED,
+            snoozed_until=timezone.now() - timedelta(minutes=5),
+        )
+
+        wake_snoozed_tickets()
+
+        activity = ActivityLog.objects.filter(
+            team_id=self.team.id, scope="Ticket", item_id=str(ticket.id), activity="updated"
+        ).first()
+        assert activity is not None
+        changes = activity.detail.get("changes", [])
+        self.assertEqual([c["field"] for c in changes], ["snoozed_until"])
+        self.assertIsNone(changes[0]["after"])
