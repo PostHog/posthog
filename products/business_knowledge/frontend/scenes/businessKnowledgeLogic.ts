@@ -3,8 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
-import api from '~/lib/api'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import {
     createFileSource,
@@ -17,6 +16,11 @@ import {
     updateSource,
 } from '../api'
 import type { CreateUrlSourcePayload, RefreshIntervalValue, UpdateSourcePayload } from '../api'
+import {
+    businessKnowledgeGapSuggestionsAcceptTopicCreate,
+    businessKnowledgeGapSuggestionsDismissTopicCreate,
+    businessKnowledgeGapSuggestionsList,
+} from '../generated/api'
 import type { KnowledgeSourceApi } from '../generated/api.schemas'
 import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
 
@@ -189,8 +193,8 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             {
                 loadGapSuggestions: async (): Promise<AggregatedGap[]> => {
                     try {
-                        const response = await api.get('api/projects/@current/business_knowledge/gap_suggestions/')
-                        return response.results ?? response
+                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()))
+                        return (response.results ?? []) as unknown as AggregatedGap[]
                     } catch {
                         return []
                     }
@@ -500,7 +504,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
         confirmGapAccept: async ({ normalizedTopic, sourceId }) => {
             try {
-                await api.create('api/projects/@current/business_knowledge/gap_suggestions/accept_topic/', {
+                await businessKnowledgeGapSuggestionsAcceptTopicCreate(String(getCurrentTeamId()), {
                     normalized_topic: normalizedTopic,
                     resolved_source_id: sourceId,
                 })
@@ -511,7 +515,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         },
         dismissGapSuggestion: async ({ normalizedTopic }) => {
             try {
-                await api.create('api/projects/@current/business_knowledge/gap_suggestions/dismiss_topic/', {
+                await businessKnowledgeGapSuggestionsDismissTopicCreate(String(getCurrentTeamId()), {
                     normalized_topic: normalizedTopic,
                 })
                 actions.loadGapSuggestions()

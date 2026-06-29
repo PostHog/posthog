@@ -2638,15 +2638,15 @@ def aggregate_gap_suggestions(
         .values("normalized_topic")
         .annotate(
             ticket_count=Count("ticket_id", distinct=True),
-            sample_ticket_ids=ArrayAgg("ticket_id", distinct=True),
-            topic=Substr(Max("topic"), 1, 500),
+            sample_ticket_ids=ArrayAgg("ticket_id", distinct=True, ordering="ticket_id"),
+            representative_topic=Substr(Max("topic"), 1, 500),
         )
         .order_by("-ticket_count")[:limit]
     )
     return [
         AggregatedGap(
             normalized_topic=r["normalized_topic"],
-            topic=r["topic"],
+            topic=r["representative_topic"],
             ticket_count=r["ticket_count"],
             sample_ticket_ids=[str(tid) for tid in (r["sample_ticket_ids"] or [])[:5]],
         )
@@ -2661,11 +2661,13 @@ def set_gap_status(
     normalized_topic: str | None = None,
     status: str,
     resolved_source_id: UUID | None = None,
+    only_pending: bool = False,
 ) -> int:
     """Accept or dismiss gap suggestions. Returns updated row count.
 
     Pass suggestion_id for a single row, or normalized_topic to flip the whole
-    cluster (all tickets with that topic).
+    cluster (all tickets with that topic). Set only_pending=True to restrict
+    the update to rows still in PENDING status.
     """
     qs = KnowledgeGapSuggestion.objects.for_team(team_id)
     if suggestion_id is not None:
@@ -2674,6 +2676,9 @@ def set_gap_status(
         qs = qs.filter(normalized_topic=normalized_topic)
     else:
         raise ValueError("One of suggestion_id or normalized_topic is required")
+
+    if only_pending:
+        qs = qs.filter(status=GapStatus.PENDING)
 
     update_kwargs: dict[str, object] = {"status": status}
     if resolved_source_id is not None:

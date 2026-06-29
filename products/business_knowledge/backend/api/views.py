@@ -540,6 +540,10 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     def list(self, request: Request, **kwargs) -> Response:
         ticket_id = request.query_params.get("ticket_id")
         if ticket_id:
+            try:
+                UUID(ticket_id)
+            except ValueError:
+                raise exceptions.ValidationError({"ticket_id": "Must be a valid UUID."})
             suggestions = logic.list_gap_suggestions_for_ticket(self.team_id, ticket_id)
             page = self.paginate_queryset(suggestions)
             if page is not None:
@@ -560,7 +564,7 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         ser.is_valid(raise_exception=True)
         logic.set_gap_status(
             self.team_id,
-            normalized_topic=suggestion.normalized_topic,
+            suggestion_id=suggestion.id,
             status=GapStatus.ACCEPTED,
             resolved_source_id=ser.validated_data.get("resolved_source_id"),
         )
@@ -576,7 +580,7 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         suggestion = self.get_object()
         logic.set_gap_status(
             self.team_id,
-            normalized_topic=suggestion.normalized_topic,
+            suggestion_id=suggestion.id,
             status=GapStatus.DISMISSED,
         )
         suggestion.refresh_from_db()
@@ -588,7 +592,7 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     )
     @action(detail=False, methods=["post"], url_path="accept_topic")
     def accept_topic(self, request: Request, **kwargs) -> Response:
-        """Accept all suggestions for a normalized topic cluster."""
+        """Accept all pending suggestions for a normalized topic cluster."""
         ser = GapTopicActionSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         normalized_topic = ser.validated_data["normalized_topic"]
@@ -597,9 +601,10 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             normalized_topic=normalized_topic,
             status=GapStatus.ACCEPTED,
             resolved_source_id=ser.validated_data.get("resolved_source_id"),
+            only_pending=True,
         )
         if updated == 0:
-            raise exceptions.NotFound("No pending suggestions found for this topic.")
+            raise exceptions.NotFound("No actionable suggestions found for this topic.")
         return Response({"normalized_topic": normalized_topic, "updated": updated})
 
     @extend_schema(
@@ -608,7 +613,7 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     )
     @action(detail=False, methods=["post"], url_path="dismiss_topic")
     def dismiss_topic(self, request: Request, **kwargs) -> Response:
-        """Dismiss all suggestions for a normalized topic cluster."""
+        """Dismiss all pending suggestions for a normalized topic cluster."""
         ser = GapTopicActionSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
         normalized_topic = ser.validated_data["normalized_topic"]
@@ -616,7 +621,8 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             self.team_id,
             normalized_topic=normalized_topic,
             status=GapStatus.DISMISSED,
+            only_pending=True,
         )
         if updated == 0:
-            raise exceptions.NotFound("No pending suggestions found for this topic.")
+            raise exceptions.NotFound("No actionable suggestions found for this topic.")
         return Response({"normalized_topic": normalized_topic, "updated": updated})

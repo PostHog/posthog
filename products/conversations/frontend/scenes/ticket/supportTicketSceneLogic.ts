@@ -6,6 +6,7 @@ import { beforeUnload, router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { urls } from 'scenes/urls'
 
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
@@ -16,6 +17,11 @@ import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { CommentType, PersonType } from '~/types'
 import { PropertyFilterType, PropertyOperator, Region } from '~/types'
+
+import {
+    businessKnowledgeGapSuggestionsDismissCreate,
+    businessKnowledgeGapSuggestionsList,
+} from 'products/business_knowledge/frontend/generated/api'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
@@ -229,10 +235,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         return []
                     }
                     try {
-                        const response = await api.get(
-                            `api/projects/@current/business_knowledge/gap_suggestions/?ticket_id=${ticket.id}`
-                        )
-                        return response.results ?? response
+                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
+                            ticket_id: ticket.id,
+                        })
+                        return (response.results ?? []) as unknown as KnowledgeGapSuggestion[]
                     } catch {
                         return []
                     }
@@ -596,7 +602,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         },
         dismissKnowledgeGap: async ({ suggestionId }) => {
             try {
-                await api.create(`api/projects/@current/business_knowledge/gap_suggestions/${suggestionId}/dismiss/`)
+                await businessKnowledgeGapSuggestionsDismissCreate(String(getCurrentTeamId()), suggestionId)
                 actions.loadKnowledgeGaps()
             } catch {
                 lemonToast.error('Failed to dismiss suggestion')
