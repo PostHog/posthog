@@ -1069,13 +1069,15 @@ export const dashboardLogic = kea<dashboardLogicType>([
         // The number of insights enrolled in the current refresh cycle, captured up front by the
         // refresh listener. Pinning the "X out of Y" denominator to this keeps Y constant for the
         // whole cycle instead of letting it track the live, still-populating refreshStatus map.
+        // null means "no batch pinned" — the selector then falls back to the live map size.
+        // Reset only on cycle boundaries (start / cancel), never on the per-query abortQuery, which
+        // fires for individual tile cancellations mid-cycle and would otherwise unpin the denominator.
         refreshTilesTotal: [
-            0,
+            null as number | null,
             {
                 setRefreshTilesTotal: (_, { total }) => total,
-                refreshDashboardItems: () => 0,
-                abortQuery: () => 0,
-                cancelDashboardRefresh: () => 0,
+                refreshDashboardItems: () => null,
+                cancelDashboardRefresh: () => null,
             },
         ],
         columns: [
@@ -1847,9 +1849,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
             (refreshStatus, refreshTilesTotal) => {
                 const inFlight = Object.values(refreshStatus).filter((s) => s.loading || s.queued).length
                 // Pin the denominator to the count captured when the batch was enrolled so Y stays
-                // fixed for the cycle. Fall back to the live map size for one-off single-insight
-                // refreshes that don't register a batch.
-                const total = refreshTilesTotal || Object.keys(refreshStatus).length
+                // fixed for the cycle. Fall back to the live map size only when no batch is pinned
+                // (null) — e.g. one-off single-insight refreshes. A pinned 0 stays 0, not the map size.
+                const total = refreshTilesTotal ?? Object.keys(refreshStatus).length
                 return {
                     completed: total - inFlight,
                     total,
