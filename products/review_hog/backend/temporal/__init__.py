@@ -8,6 +8,7 @@ from products.review_hog.backend.temporal.activities import (
     load_perspectives_activity,
     load_validation_skill_activity,
     publish_review_activity,
+    resolve_acting_user_activity,
     review_chunk_activity,
     split_chunks_activity,
     sync_review_skills_activity,
@@ -31,6 +32,7 @@ WORKFLOWS = [
 ACTIVITIES = [
     validate_github_integration_activity,
     fetch_pr_data_activity,
+    resolve_acting_user_activity,
     sync_review_skills_activity,
     generate_schemas_activity,
     split_chunks_activity,

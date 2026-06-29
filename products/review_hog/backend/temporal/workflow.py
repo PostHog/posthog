@@ -35,7 +35,9 @@ from products.review_hog.backend.temporal.activities import (
     GenerateSchemasInput,
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
+    LoadPerspectivesInput,
     PublishInput,
+    ResolveActingUserInput,
     ReviewChunkInput,
     ReviewMeta,
     SandboxStageInput,
@@ -52,6 +54,7 @@ from products.review_hog.backend.temporal.activities import (
     load_perspectives_activity,
     load_validation_skill_activity,
     publish_review_activity,
+    resolve_acting_user_activity,
     review_chunk_activity,
     split_chunks_activity,
     sync_review_skills_activity,
@@ -89,6 +92,8 @@ class AnalyzeChunksInputs(SandboxStageInput):
 @dataclass
 class ReviewPerspectivesInputs(SandboxStageInput):
     chunk_ids: list[int]
+    # The user whose enabled perspectives this review fans out over (the PR author, or the CLI override).
+    acting_user_id: int
 
 
 @dataclass
@@ -146,7 +151,7 @@ class ReviewPerspectivesWorkflow:
     async def run(self, inputs: ReviewPerspectivesInputs) -> int:
         perspectives: list[LoadedPerspectiveDTO] = await workflow.execute_activity(
             load_perspectives_activity,
-            ValidateIntegrationInput(team_id=inputs.team_id),
+            LoadPerspectivesInput(team_id=inputs.team_id, acting_user_id=inputs.acting_user_id),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
         )
@@ -295,6 +300,25 @@ class ReviewPRWorkflow:
             )
             return report_id
 
+        # Resolve the acting user whose enabled perspectives apply (the PR author, or the CLI
+        # override). Gate here — before any sandbox spend — because an author who isn't a PostHog org
+        # user has no perspectives to apply, so there is nothing to review (no fallback).
+        acting = await workflow.execute_activity(
+            resolve_acting_user_activity,
+            ResolveActingUserInput(
+                team_id=inputs.team_id, author_login=meta.author_login, override_user_id=inputs.acting_user_id
+            ),
+            start_to_close_timeout=_QUICK_TIMEOUT,
+            retry_policy=_RETRY,
+        )
+        if acting.acting_user_id is None:
+            workflow.logger.info(
+                f"PR author '{meta.author_login}' is not a PostHog org user on team {inputs.team_id}; "
+                "skipping review (no perspectives to apply)"
+            )
+            return report_id
+        acting_user_id = acting.acting_user_id
+
         await workflow.execute_activity(
             sync_review_skills_activity,
             SyncReviewSkillsInput(team_id=inputs.team_id),
@@ -346,7 +370,7 @@ class ReviewPRWorkflow:
             retry_policy=_RETRY,
         )
 
-        workflow.logger.info("STAGE 4/9 · Review chunks (3 perspectives)")
+        workflow.logger.info("STAGE 4/9 · Review chunks (per enabled perspective)")
         await workflow.execute_child_workflow(
             ReviewPerspectivesWorkflow.run,
             ReviewPerspectivesInputs(
@@ -358,6 +382,7 @@ class ReviewPRWorkflow:
                 branch=stage.branch,
                 run_index=stage.run_index,
                 chunk_ids=chunk_ids,
+                acting_user_id=acting_user_id,
             ),
             id=f"{parent_id}/review",
             retry_policy=_RETRY,

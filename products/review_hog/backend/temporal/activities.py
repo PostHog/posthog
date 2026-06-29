@@ -67,6 +67,7 @@ from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     generate_chunking_prompt,
 )
+from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +109,32 @@ class ReviewMeta:
     # New inline comments since the last turn's watermark — logged only for now (they don't force a
     # turn yet; see ARCHITECTURE.md). Will gate the early-exit once ReviewHog reacts to comments.
     new_comment_count: int
+    # The PR author's GitHub login (`pr_metadata.author`), so the parent can resolve the acting user
+    # whose enabled perspectives this review applies.
+    author_login: str
+
+
+@dataclass
+class ResolveActingUserInput:
+    team_id: int
+    author_login: str
+    # CLI/eval override: when set, perspective selection uses this user directly instead of resolving
+    # the PR author — the local eval tests a specific user's perspectives against any PR.
+    override_user_id: int | None
+
+
+@dataclass
+class ResolveActingUserResult:
+    # The user whose enabled perspectives drive this review, or None when the PR author maps to no
+    # PostHog org user — the parent then skips the review (we apply PostHog-stored skills, so the
+    # author must be a PostHog user).
+    acting_user_id: int | None
+
+
+@dataclass
+class LoadPerspectivesInput:
+    team_id: int
+    acting_user_id: int
 
 
 @dataclass
@@ -315,6 +342,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         snapshotted=snapshotted,
         already_published=already_published,
         new_comment_count=new_comment_count,
+        author_login=pr_metadata.author,
     )
 
 
@@ -328,6 +356,31 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     `(report_id, head_sha)` so it never crosses the workflow boundary.
     """
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
+
+
+def _resolve_acting_user(team_id: int, author_login: str, override_user_id: int | None) -> int | None:
+    if override_user_id is not None:
+        return override_user_id
+    matches = resolve_org_github_login_to_users(team_id, [author_login])
+    user = matches.get(author_login.strip().lower()) if author_login else None
+    return user.id if user is not None else None
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def resolve_acting_user_activity(input: ResolveActingUserInput) -> ResolveActingUserResult:
+    """Resolve the user whose enabled perspectives drive this review.
+
+    Production: the PR author, mapped GitHub-login → PostHog org user (`resolve_org_github_login_to_users`).
+    Returns None when the author isn't a PostHog org user — the parent then skips the review (no
+    fallback: we apply the author's PostHog-stored perspectives, so the author must be a PostHog user).
+    The CLI/eval passes an explicit `override_user_id` to test a known user's perspectives on any PR.
+    """
+    acting_user_id = await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
+        input.team_id, input.author_login, input.override_user_id
+    )
+    return ResolveActingUserResult(acting_user_id=acting_user_id)
 
 
 def _sync_review_skills(team_id: int) -> None:
@@ -453,19 +506,19 @@ async def analyze_chunk_activity(input: AnalyzeChunkInput) -> bool:
 # --- Review (perspective × chunk fan-out) ----------------------------------------------------------
 
 
-def _load_perspectives(team_id: int) -> list[LoadedPerspectiveDTO]:
+def _load_perspectives(team_id: int, acting_user_id: int) -> list[LoadedPerspectiveDTO]:
     return [
         LoadedPerspectiveDTO(pass_number=p.pass_number, skill_name=p.skill_name, version=p.version)
-        for p in load_perspectives_for_run(team_id)
+        for p in load_perspectives_for_run(team_id, acting_user_id)
     ]
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def load_perspectives_activity(input: ValidateIntegrationInput) -> list[LoadedPerspectiveDTO]:
-    """Resolve the team's canonical perspectives, pinned to their current versions, for this run."""
-    return await database_sync_to_async(_load_perspectives, thread_sensitive=False)(input.team_id)
+async def load_perspectives_activity(input: LoadPerspectivesInput) -> list[LoadedPerspectiveDTO]:
+    """Resolve the acting user's enabled perspectives, pinned to their current versions, for this run."""
+    return await database_sync_to_async(_load_perspectives, thread_sensitive=False)(input.team_id, input.acting_user_id)
 
 
 def _prepare_review_prompt(
@@ -531,6 +584,11 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             model_to_validate=IssuesReview,
             step_name=f"issues-review-p{input.pass_number}-c{input.chunk_id}",
         )
+    # Stamp the perspective that found each issue = the skill that just ran. Done here (not in
+    # combine) so it survives the persisted result and a resume, and so combine stays free of any
+    # perspective identity — `source_perspective` is the skill_name, decoupled from `PerspectiveType`.
+    for issue in review.issues:
+        issue.source_perspective = input.skill_name
     await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(
         team_id=input.team_id,
         report_id=input.report_id,
