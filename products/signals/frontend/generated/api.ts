@@ -52,6 +52,7 @@ import type {
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
+    SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
 } from './api.schemas'
@@ -690,6 +691,40 @@ export const signalsScoutRunsEmissionsBatch = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsRecentEmissionsUrl = (
+    projectId: string,
+    params?: SignalsScoutRunsRecentEmissionsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/scout/runs/emissions/recent/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/scout/runs/emissions/recent/`
+}
+
+/**
+ * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).
+ * @summary List recent emitted findings across all runs
+ */
+export const signalsScoutRunsRecentEmissions = async (
+    projectId: string,
+    params?: SignalsScoutRunsRecentEmissionsParams,
+    options?: RequestInit
+): Promise<SignalScoutEmissionApi[]> => {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsRecentEmissionsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

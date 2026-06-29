@@ -73,6 +73,7 @@ from products.signals.backend.scout_harness.serializers import (
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
+    RecentEmissionsQuerySerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMetadataSerializer,
@@ -117,6 +118,12 @@ MAX_EMISSIONS_PER_RUN = 1000
 # per run, so even the 120-run findings window stays in the low hundreds; this only bounds a pathological
 # payload, mirroring `MAX_EMISSIONS_PER_RUN` for the single-run path.
 MAX_EMISSIONS_PER_BATCH = 5000
+
+# Page size for the cross-run `recent-emissions` action: the default when the caller omits `limit`,
+# and the hard ceiling it's clamped to. Bounded so an agent asking "what has the fleet surfaced
+# lately?" gets a useful window in one call without an unbounded scan; walk back via `date_to`.
+DEFAULT_RECENT_EMISSIONS_LIMIT = 50
+MAX_RECENT_EMISSIONS_LIMIT = 200
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -358,6 +365,49 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         emissions = SignalScoutEmission.objects.filter(scout_run_id=run_id, team_id=team_id).order_by(
             "-emitted_at", "-id"
         )[:MAX_EMISSIONS_PER_RUN]
+        return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
+
+    @validated_request(
+        query_serializer=RecentEmissionsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutEmissionSerializer(many=True),
+                description="Recent emitted findings across every run on the team, newest first.",
+            ),
+        },
+        summary="List recent emitted findings across all runs",
+        description=(
+            "Return the team's recently emitted scout findings across *every* run, newest first — the "
+            "cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so "
+            "you can regroup by run without first listing runs and fanning out one `emissions` call each. "
+            "Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window "
+            "on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to "
+            "walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at "
+            f"{MAX_RECENT_EMISSIONS_LIMIT} rows (default {DEFAULT_RECENT_EMISSIONS_LIMIT})."
+        ),
+        operation_id="signals_scout_runs_recent_emissions",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="emissions/recent",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def recent_emissions(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        team_id = _canonical_team_id(self)
+        limit = validated.get("limit") or DEFAULT_RECENT_EMISSIONS_LIMIT
+
+        qs = SignalScoutEmission.objects.filter(team_id=team_id)
+        if validated.get("date_from"):
+            qs = qs.filter(emitted_at__gte=validated["date_from"])
+        if validated.get("date_to"):
+            qs = qs.filter(emitted_at__lt=validated["date_to"])
+        if validated.get("skill_name"):
+            qs = qs.filter(scout_run__skill_name=validated["skill_name"])
+
+        emissions = qs.order_by("-emitted_at", "-id")[:limit]
         return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
     @extend_schema(
