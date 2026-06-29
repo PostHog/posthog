@@ -179,6 +179,14 @@ describe('surveysLogic', () => {
             })
         })
 
+        it('coerces a repeated search query param to a single string without crashing', async () => {
+            router.actions.push('/surveys', { search: ['a', 'b'] })
+
+            await expectLogic(logic).toFinishAllListeners().toMatchValues({
+                searchTerm: 'a',
+            })
+        })
+
         it('clears a stale search term when navigating to surveys without a search param', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setSearchTerm('onboarding')

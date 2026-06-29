@@ -168,7 +168,7 @@ export const surveysLogic = kea<surveysLogicType>([
                 return mergeSurveysData(values.data, response, true)
             },
             loadSearchResults: async () => {
-                const trimmedSearchTerm = values.searchTerm?.trim() || ''
+                const trimmedSearchTerm = typeof values.searchTerm === 'string' ? values.searchTerm.trim() : ''
                 if (trimmedSearchTerm === '') {
                     return mergeSearchSurveysData(values.data, { results: [], count: 0 })
                 }
@@ -413,7 +413,8 @@ export const surveysLogic = kea<surveysLogicType>([
         searchedSurveys: [
             (selectors) => [selectors.data, selectors.searchTerm, selectors.filters],
             (data, searchTerm, filters) => {
-                let searchedSurveys = searchTerm?.trim() ? data.searchSurveys : data.surveys
+                let searchedSurveys =
+                    typeof searchTerm === 'string' && searchTerm.trim() ? data.searchSurveys : data.surveys
 
                 const { status, type, created_by, archived } = filters
                 if (status !== 'any') {
@@ -494,7 +495,8 @@ export const surveysLogic = kea<surveysLogicType>([
             if (tab) {
                 actions.setTab(tab)
             }
-            const nextSearchTerm = search ?? ''
+            // `search` can arrive as an array (e.g. `?search=a&search=b`); coerce to a single string.
+            const nextSearchTerm = Array.isArray(search) ? (search[0] ?? '') : (search ?? '')
             if (nextSearchTerm !== values.searchTerm) {
                 actions.setSearchTerm(nextSearchTerm)
             }
