@@ -1,11 +1,10 @@
-from types import SimpleNamespace
-
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.person import Person
 from posthog.models.person.bulk_delete import (
     _start_recording_workflows,
     delete_persons_profile,
@@ -14,6 +13,14 @@ from posthog.models.person.bulk_delete import (
     resolve_persons_for_deletion,
 )
 from posthog.test.persons import create_person
+
+
+def _person_with_distinct_ids(*distinct_ids: str) -> Person:
+    # Unsaved Person with its distinct_ids cached, mirroring how production callers
+    # pre-resolve them — so reads stay in-memory inside the async fan-out.
+    person = Person()
+    person._distinct_ids = list(distinct_ids)
+    return person
 
 
 class ResolvePersonsTests(BaseTest):
@@ -115,7 +122,7 @@ class QueueRecordingDeletionTests(BaseTest):
         # Guards the fan-out cap: one workflow per person previously saturated the
         # offline ClickHouse query pool. We must start ceil(persons / batch) workflows
         # while still covering every person's distinct IDs.
-        persons = [SimpleNamespace(distinct_ids=[f"did-{i}"]) for i in range(num_persons)]
+        persons = [_person_with_distinct_ids(f"did-{i}") for i in range(num_persons)]
         client = MagicMock()
         client.start_workflow = AsyncMock()
         with (
@@ -132,7 +139,7 @@ class QueueRecordingDeletionTests(BaseTest):
         assert all(call.args[0] == "delete-recordings-with-person" for call in client.start_workflow.call_args_list)
 
     def test_skips_batch_with_no_distinct_ids(self):
-        person = SimpleNamespace(distinct_ids=[])
+        person = _person_with_distinct_ids()
         client = MagicMock()
         client.start_workflow = AsyncMock()
         with patch("posthog.models.person.bulk_delete.sync_connect", return_value=client):
