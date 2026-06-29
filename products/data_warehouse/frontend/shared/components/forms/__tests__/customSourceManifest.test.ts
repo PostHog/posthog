@@ -7,6 +7,7 @@ import {
     removeTableFromList,
     TableForm,
     updateTableInList,
+    visibleAuthTypes,
 } from '../customSourceManifest'
 
 const baseState = (): ManifestState => ({
@@ -698,6 +699,21 @@ describe('extractAuthSecrets', () => {
             auth_oauth2_client_secret: 'cs_123',
             auth_oauth2_refresh_token: 'rt_123',
         })
+    })
+})
+
+describe('visibleAuthTypes', () => {
+    it.each([
+        [false, 'bearer', false], // flag off, not oauth2 -> hidden
+        [false, 'oauth2', true], // flag off, already oauth2 -> kept visible so the select can't rewrite it
+        [true, 'bearer', true], // flag on -> visible
+        [true, 'oauth2', true], // flag on, already oauth2 -> visible
+    ] as const)('oauth2 visible? (enabled=%s, current=%s)', (enabled, current, visible) => {
+        expect(visibleAuthTypes(enabled, current).includes('oauth2')).toBe(visible)
+    })
+
+    it('never drops the non-oauth2 types', () => {
+        expect(visibleAuthTypes(false, 'bearer')).toEqual(['none', 'bearer', 'api_key', 'http_basic'])
     })
 })
 

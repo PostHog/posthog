@@ -5248,6 +5248,35 @@ class TestExternalDataSource(APIBaseTest):
         assert "OAuth2 auth for custom sources isn't enabled" in str(response.json())
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.is_custom_source_oauth2_enabled_for_team",
+        return_value=False,
+    )
+    def test_update_existing_oauth2_source_not_blocked_when_flag_off(self, _mock_flag, mock_validate_credentials):
+        # An edit that does NOT introduce oauth2 (the source already uses it) must not be blocked by
+        # the rollout flag — otherwise turning the flag off would freeze every existing oauth2 source.
+        # Same-host path tweak, so neither the flag gate nor the credential re-entry gate should fire.
+        source = self._custom_oauth2_source("https://auth.example.com/oauth2/token")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/oauth2/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/v2/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest)}},
+        )
+
+        assert response.status_code == 200, response.json()
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
         "products.data_warehouse.backend.presentation.views.external_data_source.is_custom_source_oauth2_enabled_for_team",
         return_value=False,
     )

@@ -12,7 +12,6 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import {
     API_KEY_LOCATIONS,
     type ApiKeyLocation,
-    AUTH_TYPES,
     type AuthType,
     CURSOR_TYPES,
     type CursorType,
@@ -32,6 +31,7 @@ import {
     SORT_MODES,
     type SortMode,
     type TableForm,
+    visibleAuthTypes,
 } from './customSourceManifest'
 import {
     customSourceManifestBuilderLogic,
@@ -59,15 +59,6 @@ const AUTH_LABELS: Record<AuthType, string> = {
     oauth2: 'OAuth2',
 }
 
-// OAuth2 is gated behind its own rollout flag. Hide it from the picker unless the flag is on —
-// but keep it visible when the source already uses it, so an existing oauth2 source's auth type
-// still renders (and isn't silently switched) if the flag is later turned off.
-function buildAuthOptions(oauth2Enabled: boolean, currentAuthType: AuthType): { value: AuthType; label: string }[] {
-    return AUTH_TYPES.filter((value) => value !== 'oauth2' || oauth2Enabled || currentAuthType === 'oauth2').map(
-        (value) => ({ value, label: AUTH_LABELS[value] })
-    )
-}
-
 const OAUTH2_GRANT_LABELS: Record<OAuth2GrantType, string> = {
     client_credentials: 'Client credentials',
     refresh_token: 'Refresh token',
@@ -76,7 +67,7 @@ const OAUTH2_GRANT_OPTIONS = OAUTH2_GRANT_TYPES.map((value) => ({ value, label: 
 
 const OAUTH2_CLIENT_AUTH_METHOD_LABELS: Record<OAuth2ClientAuthMethod, string> = {
     body: 'In request body',
-    basic: 'HTTP Basic header',
+    basic: 'HTTP basic header',
 }
 const OAUTH2_CLIENT_AUTH_METHOD_OPTIONS = OAUTH2_CLIENT_AUTH_METHODS.map((value) => ({
     value,
@@ -220,7 +211,10 @@ export function CustomSourceManifestBuilder({
             <AuthSection
                 state={manifestState}
                 update={updateState}
-                authOptions={buildAuthOptions(oauth2Enabled, manifestState.auth_type)}
+                authOptions={visibleAuthTypes(oauth2Enabled, manifestState.auth_type).map((value) => ({
+                    value,
+                    label: AUTH_LABELS[value],
+                }))}
             />
 
             <HeadersSection
@@ -413,8 +407,9 @@ function OAuth2AuthFields({
                         onChange={(value) => update({ oauth2_refresh_token: value })}
                     />
                     <p className="m-0 mt-1 text-xs text-secondary">
-                        A refresh token you obtained out-of-band. Used to mint access tokens for the refresh_token
-                        grant.
+                        A long-lived refresh token you obtained out-of-band, used to mint access tokens. Providers that
+                        rotate (single-use) refresh tokens aren't supported yet — the sync would fail after the first
+                        run.
                     </p>
                 </LemonField.Pure>
             )}

@@ -168,6 +168,10 @@ class OAuth2Auth(BearerTokenAuth):
     def __call__(self, request: PreparedRequest) -> PreparedRequest:
         if self.token is None or self._is_token_expired():
             self._obtain_token()
+        # The minted token must stay on the `Authorization` header. At sync time the tracked
+        # session fixes its value-based redaction set at construction — before this lazy mint —
+        # so the minted token isn't in it; it's redacted only by the header-name denylist. Moving
+        # it to a custom-named header would silently lose that backstop (see secret_values()).
         request.headers["Authorization"] = f"Bearer {self.token}"
         return request
 

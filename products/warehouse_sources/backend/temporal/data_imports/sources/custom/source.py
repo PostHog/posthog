@@ -391,14 +391,12 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     # client_secret. Vet it like base_url: https-on-Cloud + internal-host rejection.
     # Defense-in-depth (Smokescreen already guards egress); the load-bearing control
     # against repointing token_url to exfiltrate the secret is the re-entry gate, which
-    # sees token_url via manifest_request_hosts.
-    auth = manifest["client"].get("auth")
-    if isinstance(auth, dict) and auth.get("type") == "oauth2":
-        token_url = auth.get("token_url")
-        if isinstance(token_url, str):
-            ok, err = _check_url(token_url, team_id)
-            if not ok:
-                return False, f"Invalid token_url: {err}"
+    # sees token_url via manifest_request_hosts (same extraction, shared helper).
+    token_url = _manifest_oauth2_token_url(manifest.get("client"))
+    if token_url is not None:
+        ok, err = _check_url(token_url, team_id)
+        if not ok:
+            return False, f"Invalid token_url: {err}"
 
     base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
@@ -467,6 +465,23 @@ def _endpoint_request_url(base_url: str, endpoint: Any) -> str | None:
     return resolve_request_url(base_url, resolved)
 
 
+def _manifest_oauth2_token_url(client: Any) -> str | None:
+    """The oauth2 ``token_url`` for a parsed manifest's ``client``, or ``None`` if absent /
+    non-oauth2 / non-string.
+
+    Single source for the two places that must agree on it — :func:`validate_manifest_urls`
+    (vets the host) and :func:`manifest_request_hosts` (feeds the credential re-entry gate).
+    Keeping them in lockstep matters for security: if the re-entry gate ever stopped tracking
+    ``token_url`` while the URL vetting still did, an editor could repoint it past the gate.
+    """
+    auth = client.get("auth") if isinstance(client, dict) else None
+    if isinstance(auth, dict) and auth.get("type") == "oauth2":
+        token_url = auth.get("token_url")
+        if isinstance(token_url, str):
+            return token_url
+    return None
+
+
 def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     """Hostnames a stored manifest will send requests — and the credential — to.
 
@@ -506,11 +521,9 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     # must not be able to repoint token_url at a host they control while keeping the
     # secret. It's a literal URL (not a path template), so add its host directly —
     # don't run the path-resolution logic on it.
-    auth = client.get("auth") if isinstance(client, dict) else None
-    if isinstance(auth, dict) and auth.get("type") == "oauth2":
-        token_url = auth.get("token_url")
-        if isinstance(token_url, str):
-            urls.append(token_url)
+    token_url = _manifest_oauth2_token_url(client)
+    if token_url is not None:
+        urls.append(token_url)
 
     # `_url_hostname` returns an already-lowercased host.
     hosts = {host for url in urls if (host := _url_hostname(url))}
@@ -754,7 +767,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 probe_auth._obtain_token()
             except OAuth2AuthRequestError as exc:
                 if exc.is_permanent:
-                    return False, f"The OAuth2 token endpoint rejected the request: {exc}"
+                    return False, _redact_secrets(
+                        f"The OAuth2 token endpoint rejected the request: {exc}", auth_secret_values(probe_auth)
+                    )
+                # Transient (429 / 5xx): don't block creation — the first real sync retries the
+                # token exchange. Skip the data probe too: it has no minted token to authenticate
+                # with, so requests would re-invoke the auth (re-running the failing mint) and turn
+                # this into a misleading "could not reach <data resource>" failure.
+                return True, None
             except Exception as exc:
                 # Redact the credential defensively — a transport-layer exception shouldn't carry
                 # the secret, but the redaction discipline is cheap and uniform here.

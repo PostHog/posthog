@@ -37,6 +37,17 @@ export type OAuth2GrantType = (typeof OAUTH2_GRANT_TYPES)[number]
 export const OAUTH2_CLIENT_AUTH_METHODS = ['body', 'basic'] as const
 export type OAuth2ClientAuthMethod = (typeof OAUTH2_CLIENT_AUTH_METHODS)[number]
 
+/**
+ * The auth types the builder's picker should offer. OAuth2 is gated behind its own rollout
+ * flag — hidden unless the flag is on, but kept visible when the source *already* uses it, so
+ * an existing oauth2 source's type still renders and the select can't silently rewrite it to a
+ * different auth type if the flag is later turned off. Lives here (not the component) so the
+ * gating branch is unit-tested.
+ */
+export function visibleAuthTypes(oauth2Enabled: boolean, currentAuthType: AuthType): AuthType[] {
+    return AUTH_TYPES.filter((value) => value !== 'oauth2' || oauth2Enabled || currentAuthType === 'oauth2')
+}
+
 // The backend treats 'query' and 'param' as synonymous (auth.py:41), so we
 // only surface 'query' in the UI — the parser still accepts 'param' for
 // manifests authored elsewhere.

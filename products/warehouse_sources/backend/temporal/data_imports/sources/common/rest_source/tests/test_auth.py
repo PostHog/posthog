@@ -181,6 +181,43 @@ class TestOAuth2Auth(SimpleTestCase):
         assert auth.token_expiry == datetime(2999, 1, 1, tzinfo=UTC)
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_malformed_absolute_expiry_falls_back_to_default_ttl(self, mock_session):
+        # A configured expiry_date_format with an unparseable value must not propagate strptime's
+        # ValueError (which would fail the whole sync) — it falls back to the conservative default.
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "t", "expires_at": "not-a-date"}
+        )
+        auth = OAuth2Auth(
+            token_url="https://a/t",
+            client_id="cid",
+            client_secret="cs",
+            expires_in_name="expires_at",
+            expiry_date_format="%Y-%m-%dT%H:%M:%SZ",
+        )
+        _apply_auth(auth)
+        assert auth.token_expiry > datetime.now(UTC) + timedelta(minutes=50)
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_numeric_string_expires_in(self, mock_session):
+        # Some providers send expires_in as a JSON string; the digit-string branch parses it
+        # (7200s here, distinguishable from the 1h default that an unparsed value would yield).
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "t", "expires_in": "7200"}
+        )
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        _apply_auth(auth)
+        assert auth.token_expiry > datetime.now(UTC) + timedelta(minutes=100)
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_missing_expiry_field_uses_default_ttl(self, mock_session):
+        # No expiry hint at all → the conservative 1h default so a long sync still re-mints.
+        mock_session.return_value.post.return_value = _token_response(payload={"access_token": "t"})
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        _apply_auth(auth)
+        now = datetime.now(UTC)
+        assert now + timedelta(minutes=50) < auth.token_expiry < now + timedelta(minutes=70)
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_token_request_headers_forwarded(self, mock_session):
         mock_session.return_value.post.return_value = _token_response(payload={"access_token": "t", "expires_in": 60})
         auth = OAuth2Auth(

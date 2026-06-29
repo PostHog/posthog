@@ -199,6 +199,15 @@ class TestValidateManifest(SimpleTestCase):
                     "refresh_token": "leaked",
                 },
             ),
+            (
+                "access_token",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "access_token": "leaked",
+                },
+            ),
         ]
     )
     def test_rejects_inline_credentials(self, _name, auth):
@@ -530,12 +539,14 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
     )
     def test_oauth2_probe_transient_token_error_does_not_block(self, _mock_mint, mock_session):
         # A 429 / 5xx at the token endpoint during the create-time probe is transient — it must
-        # not block creation; the first real sync retries it.
-        mock_session.return_value.request.return_value = MagicMock(status_code=200)
+        # not block creation; the first real sync retries it. The data probe is skipped entirely
+        # (no minted token to authenticate with), so the probe session is never even built — assert
+        # that, not a mocked 200 that would hide the real fall-through behavior.
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
+        mock_session.assert_not_called()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
@@ -555,6 +566,22 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         redact = mock_session.call_args.kwargs["redact_values"]
         assert "cs_secret" in redact
         assert "minted-xyz" in redact
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_body_snippet_redacts_echoed_credential(self, mock_session):
+        # An upstream that echoes the sent credential in its 401/403 body must not leak it into the
+        # user-facing error — the snippet is run through _redact_secrets before being surfaced.
+        response = MagicMock(status_code=401)
+        response.headers = {}
+        response.raw.read.return_value = b"unauthorized: token sk_secret_value is invalid"
+        mock_session.return_value.request.return_value = response
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="sk_secret_value")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "sk_secret_value" not in (err or "")
+        assert "***" in (err or "")
 
     @parameterized.expand([401, 403])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
