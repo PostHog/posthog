@@ -20,6 +20,13 @@ const initResult = posthog.init(
             featureFlags: {},
         },
         autocapture: false,
+        // Don't auto-install global window.onerror / onunhandledrejection handlers.
+        // The toolbar runs inside arbitrary customer pages, so unhandled-exception
+        // autocapture swallows errors thrown by the host page's own code (e.g. a
+        // store's A-Frame/3D viewer) and routes them into our internal project as
+        // false-positive, unsymbolicated issues. We report genuine toolbar errors
+        // explicitly via captureToolbarException(), which is unaffected by this.
+        capture_exceptions: false,
         capture_pageview: false,
         capture_pageleave: false,
         disable_surveys: true,
