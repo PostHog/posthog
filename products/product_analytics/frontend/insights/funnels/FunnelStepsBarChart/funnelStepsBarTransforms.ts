@@ -82,6 +82,23 @@ export function buildFunnelStepsBarData(
         })
     }
 
+    // The left-to-right (grouped) layout renders the previous period before the current one — the
+    // reverse of the nested_breakdown order ([current, previous] per pair) that the top-to-bottom
+    // layout keeps. Swap within each confirmed current→previous pair (one pair for pure compare, one
+    // per breakdown value for breakdown × compare); `meta.breakdownIndex` is unchanged, so click and
+    // tooltip routing still resolve the right period.
+    const nestedBreakdown = steps[0].nested_breakdown
+    for (let i = 0; i + 1 < seriesVariants.length; i += 2) {
+        if (
+            nestedBreakdown?.[i]?.compare_label === 'current' &&
+            nestedBreakdown?.[i + 1]?.compare_label === 'previous'
+        ) {
+            const current = seriesVariants[i]
+            seriesVariants[i] = seriesVariants[i + 1]
+            seriesVariants[i + 1] = current
+        }
+    }
+
     return buildFunnelStepsBars(steps, seriesVariants)
 }
 

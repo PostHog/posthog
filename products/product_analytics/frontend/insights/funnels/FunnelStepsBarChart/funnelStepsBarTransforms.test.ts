@@ -152,11 +152,21 @@ describe('buildFunnelStepsBarData', () => {
         expect(labels).toEqual([])
     })
 
-    it('caps the shorter compare period’s track at its entry level, leaving the larger period uncapped', () => {
+    it('renders previous before current and caps the shorter period’s track', () => {
         const { series } = buildFunnelStepsBarData(compareSteps, options)
 
-        // current sits at the baseline (no cap); previous is capped at its 80% entry level
-        expect(series.map((s) => s.trackMax)).toEqual([undefined, 80])
+        // Left-to-right layout flips the nested_breakdown order: previous (breakdownIndex 1) renders
+        // first, current (0) second. The shorter previous period is capped at its 80% entry level;
+        // current sits at the baseline (no cap).
+        expect(series.map((s) => s.meta?.breakdownIndex)).toEqual([1, 0])
+        expect(series.map((s) => s.trackMax)).toEqual([80, undefined])
+    })
+
+    it('swaps current/previous within each breakdown value for breakdown × compare', () => {
+        const { series } = buildFunnelStepsBarData(breakdownCompareSteps, options)
+
+        // Each value's [current, previous] pair flips to [previous, current]: v0p, v0c, v1p, v1c.
+        expect(series.map((s) => s.meta?.breakdownIndex)).toEqual([1, 0, 3, 2])
     })
 
     it.each([
@@ -167,6 +177,12 @@ describe('buildFunnelStepsBarData', () => {
         const { series } = buildFunnelStepsBarData(steps, options)
 
         expect(series.every((s) => s.trackMax === undefined)).toBe(true)
+    })
+
+    it('keeps non-compare breakdown series in their original order', () => {
+        const { series } = buildFunnelStepsBarData(breakdownSteps, options)
+
+        expect(series.map((s) => s.meta?.breakdownIndex)).toEqual([0, 1])
     })
 })
 
