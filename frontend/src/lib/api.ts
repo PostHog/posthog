@@ -7487,17 +7487,6 @@ async function handleFetch(
 
         const data = await getJSONOrNull(response)
 
-        if (data?.code === 'impersonation_read_only') {
-            void import('lib/lemon-ui/LemonToast').then(({ lemonToast }) => {
-                lemonToast.error(
-                    typeof data.detail === 'string' && data.detail
-                        ? data.detail
-                        : 'This action is not allowed during read-only user impersonation.',
-                    { hideButton: true }
-                )
-            })
-        }
-
         if (response.status >= 400 && data) {
             if (typeof data.error === 'string') {
                 throw new ApiError(data.error, response.status, response.headers, data)
