@@ -599,7 +599,8 @@ export function mergeResponsesByQuestion(
             merged[qid] = { ...openData, totalResponses: agg.totalResponses }
         } else {
             const aggChoice = agg as ChoiceQuestionProcessedResponses
-            merged[qid] = { ...aggChoice, data: [...aggChoice.data, ...openData.data] }
+            const predefinedFromAggregate = aggChoice.data.filter((d) => d.isPredefined)
+            merged[qid] = { ...aggChoice, data: [...predefinedFromAggregate, ...openData.data] }
         }
     }
     return merged

@@ -1716,6 +1716,9 @@ const schema28 = {
                 { const: 'snapshot_source', type: 'string' },
                 { const: 'visited_page', type: 'string' },
                 { const: 'comment_text', type: 'string' },
+                { const: 'click_count', type: 'string' },
+                { const: 'keypress_count', type: 'string' },
+                { const: 'mouse_activity_count', type: 'string' },
             ],
         },
         label: { type: 'string' },
@@ -1914,11 +1917,116 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                     }
                                     var _valid0 = _errs11 === errors
                                     valid1 = valid1 || _valid0
+                                    if (!valid1) {
+                                        const _errs13 = errors
+                                        if (typeof data0 !== 'string') {
+                                            const err8 = {
+                                                instancePath: instancePath + '/key',
+                                                schemaPath: '#/properties/key/anyOf/4/type',
+                                                keyword: 'type',
+                                                params: { type: 'string' },
+                                                message: 'must be string',
+                                            }
+                                            if (vErrors === null) {
+                                                vErrors = [err8]
+                                            } else {
+                                                vErrors.push(err8)
+                                            }
+                                            errors++
+                                        }
+                                        if ('click_count' !== data0) {
+                                            const err9 = {
+                                                instancePath: instancePath + '/key',
+                                                schemaPath: '#/properties/key/anyOf/4/const',
+                                                keyword: 'const',
+                                                params: { allowedValue: 'click_count' },
+                                                message: 'must be equal to constant',
+                                            }
+                                            if (vErrors === null) {
+                                                vErrors = [err9]
+                                            } else {
+                                                vErrors.push(err9)
+                                            }
+                                            errors++
+                                        }
+                                        var _valid0 = _errs13 === errors
+                                        valid1 = valid1 || _valid0
+                                        if (!valid1) {
+                                            const _errs15 = errors
+                                            if (typeof data0 !== 'string') {
+                                                const err10 = {
+                                                    instancePath: instancePath + '/key',
+                                                    schemaPath: '#/properties/key/anyOf/5/type',
+                                                    keyword: 'type',
+                                                    params: { type: 'string' },
+                                                    message: 'must be string',
+                                                }
+                                                if (vErrors === null) {
+                                                    vErrors = [err10]
+                                                } else {
+                                                    vErrors.push(err10)
+                                                }
+                                                errors++
+                                            }
+                                            if ('keypress_count' !== data0) {
+                                                const err11 = {
+                                                    instancePath: instancePath + '/key',
+                                                    schemaPath: '#/properties/key/anyOf/5/const',
+                                                    keyword: 'const',
+                                                    params: { allowedValue: 'keypress_count' },
+                                                    message: 'must be equal to constant',
+                                                }
+                                                if (vErrors === null) {
+                                                    vErrors = [err11]
+                                                } else {
+                                                    vErrors.push(err11)
+                                                }
+                                                errors++
+                                            }
+                                            var _valid0 = _errs15 === errors
+                                            valid1 = valid1 || _valid0
+                                            if (!valid1) {
+                                                const _errs17 = errors
+                                                if (typeof data0 !== 'string') {
+                                                    const err12 = {
+                                                        instancePath: instancePath + '/key',
+                                                        schemaPath: '#/properties/key/anyOf/6/type',
+                                                        keyword: 'type',
+                                                        params: { type: 'string' },
+                                                        message: 'must be string',
+                                                    }
+                                                    if (vErrors === null) {
+                                                        vErrors = [err12]
+                                                    } else {
+                                                        vErrors.push(err12)
+                                                    }
+                                                    errors++
+                                                }
+                                                if ('mouse_activity_count' !== data0) {
+                                                    const err13 = {
+                                                        instancePath: instancePath + '/key',
+                                                        schemaPath: '#/properties/key/anyOf/6/const',
+                                                        keyword: 'const',
+                                                        params: { allowedValue: 'mouse_activity_count' },
+                                                        message: 'must be equal to constant',
+                                                    }
+                                                    if (vErrors === null) {
+                                                        vErrors = [err13]
+                                                    } else {
+                                                        vErrors.push(err13)
+                                                    }
+                                                    errors++
+                                                }
+                                                var _valid0 = _errs17 === errors
+                                                valid1 = valid1 || _valid0
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
                         if (!valid1) {
-                            const err8 = {
+                            const err14 = {
                                 instancePath: instancePath + '/key',
                                 schemaPath: '#/properties/key/anyOf',
                                 keyword: 'anyOf',
@@ -1926,9 +2034,9 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                 message: 'must match a schema in anyOf',
                             }
                             if (vErrors === null) {
-                                vErrors = [err8]
+                                vErrors = [err14]
                             } else {
-                                vErrors.push(err8)
+                                vErrors.push(err14)
                             }
                             errors++
                             validate30.errors = vErrors
@@ -1949,7 +2057,7 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                     }
                     if (valid0) {
                         if (data.label !== undefined) {
-                            const _errs13 = errors
+                            const _errs19 = errors
                             if (typeof data.label !== 'string') {
                                 validate30.errors = [
                                     {
@@ -1962,14 +2070,14 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                 ]
                                 return false
                             }
-                            var valid0 = _errs13 === errors
+                            var valid0 = _errs19 === errors
                         } else {
                             var valid0 = true
                         }
                         if (valid0) {
                             if (data.operator !== undefined) {
                                 let data2 = data.operator
-                                const _errs15 = errors
+                                const _errs21 = errors
                                 if (typeof data2 !== 'string') {
                                     validate30.errors = [
                                         {
@@ -2031,14 +2139,14 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                     ]
                                     return false
                                 }
-                                var valid0 = _errs15 === errors
+                                var valid0 = _errs21 === errors
                             } else {
                                 var valid0 = true
                             }
                             if (valid0) {
                                 if (data.type !== undefined) {
                                     let data3 = data.type
-                                    const _errs18 = errors
+                                    const _errs24 = errors
                                     if (typeof data3 !== 'string') {
                                         validate30.errors = [
                                             {
@@ -2063,13 +2171,13 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                         ]
                                         return false
                                     }
-                                    var valid0 = _errs18 === errors
+                                    var valid0 = _errs24 === errors
                                 } else {
                                     var valid0 = true
                                 }
                                 if (valid0) {
                                     if (data.value !== undefined) {
-                                        const _errs20 = errors
+                                        const _errs26 = errors
                                         if (
                                             !validate13(data.value, {
                                                 instancePath: instancePath + '/value',
@@ -2082,7 +2190,7 @@ function validate30(data, { instancePath = '', parentData, parentDataProperty, r
                                                 vErrors === null ? validate13.errors : vErrors.concat(validate13.errors)
                                             errors = vErrors.length
                                         }
-                                        var valid0 = _errs20 === errors
+                                        var valid0 = _errs26 === errors
                                     } else {
                                         var valid0 = true
                                     }

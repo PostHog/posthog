@@ -126,7 +126,7 @@ class TestMaterializedColumnActivityLogging(APIBaseTest):
 
         assert log.user == self.user
 
-    @patch("posthog.api.materialized_column_slot.is_impersonated_session")
+    @patch("posthog.api.materialized_column_slot.is_impersonated")
     def test_activity_log_includes_impersonation_flag(self, mock_is_impersonated):
         mock_is_impersonated.return_value = True
 

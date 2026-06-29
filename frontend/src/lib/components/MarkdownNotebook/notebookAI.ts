@@ -126,7 +126,7 @@ function applyNotebookAIResponseMarkdown(
         return { markdown, responseNodeIndex }
     }
 
-    const parsedReplacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes
+    const parsedReplacementNodes = withDefaultAIComponentProps(parseMarkdownNotebook(trimmedInsertedMarkdown).nodes)
     if (!parsedReplacementNodes.length) {
         return { markdown, responseNodeIndex }
     }
@@ -173,7 +173,7 @@ function applyNotebookAIStreamResponseMarkdown(
         return { markdown, responseNodeIndex, responseNodeCount: Math.max(1, replacedNodeCount) }
     }
 
-    const parsedReplacementNodes = parseMarkdownNotebook(trimmedInsertedMarkdown).nodes
+    const parsedReplacementNodes = withDefaultAIComponentProps(parseMarkdownNotebook(trimmedInsertedMarkdown).nodes)
     if (!parsedReplacementNodes.length) {
         return { markdown, responseNodeIndex, responseNodeCount: Math.max(1, replacedNodeCount) }
     }
@@ -354,8 +354,24 @@ function normalizeNotebookAIInsertedMarkdown(markdown: string): string {
         )
 }
 
+function withDefaultAIComponentProps(nodes: NotebookBlockNode[]): NotebookBlockNode[] {
+    return nodes.map((node) => {
+        if (node.type === 'component' && node.tagName === 'Query' && typeof node.props.hideFilters !== 'boolean') {
+            return {
+                ...node,
+                props: {
+                    ...node.props,
+                    hideFilters: true,
+                },
+            }
+        }
+
+        return node
+    })
+}
+
 function getSavedInsightQueryMarkdown(shortId: string): string {
-    return `<Query query={{"kind":"SavedInsightNode","shortId":"${shortId}"}} />`
+    return `<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"${shortId}"}} />`
 }
 
 function stripEchoedNotebookContextBeforeAIResponse(

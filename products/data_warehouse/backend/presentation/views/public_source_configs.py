@@ -6,7 +6,7 @@ from rest_framework.response import Response
 
 from posthog.schema import SourceConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry
 
 logger = structlog.get_logger(__name__)
 

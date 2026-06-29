@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-26 01:47:37 UTC
+// Generated at: 2026-06-26 20:30:29 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -69,6 +69,7 @@ export type CanonicalProvider =
     | 'google-vertex-us-west2'
     | 'groq'
     | 'inception'
+    | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
     | 'infermatic-bf16'

@@ -3578,14 +3578,22 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         "click_count": {
             "label": "Clicks",
             "description": "Number of clicks during the session",
+            "type": "Numeric",
         },
         "keypress_count": {
             "label": "Key presses",
             "description": "Number of key presses during the session",
+            "type": "Numeric",
+        },
+        "mouse_activity_count": {
+            "label": "Mouse activity",
+            "description": "Number of mouse activity events during the session",
+            "type": "Numeric",
         },
         "console_error_count": {
             "label": "Errors",
             "description": "Number of console errors during the session",
+            "type": "Numeric",
         },
     },
     "log_entries": {

@@ -360,7 +360,7 @@ after`)
 
 Users activated faster.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
 
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
@@ -381,7 +381,7 @@ Users activated faster.
         }
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
-            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
         )
     })
 
@@ -408,7 +408,7 @@ Users activated faster.
             ],
         })
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
-            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
+            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 

@@ -56,9 +56,16 @@ These are slow; run them at the right moment, not after every edit.
 
 Run `pnpm --filter=@posthog/frontend format` (oxlint `--fix` + oxfmt) before finishing. Config: root `.oxlintrc.json`. CSS, spelling, and copy-casing rules live in the root `AGENTS.md` (Code Style).
 
+## Adding actions to a scene
+
+Adding a button/toggle/action to a scene's `ScenePanel`? It must also go in that scene's `SceneMenuBar`
+(create one if the scene has none). See [`layout/scenes/AGENTS.md`](./layout/scenes/AGENTS.md) and the
+`/scene-menu-bar` skill.
+
 ## Deeper references
 
 - Root `AGENTS.md` — full Code Style + architecture rules (authoritative).
+- `layout/scenes/AGENTS.md` (scene action surfaces: `ScenePanel` + `SceneMenuBar` dual-write rule).
 - `packages/quill/packages/primitives/AGENTS.md` — component selection matrix.
 - `docs/published/handbook/engineering/conventions/frontend-coding.md` — frontend conventions.
 - Skills: `/adopting-generated-api-types`, `/writing-kea-logics`, `/using-kea-disposables`, `/writing-tests`.

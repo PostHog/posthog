@@ -1551,6 +1551,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     appendMarkdownNotebookBlock(
                         values.content,
                         serializeMarkdownNotebookComponent('Query', {
+                            hideFilters: true,
                             query: {
                                 kind: NodeKind.SavedInsightNode,
                                 shortId: insightShortId,

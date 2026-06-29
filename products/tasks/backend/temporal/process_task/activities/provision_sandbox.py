@@ -8,6 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
+from products.tasks.backend.constants import filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
@@ -32,21 +33,6 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = logging.getLogger(__name__)
-
-RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS = {
-    "POSTHOG_PERSONAL_API_KEY",
-    "POSTHOG_API_URL",
-    "POSTHOG_PROJECT_ID",
-    "JWT_PUBLIC_KEY",
-    "GITHUB_TOKEN",
-    "GH_TOKEN",
-    "LLM_GATEWAY_URL",
-    "POSTHOG_RESUME_RUN_ID",
-    "BASH_ENV",
-    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
-    "DISABLE_TELEMETRY",
-    "DISABLE_ERROR_REPORTING",
-}
 
 NETWORK_RESTRICTED_AGENT_ENV = {
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
@@ -204,25 +190,19 @@ def _build_environment_variables(
     if ctx.sandbox_environment_id:
         sandbox_environment = ctx.get_sandbox_environment()
         if sandbox_environment and sandbox_environment.environment_variables:
-            skipped_keys: list[str] = []
-            added_keys = 0
-            for key, value in sandbox_environment.environment_variables.items():
-                if key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
-                    skipped_keys.append(key)
-                    continue
-                environment_variables[key] = value
-                added_keys += 1
+            safe_vars, skipped_keys = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+            environment_variables.update(safe_vars)
 
             emit_agent_log(
                 ctx.run_id,
                 "debug",
-                f"Applied {added_keys} sandbox environment variable(s) from '{sandbox_environment.name}'",
+                f"Applied {len(safe_vars)} sandbox environment variable(s) from '{sandbox_environment.name}'",
             )
             if skipped_keys:
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
-                    f"Skipped reserved sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
+                    f"Skipped reserved/blocked sandbox environment variable keys from '{sandbox_environment.name}': {', '.join(sorted(skipped_keys))}",
                 )
 
     if github_token:
@@ -230,9 +210,9 @@ def _build_environment_variables(
         environment_variables["GH_TOKEN"] = github_token
 
     # BASH_ENV is intentionally NOT set in the container env: it's applied only to the
-    # agent-server launch (see `_build_agent_server_command`) so backend maintenance execs
-    # don't source a script that a resume snapshot could control. It stays in
-    # RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS so a user-supplied env var can't add it here.
+    # agent-server launch (see the sandbox services) so backend maintenance execs don't source
+    # a script that a resume snapshot could control. It's blocked (constants.py) so a
+    # user-supplied env var can't add it here.
 
     if settings.SANDBOX_LLM_GATEWAY_URL:
         environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
@@ -436,8 +416,10 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             **ctx.sandbox_resource_overrides(),
         )
 
-        # Request a small slice and let the box burst up to the configured size. The decision is
-        # captured once in the context at workflow start, so it's stable across activity retries.
+        # Request a small slice and let the box burst up to the configured size. Burstable by
+        # default, but the per-run state can opt out to pin a fixed-size box (request == limit).
+        # The decision is captured once in the context at workflow start, so it's stable across
+        # activity retries.
         if ctx.burstable_sandbox_resources_enabled:
             config.burstable_resources = True
             emit_agent_log(

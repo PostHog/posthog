@@ -111,6 +111,7 @@ export function ExposureCriteriaModal({ onSave }: ExposureCriteriaModalProps): J
                             const entity = events?.[0] || actions?.[0]
                             if (entity) {
                                 setExposureCriteria({
+                                    ...exposureCriteria,
                                     exposure_config: filterToExposureConfig(entity),
                                 })
                             }
