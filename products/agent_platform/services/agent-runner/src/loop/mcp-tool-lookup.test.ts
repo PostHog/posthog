@@ -16,6 +16,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'posthog',
                     url: 'https://app.posthog.com/api/mcp',
                     tools: [
@@ -37,13 +38,7 @@ describe('lookupMcpToolApproval', () => {
 
     it('returns null when the exposed name matches a bare-string entry (inclusion only, no policy)', () => {
         const spec = buildSpec({
-            mcps: [
-                {
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: ['create-issue'],
-                },
-            ],
+            mcps: [{ kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', tools: ['create-issue'] }],
         })
         expect(lookupMcpToolApproval('linear__create-issue', spec)).toBeNull()
     })
@@ -52,6 +47,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue', requires_approval: true }],
@@ -65,6 +61,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue' /* requires_approval defaults to false */ }],
@@ -83,6 +80,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue', requires_approval: true }],
@@ -105,6 +103,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: 'create-issue', requires_approval: true }],
@@ -122,6 +121,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'service',
                     url: 'https://example.com/mcp',
                     tools: [{ name: 'parent__child', requires_approval: true }],
@@ -141,6 +141,7 @@ describe('lookupMcpToolApproval', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['list-issues', { name: 'create-issue', requires_approval: true }],
@@ -167,6 +168,7 @@ describe('lookupMcpToolApproval', () => {
             ],
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['list-issues'], // no `create-issue` entry → no MCP-side gating
@@ -184,17 +186,23 @@ describe('effectiveToolLevel (default + per-tool override model)', () => {
     const refOf = (mcp: Record<string, unknown>): McpRef => buildSpec({ mcps: [mcp] }).mcps[0]
 
     it('returns null for a legacy ref (no default_tool_approval) so callers fall back to allowlist semantics', () => {
-        const ref = refOf({ id: 'demo', url: 'https://example.com/mcp', tools: ['echo'] })
+        const ref = refOf({ kind: 'agent', id: 'demo', url: 'https://example.com/mcp', tools: ['echo'] })
         expect(effectiveToolLevel(ref, 'echo')).toBeNull()
     })
 
     it('returns the connection default when there is no per-tool override', () => {
-        const ref = refOf({ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'approve' })
+        const ref = refOf({
+            kind: 'agent',
+            id: 'demo',
+            url: 'https://example.com/mcp',
+            default_tool_approval: 'approve',
+        })
         expect(effectiveToolLevel(ref, 'anything')).toBe('approve')
     })
 
     it('a per-tool level overrides the default for that tool only', () => {
         const ref = refOf({
+            kind: 'agent',
             id: 'demo',
             url: 'https://example.com/mcp',
             default_tool_approval: 'approve',
@@ -211,6 +219,7 @@ describe('effectiveToolLevel (default + per-tool override model)', () => {
 
     it('a bare-string / level-less entry does not override — the default still applies', () => {
         const ref = refOf({
+            kind: 'agent',
             id: 'demo',
             url: 'https://example.com/mcp',
             default_tool_approval: 'allow',
@@ -224,7 +233,7 @@ describe('effectiveToolLevel (default + per-tool override model)', () => {
 describe('lookupMcpToolApproval (default + per-tool override model)', () => {
     it('gates an approve-level tool, falling back to the principal/24h default policy', () => {
         const spec = buildSpec({
-            mcps: [{ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'approve' }],
+            mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'approve' }],
         })
         const result = lookupMcpToolApproval('demo__promote', spec)
         expect(result).not.toBeNull()
@@ -237,6 +246,7 @@ describe('lookupMcpToolApproval (default + per-tool override model)', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'demo',
                     url: 'https://example.com/mcp',
                     default_tool_approval: 'approve',
@@ -252,13 +262,14 @@ describe('lookupMcpToolApproval (default + per-tool override model)', () => {
 
     it('does NOT gate allow-level tools (default or override)', () => {
         const allowDefault = buildSpec({
-            mcps: [{ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'allow' }],
+            mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'allow' }],
         })
         expect(lookupMcpToolApproval('demo__echo', allowDefault)).toBeNull()
 
         const allowOverride = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'demo',
                     url: 'https://example.com/mcp',
                     default_tool_approval: 'approve',
@@ -274,6 +285,7 @@ describe('lookupMcpToolApproval (default + per-tool override model)', () => {
         const spec = buildSpec({
             mcps: [
                 {
+                    kind: 'agent',
                     id: 'demo',
                     url: 'https://example.com/mcp',
                     default_tool_approval: 'allow',
@@ -287,7 +299,7 @@ describe('lookupMcpToolApproval (default + per-tool override model)', () => {
 
     it('returns null for deny-level tools (they are never exposed, so dispatch never asks)', () => {
         const spec = buildSpec({
-            mcps: [{ id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'deny' }],
+            mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/mcp', default_tool_approval: 'deny' }],
         })
         expect(lookupMcpToolApproval('demo__echo', spec)).toBeNull()
     })
