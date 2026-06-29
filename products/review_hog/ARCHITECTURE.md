@@ -1550,7 +1550,7 @@ re-posted, but never reconciled either). **Proposed fix (becomes the cross-turn 
 
 1. **Stable, head-independent finding identity** — a signature like `file + normalized-location + root-cause`
    (not the per-run positional `issue_key`, whose `id` and line move across heads). See _Cross-turn finding
-   identity & watermarks_ below.
+   identity & watermarks_ above (Stage 4).
 2. **Reconcile each turn's raw findings against the report's prior DB findings, not just PR comments.** Before
    re-validating/surfacing, match new findings to prior ones by that identity and **carry the prior decision
    forward** — skip re-validating a finding we already ruled `is_valid=False`, skip re-surfacing a `CONSIDER` we
@@ -1629,13 +1629,16 @@ first so the latest fixes are loaded.
 
 ## Pipeline
 
-The orchestration lives in `backend/reviewer/run.py` (`async def main(pr_url, *, team_id, user_id)`), a flat
-sequential async function. State is passed **in-process** between stages and persisted to Postgres
-(`ReviewReport` + `ReviewReportArtefact`); there is **no on-disk store**. Steps that fan out over chunks use
-`asyncio.gather`; all sandbox calls are globally throttled to `MAX_CONCURRENT_SANDBOXES` (`constants.py`) via
-one module-level semaphore in `executor.py`. The expensive, turn-stable sandbox stages (chunk / analyze /
-perspective review) are **idempotent via a head_sha-scoped DB resume** — a re-run reuses their rows instead of
-re-calling the sandbox; dedup and validation recompute.
+The orchestration is a Temporal workflow: `ReviewPRWorkflow` (`backend/temporal/workflow.py`) drives the setup
+activities → three fan-out **child workflows** (analyze / perspective review / validate) → finishing activities,
+each stage an activity in `backend/temporal/activities.py`. Only small values cross boundaries (`report_id` +
+`head_sha` + unit keys / JSON issue slices); every activity reloads its inputs from the per-turn `pr_snapshot`
+artefact, so no big payload hits Temporal's ~2 MiB cap. State persists to Postgres (`ReviewReport` +
+`ReviewReportArtefact`); there is **no on-disk store**. Each fan-out child bounds its per-unit sandbox activities
+with a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` (`constants.py`) + `gather(return_exceptions=True)` —
+there is no module-level semaphore. The expensive, turn-stable sandbox stages (chunk / analyze / perspective
+review) are **idempotent via a head_sha-scoped DB resume** — a re-run reuses their rows instead of re-calling the
+sandbox; dedup and validation recompute.
 
 See `ARCHITECTURE_DIAGRAM.mmd` (rendered: `ARCHITECTURE_DIAGRAM.png`) for the visual flow. Compact form:
 
@@ -1658,7 +1661,7 @@ flowchart TD
     MD --> PUBLISH["11. Publish PR review (GitHub API, DB-driven)"]
 ```
 
-### Step-by-step (as coded in `run.py`)
+### Step-by-step (as orchestrated by `ReviewPRWorkflow`)
 
 1. **Parse PR URL** — `PRParser.parse_github_pr_url` regex-extracts `owner/repo/pr_number`; raises on a
    malformed URL.
@@ -1668,8 +1671,9 @@ flowchart TD
    (`PRMetadata.is_fork`) non-retryably before opening the report. The
    `diff` is the reviewed files' raw unified patch (the point-in-time snapshot). Lockfiles, minified assets,
    snapshots, `*.schema.py`, `*.txt`, build dirs, and test files are filtered out. `branch =
-pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox_identity` validates the
-   team's GitHub integration, `upsert_review_report` opens the living `ReviewReport`, and
+pr_metadata.head_branch` is threaded (as explicit kwargs, alongside `team_id` / `user_id`) into every sandbox
+   activity — there is no ContextVar identity. The team's GitHub integration is validated up front by
+   `validate_github_integration_activity`; `upsert_review_report` opens the living `ReviewReport`, and
    `persist_commit_snapshot(…, diff=…)` records this turn's snapshot (gated on the `head_sha` watermark).
 3. **Generate schemas** — `generate_all_schemas()` materializes `Model.model_json_schema()` for the five
    LLM-facing models into `prompts/<stage>/schema.json` (static package assets, **not** per-run state); the
@@ -1681,7 +1685,7 @@ pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox
    returns a `dict[chunk_id, ChunkAnalysis]` (a `goal` narrative per chunk). Informational; best-effort (logs
    and continues on partial failure). Persists/resumes per-chunk `chunk_analysis` rows.
 6. **Parallel perspective review** — `review_chunks` runs **three independent specialist perspectives
-   concurrently** per chunk (`asyncio.gather` over `(perspective × chunk)`, bounded by the global semaphore),
+   concurrently** per chunk (one sandbox activity per `(perspective × chunk)`, bounded by the child workflow's `asyncio.Semaphore`),
    each with **no cross-perspective context** — overlap is left to dedup (8):
    - **Logic & Correctness** (`PerspectiveType.LOGIC_CORRECTNESS`)
    - **Contracts & Security** (`PerspectiveType.CONTRACTS_SECURITY`)
@@ -1707,9 +1711,9 @@ pr_metadata.head_branch` is threaded into every sandbox step. Then `bind_sandbox
    or human, ReviewHog's own included) treated uniformly, the author handle passed through for context (step 14).
    Returns the canonical post-dedup `list[Issue]`; `persist_findings` mirrors them to
    `issue_finding` rows.
-9. **Validate** — `validate_issues(team_id=…)` (1 sandbox call per issue, all concurrent under the semaphore)
-   returns a `dict[issue.id, IssueValidation]`; `persist_verdicts` mirrors them to `validation_verdict` rows
-   (paired to findings by `issue_key`). The keep/drop **criteria are pulled, not baked**: the prompt instructs the
+9. **Validate** — the `ValidateIssuesWorkflow` child fans out one sandbox call per issue (concurrent, bounded by
+   its `asyncio.Semaphore`); each `validate_issue_activity` returns an `IssueValidation` and persists its own
+   `validation_verdict` row via `persist_verdict` (paired to findings by `issue_key`). The keep/drop **criteria are pulled, not baked**: the prompt instructs the
    agent to `skill-get` the team's `review-hog-validation-criteria` skill (version pinned by
    `load_validation_skill_for_run`), so the bar for "this issue matters" is team-owned, like the perspectives.
 10. **Build report + finalize** — `build_review_body(chunks, analyses, issues, validations)` renders the
@@ -1731,18 +1735,19 @@ All LLM work funnels through one helper, `run_sandbox_review(...)`, in
 `backend/reviewer/sandbox/executor.py`. The five LLM steps (chunking, chunk analysis, issues review,
 deduplication, validation) call it with a prompt, the Pydantic model to validate against, and a `step_name`.
 
-`run_sandbox_review(prompt, system_prompt, branch, repository, model_to_validate, step_name) -> Model | None`:
+`run_sandbox_review(team_id, user_id, repository, branch, prompt, system_prompt, model_to_validate, step_name) -> Model | None`:
 
-1. Acquires the global `_sandbox_semaphore` (`asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)`), so at most
-   `MAX_CONCURRENT_SANDBOXES` sandbox agents run at once **per process** (in-memory; not cross-worker).
+1. Does **not** own concurrency — the caller bounds it: each fan-out child workflow wraps its per-unit sandbox
+   activities in a fresh `asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)` (`constants.py`). The old module-level
+   `_sandbox_semaphore` was removed in the Temporal migration.
 2. Concatenates `full_prompt = f"{system_prompt}\n\n{prompt}"` — there is no separate system role; the agent
    receives one combined prompt.
-3. Builds a `CustomPromptSandboxContext` via `_sandbox_context_for(repository)`, which combines the PR's
-   `repository` with the run-scoped identity bound once at the start of the run by
-   `bind_sandbox_identity(team_id, user_id)` (a `contextvars.ContextVar`; the `asyncio.gather` fan-out
-   inherits it). The `team_id` / `user_id` are explicit inputs threaded from the entry point — the
-   `run_review` `--team-id` / `--user-id` CLI args today, the Temporal trigger (the PR's author + their team)
-   later. `bind_sandbox_identity` validates the team's `kind="github"` `Integration` up front.
+3. Builds a `CustomPromptSandboxContext` **inline** from the explicit `team_id` / `user_id` / `repository` it
+   receives — there is no ContextVar identity (the migration deleted `bind_sandbox_identity` /
+   `_sandbox_context_for`). `team_id` / `user_id` are threaded as explicit activity inputs from the entry point —
+   the `run_review` `--team-id` / `--user-id` CLI args, or the production trigger (the PR's author + their team).
+   The team's `kind="github"` `Integration` is validated up front by a separate
+   `validate_github_integration_activity`, not here.
 4. Spawns the agent via `_run_prompt(...)` → **`MultiTurnSession.start(prompt, context, model=…, branch, step_name)`**
    (imported from the Tasks facade `products.tasks.backend.facade.agents`; impl at
    `products.tasks.backend.logic.services.custom_prompt_multi_turn_runner`). `start` runs the agent **and
@@ -1878,8 +1883,9 @@ Per-run state by kind:
   `GitHubIntegration.first_for_team_repository(team_id, repo).get_access_token()` (auto-refreshing). No `GITHUB_TOKEN`
   env var; the worker no longer needs one.
 - `--team-id` / `--user-id` (CLI, required) — the team the review runs and persists under, and the user the
-  sandbox tasks run as. `bind_sandbox_identity` binds them as a run-scoped identity (`contextvars`) after
-  validating the team's `kind="github"` `Integration`. No `settings.DEBUG` branch or hardcoded ids remain.
+  sandbox tasks run as. They are threaded as **explicit activity inputs** (no ContextVar identity); the team's
+  `kind="github"` `Integration` is validated up front by `validate_github_integration_activity`. No `settings.DEBUG`
+  branch or hardcoded ids remain.
   The sandbox `repository` is the PR's own `owner/repo`, derived from the PR URL.
 - **Prod label trigger** (settings, `posthog/settings/access.py`) — `REVIEWHOG_TRIGGER_TOKEN` (shared secret),
   `REVIEWHOG_TEAM_ID` (the run team), `REVIEWHOG_RUN_USER_ID` (optional; falls back to the integration creator).
@@ -1903,7 +1909,7 @@ Found during Stage 1 analysis and the first parallel run (PR #65862); **document
   list by chunk (`P1c1, P2c1, P3c1, P1c2, …`) so a chunk's three perspectives co-schedule. (Raising
   `MAX_CONCURRENT_SANDBOXES` partly mitigates by leaving fewer tasks queued.)
   _(Step 8 fixed several Stage-1 issues: the neutered validation batching is gone — `validate_issues` now
-  fans out one `asyncio.gather` over all issues under the semaphore; and the duplicate report build is gone —
+  fans out one sandbox activity per issue, bounded by the validate child's `asyncio.Semaphore`; and the duplicate report build is gone —
   publish is DB-driven and the report is rendered once.)_
 - **Inconsistent failure handling** — chunk analysis (step 5) and perspective review (step 6) log and continue on
   partial chunk failure (pipeline proceeds with incomplete results — by design, those stages are
