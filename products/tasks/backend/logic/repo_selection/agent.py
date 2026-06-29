@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
 from django.db.models import Case, IntegerField, Value, When
@@ -63,15 +63,50 @@ class RepoSelectionUnavailableError(Exception):
         super().__init__(reason)
 
 
-def resolve_team_github_integration(team_id: int, team: Team | None = None) -> GitHubIntegrationBase | None:
+def _first_user_github_integration(user_ids: Iterable[int]) -> UserIntegration | None:
+    """Pick one GitHub ``UserIntegration`` among ``user_ids`` to act as a fallback source.
+
+    Among the candidates we prefer a personal (``User``) account over an organization the user
+    merely belongs to (a ``posthog/*`` org the user happens to work in must not outrank their own
+    repos), then the most recently connected one. Integrations whose installation has been synced
+    and confirmed empty (0 repos) are skipped.
+    """
+    return (
+        UserIntegration.objects.filter(
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            user_id__in=user_ids,
+        )
+        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
+        .annotate(
+            _is_org_account=Case(
+                When(config__account__type="User", then=Value(0)),
+                default=Value(1),
+                output_field=IntegerField(),
+            )
+        )
+        .order_by("_is_org_account", "-created_at", "-id")
+        .first()
+    )
+
+
+def resolve_team_github_integration(
+    team_id: int, team: Team | None = None, requester_user_id: int | None = None
+) -> GitHubIntegrationBase | None:
     """Resolve the GitHub source the agent should use for this team.
 
-    A team-level integration always wins. When the team has none, we fall back to a GitHub
-    integration connected by an *organization owner* — never an arbitrary member. The fallback
-    used to span ``team.all_users_with_access()`` (org-wide), which let one member's personal
-    GitHub repos surface as the candidate list for another member's report — a wrong-repo /
-    cross-account leak. Among an owner's own integrations we prefer a personal (``User``) account
-    over an organization the owner merely belongs to, then the most recently connected one.
+    A team-level integration always wins. When the team has none, the fallback depends on context:
+
+    - ``requester_user_id`` set (user-initiated path, e.g. a sandbox chat message): the requester
+      acts on their own behalf, so their own connected GitHub stands in next — using their own
+      credentials is never a cross-account leak, and it lets them reference repos that only they
+      have connected.
+    - Otherwise (scheduled/team contexts with no requester): fall back to a GitHub integration
+      connected by an *organization owner* — never an arbitrary member. This fallback used to span
+      ``team.all_users_with_access()`` (org-wide), which let one member's personal GitHub repos
+      surface as the candidate list for another member's report — a wrong-repo / cross-account leak.
+
+    The owner fallback still applies after the requester check, so an owner-connected source backs
+    a requester who has none of their own.
     """
     integration = (
         Integration.objects.filter(team_id=team_id, kind="github")
@@ -84,33 +119,24 @@ def resolve_team_github_integration(team_id: int, team: Team | None = None) -> G
     # Prefer the first GitHub integration from the team
     if integration is not None:
         return GitHubIntegration(integration)
+
+    # User-initiated path: the requester's own connected GitHub (their own credentials, not a leak)
+    # takes precedence over the owner fallback so they can reference repos only they have connected.
+    if requester_user_id is not None:
+        requester_integration = _first_user_github_integration([requester_user_id])
+        if requester_integration is not None:
+            return UserGitHubIntegration(requester_integration)
+
     organization = (team if team is not None else Team.objects.get(id=team_id)).organization
     owner_user_ids = OrganizationMembership.objects.filter(
         organization=organization,
         level=OrganizationMembership.Level.OWNER,
         user__is_active=True,
     ).values_list("user_id", flat=True)
-    user_integration = (
-        UserIntegration.objects.filter(
-            kind=UserIntegration.IntegrationKind.GITHUB,
-            user_id__in=owner_user_ids,
-        )
-        .exclude(repository_cache=[], repository_cache_updated_at__isnull=False)
-        # Prefer a personal (User) account over an org the owner merely belongs to (a `posthog/*`
-        # org the owner happens to work in must not outrank their own repos), then newest first.
-        .annotate(
-            _is_org_account=Case(
-                When(config__account__type="User", then=Value(0)),
-                default=Value(1),
-                output_field=IntegerField(),
-            )
-        )
-        .order_by("_is_org_account", "-created_at", "-id")
-        .first()
-    )
     # If no team integration - pick an org owner's integration (personal account preferred)
-    if user_integration is not None:
-        return UserGitHubIntegration(user_integration)
+    owner_integration = _first_user_github_integration(owner_user_ids)
+    if owner_integration is not None:
+        return UserGitHubIntegration(owner_integration)
     return None
 
 
