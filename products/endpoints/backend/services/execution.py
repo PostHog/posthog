@@ -15,6 +15,7 @@ from datetime import timedelta
 from typing import Literal, Union, cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError
 from django.utils import timezone
 
 import structlog
@@ -129,6 +130,15 @@ def _is_query_guardrail_error(error: BaseException) -> bool:
     return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
 
 
+def _is_db_connection_error(error: BaseException) -> bool:
+    """Whether an error reflects a dropped/dead Postgres connection rather than a code fault.
+
+    Transient connection loss is an infra condition, not a bug — re-reporting it to error
+    tracking from the failure-handling path just adds noise to the real root cause.
+    """
+    return isinstance(error, OperationalError | InterfaceError)
+
+
 def _query_performance_code_and_detail(error: BaseException) -> tuple[str, str]:
     # isinstance, not dict[type(e)], so a future subclass can't KeyError into a 500.
     for exc_type, code_and_detail in _QUERY_PERFORMANCE_ERRORS.items():
@@ -213,18 +223,25 @@ def _emit_endpoint_failure_signal(
             },
         )
     except Exception as signal_exc:
+        # endpoint.name / team_id are already-loaded scalars, so logging here can't itself
+        # touch the (possibly dead) connection. Pull team_id off the endpoint FK column to
+        # avoid lazily reloading endpoint.team.
         logger.exception(
             "Failed to emit endpoint failure signal",
             endpoint_name=endpoint.name,
-            team_id=team.id,
+            team_id=endpoint.team_id,
             signal_error_class=type(signal_exc).__name__,
             signal_error=str(signal_exc),
         )
+        # A dropped connection is the infra root cause, not a new fault — re-reporting it here
+        # just buries the real error under cascade noise. Log it and move on.
+        if _is_db_connection_error(signal_exc):
+            return
         capture_exception(
             signal_exc,
             {
                 "product": Product.ENDPOINTS,
-                "team_id": team.id,
+                "team_id": endpoint.team_id,
                 "endpoint_name": endpoint.name,
                 "signal_emission": True,
             },

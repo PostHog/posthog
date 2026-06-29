@@ -2277,6 +2277,43 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         ):
             _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)
 
+    def test_endpoint_path_does_not_lazily_load_team(self):
+        """endpoint_path must build from the team_id FK column, never a lazy team load.
+
+        A lazy reload on a dead connection is what turned a single transient Postgres
+        failure into a KeyError/OperationalError cascade during error handling.
+        """
+        from products.endpoints.backend.models import Endpoint
+
+        endpoint = self._make_simple_hogql_endpoint("path_no_team_load")
+        fresh = Endpoint.objects.get(pk=endpoint.pk)  # team relation not yet cached
+
+        with self.assertNumQueries(0):
+            path = fresh.endpoint_path
+
+        self.assertEqual(path, f"/api/projects/{self.team.id}/endpoints/{fresh.name}/run")
+
+    def test_emit_failure_signal_does_not_recapture_dead_connection(self):
+        """A dropped connection during emission is the infra root cause, not a new fault —
+        re-reporting it to error tracking would just bury the real error under cascade noise."""
+        from django.db import OperationalError
+
+        from products.endpoints.backend.services.execution import _emit_endpoint_failure_signal
+
+        endpoint = self._make_simple_hogql_endpoint("dead_conn_no_recapture")
+
+        with (
+            mock.patch(
+                "products.signals.backend.facade.api.emit_signal",
+                side_effect=OperationalError("server closed the connection unexpectedly"),
+            ),
+            mock.patch("products.endpoints.backend.services.execution.capture_exception") as mock_capture,
+        ):
+            # Must not raise — the original error is never masked by the failed emission.
+            _emit_endpoint_failure_signal(self.team, endpoint, RuntimeError("original"), materialized=False, version=1)
+
+        mock_capture.assert_not_called()
+
     def _make_fresh_materialized_endpoint(self, name: str, query: dict):
         """Endpoint whose current version has a fresh, Completed materialization."""
         saved_query = DataWarehouseSavedQuery.objects.create(

@@ -362,8 +362,14 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
 
     @property
     def endpoint_path(self) -> str:
-        """Return the API endpoint path for this endpoint."""
-        return f"/api/projects/{self.team.id}/endpoints/{self.name}/run"
+        """Return the API endpoint path for this endpoint.
+
+        Uses the ``team_id`` FK column rather than ``self.team.id`` so this never
+        triggers a lazy DB load — important on the error-handling path, where the
+        connection may already be dead and a reload would cascade into spurious
+        ``KeyError``/``OperationalError`` noise.
+        """
+        return f"/api/projects/{self.team_id}/endpoints/{self.name}/run"
 
     def has_query_changed(self, new_query: dict[str, Any]) -> bool:
         """Deep comparison to check if query has actually changed.
