@@ -4460,12 +4460,17 @@ dependencies = [
 name = "hogvm"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "chrono",
  "chrono-tz",
+ "hmac",
+ "indexmap 2.13.0",
+ "md-5",
  "rand 0.8.5",
  "regex",
  "serde",
  "serde_json",
+ "sha2",
  "thiserror 2.0.18",
 ]
 
