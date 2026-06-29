@@ -191,8 +191,7 @@ class MarketingAnalyticsTableQueryRunner(MarketingAnalyticsBaseQueryRunner[Marke
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Create a new runner for the previous period, as the same user — a user-less runner resolves
-        # warehouse tables and conversion-goal property RBAC without the user's access.
+        # user= is required: a user-less previous runner loses warehouse access and runs RBAC user-less.
         previous_runner = MarketingAnalyticsTableQueryRunner(
             query=previous_query,
             team=self.team,

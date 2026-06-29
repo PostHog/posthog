@@ -81,10 +81,6 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot
 
     def test_compare_shares_database_across_periods(self):
-        # The previous-period runner has no user; if it builds its own HogQL database it resolves
-        # warehouse tables without the user's access, the marketing source adapters come back empty,
-        # and every previous value silently falls back to 0. Sharing the current period's database
-        # (built with the user) fixes that — observable as Database.create_for running once, not twice.
         query = MarketingAnalyticsAggregatedQuery(
             dateRange=self.default_date_range,
             compareFilter=CompareFilter(compare=True),
@@ -117,9 +113,8 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
         )
 
     def test_compare_previous_period_not_zeroed_under_user_scoped_adapters(self):
-        # Reproduces the symptom: warehouse adapters resolve only for a user-scoped runner (warehouse
-        # RBAC). A user-less previous runner gets no adapters -> empty cost fallback -> previous = 0.
-        # Passing the user to the previous runner fixes it.
+        # Adapters resolve only for a user-scoped runner (warehouse RBAC); a user-less previous runner
+        # gets none, falls back to the empty cost source, and zeroes the previous period.
         query = MarketingAnalyticsAggregatedQuery(
             dateRange=self.default_date_range,
             compareFilter=CompareFilter(compare=True),

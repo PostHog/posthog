@@ -204,10 +204,7 @@ class MarketingAnalyticsAggregatedQueryRunner(
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Run the previous period as the same user. Without it the previous runner is user-less, which
-        # (a) resolves warehouse tables without the user's access, so the marketing source adapters come
-        # back empty and every previous-period value silently falls back to 0, and (b) runs the conversion
-        # goals' property-level RBAC user-less. Passing the user fixes both.
+        # user= is required: a user-less previous runner loses warehouse access (empties the cost) and runs RBAC user-less.
         previous_runner = MarketingAnalyticsAggregatedQueryRunner(
             query=previous_query,
             team=self.team,
@@ -216,8 +213,6 @@ class MarketingAnalyticsAggregatedQueryRunner(
             limit_context=self.limit_context,
             user=self.user,
         )
-        # Reuse the current request's prebuilt HogQL database so the compare pays Database.create_for
-        # once, not twice.
         previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()

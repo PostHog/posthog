@@ -194,8 +194,7 @@ class NonIntegratedConversionsTableQueryRunner(
             date_to=previous_date_range.date_to().isoformat(),
         )
 
-        # Same user as the current period — a user-less runner resolves warehouse tables and
-        # conversion-goal property RBAC without the user's access.
+        # user= is required: a user-less previous runner loses warehouse access and runs RBAC user-less.
         previous_runner = NonIntegratedConversionsTableQueryRunner(
             query=previous_query,
             team=self.team,
