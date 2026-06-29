@@ -139,6 +139,10 @@ def _new_record(item: pytest.Item) -> dict:
         "for_update": False,
         "duration_s": 0.0,
         "status": "unknown",
+        # Redundancy in setup: distinct query shapes vs the single most-repeated shape (N+1 in fixtures).
+        "setup_distinct": 0,
+        "setup_max_dup": 0,
+        "_setup_shapes": {},
     }
 
 
@@ -162,8 +166,15 @@ def _wrap_pg(rec: dict, phase: str):
         def make(alias: str):
             def wrapper(execute, sql, params, many, context):
                 counts[alias] = counts.get(alias, 0) + 1
-                if not rec["for_update"] and isinstance(sql, str) and "FOR UPDATE" in sql.upper():
-                    rec["for_update"] = True
+                if isinstance(sql, str):
+                    if not rec["for_update"] and "FOR UPDATE" in sql.upper():
+                        rec["for_update"] = True
+                    # Count query shapes during setup only — that's where fixture N+1 lives.
+                    # sql already carries %s placeholders (params are separate), so it's the shape.
+                    if phase == "setup":
+                        shapes = rec["_setup_shapes"]
+                        h = hash(sql)
+                        shapes[h] = shapes.get(h, 0) + 1
                 return execute(sql, params, many, context)
 
             return wrapper
@@ -264,4 +275,7 @@ def pytest_sessionfinish():
     with out.open("a") as fh:
         for rec in _records.values():
             rec["pg_total"] = rec["pg_setup"] + rec["pg_call"] + rec["pg_teardown"]
+            shapes = rec.pop("_setup_shapes", {})
+            rec["setup_distinct"] = len(shapes)
+            rec["setup_max_dup"] = max(shapes.values()) if shapes else 0
             fh.write(json.dumps(rec) + "\n")
