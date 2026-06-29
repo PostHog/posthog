@@ -900,6 +900,48 @@ class TestPostgresSourceSetupRecoveryConflictRetry:
 
         assert connect_mock.call_count == 1
 
+    def test_recovery_conflict_as_query_canceled_during_setup_is_retried(self):
+        # A hot-standby recovery conflict can surface as QueryCanceled ("canceling statement due to
+        # conflict with recovery") rather than SerializationFailure — the same transient condition.
+        # The setup loop must retry it in-process exactly like the SerializationFailure flavor;
+        # before the fix it escaped on the first probe and failed the whole activity.
+        err = psycopg.errors.QueryCanceled(
+            "canceling statement due to conflict with recovery\n"
+            "DETAIL:  User query might have conflicted with replica reconnect."
+        )
+        connection = self._make_failing_connection(err)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect_mock:
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(Exception) as exc_info:
+                    self._call_postgres_source()
+
+        message = str(exc_info.value)
+        assert "conflict with recovery" in message and "max_standby_streaming_delay" in message
+        non_retryable = PostgresSource().get_non_retryable_errors()
+        assert any(pattern in message for pattern in non_retryable.keys())
+        # Each retry reconnects, so connect is called once per attempt.
+        assert connect_mock.call_count == _MAX_SETUP_RECOVERY_CONFLICT_RETRIES
+
+    def test_statement_timeout_query_canceled_during_setup_is_not_retried(self):
+        # A QueryCanceled that isn't a recovery conflict (a statement_timeout) must propagate
+        # immediately — the in-process retry is scoped strictly to "conflict with recovery".
+        err = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        connection = self._make_failing_connection(err)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            return_value=connection,
+        ) as connect_mock:
+            with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+                with pytest.raises(psycopg.errors.QueryCanceled):
+                    self._call_postgres_source()
+
+        assert connect_mock.call_count == 1
+
     def test_connection_dropped_while_opening_setup_connection_is_retried(self):
         # A transient drop while opening the setup connection ("server closed the connection
         # unexpectedly") is the same class of error the read path already recovers from. The setup
