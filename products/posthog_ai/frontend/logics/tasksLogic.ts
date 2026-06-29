@@ -19,6 +19,7 @@ export const tasksLogic = kea<tasksLogicType>([
     actions({
         openTask: (taskId: Task['id']) => ({ taskId }),
         updateTask: (task: Task) => ({ task }),
+        setSearchQuery: (search: string) => ({ search }),
     }),
 
     loaders(({ values }) => ({
@@ -66,6 +67,12 @@ export const tasksLogic = kea<tasksLogicType>([
         tasks: {
             updateTask: (state, { task }) => state.map((t) => (t.id === task.id ? task : t)),
         },
+        searchQuery: [
+            '' as string,
+            {
+                setSearchQuery: (_, { search }) => search,
+            },
+        ],
         tasksError: [
             null as string | null,
             {
@@ -75,9 +82,15 @@ export const tasksLogic = kea<tasksLogicType>([
         ],
     }),
 
-    listeners(() => ({
+    listeners(({ actions }) => ({
         openTask: ({ taskId }) => {
             router.actions.push(`/tasks/${taskId}`)
+        },
+        // Debounce typing before hitting the server; the loader's own `breakpoint` then drops any
+        // response that a newer query has already superseded.
+        setSearchQuery: async ({ search }, breakpoint) => {
+            await breakpoint(300)
+            actions.loadTasks({ search: search || undefined })
         },
     })),
 ])
