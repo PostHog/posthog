@@ -3040,9 +3040,10 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
         )
         assert response.status_code == 200, response.json()
-        assert response.json()["available_columns"] == [
-            {"name": "id", "data_type": "String", "is_nullable": False},
+        # Sort by name: `columns` is JSONB, which doesn't preserve key insertion order.
+        assert sorted(response.json()["available_columns"], key=lambda column: column["name"]) == [
             {"name": "balance", "data_type": "Int64", "is_nullable": True},
+            {"name": "id", "data_type": "String", "is_nullable": False},
         ]
 
     @parameterized.expand(

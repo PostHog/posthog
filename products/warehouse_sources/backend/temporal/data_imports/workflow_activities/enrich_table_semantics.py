@@ -40,8 +40,6 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import clean_type
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     get_canonical_descriptions_for_source,
 )
@@ -343,27 +341,20 @@ def _get_business_context(team: Team) -> str:
     return (core_memory.text or "").strip() if core_memory else ""
 
 
-# Internal plumbing columns the HogQL catalog hides from users (see DataWarehouseTable.hogql_definition).
-# Never worth enriching: they carry no user-facing meaning and each one would burn an LLM column slot.
-_INTERNAL_COLUMNS = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
-
 # An annotation is keyed by `column_name`, a varchar(400). A column whose name doesn't fit can't be
 # stored or surfaced, so skip it rather than letting the insert raise (DataError) and crash the whole
 # table's enrichment into a Temporal retry loop.
 _MAX_COLUMN_NAME_LENGTH: int = WarehouseColumnAnnotation._meta.get_field("column_name").max_length or 400
 
 
-def _columns_from_table(table: DataWarehouseTable, log: Any = logger) -> list[dict[str, Any]]:
-    """Source-agnostic `[{name, data_type, is_nullable}]` from `DataWarehouseTable.columns`.
-
-    `columns` is populated after every sync for every source type (unlike SQL-only `schema_metadata`),
-    keyed by column name with a ClickHouse type. Handles both the dict shape (`{"clickhouse": ...}`)
-    and the legacy plain-string shape. Internal plumbing columns, and any whose name exceeds the
-    annotation key length, are skipped.
+def _columns_for_enrichment(table: DataWarehouseTable, log: Any = logger) -> list[dict[str, Any]]:
+    """User-facing columns to enrich (see `DataWarehouseTable.get_user_facing_columns`), minus any
+    whose name exceeds the annotation key length — those can't be stored as a `WarehouseColumnAnnotation`.
     """
     result: list[dict[str, Any]] = []
-    for name, definition in (table.columns or {}).items():
-        if name in _INTERNAL_COLUMNS:
+    for column in table.get_user_facing_columns():
+        name = column.get("name")
+        if not name:
             continue
         if len(name) > _MAX_COLUMN_NAME_LENGTH:
             # Surface the drop — otherwise the column silently vanishes from enrichment with no trace,
@@ -375,13 +366,7 @@ def _columns_from_table(table: DataWarehouseTable, log: Any = logger) -> list[di
                 max_column_name_length=_MAX_COLUMN_NAME_LENGTH,
             )
             continue
-        if isinstance(definition, dict):
-            clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
-        else:
-            clickhouse_type = definition or ""
-        is_nullable = "Nullable(" in clickhouse_type
-        data_type = clean_type(clickhouse_type) if clickhouse_type else ""
-        result.append({"name": name, "data_type": data_type or "unknown", "is_nullable": is_nullable})
+        result.append(column)
     return result
 
 
@@ -440,7 +425,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
 
     # Columns + types come from `table.columns`, populated for every source type after sync — so this
     # enriches REST sources (Stripe, Hubspot, …) as well as SQL ones. Foreign keys remain SQL-only.
-    columns = [column for column in _columns_from_table(table, log) if column.get("name")]
+    columns = _columns_for_enrichment(table, log)
     event_props["columns_total"] = len(columns)
     if not columns:
         log.warning("warehouse_enrichment.skipped", reason="no_columns")
