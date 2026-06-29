@@ -42,32 +42,30 @@ class TestResendSource:
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
 
-    def test_audiences_bad_request_is_non_retryable(self):
-        errors = self.source.get_non_retryable_errors()
-        raised = "400 Client Error: Bad Request for url: https://api.resend.com/audiences"
-
-        matched = [message for key, message in errors.items() if key in raised]
-
-        assert len(matched) == 1
-        assert matched[0] is not None and "Audiences" in matched[0]
-
     @parameterized.expand(
         [
-            ("broadcasts_matches", "https://api.resend.com/broadcasts", True),
-            ("other_endpoint_stays_retryable", "https://api.resend.com/emails", False),
+            ("audiences", "https://api.resend.com/audiences", "Audiences"),
+            ("contacts_inherits_audiences", "https://api.resend.com/audiences/aud_1/contacts", "Audiences"),
+            ("broadcasts", "https://api.resend.com/broadcasts", "Broadcasts"),
+            ("emails", "https://api.resend.com/emails?limit=100", "Emails"),
         ]
     )
-    def test_broadcasts_bad_request_retryability(self, _name: str, url: str, should_match: bool):
+    def test_bad_request_is_non_retryable_per_endpoint(self, _name: str, url: str, expected_label: str):
         errors = self.source.get_non_retryable_errors()
         raised = f"400 Client Error: Bad Request for url: {url}"
 
         matched = [message for key, message in errors.items() if key in raised]
 
-        if should_match:
-            assert len(matched) == 1
-            assert matched[0] is not None and "Broadcasts" in matched[0]
-        else:
-            assert not matched
+        assert len(matched) == 1
+        assert matched[0] is not None and expected_label in matched[0]
+
+    def test_bad_request_from_unmapped_endpoint_stays_retryable(self):
+        # A 400 from an endpoint we don't scope (here /domains) could be our own bug, so it must
+        # stay retryable and visible rather than be silently classified as a user config problem.
+        errors = self.source.get_non_retryable_errors()
+        raised = "400 Client Error: Bad Request for url: https://api.resend.com/domains"
+
+        assert not [message for key, message in errors.items() if key in raised]
 
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)

@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.posthog_client import mark_skip_error_capture
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
@@ -170,10 +171,14 @@ async def handle_non_retryable_error(
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
+    # Errors classified as non-retryable are user-actionable configuration problems (bad
+    # credentials, an endpoint the API key can't access) surfaced to the user via job status —
+    # not engineering bugs. Mark whatever we raise so the Temporal error-capture interceptor
+    # doesn't forward the raw provider error to error tracking on every retry attempt.
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")
-            raise NonRetryableException() from error
+            raise mark_skip_error_capture(NonRetryableException()) from error
 
         retry_key = build_non_retryable_errors_redis_key(
             job_inputs.team_id, str(job_inputs.source_id), job_inputs.run_id
@@ -185,10 +190,10 @@ async def handle_non_retryable_error(
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
-            raise error
+            raise mark_skip_error_capture(error)
 
     await logger.adebug(f"Non-retryable error after {attempts} runs, giving up. error={error_msg}")
-    raise NonRetryableException() from error
+    raise mark_skip_error_capture(NonRetryableException()) from error
 
 
 async def reset_rows_synced_if_needed(

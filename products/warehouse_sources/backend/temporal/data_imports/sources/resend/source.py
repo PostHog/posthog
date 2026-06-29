@@ -135,6 +135,16 @@ Grant the key **full access** or a read-enabled access token so the following re
                 "account can't access the Broadcasts API — enable Broadcasts in Resend and grant the API key full "
                 "access, or unselect the Broadcasts table to keep syncing your other Resend data."
             ),
+            # Resend rejects the well-formed list request with a 400 when the connected account's
+            # API key can't access the Emails API (the key lacks full access or read scope for
+            # emails). Retrying the identical request can't fix an account-level restriction. Scope
+            # the match to the emails path so a 400 from another endpoint (which could be our bug)
+            # stays retryable and visible.
+            "400 Client Error: Bad Request for url: https://api.resend.com/emails": (
+                "Resend rejected the request to sync your Emails. This usually means the connected Resend "
+                "account's API key can't access the Emails API — grant the key full access (or read access to "
+                "emails) in Resend, or unselect the Emails table to keep syncing your other Resend data."
+            ),
         }
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ResendResumeConfig]:

@@ -1,5 +1,5 @@
 from dataclasses import is_dataclass
-from typing import Any, Optional
+from typing import Any, Optional, TypeVar
 
 import temporalio.exceptions
 from opentelemetry import trace
@@ -18,6 +18,28 @@ from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
+
+# Exceptions carrying this attribute (truthy) are intentional, already-surfaced terminal states —
+# e.g. a data-import source giving up on a misconfiguration the user must fix (bad credentials, an
+# endpoint the API key can't access). They are reported to the user via job status, not engineering
+# bugs, so the interceptor does not forward them to error tracking.
+SKIP_ERROR_CAPTURE_ATTR = "skip_temporal_error_capture"
+
+_ExceptionT = TypeVar("_ExceptionT", bound=BaseException)
+
+
+def mark_skip_error_capture(exc: _ExceptionT) -> _ExceptionT:
+    """Flag an exception so the Temporal interceptor won't report it to error tracking."""
+    try:
+        setattr(exc, SKIP_ERROR_CAPTURE_ATTR, True)
+    except (AttributeError, TypeError):
+        # Some built-in/slotted exceptions reject attribute assignment; best-effort only.
+        pass
+    return exc
+
+
+def _should_skip_error_capture(exc: BaseException) -> bool:
+    return bool(getattr(exc, SKIP_ERROR_CAPTURE_ATTR, False))
 
 
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
@@ -65,6 +87,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            if _should_skip_error_capture(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -97,6 +121,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if _should_skip_error_capture(e):
+                raise
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
