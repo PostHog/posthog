@@ -12,9 +12,13 @@ import { PostHogProvider } from '@posthog/react'
 
 import { App } from 'scenes/App'
 
+import { patchDomMutationMethodsForExtensions } from './domMutationGuard'
 import { initKea } from './initKea'
 import { ErrorBoundary } from './layout/ErrorBoundary'
 import { loadPostHogJS } from './loadPostHogJS'
+
+// Guard against browser-extension DOM mutations crashing React reconciliation. Must run before render.
+patchDomMutationMethodsForExtensions()
 
 loadPostHogJS()
 initKea()
