@@ -89,8 +89,11 @@ class TestBackOfLine:
         lifecycle.on_trial_finished(_active_trial(1).id, passed=False, failing_tests=["real"])
         api.enroll(_pr(1, "a" * 40), actor=ACTOR)
 
-        pos1 = api.status(_pr(1, "a" * 40)).slots[0].position
-        pos2 = api.status(_pr(2, "b" * 40)).slots[0].position
+        status1 = api.status(_pr(1, "a" * 40))
+        status2 = api.status(_pr(2, "b" * 40))
+        assert status1 is not None and status2 is not None
+        pos1 = status1.slots[0].position
+        pos2 = status2.slots[0].position
         assert pos2 < pos1  # the re-enrolled PR is now behind the one that kept waiting
 
 
@@ -134,12 +137,15 @@ class TestMergeGate:
 
     def test_does_not_merge_until_every_slot_is_green(self, engine, partition_factory):
         enrollment = self._spanning_enrollment(partition_factory)
+        slot = enrollment.slots.first()
+        assert slot is not None
+        partition = slot.partition
 
-        lifecycle.advance(enrollment.slots.first().partition)
+        lifecycle.advance(partition)
         assert Enrollment.objects.get(number=9).state == EnrollmentState.ACTIVE  # one slot still trialing
 
         enrollment.slots.filter(state=SlotState.TRIALING).update(state=SlotState.GREEN)
-        lifecycle.advance(enrollment.slots.first().partition)
+        lifecycle.advance(partition)
         assert Enrollment.objects.get(number=9).state == EnrollmentState.MERGED
 
 
