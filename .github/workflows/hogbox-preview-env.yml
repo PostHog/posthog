@@ -5,9 +5,8 @@
 # /code, builds the PR's frontend, runs the delta migrations, and posts the
 # reachable URL on the PR (sticky comment + a GitHub Deployment).
 #
-# This is the productionised successor to ci-hogbox-preview.yml (the connectivity
-# probe). It drives tools/hogbox-preview — the layer (hogland) is swappable; the
-# stack recipe is not. See tools/hogbox-preview/README.md.
+# This drives tools/hogbox-preview — the layer (hogland) is swappable; the stack
+# recipe is not. See tools/hogbox-preview/README.md.
 #
 # --- WHY MOUNT (not build / not a per-PR image) ---------------------------------
 # The golden is baked ONCE (a hogland-side setup script: docker pull
@@ -117,6 +116,64 @@ jobs:
                       if (ex) await github.rest.issues.updateComment({ ...context.repo, comment_id: ex.id, body });
                       else await github.rest.issues.createComment({ ...context.repo, issue_number: pr, body });
 
+            # NOTE: the tailnet join + hogland token are minted AFTER the frontend
+            # build below — never before. The FE build runs the PR's own pnpm
+            # lifecycle scripts (untrusted on a labeled PR), so it must not see
+            # HOG_TOKEN or have tailnet reach to hogplane. Credentials come online
+            # only once we're past PR-controlled code and into the SDK call.
+
+            # --- Frontend: only build it when the PR actually touches it --------
+            # The golden serves the :master SPA; mounting the backend doesn't
+            # change the frontend. So for FE-touching PRs, build the PR's
+            # frontend here (the canonical Dockerfile build) and hand the dist to
+            # the tool, which lays it in + re-runs collectstatic in-box. Non-FE
+            # PRs skip all of this and keep the ~1-min preview.
+            - name: Detect frontend changes
+              id: fe
+              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
+              with:
+                  script: |
+                      const pr = Number(process.env.PR);
+                      const files = await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr, per_page: 100 });
+                      // Rebuild the FE for anything that feeds the frontend build:
+                      // app code, shared workspace packages (common/*, packages/*),
+                      // and the root manifests/lockfile that pin the build graph.
+                      const changed = files.some(f =>
+                          f.filename.startsWith('frontend/') ||
+                          f.filename.includes('/frontend/') ||
+                          f.filename.startsWith('common/') ||
+                          f.filename.startsWith('packages/') ||
+                          f.filename === 'package.json' ||
+                          f.filename === 'pnpm-lock.yaml' ||
+                          f.filename === 'pnpm-workspace.yaml');
+                      core.info(`frontend changed in PR #${pr}: ${changed}`);
+                      core.setOutput('changed', changed ? 'true' : 'false');
+
+            - name: Install pnpm
+              if: steps.fe.outputs.changed == 'true'
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+            - name: Setup Node
+              if: steps.fe.outputs.changed == 'true'
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  cache: pnpm
+            - name: Build the PR frontend
+              id: febuild
+              if: steps.fe.outputs.changed == 'true'
+              env:
+                  NODE_OPTIONS: --max-old-space-size=6144
+              run: |
+                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
+                  bin/turbo --filter=@posthog/frontend build
+                  pnpm build:products
+                  tar czf "$RUNNER_TEMP/frontend-dist.tgz" -C frontend dist
+                  echo "dist=$RUNNER_TEMP/frontend-dist.tgz" >> "$GITHUB_OUTPUT"
+
+            # --- Credentials: minted ONLY here, after the PR-code FE build -------
+            # Everything above ran without the tailnet or HOG_TOKEN. Joining the
+            # tailnet + minting the hogland token now keeps PR-controlled build
+            # scripts away from both.
             - name: Connect to Tailscale (tag:hogland-ci)
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
               with:
@@ -132,55 +189,11 @@ jobs:
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
 
-            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-
-            # The tool drives the box via the SDK over hogplane's HTTP API
-            # (HOG_TOKEN + --host) — no binary to fetch, no SSH key to mount.
-            - name: Install hogland SDK
-              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
-
-            # --- Frontend: only build it when the PR actually touches it --------
-            # The golden serves the :master SPA; mounting the backend doesn't
-            # change the frontend. So for FE-touching PRs, build the PR's
-            # frontend here (the canonical Dockerfile build) and hand the dist to
-            # the tool, which lays it in + re-runs collectstatic in-box. Non-FE
-            # PRs skip all of this and keep the ~1-min preview.
-            - name: Detect frontend changes
-              id: fe
-              uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7.1.0
-              with:
-                  script: |
-                      const pr = Number(process.env.PR);
-                      const files = await github.paginate(github.rest.pulls.listFiles, { ...context.repo, pull_number: pr, per_page: 100 });
-                      const changed = files.some(f =>
-                          f.filename.startsWith('frontend/') ||
-                          f.filename.includes('/frontend/') ||
-                          f.filename.startsWith('common/esbuilder/'));
-                      core.info(`frontend changed in PR #${pr}: ${changed}`);
-                      core.setOutput('changed', changed ? 'true' : 'false');
-
-            - name: Install pnpm
-              if: steps.fe.outputs.changed == 'true'
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-            - name: Setup Node
-              if: steps.fe.outputs.changed == 'true'
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version: '24'
-                  cache: pnpm
-            - name: Build the PR frontend
-              id: febuild
-              if: steps.fe.outputs.changed == 'true'
-              env:
-                  NODE_OPTIONS: --max-old-space-size=6144
-              run: |
-                  pnpm --filter=@posthog/frontend... install --frozen-lockfile
-                  bin/turbo --filter=@posthog/frontend build
-                  pnpm build:products
-                  tar czf "$RUNNER_TEMP/frontend-dist.tgz" -C frontend dist
-                  echo "dist=$RUNNER_TEMP/frontend-dist.tgz" >> "$GITHUB_OUTPUT"
+            # uv (repo convention) instead of pip — no separate install step.
+            # --no-project skips the posthog monorepo (don't sync it); --with pins
+            # the SDK into an ephemeral env. posthog-hogland is first-party and
+            # exempted from the 7-day soak in [tool.uv].
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
 
             - name: Bring up preview
               id: build
@@ -193,7 +206,8 @@ jobs:
                   # (posthog/ee/products) over the :master image's /code, swap in
                   # the PR frontend (when built), delta-migrate. No per-PR image.
                   t0=$(date +%s)
-                  out=$(python -m hogbox_preview \
+                  out=$(uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 \
+                    python -m hogbox_preview \
                     --host "$HOG_HOST" \
                     --name "preview-pr-${PR}" \
                     --snapshot "alias:posthog-preview-golden" \
@@ -283,7 +297,13 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 10
         steps:
+            # Teardown runs the tool with the hogland token, so check it out from
+            # the trusted default branch, not the PR's (possibly modified) code —
+            # same reasoning as pr-closed.yml's cleanup. Only a destroy call is
+            # needed, so master's copy is correct.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
             - name: Connect to Tailscale (tag:hogland-ci)
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
               with:
@@ -295,11 +315,7 @@ jobs:
                   token=$(curl -sf -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
                     "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
                   echo "::add-mask::$token"; echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
-            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-            - name: Install hogland SDK
-              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
             - name: Destroy preview box + pen
               working-directory: tools/hogbox-preview
-              run: python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
+              run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy

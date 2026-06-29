@@ -49,15 +49,13 @@ jobs:
                     "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
-            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-            - name: Install hogland SDK
-              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
+            # uv (repo convention): --no-project skips the monorepo sync, --with
+            # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
             - name: Reap previews for closed PRs
               working-directory: tools/hogbox-preview
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
                   GITHUB_REPOSITORY: ${{ github.repository }}
                   DRY_RUN: ${{ inputs.dry_run || 'false' }}
-              run: python -m hogbox_preview --host "$HOG_HOST" cleanup-stale
+              run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" cleanup-stale

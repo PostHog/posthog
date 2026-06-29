@@ -37,7 +37,14 @@ jobs:
             HOG_OIDC_AUDIENCE: hogland.prod-us.posthog.dev
             PR: ${{ github.event.pull_request.number }}
         steps:
+            # Run the teardown tool from the trusted default branch, never the PR's
+            # code. On a `closed` event the default checkout can resolve to the PR
+            # merge ref, which would execute PR-modified tools/hogbox-preview with
+            # the hogland token below. Cleanup only needs the SDK + a destroy call,
+            # so master's copy is correct and removes that exec vector.
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.repository.default_branch }}
             - name: Connect to Tailscale (tag:hogland-ci)
               uses: tailscale/github-action@306e68a486fd2350f2bfc3b19fcd143891a4a2d8 # v4.1.2
               with:
@@ -50,14 +57,12 @@ jobs:
                     "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${HOG_OIDC_AUDIENCE}" | jq -r '.value')
                   echo "::add-mask::$token"
                   echo "HOG_TOKEN=$token" >> "$GITHUB_ENV"
-            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
-              with:
-                  python-version: '3.12'
-            - name: Install hogland SDK
-              run: pip install --disable-pip-version-check ./tools/hogbox-preview/vendor/posthog_hogland-0.1.2-py3-none-any.whl
+            # uv (repo convention): --no-project skips the monorepo sync, --with
+            # pins the first-party SDK (exempted from the 7-day soak in [tool.uv]).
+            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
             - name: Destroy preview box + pen
               working-directory: tools/hogbox-preview
-              run: python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
+              run: uv run --no-project --with posthog-hogland==0.3.0 --python 3.12 python -m hogbox_preview --host "$HOG_HOST" --name "preview-pr-${PR}" destroy
 
     disable-canary-flags:
         name: Disable feature flags canary
