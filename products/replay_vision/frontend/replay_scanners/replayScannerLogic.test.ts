@@ -580,4 +580,28 @@ describe('replayScannerLogic', () => {
             expect(observeSpy).not.toHaveBeenCalled()
         })
     })
+
+    describe('background polling', () => {
+        it('background reloads stay silent so the table stays interactable, foreground loads do not', () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                // The initial foreground load (also manual refresh, filter/sort/pagination) shows the overlay.
+                expect(persisted.values.observationsLoading).toBe(true)
+
+                persisted.actions.loadObservationsSuccess([], 0)
+                expect(persisted.values.observationsLoading).toBe(false)
+
+                // The 3s in-flight poll reloads in the background — no overlay, so rows update in place.
+                persisted.actions.loadObservations(true)
+                expect(persisted.values.observationsLoading).toBe(false)
+
+                // A foreground reload still shows it — proving the silent case isn't just a no-op action.
+                persisted.actions.loadObservations()
+                expect(persisted.values.observationsLoading).toBe(true)
+            } finally {
+                persisted.unmount()
+            }
+        })
+    })
 })

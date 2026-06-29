@@ -11,6 +11,10 @@ from rest_framework.response import Response
 
 from posthog.schema import EventsNode, TrendsQuery
 
+from posthog.hogql.errors import ExposedHogQLError
+
+from posthog.errors import CHQueryErrorNoCommonType
+
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.endpoints.backend.services.execution import EndpointExecutionService
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
@@ -127,6 +131,61 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         # Should count only $pageview events (10 events)
         self.assertEqual(response.json()["results"][0][0], 10)
+
+    @parameterized.expand(
+        [
+            (
+                "hogql",
+                "HogQL column `missing_property` could not be resolved",
+                None,
+                "HogQL column `missing_property` could not be resolved",
+                None,
+            ),
+            (
+                "clickhouse",
+                "DB::Exception: There is no supertype for types String, UInt64 because some of them are String/FixedString and some of them are not\nStack trace: internal frame",
+                "no_common_type",
+                "There is no supertype for types String, UInt64",
+                "Stack trace",
+            ),
+        ]
+    )
+    def test_exposed_query_errors_return_safe_detail(
+        self,
+        _name: str,
+        message: str,
+        code_name: str | None,
+        expected_detail: str,
+        forbidden_detail: str | None,
+    ):
+        endpoint = create_endpoint_with_version(
+            name=f"{_name}_safe_error",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+            created_by=self.user,
+            is_active=True,
+        )
+        error = (
+            CHQueryErrorNoCommonType(message, code=386, code_name=code_name)
+            if code_name
+            else ExposedHogQLError(message)
+        )
+
+        with (
+            mock.patch("products.endpoints.backend.services.execution.process_query_model", side_effect=error),
+            mock.patch("products.endpoints.backend.services.execution.capture_exception"),
+            mock.patch("products.endpoints.backend.services.execution._emit_endpoint_failure_signal"),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        detail = response.json()["detail"]
+        self.assertIn(expected_detail, detail)
+        self.assertNotIn("Query execution failed.", detail)
+        if forbidden_detail:
+            self.assertNotIn(forbidden_detail, detail)
 
     def test_hogql_endpoint_executes_with_variable_override(self):
         endpoint = create_endpoint_with_version(

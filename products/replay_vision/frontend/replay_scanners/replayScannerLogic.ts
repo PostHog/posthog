@@ -234,7 +234,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
-        loadObservations: true,
+        loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
         setObservationsPage: (page: number) => ({ page }),
@@ -466,7 +466,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         observationsLoading: [
             false,
             {
-                loadObservations: () => true,
+                // Background polls reload silently so the table stays interactable; only foreground
+                // loads (initial paint, manual refresh, filter/sort/pagination) show the overlay.
+                loadObservations: (state, { background }) => (background ? state : true),
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
             },
@@ -681,8 +683,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     listeners(({ actions, props, values, cache }) => {
-        const reloadObservationsAndStats = (): void => {
-            actions.loadObservations()
+        const reloadObservationsAndStats = (background = false): void => {
+            actions.loadObservations(background)
             actions.loadObservationStats()
         }
         return {
@@ -970,7 +972,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scheduleObservationPoll(
                     cache.disposables,
                     values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    reloadObservationsAndStats
+                    () => reloadObservationsAndStats(true)
                 )
             },
             // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
@@ -978,7 +980,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scheduleObservationPoll(
                     cache.disposables,
                     values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    reloadObservationsAndStats
+                    () => reloadObservationsAndStats(true)
                 )
             },
         }

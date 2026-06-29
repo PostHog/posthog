@@ -49,7 +49,7 @@ def _make_consumer(max_attempts: int = 3, **kwargs) -> DuckgresBatchConsumer:
         **kwargs,
     )
     consumer = DuckgresBatchConsumer(config=config, process_batch=AsyncMock())
-    consumer._conn = _make_healthy_conn()
+    consumer._poll_conn = _make_healthy_conn()
     consumer._recovery_conn = _make_healthy_conn()
     return consumer
 
