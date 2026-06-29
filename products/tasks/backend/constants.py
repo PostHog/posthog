@@ -3,7 +3,8 @@ from typing import Literal, get_args
 SANDBOX_EVENT_INGEST_FEATURE_FLAG = "tasks-cloud-runs-sandbox-event-ingest"
 MODAL_VM_SANDBOX_FEATURE_FLAG = "tasks-modal-vm-sandbox"
 MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG = "tasks-modal-network-allowlist"
-BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG = "tasks-burstable-sandbox-resources"
+STREAM_VIA_PROXY_FEATURE_FLAG = "tasks-stream-via-proxy"
+OVERLAP_CLONE_BOOT_FEATURE_FLAG = "tasks-overlap-clone-boot"
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
@@ -203,6 +204,63 @@ DEFAULT_TRUSTED_DOMAINS = [
     "json.schemastore.org",
     "www.schemastore.org",
 ]
+
+RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
+    {
+        "POSTHOG_PERSONAL_API_KEY",
+        "POSTHOG_API_URL",
+        "POSTHOG_PROJECT_ID",
+        "JWT_PUBLIC_KEY",
+        "GITHUB_TOKEN",
+        "GH_TOKEN",
+        "LLM_GATEWAY_URL",
+        "POSTHOG_RESUME_RUN_ID",
+        "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC",
+        "DISABLE_TELEMETRY",
+        "DISABLE_ERROR_REPORTING",
+    }
+)
+
+BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_PREFIXES: tuple[str, ...] = ("LD_", "DYLD_", "GIT_")
+BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS: frozenset[str] = frozenset(
+    {
+        "NODE_OPTIONS",
+        "NODE_REPL_EXTERNAL_MODULE",
+        "BASH_ENV",
+        "PROMPT_COMMAND",
+        "PYTHONSTARTUP",
+        "PERL5OPT",
+        "RUBYOPT",
+    }
+)
+
+SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS: tuple[str, ...] = (
+    "NODE_OPTIONS",
+    "NODE_REPL_EXTERNAL_MODULE",
+    "LD_PRELOAD",
+    "LD_LIBRARY_PATH",
+    "LD_AUDIT",
+    "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH",
+)
+
+
+def is_blocked_sandbox_env_key(key: str) -> bool:
+    if key in BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
+        return True
+    return any(key.startswith(prefix) for prefix in BLOCKED_SANDBOX_ENVIRONMENT_VARIABLE_PREFIXES)
+
+
+def filter_user_sandbox_env_vars(env_vars: dict[str, str]) -> tuple[dict[str, str], list[str]]:
+    safe: dict[str, str] = {}
+    skipped: list[str] = []
+    for key, value in env_vars.items():
+        if key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS or is_blocked_sandbox_env_key(key):
+            skipped.append(key)
+            continue
+        safe[key] = value
+    return safe, skipped
+
 
 SETUP_REPOSITORY_PROMPT = """
 Your goal is to setup the repository in the current environment.

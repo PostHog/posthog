@@ -82,7 +82,7 @@ async def _run_activity(
 
     assert insert_inputs.batch_export_id is not None
     # we first need to run the insert_into_internal_stage_activity so that we have data to export
-    stage_folder = await activity_environment.run(
+    stage_result = await activity_environment.run(
         insert_into_internal_stage_activity,
         BatchExportInsertIntoInternalStageInputs(
             team_id=insert_inputs.team_id,
@@ -98,7 +98,8 @@ async def _run_activity(
             destination_default_fields=snowflake_default_fields(),
         ),
     )
-    insert_inputs.stage_folder = stage_folder
+    insert_inputs.stage_folder = stage_result.stage_folder
+    insert_inputs.records_total = stage_result.records_total
     result = await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     if assert_clickhouse_records:
@@ -478,7 +479,7 @@ async def test_insert_into_snowflake_activity_heartbeats(
 
     with override_settings(BATCH_EXPORT_SNOWFLAKE_UPLOAD_CHUNK_SIZE_BYTES=0):
         assert insert_inputs.batch_export_id is not None
-        stage_folder = await activity_environment.run(
+        stage_result = await activity_environment.run(
             insert_into_internal_stage_activity,
             BatchExportInsertIntoInternalStageInputs(
                 team_id=insert_inputs.team_id,
@@ -494,7 +495,8 @@ async def test_insert_into_snowflake_activity_heartbeats(
                 destination_default_fields=snowflake_default_fields(),
             ),
         )
-        insert_inputs.stage_folder = stage_folder
+        insert_inputs.stage_folder = stage_result.stage_folder
+        insert_inputs.records_total = stage_result.records_total
         await activity_environment.run(insert_into_snowflake_activity_from_stage, insert_inputs)
 
     # It's not guaranteed we will heartbeat right after every file.

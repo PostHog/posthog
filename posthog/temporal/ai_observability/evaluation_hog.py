@@ -7,6 +7,10 @@ import temporalio
 from temporalio.exceptions import ApplicationError
 
 from posthog.sync import database_sync_to_async
+from posthog.temporal.ai_observability.evaluation_errors import (
+    require_user_error_spec,
+    status_reason_detail_for_terminal_user_error,
+)
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 
@@ -22,6 +26,8 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
     Used by both the Temporal activity and the test endpoint.
     Returns {"verdict": bool | None, "reasoning": str, "error": str | None}.
     When allows_na=True, a `return null` is treated as N/A (not an error).
+    Sets "unexpected": True only when the bytecode raised something other than a
+    HogVM error — i.e. a bug in our code rather than in the user's Hog source.
     """
     properties = event_data["properties"]
     if isinstance(properties, str):
@@ -48,18 +54,23 @@ def run_hog_eval(bytecode: list, event_data: dict[str, Any], allows_na: bool = F
         response = execute_bytecode(
             bytecode,
             globals=globals_dict,
-            timeout=timedelta(seconds=5),
+            timeout=timedelta(seconds=10),
             team=None,
         )
     except HogVMRuntimeExceededException:
-        return {"verdict": None, "reasoning": "", "error": "Execution timed out (5s limit exceeded)"}
+        return {"verdict": None, "reasoning": "", "error": "Execution timed out (10s limit exceeded)"}
     except HogVMMemoryExceededException:
         return {"verdict": None, "reasoning": "", "error": "Memory limit exceeded"}
     except HogVMException as e:
         return {"verdict": None, "reasoning": "", "error": f"Runtime error: {e}"}
-    except Exception:
+    except Exception as e:
         logger.exception("Unexpected error executing Hog eval bytecode")
-        return {"verdict": None, "reasoning": "", "error": "Unexpected error during evaluation"}
+        return {
+            "verdict": None,
+            "reasoning": "",
+            "error": f"Unexpected error during evaluation: {type(e).__name__}: {e}",
+            "unexpected": True,
+        }
 
     reasoning = "\n".join(response.stdout) if response.stdout else ""
 
@@ -103,10 +114,33 @@ async def execute_hog_eval_activity(evaluation: dict[str, Any], event_data: dict
     result = await database_sync_to_async(_execute, thread_sensitive=False)()
 
     if result["error"]:
-        raise ApplicationError(
-            f"Hog evaluation error: {result['error']}",
-            non_retryable=True,
-        )
+        if result.get("unexpected"):
+            # A genuine bug in our evaluation code (not the user's Hog). Raise so the Temporal
+            # interceptor reports it to error tracking and we get paged to investigate.
+            raise ApplicationError(
+                f"Hog evaluation error: {result['error']}",
+                non_retryable=True,
+            )
+
+        # The user's Hog source itself errored (invalid code, execution timeout, or a
+        # non-boolean result). That's an expected outcome of running customer-authored code,
+        # not a system fault — record it as a skipped evaluation the user can see, rather than
+        # raising (which would flood error tracking with one event per matching generation).
+        spec = require_user_error_spec("hog_error")
+        error_detail = status_reason_detail_for_terminal_user_error(spec, result["error"]) or spec.safe_message
+        errored_result: EvaluationActivityResult = {
+            "result_type": "boolean",
+            "verdict": None if allows_na else False,
+            "reasoning": error_detail,
+            "allows_na": allows_na,
+            "skipped": True,
+            "skip_reason": "hog_error",
+            "terminal_user_error": True,
+            "status_reason": spec.status_reason,
+        }
+        if allows_na:
+            errored_result["applicable"] = False
+        return errored_result
 
     activity_result: EvaluationActivityResult = {
         "result_type": "boolean",

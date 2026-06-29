@@ -6,9 +6,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { OriginProduct } from 'products/tasks/frontend/types'
+import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
+import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
@@ -16,6 +19,7 @@ import {
     computeScoutRollups,
     FleetSummary,
     getScoutOrigin,
+    mostRecentEmittedRuns,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
     sortConfigsForDisplay,
@@ -67,6 +71,24 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             {
                 loadScoutConfigs: async () => {
                     return await api.signalScout.configs.list()
+                },
+            },
+        ],
+        scoutMetadata: [
+            null as ScoutMetadataApi | null,
+            {
+                loadScoutMetadata: async () => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    try {
+                        return await signalsScoutMetadataGet(String(teamId))
+                    } catch {
+                        // The metadata feeds only the optional alpha banner, so a transient
+                        // backend blip should degrade silently rather than surface a hard error.
+                        return null
+                    }
                 },
             },
         ],
@@ -153,9 +175,25 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     state?.map((config) => (config.id === configId ? { ...config, ...updates } : config)) ?? state,
             },
         ],
+        // Flips true the first time the runs window loads *successfully* and stays true across the
+        // 60s polls. Consumers (e.g. the scout detail Signals section) use it to tell "not loaded
+        // yet" from "loaded, genuinely empty" without flickering a skeleton on polls. Deliberately
+        // NOT set on failure: a failed first load must keep showing loading (the poll retries),
+        // not latch and let a consumer render a false "no signals" empty state over no data.
+        runsWindowLoadedOnce: [
+            false,
+            {
+                loadRunsWindowSuccess: () => true,
+            },
+        ],
     }),
 
     selectors({
+        // Editorial alpha/announcement banner from the signals-scout flag, or null when unset.
+        scoutBannerMessage: [
+            (s) => [s.scoutMetadata],
+            (scoutMetadata): string | null => scoutMetadata?.banner_message ?? null,
+        ],
         rollups: [
             (s) => [s.runsWindow],
             (runsWindow): Map<string, ScoutRollup> => computeScoutRollups(runsWindow.runs),
@@ -189,6 +227,26 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             },
         ],
         runsWindowComplete: [(s) => [s.runsWindow], (runsWindow): boolean => runsWindow.complete],
+        // Cheap fleet-wide findings tally off the runs window — sums each run's `emitted_count` without
+        // fetching emission bodies, to power the "Scout findings" callout. Tallied over the SAME capped
+        // set the page fetches (`mostRecentEmittedRuns`) so the callout can't over-advertise.
+        emittedFindingsSummary: [
+            (s) => [s.runsWindow],
+            (runsWindow): { count: number; scoutCount: number; latestAt: string | null } => {
+                let count = 0
+                const scouts = new Set<string>()
+                let latestAt: string | null = null
+                for (const run of mostRecentEmittedRuns(runsWindow.runs)) {
+                    count += run.emitted_count ?? 0
+                    scouts.add(run.skill_name)
+                    const at = run.completed_at ?? run.created_at
+                    if (at && (!latestAt || at > latestAt)) {
+                        latestAt = at
+                    }
+                }
+                return { count, scoutCount: scouts.size, latestAt }
+            },
+        ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
             (scoutConfigs): number =>
@@ -256,6 +314,8 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             // Configs are cheap and the always-mounted setup widget needs them. The paginated
             // runs window is loaded + polled only while the fleet list is open (startRunsPolling).
             actions.loadScoutConfigs()
+            // Metadata carries the alpha banner; a one-shot read is enough (it changes rarely).
+            actions.loadScoutMetadata()
         },
     })),
 ])

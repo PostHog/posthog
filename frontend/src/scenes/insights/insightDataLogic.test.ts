@@ -10,6 +10,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
@@ -234,6 +235,47 @@ describe('insightDataLogic', () => {
                 }).mount()
             }).toMatchValues({ query: updatedCachedQuery })
         })
+
+        // On a dashboard tile, `setQuery` is shared with insightVizDataLogic, whose listener calls
+        // props.setQuery (persistDisplayOptions). If a tile re-render re-syncs the incoming cached
+        // query via setQuery, it loops back into a PATCH of that (stale) query, reverting a display
+        // option the user just saved. propsChanged must use syncQueryFromProps on dashboard tiles.
+        it('syncs a changed cached query via syncQueryFromProps, not setQuery, on a dashboard tile', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
+            const staleCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                dashboardId: 99,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    dashboardId: 99,
+                    cachedInsight: { short_id: Insight123, query: staleCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            })
+                .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
+                .toMatchValues({ query: staleCachedQuery })
+        })
     })
 
     describe('reacts when the insight changes', () => {
@@ -414,6 +456,60 @@ describe('insightDataLogic', () => {
             await expectLogic(logic).delay(0)
             expect(mockedPerformQuery).not.toHaveBeenCalled()
             logic.unmount()
+        })
+    })
+
+    describe('persistDisplayOptions', () => {
+        const insightId = 42
+        const Insight42 = '42' as InsightShortId
+        const baseQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [] },
+        }
+        const updatedQuery: InsightVizNode = {
+            kind: NodeKind.InsightVizNode,
+            source: { kind: NodeKind.TrendsQuery, series: [], trendsFilter: { showLegend: true } as any },
+        }
+
+        let logic: ReturnType<typeof insightDataLogic.build>
+        let patchSpy: jest.Mock
+
+        beforeEach(() => {
+            patchSpy = jest.fn().mockResolvedValue([200, { id: insightId, short_id: Insight42, query: updatedQuery }])
+            useMocks({
+                patch: { '/api/environments/:team_id/insights/:id': patchSpy },
+            })
+
+            const props = {
+                dashboardItemId: Insight42,
+                cachedInsight: { id: insightId, short_id: Insight42, query: baseQuery } as any,
+            }
+            insightsModel.mount()
+            insightLogic(props).mount()
+            logic = insightDataLogic(props)
+            logic.mount()
+        })
+
+        it('debounces and fires renameInsightSuccess on success', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchSpy).toHaveBeenCalledTimes(1)
+        })
+
+        it('collapses multiple rapid dispatches into a single PATCH', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.persistDisplayOptions(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+                logic.actions.persistDisplayOptions(updatedQuery)
+            })
+                .toFinishAllListeners()
+                .toDispatchActions(['renameInsightSuccess'])
+
+            expect(patchSpy).toHaveBeenCalledTimes(1)
         })
     })
 })

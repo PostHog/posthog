@@ -30,7 +30,7 @@ import { getFormattedNodes } from './react_flow_utils/autolayout'
 import { BOTTOM_HANDLE_POSITION, NODE_HEIGHT, NODE_WIDTH, TOP_HANDLE_POSITION } from './react_flow_utils/constants'
 import { getSmartStepPath } from './react_flow_utils/SmartEdge'
 import { getHogFlowStep } from './steps/HogFlowSteps'
-import { StepViewNodeHandle } from './steps/types'
+import { CyclotronInputType, StepViewNodeHandle } from './steps/types'
 import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionEdge, HogFlowActionNode } from './types'
 
 const getEdgeId = (edge: HogFlow['edges'][number]): string =>
@@ -143,6 +143,7 @@ export type HogFlowEditorActionMetrics = {
 export type CreateActionType = Pick<HogFlowAction, 'type' | 'config' | 'name' | 'description'> & {
     branchEdges?: number
     output_variable?: HogFlowAction['output_variable']
+    getDefaultInputs?: () => Record<string, CyclotronInputType> | undefined
 }
 
 export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
@@ -649,6 +650,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         ? (values.nodeToBeAdded as HogFlowActionNode).data
                         : (values.nodeToBeAdded as CreateActionType)
 
+                    let config = partialNewAction.config
+                    if (!isHogFlowActionNode) {
+                        const dynamicInputs = (partialNewAction as CreateActionType).getDefaultInputs?.()
+                        if (dynamicInputs && 'inputs' in config) {
+                            config = { ...config, inputs: { ...config.inputs, ...dynamicInputs } }
+                        }
+                    }
+
                     const newAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
@@ -656,7 +665,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         type: partialNewAction.type,
                         name: partialNewAction.name,
                         description: partialNewAction.description,
-                        config: partialNewAction.config,
+                        config,
                         created_at: Date.now(),
                         updated_at: Date.now(),
                         ...(!isHogFlowActionNode && (partialNewAction as CreateActionType).output_variable
@@ -796,7 +805,12 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         } else if (!updatedVariables?.some((v) => v.key === prefix)) {
                             updatedVariables = [
                                 ...(updatedVariables || []),
-                                { key: prefix, label: prefix, type: 'string' as const, default: '' },
+                                {
+                                    key: prefix,
+                                    label: outputVar.label ?? prefix,
+                                    type: 'string' as const,
+                                    default: '',
+                                },
                             ]
                         }
                     }
@@ -858,6 +872,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.hideDropzones()
             },
             copyNodeToHighlightedDropzone: () => {
+                const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
+                // Mirror onDrop's guard (both dropzone and node required) so the toast is reliable
+                if (!dropzoneNode || !values.nodeToBeAdded) {
+                    lemonToast.error("Couldn't copy this step there. Try dropping it on a highlighted spot.")
+                    actions.stopCopyingNode()
+                    return
+                }
                 actions.onDrop()
                 actions.stopCopyingNode()
             },
@@ -875,12 +896,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 const movingNodeId = values.movingNodeId!
                 const dropzoneNode = values.dropzoneNodes.find((x) => x.id === values.highlightedDropzoneNodeId)
                 if (!dropzoneNode) {
+                    lemonToast.error("Couldn't move this step there. Try dropping it on a highlighted spot.")
                     actions.stopMovingNode()
                     return
                 }
 
                 const targetHogFlowEdge = dropzoneNode.data.edge.data?.edge
                 if (!targetHogFlowEdge) {
+                    lemonToast.error("Couldn't move this step there. Try a different spot.")
                     actions.stopMovingNode()
                     return
                 }
@@ -894,6 +917,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 )
 
                 if (!newEdges) {
+                    lemonToast.error("Couldn't move this step there. Try a different spot.")
                     actions.stopMovingNode()
                     return
                 }

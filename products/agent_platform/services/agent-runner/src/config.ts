@@ -19,18 +19,24 @@ import {
     PlatformConfigSchema,
     requiredInProd,
     requiredInProdUnsetInDev,
+    WEB_SEARCH_PROVIDER_NAMES,
 } from '@posthog/agent-shared'
 
 // Dev SeaweedFS defaults — the PostHog dev stack pre-creates the `posthog`
-// bucket on `seaweedfs:8333`. Matches the same defaults session-replay v2
-// uses (`SESSION_RECORDING_V2_S3_*`). SeaweedFS S3 runs in anonymous mode,
-// so the access/secret keys are placeholders (`any`). Gated by `isDev()`
-// so prod (NODE_ENV=production) still has to set AGENT_{MEMORY,BUNDLE}_S3_*
+// bucket on `seaweedfs:8333` (anonymous mode, so access/secret are `any`). Gated by
+// `isDev()` so prod (NODE_ENV=production) must set AGENT_{MEMORY,BUNDLE}_S3_*
 // explicitly; without them the bundle-store fail-fast in index.ts trips.
 const DEV_S3_ENDPOINT = 'http://localhost:8333'
 const DEV_S3_BUCKET = 'posthog'
 const DEV_S3_ACCESS_KEY_ID = 'any'
 const DEV_S3_SECRET_ACCESS_KEY = 'any'
+
+// Deterministic local ai-gateway phs_ bearer (dev only) — must stay
+// byte-identical to bin/setup-gateway-e2e's DEV_GATEWAY_PHS, which publishes the
+// matching credential blob to the gateway's local valkey (a mismatch 401s the
+// whole e2e silently). Exported so config.test.ts asserts against this const
+// instead of re-hardcoding the literal.
+export const DEV_GATEWAY_PHS = 'phs_localgatewaye2elocalgatewaye2e0001'
 
 export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     // Bus (publishes lifecycle events) + smokescreen (tool/gateway/MCP egress) are
@@ -54,9 +60,9 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .number()
         .int()
         .positive()
-        .default(8083)
+        .default(() => (isDev() ? 3032 : 8083))
         .describe(
-            'Port for the minimal GET /healthz liveness server. The worker has no request path; this is its only listener. Local dev overrides to 3032 (see bin/mprocs.yaml); deployed sets it explicitly in the chart.'
+            'Port for the minimal GET /healthz liveness server. The worker has no request path; this is its only listener. Dev defaults to 3032 (lines up after ingress 3030 / janitor 3031); deployed sets it explicitly in the chart.'
         ),
     maxOutputTokens: z.coerce
         .number()
@@ -66,21 +72,24 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe('Operator override capping per-turn max_tokens below the model ceiling. Unset → model ceiling.'),
     useAiGateway: z
         .union([z.literal('1'), z.literal('0'), z.literal('true'), z.literal('false')])
-        .default('0')
+        .default(() => (isDev() ? '1' : '0'))
         .transform((v) => v === '1' || v === 'true')
         .describe(
-            'When truthy (`1`/`true`), routes every model call through PostHog ai-gateway via posthogAiGatewayModel(). Spec.model still picks the underlying model id.'
+            'When truthy (`1`/`true`), routes every model call through PostHog ai-gateway via posthogAiGatewayModel(). Dev defaults on (the local default is the gateway); prod sets it explicitly in the chart. Spec.model still picks the underlying model id.'
         ),
     aiGatewayUrl: z
         .string()
         .url()
-        .default('http://ai-gateway/v1')
-        .describe('Custom baseUrl for the posthogAiGatewayModel factory. In prod points at the in-cluster service.'),
+        .default(() => (isDev() ? 'http://localhost:8080/v1' : 'http://ai-gateway/v1'))
+        .describe(
+            'Custom baseUrl for the posthogAiGatewayModel factory. Dev defaults to the local sibling gateway on :8080; prod points at the in-cluster service.'
+        ),
     posthogAiGatewayKey: z
         .string()
         .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? DEV_GATEWAY_PHS : undefined))
         .describe(
-            'Static ai-gateway bearer — a `phs_` project secret key with the `llm_gateway:read` scope. On the gateway path it authenticates every model + usage call (required there); on the direct path it falls through as the first-priority provider apiKey.'
+            'Static ai-gateway bearer — a `phs_` project secret key with the `llm_gateway:read` scope. On the gateway path it authenticates every model + usage call (required there); on the direct path it falls through as the first-priority provider apiKey. Dev defaults to the deterministic local phs_ that bin/setup-gateway-e2e provisions.'
         ),
     anthropicApiKey: z.string().optional().describe('Anthropic API key. Second-priority for pi-ai default apiKey.'),
     openaiApiKey: z.string().optional().describe('OpenAI API key. Third-priority for pi-ai default apiKey.'),
@@ -88,15 +97,17 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
     posthogAnalyticsApiKey: z
         .string()
         .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? 'phc_localposthogprojecttoken' : undefined))
         .describe(
-            'Fallback PostHog project key for the LLM analytics sink. By default each event routes to the owning team’s OWN project (team_id → phc_); this key only catches events whose team has no api_token. Setting either this or POSTHOG_ANALYTICS_HOST enables the sink; with neither → NoopAnalyticsSink (CI).'
+            'Fallback PostHog project key for the LLM analytics sink. By default each event routes to the owning team’s OWN project (team_id → phc_); this key only catches events whose team has no api_token. Setting either this or POSTHOG_ANALYTICS_HOST enables the sink; with neither → NoopAnalyticsSink (CI). Dev defaults to the local project token.'
         ),
     posthogAnalyticsHost: z
         .string()
         .url()
         .optional()
+        .transform((v): string | undefined => v ?? (isDev() ? 'http://localhost:8010' : undefined))
         .describe(
-            'PostHog capture host for the analytics sink (the region the runner’s teams live in). Defaults to `https://us.posthog.com` when unset. Setting it enables per-team routing even without a fallback key.'
+            'PostHog capture host for the analytics sink (the region the runner’s teams live in). Defaults to `https://us.posthog.com` when unset in prod, and to local Django (`http://localhost:8010`) in dev. Setting it enables per-team routing even without a fallback key.'
         ),
     approvalLinkScheme: z
         .string()
@@ -105,7 +116,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
             'Custom-protocol scheme that PostHog Code registers for deep links (the agent console now lives in the PostHog Code app). Used to build clickable approval links (`<scheme>://approval/<id>`) surfaced to the model on a gated tool call so non-PostHog-Code clients (Slack, MCP) can open the approval in the desktop app. Dev → `posthog-code-dev`, prod → `posthog-code`.'
         ),
     memoryS3Endpoint: requiredInProd(DEV_S3_ENDPOINT, 'AGENT_MEMORY_S3_ENDPOINT', { url: true }).describe(
-        'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it (fail closed at config-load in prod). Dev defaults to local SeaweedFS via `hogli start`.'
+        'S3-compatible endpoint for agent-memory file storage. Required everywhere — runner refuses to start without it (fail closed at config-load in prod). Dev defaults to local SeaweedFS.'
     ),
     memoryS3Region: z
         .string()
@@ -179,7 +190,7 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .string()
         .optional()
         .describe(
-            "Dev-only bearer attached to `kind: external` MCP requests when the ref has no `auth.integration` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via integrations or `kind: agent`."
+            "Dev-only bearer attached to MCP requests when the ref has no `auth.provider` configured. Lets a local bundle (concierge) reach the dev MCP server with the operator's PAT, before per-session credential plumbing exists for external MCPs. **Refused at boot when NODE_ENV=production** — prod must route auth via `auth.provider` or a bring-your-own-token secret."
         ),
     sandboxBackend: z
         .enum(['docker', 'modal'])
@@ -228,6 +239,46 @@ export const AgentRunnerConfigSchema = PlatformConfigSchema.extend({
         .describe(
             'Comma-separated CIDRs the Modal custom-tool sandbox may reach outbound. Empty (default) → the sandbox has NO outbound internet (Modal `block_network`). Custom tools compute and return; the runner makes any egress through smokescreen. Set only if a custom tool genuinely needs direct egress to a known range.'
         ),
+    linkRedirectBaseUrl: z
+        .string()
+        .url()
+        .default(() => (isDev() ? 'http://localhost:3030' : 'https://agents.posthog.com'))
+        .describe(
+            'Public base URL of the ingress, used to build OAuth callback redirect URIs for identity linking (`<base>/link/<provider>/callback`). Dev defaults to the local ingress; prod sets the deployed ingress URL.'
+        ),
+    webSearchProvider: z
+        .enum(WEB_SEARCH_PROVIDER_NAMES)
+        .optional()
+        .describe(
+            'Primary `@posthog/web-search` provider id (`exa` | `tavily` | `brave`), tried first. A typo fails fast at config load rather than silently disabling the tool. Unset → the highest-priority keyed provider acts as primary. With no provider key set at all the tool is gated out of every session.'
+        ),
+    webSearchFallbacks: z
+        .string()
+        .optional()
+        .refine(
+            (v) => {
+                if (!v) {
+                    return true
+                }
+                const tokens = v
+                    .split(',')
+                    .map((s) => s.trim().toLowerCase())
+                    .filter(Boolean)
+                return tokens.every((t) => (WEB_SEARCH_PROVIDER_NAMES as readonly string[]).includes(t))
+            },
+            {
+                message: `webSearchFallbacks must be a comma-separated list of: ${WEB_SEARCH_PROVIDER_NAMES.join(', ')}`,
+            }
+        )
+        .describe(
+            'Comma-separated ordered fallback provider ids tried after the primary on error. A typo fails fast at config load (matches the primary). Empty → every other keyed provider is a last-resort fallback in natural order (exa, tavily, brave).'
+        ),
+    exaApiKey: z.string().optional().describe('Exa search API key. Enables the `exa` web-search provider.'),
+    tavilyApiKey: z.string().optional().describe('Tavily search API key. Enables the `tavily` web-search provider.'),
+    braveApiKey: z
+        .string()
+        .optional()
+        .describe('Brave Search API subscription token. Enables the `brave` web-search provider.'),
 })
 
 export type AgentRunnerConfig = z.infer<typeof AgentRunnerConfigSchema>
@@ -267,6 +318,12 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentRunnerConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     MODAL_APP_NAME: 'modalAppName',
     MODAL_REGION: 'modalRegion',
+    AGENT_INGRESS_PUBLIC_URL: 'linkRedirectBaseUrl',
+    AGENT_WEB_SEARCH_PROVIDER: 'webSearchProvider',
+    AGENT_WEB_SEARCH_FALLBACKS: 'webSearchFallbacks',
+    EXA_API_KEY: 'exaApiKey',
+    TAVILY_API_KEY: 'tavilyApiKey',
+    BRAVE_API_KEY: 'braveApiKey',
 })
 
 export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): AgentRunnerConfig {
@@ -274,10 +331,12 @@ export function loadAgentRunnerConfig(env: NodeJS.ProcessEnv = process.env): Age
 }
 
 /**
- * Returns the first non-empty provider key in the same order the legacy
- * runner used to: gateway → anthropic → openai → catch-all. Centralized
- * here so the runner doesn't sprinkle the priority order across files.
+ * First non-empty *provider* API key for the direct (non-gateway) path:
+ * anthropic → openai → catch-all. The gateway bearer (`posthogAiGatewayKey`,
+ * a `phs_`) is deliberately excluded — it authenticates the gateway, not a
+ * provider, and the gateway path uses it directly via resolveApiKey. (It also
+ * dev-defaults now, so including it would shadow real provider keys locally.)
  */
 export function defaultApiKeyFromConfig(cfg: AgentRunnerConfig): string | undefined {
-    return cfg.posthogAiGatewayKey ?? cfg.anthropicApiKey ?? cfg.openaiApiKey ?? cfg.modelApiKey
+    return cfg.anthropicApiKey ?? cfg.openaiApiKey ?? cfg.modelApiKey
 }

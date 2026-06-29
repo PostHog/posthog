@@ -4,6 +4,9 @@ import { useMemo } from 'react'
 import { type ChartTheme } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
+import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -25,8 +28,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         notableSessions,
         sessionRowsLoading,
         harnessRows,
-        harnessRawRowsLoading,
+        harnessRowsLoading,
         dailyActivity,
+        activityIncompleteTail,
         activityRowsLoading,
         toolDailySeries,
         toolDailyRowsLoading,
@@ -34,8 +38,10 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         toolRowsLoading,
         dateFilter,
         interval,
+        filterTestAccounts,
+        propertyFilters,
     } = useValues(mcpDashboardOverviewLogic)
-    const { setDateFilter } = useActions(mcpDashboardOverviewLogic)
+    const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
@@ -44,20 +50,40 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
     const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
 
     return (
-        <div className="flex flex-col gap-4" data-quill>
-            <div className="flex flex-wrap items-center gap-3">
-                <McpDateFilter
-                    dateFrom={dateFilter.dateFrom}
-                    dateTo={dateFilter.dateTo}
-                    onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
-                    dataAttr="mcp-dashboard-date-filter"
+        <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    <McpDateFilter
+                        dateFrom={dateFilter.dateFrom}
+                        dateTo={dateFilter.dateTo}
+                        onChange={(dateFrom, dateTo) => setDateFilter(dateFrom, dateTo)}
+                        dataAttr="mcp-dashboard-date-filter"
+                    />
+                    <div data-attr="mcp-dashboard-property-filter">
+                        <PropertyFilters
+                            pageKey="mcp-dashboard-overview"
+                            propertyFilters={propertyFilters}
+                            onChange={setPropertyFilters}
+                            taxonomicGroupTypes={[
+                                TaxonomicFilterGroupType.EventProperties,
+                                TaxonomicFilterGroupType.EventFeatureFlags,
+                            ]}
+                            eventNames={['$mcp_tool_call']}
+                            buttonText="Add filter"
+                        />
+                    </div>
+                </div>
+                <TestAccountFilterSwitch
+                    checked={filterTestAccounts}
+                    onChange={setFilterTestAccounts}
+                    data-attr="mcp-dashboard-test-account-filter"
                 />
             </div>
-            <section>
+            <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Key metrics</h2>
                 <KpiTiles kpis={kpis} intentClusterCount={intentClusterCount} kpisLoading={kpisLoading} theme={theme} />
             </section>
-            <section>
+            <section data-quill>
                 <h2 className="mb-4 text-xl font-semibold text-primary">Usage</h2>
                 <div className="flex flex-col gap-[22px]">
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-3">
@@ -68,9 +94,10 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 theme={theme}
                                 timezone={timezone}
                                 interval={interval}
+                                incompleteTail={activityIncompleteTail}
                             />
                         </div>
-                        <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
+                        <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />

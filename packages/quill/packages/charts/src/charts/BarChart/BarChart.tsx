@@ -390,6 +390,7 @@ function BarChartInner<Meta = unknown>({
                     topStackedKeyByAxis={topStackedKeyByAxis}
                     layout={barLayout}
                     isHorizontal={isHorizontal}
+                    tooltipConfig={config?.tooltip}
                 />
             )}
             onPointClick={onPointClick}

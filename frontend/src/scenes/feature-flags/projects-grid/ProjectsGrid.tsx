@@ -10,14 +10,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { FeatureFlagType, OrganizationFeatureFlag } from '~/types'
+import { OrganizationFeatureFlag, OrganizationFeatureFlagRow } from '~/types'
 
 import { CellState, ProjectsGridCell } from './ProjectsGridCell'
 import { projectsGridLogic } from './projectsGridLogic'
 import { ProjectsGridToolbar } from './ProjectsGridToolbar'
 
-function cellStateFor(
-    flag: FeatureFlagType,
+export function cellStateFor(
+    flag: OrganizationFeatureFlagRow,
     teamId: number,
     currentTeamId: number,
     accessibleTeamIds: Set<number>,
@@ -29,18 +29,20 @@ function cellStateFor(
         return { kind: 'present', sibling: siblingForTeam }
     }
 
-    // Before siblings load, render the current team's cell from the flag directly
-    // (eval count unavailable until siblings arrive).
-    if (teamId === currentTeamId) {
+    // Before siblings load, render the current team's cell directly from the row's representative
+    // flag, but only when that representative actually belongs to the current team (eval count
+    // unavailable until siblings arrive).
+    if (teamId === currentTeamId && flag.team_id === currentTeamId) {
         return {
             kind: 'present',
             sibling: {
                 flag_id: flag.id,
                 team_id: teamId,
-                created_by: flag.created_by ?? null,
                 filters: flag.filters,
-                created_at: flag.created_at ?? '',
                 active: flag.active,
+                // Not rendered by ProjectsGridCell; the row doesn't carry them to avoid a per-row join.
+                created_by: null,
+                created_at: '',
             },
         }
     }
@@ -98,14 +100,14 @@ export function ProjectsGrid(): JSX.Element {
 
     const columnWidth = `${100 / (visibleColumns.length + 1)}%`
 
-    const columns: LemonTableColumns<FeatureFlagType> = [
+    const columns: LemonTableColumns<OrganizationFeatureFlagRow> = [
         {
             title: 'Flag',
             key: 'flag',
             width: columnWidth,
             render: (_, flag) => (
                 <LemonTableLink
-                    to={urls.featureFlag(flag.id as number)}
+                    to={urls.project(flag.team_id, urls.featureFlag(flag.id))}
                     title={flag.name || flag.key}
                     description={flag.key}
                 />
@@ -122,7 +124,7 @@ export function ProjectsGrid(): JSX.Element {
             ),
             key: `project-${teamId}`,
             width: columnWidth,
-            render: (_: unknown, flag: FeatureFlagType) => (
+            render: (_: unknown, flag: OrganizationFeatureFlagRow) => (
                 <ProjectsGridCell
                     state={cellStateFor(
                         flag,

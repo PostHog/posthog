@@ -8,7 +8,7 @@ import { lookupMcpToolApproval } from './mcp-tool-lookup'
  * fills in every default — that's the spec the runner actually sees.
  */
 function buildSpec(overrides: Record<string, unknown> = {}): AgentSpec {
-    return AgentSpecSchema.parse({ model: 'claude-opus-4-7', ...overrides })
+    return AgentSpecSchema.parse({ model: 'anthropic/claude-opus-4-7', ...overrides })
 }
 
 describe('lookupMcpToolApproval', () => {
@@ -22,7 +22,7 @@ describe('lookupMcpToolApproval', () => {
                         {
                             name: 'agent-applications-revisions-promote-create',
                             requires_approval: true,
-                            approval_policy: { approvers: ['session_principal'], ttl_ms: 900_000 },
+                            approval_policy: { type: 'principal', ttl_ms: 900_000 },
                         },
                     ],
                 },
@@ -31,7 +31,7 @@ describe('lookupMcpToolApproval', () => {
         const result = lookupMcpToolApproval('posthog__agent-applications-revisions-promote-create', spec)
         expect(result).not.toBeNull()
         expect(result?.requires_approval).toBe(true)
-        expect(result?.approval_policy.approvers).toEqual(['session_principal'])
+        expect(result?.approval_policy.type).toBe('principal')
         expect(result?.approval_policy.ttl_ms).toBe(900_000)
     })
 
@@ -162,7 +162,7 @@ describe('lookupMcpToolApproval', () => {
                     kind: 'native',
                     id: 'linear__create-issue',
                     requires_approval: true,
-                    approval_policy: { approvers: ['team_admins'] },
+                    approval_policy: { type: 'agent' },
                 },
             ],
             mcps: [

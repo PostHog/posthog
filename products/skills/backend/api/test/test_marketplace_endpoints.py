@@ -51,7 +51,6 @@ def _mint_pak(
     )
 
 
-@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestSkillZipExport(APIBaseTest):
     def _url(self, name: str) -> str:
         return f"/api/environments/{self.team.id}/llm_skills/name/{name}/export"
@@ -72,7 +71,7 @@ class TestSkillZipExport(APIBaseTest):
         )
         return skill
 
-    def test_export_returns_spec_zip(self, _mock_flag):
+    def test_export_returns_spec_zip(self):
         self._create_skill()
         response = self.client.get(self._url("make-fractals"))
 
@@ -87,10 +86,10 @@ class TestSkillZipExport(APIBaseTest):
         assert "make-fractals/scripts/run.py" in names
         assert "allowed-tools: Bash Write" in skill_md
 
-    def test_export_missing_skill_404(self, _mock_flag):
+    def test_export_missing_skill_404(self):
         assert self.client.get(self._url("nope")).status_code == status.HTTP_404_NOT_FOUND
 
-    def test_export_then_reimport_round_trip(self, _mock_flag):
+    def test_export_then_reimport_round_trip(self):
         skill = LLMSkill.objects.create(
             team=self.team,
             name="round-trip",
@@ -124,11 +123,11 @@ class TestSkillZipExport(APIBaseTest):
         assert data["allowed_tools"] == ["Bash", "Write"]
         assert any(f["path"] == "scripts/x.py" for f in data["files"])
 
-    def test_import_missing_file_is_400(self, _mock_flag):
+    def test_import_missing_file_is_400(self):
         response = self.client.post(f"/api/environments/{self.team.id}/llm_skills/import", {}, format="multipart")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_import_duplicate_name_is_400(self, _mock_flag):
+    def test_import_duplicate_name_is_400(self):
         LLMSkill.objects.create(
             team=self.team, name="dupe", description="d", body="b", version=1, is_latest=True, created_by=self.user
         )
@@ -139,7 +138,7 @@ class TestSkillZipExport(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_export_rejects_spec_invalid_description(self, _mock_flag):
+    def test_export_rejects_spec_invalid_description(self):
         # Stored limit is 4096 but the spec caps description at 1024 — export must refuse rather
         # than emit a spec-invalid SKILL.md.
         LLMSkill.objects.create(
@@ -352,7 +351,6 @@ class TestMarketplaceVersion(APIBaseTest):
         assert after >= before
 
 
-@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestMarketplaceInstallCommand(APIBaseTest):
     def _url(self) -> str:
         return f"/api/environments/{self.team.id}/llm_skills/marketplace/install-command"
@@ -363,7 +361,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
     def _credential(self) -> PersonalAPIKey | None:
         return PersonalAPIKey.objects.filter(user=self.user, label=self._label()).first()
 
-    def test_get_reports_absent_when_no_credential(self, _mock_flag):
+    def test_get_reports_absent_when_no_credential(self):
         response = self.client.get(self._url())
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -375,11 +373,11 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert "YOUR_PHX_TOKEN" in body["command_template"]
         assert self._credential() is None
 
-    def test_get_does_not_mint(self, _mock_flag):
+    def test_get_does_not_mint(self):
         self.client.get(self._url())
         assert PersonalAPIKey.objects.filter(user=self.user).count() == 0
 
-    def test_post_mints_read_only_team_scoped_credential(self, _mock_flag):
+    def test_post_mints_read_only_team_scoped_credential(self):
         response = self.client.post(self._url())
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
@@ -405,7 +403,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert key.label == self._label()
         assert PersonalAPIKey.objects.filter(user=self.user).count() == 1
 
-    def test_post_again_without_rotate_reuses_and_returns_no_token(self, _mock_flag):
+    def test_post_again_without_rotate_reuses_and_returns_no_token(self):
         self.client.post(self._url())
         original = self._credential()
         assert original is not None
@@ -424,7 +422,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert reloaded is not None
         assert reloaded.secure_value == original.secure_value
 
-    def test_post_with_rotate_rolls_same_key_and_issues_fresh_token(self, _mock_flag):
+    def test_post_with_rotate_rolls_same_key_and_issues_fresh_token(self):
         self.client.post(self._url())
         original = self._credential()
         assert original is not None
@@ -445,7 +443,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert rolled.last_rolled_at is not None
         assert hash_key_value(body["token"]) == rolled.secure_value
 
-    def test_reuse_re_narrows_a_drifted_key_without_minting_a_token(self, _mock_flag):
+    def test_reuse_re_narrows_a_drifted_key_without_minting_a_token(self):
         # A same-label key that somehow carries broader scopes must be pulled back to read-only,
         # single-team before it's handed back — the UI/endpoint describe it as exactly that.
         issue_marketplace_credential(self.team, self.user, rotate=False)
@@ -466,7 +464,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert result.key.scoped_teams == [self.team.id]
         assert result.key.scoped_organizations == []
 
-    def test_rotate_re_narrows_scopes_alongside_the_fresh_token(self, _mock_flag):
+    def test_rotate_re_narrows_scopes_alongside_the_fresh_token(self):
         issue_marketplace_credential(self.team, self.user, rotate=False)
         drifted = self._credential()
         assert drifted is not None
@@ -482,7 +480,7 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert result.key.scopes == ["llm_skill:read"]
         assert result.key.scoped_teams == [self.team.id]
 
-    def test_one_user_connecting_does_not_roll_another_users_credential(self, _mock_flag):
+    def test_one_user_connecting_does_not_roll_another_users_credential(self):
         # Per-user keying: a teammate connecting must not touch mine.
         mine = issue_marketplace_credential(self.team, self.user, rotate=False)
         my_secure = mine.key.secure_value
@@ -498,12 +496,11 @@ class TestMarketplaceInstallCommand(APIBaseTest):
         assert mine.key.secure_value == my_secure  # untouched
 
 
-@patch("products.skills.backend.api.skills.posthoganalytics.feature_enabled", return_value=True)
 class TestImportAndCreateValidation(APIBaseTest):
     def _import_url(self) -> str:
         return f"/api/environments/{self.team.id}/llm_skills/import"
 
-    def test_import_rejects_oversized_body(self, _mock_flag):
+    def test_import_rejects_oversized_body(self):
         # A spec-valid zip (short description) must still be rejected when its SKILL.md body exceeds
         # the same byte cap the create/edit paths enforce — the import path used to skip that check.
         export = SkillExport(name="big-skill", description="Big skill.", body="x" * 1_000_001, version=1)
@@ -512,7 +509,7 @@ class TestImportAndCreateValidation(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "body" in str(response.json()).lower()
 
-    def test_create_rejects_whitespace_allowed_tool(self, _mock_flag):
+    def test_create_rejects_whitespace_allowed_tool(self):
         # A tool name with a space would fracture the spec's space-delimited allowed-tools string.
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_skills/",
@@ -521,7 +518,7 @@ class TestImportAndCreateValidation(APIBaseTest):
         )
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_oversize_skills_skipped_from_marketplace_tree(self, _mock_flag):
+    def test_oversize_skills_skipped_from_marketplace_tree(self):
         LLMSkill.objects.create(
             team=self.team, name="aaa", description="d", body="x" * 100, version=1, is_latest=True, created_by=self.user
         )

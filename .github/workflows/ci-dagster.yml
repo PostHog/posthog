@@ -20,7 +20,7 @@ permissions:
     pull-requests: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
     DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
@@ -109,6 +109,7 @@ jobs:
                         - 'posthog/hogql_queries/**'
                         - 'posthog/settings/**'
                         - 'posthog/kafka_client/**'
+                        - 'posthog/session/**'
                         - 'posthog/schema.py'
                         - 'posthog/schema_enums.py' # enum-only schema changes touch only this file
                         - 'posthog/utils.py'
@@ -118,6 +119,7 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
+                        - 'posthog/persons_db.py'
                         - 'posthog/redis.py'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'
@@ -137,6 +139,7 @@ jobs:
                         - 'products/cohorts/backend/**/*.py'
                         - 'products/data_modeling/backend/**/*.py'
                         - 'products/data_warehouse/backend/**/*.py'
+                        - 'products/warehouse_sources/backend/**/*.py'
                         - 'products/error_tracking/backend/**/*.py'
                         - 'products/event_definitions/backend/**/*.py'
                         - 'products/growth/backend/**/*.py'
@@ -263,7 +266,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start stack with Docker Compose
@@ -312,13 +315,6 @@ jobs:
               with:
                   toolchain: stable
                   components: cargo
-
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
@@ -395,11 +391,23 @@ jobs:
 
             - name: Run Dagster tests
               run: |
+                  # Pick the split algorithm and granularity at runtime: optimal_chunks +
+                  # file granularity only when the installed pytest-split offers them, else
+                  # duration_based_chunks / item. A workflow edit runs merged with master, so
+                  # an unrebased PR on older pytest-split must not hit an unknown
+                  # --splitting-algorithm / --split-granularity. See AGENTS.md (CI).
+                  SPLITTING_ALGORITHM=duration_based_chunks
+                  SPLIT_GRANULARITY=()
+                  if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
+                      SPLITTING_ALGORITHM=optimal_chunks
+                      SPLIT_GRANULARITY=(--split-granularity=file)
+                  fi
                   pytest posthog/dags products/**/dags \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                       --durations=100 --durations-min=1.0 --store-durations \
-                      --splitting-algorithm=duration_based_chunks \
+                      --splitting-algorithm="$SPLITTING_ALGORITHM" \
+                      "${SPLIT_GRANULARITY[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml

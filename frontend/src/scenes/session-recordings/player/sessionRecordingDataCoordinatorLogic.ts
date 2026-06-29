@@ -43,6 +43,18 @@ export interface SessionRecordingDataCoordinatorLogicProps {
     accessToken?: string
 }
 
+// For a short window after a recording starts it may still be ingesting, so a missing full
+// snapshot is not yet definitive — late data (including the initial full snapshot) can still
+// arrive. Past this grace period a missing full snapshot means the data never reached PostHog.
+// NB: this clock is anchored on recording start, whereas snapshotDataLogic's
+// POLLING_INACTIVITY_TIMEOUT_MS is anchored on the last source change — they both happen to be
+// ~5 minutes but measure from different events, so tune them together, not in isolation.
+export const INGESTION_GRACE_PERIOD_MINUTES = 5
+
+export function isWithinIngestionGracePeriod(start: Dayjs | null): boolean {
+    return start != null && now().diff(start, 'minute') <= INGESTION_GRACE_PERIOD_MINUTES
+}
+
 export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoordinatorLogicType>([
     path((key) => ['scenes', 'session-recordings', 'sessionRecordingDataCoordinatorLogic', key]),
     props({} as SessionRecordingDataCoordinatorLogicProps),
@@ -442,8 +454,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         isRecentAndInvalid: [
             (s) => [s.start, s.snapshotsInvalid],
             (start, snapshotsInvalid) => {
-                const lessThanFiveMinutesOld = dayjs().diff(start, 'minute') <= 5
-                return snapshotsInvalid && lessThanFiveMinutesOld
+                return snapshotsInvalid && isWithinIngestionGracePeriod(start)
             },
         ],
 

@@ -3,13 +3,72 @@ package events
 import (
 	"fmt"
 	"log"
+	"regexp"
 	"slices"
+	"strconv"
+	"strings"
 	"sync/atomic"
 
 	"github.com/gofrs/uuid/v5"
 	"github.com/posthog/posthog/livestream/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 )
+
+const (
+	OpExact        = "exact"
+	OpIsNot        = "is_not"
+	OpIContains    = "icontains"
+	OpNotIContains = "not_icontains"
+	OpRegex        = "regex"
+	OpNotRegex     = "not_regex"
+	OpGreaterThan  = "gt"
+	OpGreaterEqual = "gte"
+	OpLessThan     = "lt"
+	OpLessEqual    = "lte"
+	OpIsSet        = "is_set"
+	OpIsNotSet     = "is_not_set"
+)
+
+type CompiledPropertyFilter struct {
+	Key      string
+	Operator string
+	Values   []string
+
+	lowerValues []string
+	regexes     []*regexp.Regexp
+	numbers     []float64
+	numericOK   []bool
+}
+
+func NewCompiledPropertyFilter(key, operator string, values []string) CompiledPropertyFilter {
+	f := CompiledPropertyFilter{Key: key, Operator: operator, Values: values}
+	switch operator {
+	case OpIContains, OpNotIContains:
+		f.lowerValues = make([]string, len(values))
+		for i, v := range values {
+			f.lowerValues[i] = strings.ToLower(v)
+		}
+	case OpRegex, OpNotRegex:
+		f.regexes = make([]*regexp.Regexp, len(values))
+		for i, v := range values {
+			if re, err := regexp.Compile(v); err == nil {
+				f.regexes[i] = re
+			} else {
+				log.Printf("WARNING: ignoring invalid regex in %s filter for key=%s value=%q: %v", operator, key, v, err)
+			}
+		}
+	case OpGreaterThan, OpGreaterEqual, OpLessThan, OpLessEqual:
+		f.numbers = make([]float64, len(values))
+		f.numericOK = make([]bool, len(values))
+		for i, v := range values {
+			if n, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
+				f.numbers[i] = n
+				f.numericOK[i] = true
+			}
+		}
+	}
+	return f
+}
 
 type Subscription struct {
 	SubID uint64
@@ -19,7 +78,7 @@ type Subscription struct {
 	Token           string
 	DistinctId      string
 	EventTypes      []string
-	PropertyFilters map[string][]string
+	PropertyFilters []CompiledPropertyFilter
 
 	Geo     bool
 	Columns []string
@@ -152,18 +211,113 @@ func (c *Filter) Run() {
 	}
 }
 
-func matchesPropertyFilters(props map[string]interface{}, filters map[string][]string) bool {
-	for key, allowed := range filters {
-		raw, ok := props[key]
-		if !ok {
-			return false
-		}
-		actual := fmt.Sprint(raw)
-		if !slices.Contains(allowed, actual) {
+func matchesPropertyFilters(props map[string]interface{}, filters []CompiledPropertyFilter) bool {
+	for i := range filters {
+		if !filters[i].matches(props) {
 			return false
 		}
 	}
 	return true
+}
+
+func (f *CompiledPropertyFilter) hasValidRegex() bool {
+	for _, re := range f.regexes {
+		if re != nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (f *CompiledPropertyFilter) matches(props map[string]interface{}) bool {
+	raw, present := props[f.Key]
+
+	switch f.Operator {
+	case OpIsSet:
+		return present
+	case OpIsNotSet:
+		return !present
+	}
+
+	if (f.Operator == OpRegex || f.Operator == OpNotRegex) && !f.hasValidRegex() {
+		return false
+	}
+
+	if !present {
+		switch f.Operator {
+		case OpIsNot, OpNotIContains, OpNotRegex:
+			return true
+		default:
+			return false
+		}
+	}
+
+	actual := fmt.Sprint(raw)
+
+	switch f.Operator {
+	case OpExact:
+		return slices.Contains(f.Values, actual)
+	case OpIsNot:
+		return !slices.Contains(f.Values, actual)
+	case OpIContains:
+		lower := strings.ToLower(actual)
+		for _, v := range f.lowerValues {
+			if strings.Contains(lower, v) {
+				return true
+			}
+		}
+		return false
+	case OpNotIContains:
+		lower := strings.ToLower(actual)
+		for _, v := range f.lowerValues {
+			if strings.Contains(lower, v) {
+				return false
+			}
+		}
+		return true
+	case OpRegex:
+		for _, re := range f.regexes {
+			if re != nil && re.MatchString(actual) {
+				return true
+			}
+		}
+		return false
+	case OpNotRegex:
+		for _, re := range f.regexes {
+			if re != nil && re.MatchString(actual) {
+				return false
+			}
+		}
+		return true
+	case OpGreaterThan, OpGreaterEqual, OpLessThan, OpLessEqual:
+		actualNum, err := strconv.ParseFloat(strings.TrimSpace(actual), 64)
+		if err != nil {
+			return false
+		}
+		for i, ok := range f.numericOK {
+			if ok && compareNumeric(f.Operator, actualNum, f.numbers[i]) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
+func compareNumeric(operator string, actual, want float64) bool {
+	switch operator {
+	case OpGreaterThan:
+		return actual > want
+	case OpGreaterEqual:
+		return actual >= want
+	case OpLessThan:
+		return actual < want
+	case OpLessEqual:
+		return actual <= want
+	default:
+		return false
+	}
 }
 
 // Routes a single event to all matching subscriptions.
@@ -213,4 +367,3 @@ func deliverEvent(event PostHogEvent, subs []Subscription) {
 		}
 	}
 }
-

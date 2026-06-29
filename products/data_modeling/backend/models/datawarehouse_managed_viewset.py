@@ -21,8 +21,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.types import DataWarehouseManagedViewSetKind
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 
@@ -84,7 +84,8 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
         # Build the database once and reuse it for all views.
         from posthog.hogql.database.database import Database
 
-        database = Database.create_for(self.team.pk)
+        # Internal managed-view construction (no user); bypass warehouse HogQL access control.
+        database = Database.create_for(self.team.pk, bypass_warehouse_access_control=True)
         external_tables_by_view: dict[str, list] = {}
         for view in expected_views:
             temp_sq = DataWarehouseSavedQuery(

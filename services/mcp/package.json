@@ -45,7 +45,7 @@
         "@hono/node-server": "^2.0.2",
         "@modelcontextprotocol/ext-apps": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
-        "@posthog/mcp-analytics": "npm:@posthog/mcp@0.2.0",
+        "@posthog/mcp-analytics": "npm:@posthog/mcp@0.5.0",
         "@posthog/quill": "workspace:*",
         "@posthog/quill-charts": "workspace:*",
         "@toon-format/toon": "^2.1.0",

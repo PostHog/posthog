@@ -12,7 +12,6 @@ from typing import Union, cast
 from django.db import transaction
 
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import APIException, ValidationError
 from rest_framework.request import Request
 
@@ -22,12 +21,13 @@ from posthog.api.tagged_item import cleanup_orphan_tags, set_tags_on_object
 from posthog.clickhouse.query_tagging import Product
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.types import InsightQueryNode
 
-from products.data_modeling.backend.services.saved_query_dag_sync import delete_node_from_dag
-from products.data_warehouse.backend.data_load.saved_query_service import trigger_saved_query_schedule
+from products.data_modeling.backend.facade.api import delete_node_from_dag
+from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
@@ -72,7 +72,7 @@ class EndpointCrudService:
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
             user=self.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=item_id,
             scope=scope,
             activity=activity,
@@ -239,6 +239,8 @@ class EndpointCrudService:
             )
 
         except APIException:
+            raise
+        except ValidationError:
             raise
         except Exception as e:
             current_version = endpoint.get_version()

@@ -1,0 +1,81 @@
+//! The wire contract for the `error-tracking-ingestion-notifications` Kafka
+//! topic. The processing mode produces these; the notifications mode consumes
+//! them.
+
+use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+
+use crate::types::OutputErrProps;
+
+/// A notification emitted by error-tracking ingestion. Serialized as
+/// internally-tagged JSON (`{"type": "issue_created", ...}`) so new variants can
+/// be added without breaking existing consumers — an unknown `type` simply fails
+/// to deserialize and is skipped as a poison pill.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum IngestionNotification {
+    /// A new issue was created during ingestion.
+    IssueCreated(IssueCreated),
+}
+
+/// Payload for [`IngestionNotification::IssueCreated`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IssueCreated {
+    pub team_id: i32,
+    pub issue_id: Uuid,
+    pub fingerprint: String,
+    pub event_uuid: Uuid,
+    pub event_timestamp: String,
+    /// Full final exception event properties after Cymbal processing.
+    pub event_properties: OutputErrProps,
+}
+
+impl IngestionNotification {
+    pub fn issue_created(
+        team_id: i32,
+        issue_id: Uuid,
+        fingerprint: String,
+        event_uuid: Uuid,
+        event_timestamp: String,
+        event_properties: OutputErrProps,
+    ) -> Self {
+        Self::IssueCreated(IssueCreated {
+            team_id,
+            issue_id,
+            fingerprint,
+            event_uuid,
+            event_timestamp,
+            event_properties,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn issue_created_round_trips_with_type_tag() {
+        let notification = IngestionNotification::issue_created(
+            42,
+            Uuid::nil(),
+            "abc".to_string(),
+            Uuid::nil(),
+            "1970-01-01T00:00:00Z".to_string(),
+            OutputErrProps {
+                fingerprint: "abc".to_string(),
+                ..Default::default()
+            },
+        );
+
+        let json = serde_json::to_value(&notification).unwrap();
+        assert_eq!(json["type"], "issue_created");
+        assert_eq!(json["team_id"], 42);
+        assert_eq!(json["fingerprint"], "abc");
+        assert_eq!(json["event_properties"]["$exception_fingerprint"], "abc");
+
+        // Round-trips back to the same JSON through the typed enum.
+        let decoded: IngestionNotification = serde_json::from_value(json.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&decoded).unwrap(), json);
+    }
+}

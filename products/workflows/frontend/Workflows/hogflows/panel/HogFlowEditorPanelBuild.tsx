@@ -14,6 +14,7 @@ import { CreateActionType, hogFlowEditorLogic } from '../hogFlowEditorLogic'
 // Side-effect imports: register product-specific trigger and action nodes
 import '../registry'
 
+import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
 import { getDelayDescription } from '../steps/stepDelayLogic'
@@ -275,10 +276,18 @@ function HogFunctionTemplatesChooser(): JSX.Element {
 
 export function HogFlowEditorPanelBuild(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
+    const { isRowScopedTrigger } = useValues(workflowLogic)
 
     const registeredCategories = getRegisteredActionNodeCategories().filter(
         (cat) => !cat.featureFlag || featureFlags[cat.featureFlag]
     )
+
+    // Warehouse-triggered workflows have no person, so don't offer person-dependent steps at all.
+    const hideIfRowScoped = (nodes: CreateActionType[]): CreateActionType[] =>
+        isRowScopedTrigger ? nodes.filter((node) => !PERSON_DEPENDENT_ACTION_TYPES.has(node.type)) : nodes
+
+    const delayNodes = hideIfRowScoped(DELAY_NODES_TO_SHOW)
+    const logicNodes = hideIfRowScoped(LOGIC_NODES_TO_SHOW)
 
     return (
         <div className="flex overflow-y-auto flex-col gap-px p-2" data-attr="workflow-add-action">
@@ -293,16 +302,20 @@ export function HogFlowEditorPanelBuild(): JSX.Element {
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 Delays <LemonDivider className="flex-1" />
             </span>
-            {DELAY_NODES_TO_SHOW.map((action, index) => (
+            {delayNodes.map((action, index) => (
                 <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
             ))}
 
-            <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
-                Audience split <LemonDivider className="flex-1" />
-            </span>
-            {LOGIC_NODES_TO_SHOW.map((action, index) => (
-                <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
-            ))}
+            {logicNodes.length > 0 && (
+                <>
+                    <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
+                        Audience split <LemonDivider className="flex-1" />
+                    </span>
+                    {logicNodes.map((action, index) => (
+                        <HogFlowEditorToolbarNode key={`${action.type}-${index}`} action={action} />
+                    ))}
+                </>
+            )}
 
             <span className="flex gap-2 text-sm font-semibold mt-2 items-center">
                 PostHog actions <LemonDivider className="flex-1" />

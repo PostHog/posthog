@@ -1,5 +1,6 @@
 use std::{cmp::Ordering, collections::HashMap, fmt::Display, str::FromStr};
 
+use chrono::NaiveDate;
 use serde_json::Value as JsonValue;
 
 use crate::{
@@ -127,6 +128,9 @@ impl HogValue {
     }
 
     pub fn equals(&self, rhs: &HogValue, heap: &VmHeap) -> Result<HogLiteral, VmError> {
+        // Legacy structural equality, shared by every consumer. The cohort evaluator's temporal
+        // epoch-equality lives behind the opt-in flag in `HogVM::eq_op`, not here, so `Eq`/`in`/`has`
+        // stay unchanged for `cymbal` and other shared-crate users.
         let (lhs, rhs) = (self.deref(heap)?, rhs.deref(heap)?);
         lhs.equals(rhs)
     }
@@ -276,6 +280,29 @@ impl HogLiteral {
         Ok((lhs == rhs).into())
     }
 
+    /// Seconds since the Unix epoch if this literal is a **Hog datetime/date** object, else `None`.
+    ///
+    /// Hog represents temporals as marker-keyed objects (mirroring the Python/TS runtimes' dicts):
+    /// - `{ __hogDateTime__: true, dt: <unix seconds>, zone }` → `dt` verbatim.
+    /// - `{ __hogDate__: true, year, month, day }` → UTC-midnight epoch, so a Date and a DateTime
+    ///   are mutually comparable on one axis.
+    pub fn as_temporal_seconds(&self, heap: &VmHeap) -> Option<f64> {
+        let HogLiteral::Object(map) = self else {
+            return None;
+        };
+        if object_marker(map.get("__hogDateTime__"), heap) {
+            return object_number(map.get("dt"), heap);
+        }
+        if object_marker(map.get("__hogDate__"), heap) {
+            let year = object_number(map.get("year"), heap)? as i32;
+            let month = u32::try_from(object_number(map.get("month"), heap)? as i64).ok()?;
+            let day = u32::try_from(object_number(map.get("day"), heap)? as i64).ok()?;
+            let midnight = NaiveDate::from_ymd_opt(year, month, day)?.and_hms_opt(0, 0, 0)?;
+            return Some(midnight.and_utc().timestamp() as f64);
+        }
+        None
+    }
+
     // Set a property, returning the number of bytes the old value used
     pub fn set_property(&mut self, key: HogLiteral, val: HogValue) -> Result<usize, VmError> {
         match self {
@@ -300,6 +327,95 @@ impl HogLiteral {
             }
             _ => Err(VmError::ExpectedObject),
         }
+    }
+}
+
+/// Ordering comparison (`Gt`/`Lt`/`GtEq`/`LtEq`) for two literals, two concerns in order:
+///
+/// OPT-IN ONLY: this is reached exclusively from the coercing `compare_op` path, which the VM takes
+/// only when the context sets [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons)
+/// — today just the realtime-cohort evaluator. Every other shared-crate consumer (e.g. `cymbal`)
+/// keeps the legacy path where a non-number operand errors, so this coercion does NOT change their
+/// behavior. The semantics here match the Python/TS reference VMs (and ClickHouse for temporals).
+///
+/// 1. If *both* operands are temporal ([`HogLiteral::as_temporal_seconds`]) they are ordered by
+///    epoch seconds to match ClickHouse — the reference Python/TS HogVMs can't and so always return
+///    `false`; see the [`crate::stl`] module note.
+/// 2. Otherwise coerce like Python `unify_comparison_types` / TS `unifyComparisonTypes`: a String
+///    coerces to a Number only when the *other* operand is a Number, Bool↔Number maps to `1`/`0`,
+///    and both-strings compare lexicographically. This is deliberately *not* routed through
+///    [`HogLiteral::coerce_types`] (the `Eq` contract, which remaps both-strings and must stay put).
+pub fn compare_values(
+    op: NumOp,
+    a: &HogLiteral,
+    b: &HogLiteral,
+    heap: &VmHeap,
+) -> Result<HogLiteral, VmError> {
+    if let (Some(a_secs), Some(b_secs)) = (a.as_temporal_seconds(heap), b.as_temporal_seconds(heap))
+    {
+        return Num::binary_op(op, &Num::Float(a_secs), &Num::Float(b_secs));
+    }
+
+    use HogLiteral::{Boolean, Number, String as HString};
+    match (a, b) {
+        (Number(x), Number(y)) => Num::binary_op(op, x, y),
+        (Number(x), HString(s)) => Num::binary_op(op, x, &Num::from_str(s)?),
+        (HString(s), Number(y)) => Num::binary_op(op, &Num::from_str(s)?, y),
+        (Boolean(x), Number(y)) => Num::binary_op(op, &bool_to_num(*x), y),
+        (Number(x), Boolean(y)) => Num::binary_op(op, x, &bool_to_num(*y)),
+        (Boolean(x), Boolean(y)) => Num::binary_op(op, &bool_to_num(*x), &bool_to_num(*y)),
+        (Boolean(x), HString(s)) => {
+            Num::binary_op(op, &bool_to_num(*x), &bool_to_num(str_is_true(s)))
+        }
+        (HString(s), Boolean(y)) => {
+            Num::binary_op(op, &bool_to_num(str_is_true(s)), &bool_to_num(*y))
+        }
+        (HString(x), HString(y)) => Ok(string_order(op, x, y).into()),
+        _ => Err(VmError::CannotCoerce(
+            a.type_name().to_string(),
+            b.type_name().to_string(),
+        )),
+    }
+}
+
+fn object_marker(value: Option<&HogValue>, heap: &VmHeap) -> bool {
+    matches!(
+        value.and_then(|v| v.deref(heap).ok()),
+        Some(HogLiteral::Boolean(true))
+    )
+}
+
+fn object_number(value: Option<&HogValue>, heap: &VmHeap) -> Option<f64> {
+    match value?.deref(heap).ok()? {
+        HogLiteral::Number(n) => Some(n.to_float()),
+        _ => None,
+    }
+}
+
+fn bool_to_num(b: bool) -> Num {
+    Num::Integer(i64::from(b))
+}
+
+/// String→bool coercion for the ordering path, matching Python's `unify_comparison_types`:
+/// `"true"`/`"false"` (any case) map literally, every other non-empty string is truthy (`bool(s)`),
+/// empty string is falsy. NOTE: the `Eq` path's [`HogLiteral::coerce_types`] uses the narrower
+/// `== "true"` rule, so `true == "yes"` and `true > "yes"` disagree.
+fn str_is_true(s: &str) -> bool {
+    match s.to_lowercase().as_str() {
+        "true" => true,
+        "false" => false,
+        other => !other.is_empty(),
+    }
+}
+
+fn string_order(op: NumOp, a: &str, b: &str) -> bool {
+    let ord = a.cmp(b);
+    match op {
+        NumOp::Gt => ord.is_gt(),
+        NumOp::Lt => ord.is_lt(),
+        NumOp::Gte => ord.is_ge(),
+        NumOp::Lte => ord.is_le(),
+        _ => false,
     }
 }
 

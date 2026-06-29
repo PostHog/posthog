@@ -7,6 +7,8 @@ import structlog
 from posthog.models.utils import RootTeamMixin, UUIDTModel
 from posthog.plugins.plugin_server_api import create_batch_hog_flow_job_invocation
 
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+
 logger = structlog.get_logger(__name__)
 
 
@@ -47,7 +49,10 @@ def handle_hog_flow_batch_job_created(sender, instance, created, **kwargs):
     if created:
         try:
             create_batch_hog_flow_job_invocation(
-                team_id=instance.team.id, hog_flow_id=instance.hog_flow.id, batch_job_id=instance.id
+                team_id=instance.team.id,
+                hog_flow_id=instance.hog_flow.id,
+                batch_job_id=instance.id,
+                max_audience_size=get_hogflow_batch_trigger_limit(instance.team.id),
             )
         except Exception as e:
             logger.exception(

@@ -491,6 +491,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     return null
                 },
                 saveEditModeChanges: async (_, breakpoint) => {
+                    cache.dashboardChangesPersisted = false
                     try {
                         // Only persist sm layouts; xs layouts are derived on the fly
                         const layoutsToUpdate = (values.dashboard?.tiles || []).map((tile) => ({
@@ -558,6 +559,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         if (shouldRefreshTilesAfterSave) {
                             cache.shouldRefreshTilesAfterSave = true
                         }
+                        cache.dashboardChangesPersisted = true
                         return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
@@ -961,11 +963,17 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         return state
                     }
 
+                    // A bare PATCH (rename, display-option persist) doesn't recompute the insight, so
+                    // its response carries `result: null` and stale-but-empty cache metadata. Keep the
+                    // tile's already-computed chart data instead of blanking it into "Chart data didn't load".
+                    const existing = tiles[tileIndex].insight as QueryBasedInsightModel
                     tiles[tileIndex] = {
                         ...tiles[tileIndex],
                         insight: {
-                            ...(tiles[tileIndex].insight as QueryBasedInsightModel),
+                            ...existing,
                             ...item,
+                            result: item.result ?? existing.result,
+                            last_refresh: item.last_refresh ?? existing.last_refresh,
                         },
                     }
 
@@ -2305,6 +2313,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 return
             }
 
+            // Shared/public/export viewers must not be able to trigger server-side refreshes.
+            if (isSharedView()) {
+                return
+            }
+
             // Cache values before the long-running await — the logic may unmount
             const { currentTeamId, effectiveRefreshFilters, urlFilters, urlVariables } = values
 
@@ -2619,6 +2632,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const count = createdTiles.length
+                // Fire once per add action (not per tile) to stay consistent with the other tile types.
+                if (count > 0) {
+                    eventUsageLogic.actions.reportDashboardTileAdded('widget')
+                }
                 if (count > 1) {
                     lemonToast.success(`Added ${count} widgets`)
                 }
@@ -2652,6 +2669,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // Sync the saved dashboard (including any name/description changes) to
                 // dashboardsModel so the sidebar and other global views stay up to date
                 dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+            // Only toast when changes were actually persisted — the no-op exit path skips the PATCH.
+            if (cache.dashboardChangesPersisted) {
+                cache.dashboardChangesPersisted = false
+                lemonToast.success('Dashboard saved')
             }
             if (cache.shouldRefreshTilesAfterSave) {
                 cache.shouldRefreshTilesAfterSave = false

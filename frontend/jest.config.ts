@@ -76,7 +76,12 @@ const esmModules = [
     'yaml/browser',
 ]
 function rootDirectories(): string[] {
-    return ['<rootDir>/src', '<rootDir>/../products', '<rootDir>/../packages/quill/packages/charts/src']
+    return [
+        '<rootDir>/src',
+        '<rootDir>/../products',
+        '<rootDir>/../packages/quill/packages/charts/src',
+        '<rootDir>/../packages/quill/packages/components/src',
+    ]
 }
 
 const config: Config = {
@@ -176,9 +181,9 @@ const config: Config = {
         '^lib/(.*)$': '<rootDir>/src/lib/$1',
         '^react-markdown$': '<rootDir>/src/test/mocks/reactMarkdownMock.js',
         '^remark-gfm$': '<rootDir>/src/test/mocks/emptyMock.js',
+        '^remark-breaks$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^mdast-util-find-and-replace$': '<rootDir>/src/test/mocks/emptyMock.js',
         '^chart\\.js$': '<rootDir>/src/test/insight-testing/chartjs-mock',
-        '@sgratzl/chartjs-chart-boxplot': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-crosshair': '<rootDir>/src/test/mocks/emptyMock.js',
         'chartjs-plugin-annotation': '<rootDir>/src/test/mocks/chartjsPluginMock.js',
         'chartjs-plugin-datalabels': '<rootDir>/src/test/mocks/chartjsPluginMock.js',

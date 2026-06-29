@@ -1,12 +1,17 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
     "reasoning": "low",
     "triggers": [
         {
             "type": "chat",
             "config": {},
             "auth": {
-                "modes": [{ "type": "public", "acknowledge_public_exposure": true }]
+                "modes": [
+                    {
+                        "type": "public",
+                        "acknowledge_public_exposure": true
+                    }
+                ]
             }
         }
     ],
@@ -16,10 +21,9 @@
             "id": "@posthog/memory-write",
             "requires_approval": true,
             "approval_policy": {
-                "approvers": ["team_admins"],
                 "allow_edit": true,
                 "ttl_ms": 86400000,
-                "allow_agent_approver": false
+                "type": "agent"
             }
         },
         {

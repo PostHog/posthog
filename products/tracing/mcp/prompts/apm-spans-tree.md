@@ -7,7 +7,7 @@ Returns rows with:
 - `parent_service`, `parent_name` — the parent span identity (`parent_name` is `"<ROOT>"` for root spans)
 - `service_name`, `name` — the child span identity
 - `count` — number of spans matched for this `(parent, child)` edge
-- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano` — duration stats in nanoseconds
+- `total_duration_nano`, `avg_duration_nano`, `p50_duration_nano`, `p95_duration_nano`, `p99_duration_nano`, `p999_duration_nano` — duration stats in nanoseconds (`p999_duration_nano` is the 99.9th percentile; only meaningful for high-volume edges)
 - `error_count` — child spans with OTel status code `Error` (status_code = 2)
 - `avg_start_offset_nano` — average nanoseconds from the parent span's start to this child's start
 - `calls_per_parent_invocation` — how many times this child runs per parent invocation (null for root edges). A child can top `total_duration_nano` purely by fan-out volume; divide by this to compare per-call cost

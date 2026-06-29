@@ -135,14 +135,17 @@ jobs:
                     - release: flags-consumer
                       digest_key: flags-consumer
                       values_key: image
+                    - release: cohort-event-shuffler
+                      digest_key: cohort-event-shuffler
+                      values_key: image
+                    - release: cohort-stream-processor
+                      digest_key: cohort-stream-processor
+                      values_key: image
                     - release: batch-import-worker
                       digest_key: batch-import-worker
                       values_key: image
                     - release: cymbal
                       digest_key: cymbal
-                      values_key: image
-                    - release: cymbal-resolution
-                      digest_key: cymbal-resolution
                       values_key: image
                     - release: embedding-worker
                       digest_key: embedding-worker

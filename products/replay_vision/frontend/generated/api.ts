@@ -16,11 +16,15 @@ import type {
     ObserveResponseApi,
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerListApi,
+    PaginatedVisionActionListApi,
     PatchedReplayScannerApi,
+    PatchedVisionActionApi,
     ReplayObservationApi,
     ReplayScannerApi,
     ScannerCreatorsResponseApi,
     ScannerStatsResponseApi,
+    VisionActionApi,
+    VisionActionsListParams,
     VisionObservationsListParams,
     VisionQuotaApi,
     VisionScannersListParams,
@@ -44,6 +48,109 @@ type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
           [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
       }
     : DistributeReadOnlyOverUnions<T>
+
+export const getVisionActionsListUrl = (projectId: string, params?: VisionActionsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/actions/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/actions/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsList = async (
+    projectId: string,
+    params?: VisionActionsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionActionListApi> => {
+    return apiMutator<PaginatedVisionActionListApi>(getVisionActionsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/actions/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsCreate = async (
+    projectId: string,
+    visionActionApi: NonReadonly<VisionActionApi>,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(visionActionApi),
+    })
+}
+
+export const getVisionActionsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedVisionActionApi?: NonReadonly<PatchedVisionActionApi>,
+    options?: RequestInit
+): Promise<VisionActionApi> => {
+    return apiMutator<VisionActionApi>(getVisionActionsPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedVisionActionApi),
+    })
+}
+
+export const getVisionActionsDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${id}/`
+}
+
+/**
+ * CRUD for Replay Vision actions — scheduled "and then…" automations over a scanner's observations.
+ */
+export const visionActionsDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
 
 export const getVisionObservationsListUrl = (projectId: string, params: VisionObservationsListParams) => {
     const normalizedParams = new URLSearchParams()

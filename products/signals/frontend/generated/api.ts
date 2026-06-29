@@ -9,13 +9,20 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    CommitDiffResponseApi,
+    EditReportRequestApi,
+    EditReportResponseApi,
     EmitFindingRequestApi,
     EmitFindingResponseApi,
+    EmitReportRequestApi,
+    EmitReportResponseApi,
     ForgetRequestApi,
     ForgetResponseApi,
     PaginatedPauseStateResponseListApi,
+    PaginatedSignalReportArtefactListApi,
     PaginatedSignalReportListApi,
     PaginatedSignalSourceConfigListApi,
+    PatchedSignalReportArtefactLogUpdateApi,
     PatchedSignalScoutConfigApi,
     PatchedSignalSourceConfigApi,
     PauseResponseApi,
@@ -23,8 +30,14 @@ import type {
     ProjectProfileApi,
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
+    ScoutMetadataApi,
     ScratchpadEntryApi,
     SignalReportApi,
+    SignalReportArtefactApi,
+    SignalReportArtefactLogCreateApi,
+    SignalReportArtefactWriteResponseApi,
+    SignalReportBulkStateRequestApi,
+    SignalReportBulkStateResponseApi,
     SignalReportStateRequestApi,
     SignalScoutConfigApi,
     SignalScoutConfigCreateApi,
@@ -34,6 +47,7 @@ import type {
     SignalSourceConfigApi,
     SignalUserAutonomyConfigApi,
     SignalsProcessingListParams,
+    SignalsReportArtefactsListParams,
     SignalsReportsListParams,
     SignalsScoutProjectProfileGetParams,
     SignalsScoutRunsListParams,
@@ -182,7 +196,7 @@ export const getSignalsReportsStateCreateUrl = (projectId: string, id: string) =
  * Body: {
  *     "state": "suppressed" | "potential",
  *     # Optional dismissal feedback (honored when state == "suppressed" or "potential"):
- *     "dismissal_reason": "<any string code, owned by the caller>",
+ *     "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
  *     "dismissal_note": "free-form text",
  *     # Optional, only honored for state == "potential":
  *     "snooze_for": <number of additional signals before re-promotion>,
@@ -199,6 +213,179 @@ export const signalsReportsStateCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(signalReportStateRequestApi),
+    })
+}
+
+export const getSignalsReportArtefactsListUrl = (
+    projectId: string,
+    reportId: string,
+    params?: SignalsReportArtefactsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/`
+}
+
+/**
+ * List every artefact on a report — the full work log: signal findings (the evidence behind the report), status judgments (safety / actionability / priority, repo selection, suggested reviewers — the newest row of each status type is canonical), and log entries (code references, commits, task runs, notes). `suggested_reviewers` content is enriched with PostHog user info at read time.
+ * @summary List a report's artefacts
+ */
+export const signalsReportArtefactsList = async (
+    projectId: string,
+    reportId: string,
+    params?: SignalsReportArtefactsListParams,
+    options?: RequestInit
+): Promise<PaginatedSignalReportArtefactListApi> => {
+    return apiMutator<PaginatedSignalReportArtefactListApi>(
+        getSignalsReportArtefactsListUrl(projectId, reportId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
+}
+
+export const getSignalsReportArtefactsCreateUrl = (projectId: string, reportId: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/`
+}
+
+/**
+ * Append an artefact to a report (see artefact_type for the writable types). Everything is append-only: log entries (code reference, commit, task run, note) accumulate, while status types (safety / actionability / priority judgments, repo selection, suggested reviewers) are latest-wins — appending a new version supersedes the previous one as the report's canonical status. Content is validated against the type's schema.
+ * @summary Append an artefact to a report
+ */
+export const signalsReportArtefactsCreate = async (
+    projectId: string,
+    reportId: string,
+    signalReportArtefactLogCreateApi: SignalReportArtefactLogCreateApi,
+    options?: RequestInit
+): Promise<SignalReportArtefactWriteResponseApi> => {
+    return apiMutator<SignalReportArtefactWriteResponseApi>(getSignalsReportArtefactsCreateUrl(projectId, reportId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportArtefactLogCreateApi),
+    })
+}
+
+export const getSignalsReportArtefactsRetrieveUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
+}
+
+/**
+ * Get one artefact by id, content parsed (and reviewers enriched) the same way as the list.
+ * @summary Get a single artefact
+ */
+export const signalsReportArtefactsRetrieve = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<SignalReportArtefactApi> => {
+    return apiMutator<SignalReportArtefactApi>(getSignalsReportArtefactsRetrieveUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportArtefactsPartialUpdateUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
+}
+
+/**
+ * Replace the content of an existing artefact, addressed by id. The new content is validated against the artefact's type schema. Editing the latest row of a status type changes the report's canonical status (latest-wins); to re-assess while keeping history, append a new artefact instead. Attribution is creation-time only — edits don't reassign it.
+ * @summary Replace an artefact's content
+ */
+export const signalsReportArtefactsPartialUpdate = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    patchedSignalReportArtefactLogUpdateApi?: PatchedSignalReportArtefactLogUpdateApi,
+    options?: RequestInit
+): Promise<SignalReportArtefactWriteResponseApi> => {
+    return apiMutator<SignalReportArtefactWriteResponseApi>(
+        getSignalsReportArtefactsPartialUpdateUrl(projectId, reportId, id),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedSignalReportArtefactLogUpdateApi),
+        }
+    )
+}
+
+export const getSignalsReportArtefactsDestroyUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/`
+}
+
+/**
+ * Delete an artefact, addressed by id. Deleting the latest row of a status type reverts the report's canonical status to the previous version (latest-wins over what remains).
+ * @summary Delete an artefact
+ */
+export const signalsReportArtefactsDestroy = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSignalsReportArtefactsDestroyUrl(projectId, reportId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getSignalsReportArtefactsDiffUrl = (projectId: string, reportId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${reportId}/artefacts/${id}/diff/`
+}
+
+/**
+ * Fetch the unified diff of a `commit` artefact's branch against the repository default branch via the team's GitHub integration — using the branch's current tip so the diff reflects the latest state of the work, not just the single recorded commit.
+ * @summary Fetch the diff for a commit artefact
+ */
+export const signalsReportArtefactsDiff = async (
+    projectId: string,
+    reportId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CommitDiffResponseApi> => {
+    return apiMutator<CommitDiffResponseApi>(getSignalsReportArtefactsDiffUrl(projectId, reportId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportsBulkStateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/bulk-state/`
+}
+
+/**
+ * Transition many reports to a new state in one call.
+ *
+ * Each id is processed independently: a report whose transition isn't allowed from its
+ * current status is reported as `skipped` (a 409 on the single-report endpoint) and the
+ * rest still go through. Returns one result per requested id (in request order, after
+ * de-duplication) plus per-outcome counts. The whole call is 200 even on partial failure —
+ * inspect `results` / the counts to see what happened.
+ */
+export const signalsReportsBulkStateCreate = async (
+    projectId: string,
+    signalReportBulkStateRequestApi: SignalReportBulkStateRequestApi,
+    options?: RequestInit
+): Promise<SignalReportBulkStateResponseApi> => {
+    return apiMutator<SignalReportBulkStateResponseApi>(getSignalsReportsBulkStateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(signalReportBulkStateRequestApi),
     })
 }
 
@@ -260,6 +447,39 @@ export const signalsScoutConfigUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedSignalScoutConfigApi),
+    })
+}
+
+export const getSignalsScoutConfigSyncUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/configs/sync/`
+}
+
+/**
+ * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
+ * @summary Sync scout configs
+ */
+export const signalsScoutConfigSync = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<SignalScoutConfigApi[]> => {
+    return apiMutator<SignalScoutConfigApi[]>(getSignalsScoutConfigSyncUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSignalsScoutMetadataGetUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/metadata/current/`
+}
+
+/**
+ * Return the project's scout metadata: whether it is enrolled, the current announcement banner (e.g. an alpha run-limit notice, or null when unset), and the enforced run limits with current usage. Limits reflect what the coordinator actually applies at dispatch, so a user can see the real throttle rather than what they assume they set. All values come from the `signals-scout` flag payload, so the banner and caps can change with no deploy.
+ * @summary Get scout metadata
+ */
+export const signalsScoutMetadataGet = async (projectId: string, options?: RequestInit): Promise<ScoutMetadataApi> => {
+    return apiMutator<ScoutMetadataApi>(getSignalsScoutMetadataGetUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -347,6 +567,28 @@ export const signalsScoutRunsRetrieve = async (
     })
 }
 
+export const getSignalsScoutEditReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/edit-report/`
+}
+
+/**
+ * Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary edits are best-effort: the pipeline may later re-research and overwrite them.
+ * @summary Edit an existing report for a run
+ */
+export const signalsScoutEditReport = async (
+    projectId: string,
+    runId: string,
+    editReportRequestApi: EditReportRequestApi,
+    options?: RequestInit
+): Promise<EditReportResponseApi> => {
+    return apiMutator<EditReportResponseApi>(getSignalsScoutEditReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(editReportRequestApi),
+    })
+}
+
 export const getSignalsScoutRunsEmissionsUrl = (projectId: string, runId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/${runId}/emissions/`
 }
@@ -382,6 +624,28 @@ export const signalsScoutRunsEmissionReports = async (
     return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsUrl(projectId, runId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getSignalsScoutEmitReportUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/emit-report/`
+}
+
+/**
+ * The second emit channel: author a complete `SignalReport` directly instead of emitting a weak signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` call implies (or is suppressed). Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to find a prior report and `edit-report` to update it instead.
+ * @summary Author a full report for a run
+ */
+export const signalsScoutEmitReport = async (
+    projectId: string,
+    runId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsScoutEmitReportUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
     })
 }
 
@@ -424,7 +688,7 @@ export const getSignalsScoutScratchpadSearchUrl = (projectId: string, params?: S
 }
 
 /**
- * Return `SignalScratchpad` entries for this project. ILIKE matches on `content` and `key`. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose.
+ * Return `SignalScratchpad` entries for this project, newest-first. ILIKE matches on `content` and `key`. `date_from` / `date_to` are a half-open window on `updated_at` (`>= date_from`, `< date_to`); pass `date_to` (the `updated_at` of the oldest entry seen) on subsequent calls to walk past the cap. Pass `keys_only=true` to scan keys without pulling entry bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation scan from returning every entry's full prose. Results capped at 500.
  * @summary Search the scout scratchpad
  */
 export const signalsScoutScratchpadSearch = async (

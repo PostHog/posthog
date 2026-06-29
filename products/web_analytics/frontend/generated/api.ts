@@ -29,6 +29,8 @@ import type {
     SavedListParams,
     WebAnalyticsFilterPresetApi,
     WebAnalyticsFilterPresetsListParams,
+    WebAnalyticsRecapParams,
+    WebAnalyticsRecapResponseApi,
     WebAnalyticsWeeklyDigestParams,
     WeeklyDigestResponseApi,
 } from './api.schemas'
@@ -269,6 +271,37 @@ export const savedRegenerateCreate = async (
     })
 }
 
+export const getWebAnalyticsRecapUrl = (projectId: string, params?: WebAnalyticsRecapParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/web_analytics/recap/?${stringifiedParams}`
+        : `/api/projects/${projectId}/web_analytics/recap/`
+}
+
+/**
+ * The 'Wrapped'-style weekly recap: everything in the weekly digest (visitors, pageviews, sessions, bounce rate, average session duration with period-over-period comparisons, top pages, top sources, and goals) plus a single derived weekly persona and a short list of screenshot-worthy highlights for the period.
+ * @summary Weekly web analytics recap
+ */
+export const webAnalyticsRecap = async (
+    projectId: string,
+    params?: WebAnalyticsRecapParams,
+    options?: RequestInit
+): Promise<WebAnalyticsRecapResponseApi> => {
+    return apiMutator<WebAnalyticsRecapResponseApi>(getWebAnalyticsRecapUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getWebAnalyticsWeeklyDigestUrl = (projectId: string, params?: WebAnalyticsWeeklyDigestParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -347,7 +380,7 @@ export const getWebAnalyticsAchievementsRecordInteractionUrl = (projectId: strin
 }
 
 /**
- * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Data Hog and Detective Hog achievement tracks.
+ * Idempotently increments the requesting user's first-party counter for an in-product Web analytics interaction (slicing data, or opening a session recording), which drives the Explorer and Detective achievement tracks.
  * @summary Record a Web analytics interaction
  */
 export const webAnalyticsAchievementsRecordInteraction = async (

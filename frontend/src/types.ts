@@ -288,10 +288,13 @@ export enum AccessControlResourceType {
     Endpoint = 'endpoint',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
+    ExperimentHoldout = 'experiment_holdout',
     ExperimentSavedMetric = 'experiment_saved_metric',
+    Export = 'export',
     ExternalDataSource = 'external_data_source',
     WarehouseObjects = 'warehouse_objects',
     WarehouseTable = 'warehouse_table',
+    WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -749,6 +752,9 @@ export interface ConversationsSettings {
     github_integration_id?: number | null
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
+    ai_diagnostics_enabled?: boolean
+    ai_resolution_channels?: string[] | null
+    ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
 }
 
 export interface LogsSettings {
@@ -781,6 +787,10 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
+    /** Plan-derived events data retention window in months (synced from billing). */
+    event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -1399,7 +1409,14 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
+    key:
+        | DurationType
+        | 'snapshot_source'
+        | 'visited_page'
+        | 'comment_text'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
     operator: PropertyOperator
 }
 
@@ -2558,7 +2575,7 @@ export interface DashboardTemplateListParams {
     is_featured?: boolean
 }
 
-export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag'
+export type DashboardTemplateScope = 'team' | 'global' | 'feature_flag' | 'organization'
 
 export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     tiles: DashboardTile<T>[]
@@ -2623,6 +2640,13 @@ export type DashboardTemplateStoredTile =
     | DashboardTemplateStoredButtonTile
     | DashboardTemplateStoredWidgetTile
 
+/** Project-specific references embedded in a template's tiles that may not resolve in another project. */
+export interface NonPortableReferences {
+    actions: number
+    cohorts: number
+    warehouse_tables: string[]
+}
+
 export interface DashboardTemplateType {
     id: string
     team_id?: number
@@ -2641,6 +2665,8 @@ export interface DashboardTemplateType {
     is_featured?: boolean
     /** Soft delete; API allows PATCH for staff undo (restore). */
     deleted?: boolean
+    /** Read-only. Project-specific references in tiles (actions, cohorts, warehouse tables) that may not resolve in another project. */
+    non_portable_references?: NonPortableReferences
 }
 
 export interface MonacoMarker {
@@ -2852,6 +2878,8 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
     /** Optional emoji shown in place of the default badge when surfacing the annotation. */
     emoji?: string | null
+    /** When true, the annotation is hidden from the UI but still readable over the API and MCP. */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -3355,6 +3383,9 @@ export interface FunnelStep {
     data?: number[]
     days?: string[]
 
+    /** Set by the funnel compare orchestrator to tag which period a step belongs to. */
+    compare_label?: 'current' | 'previous'
+
     /** Url that you can GET to retrieve the people that converted in this step */
     converted_people_url: string
 
@@ -3365,6 +3396,7 @@ export interface FunnelStep {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number | null
+    median_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
@@ -3381,7 +3413,8 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
 }
 
 export interface FunnelTimeConversionMetrics {
-    averageTime: number
+    /** Null when the result predates the median field (old cache) — the header hides the figure in that case. */
+    medianTime: number | null
     stepRate: number
     totalRate: number
 }
@@ -4221,6 +4254,8 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     experiment_set_metadata: { id: number; name: string; is_running: boolean }[] | null
     features: MinimalEarlyAccessFeatureType[] | null
     surveys: Survey[] | null
+    /** Archived flags are hidden from the flag list by default and must be disabled. */
+    archived: boolean
     can_edit: boolean
     tags: string[]
     evaluation_contexts: string[]
@@ -4228,7 +4263,7 @@ export interface FeatureFlagType extends Omit<FeatureFlagBasicType, 'id' | 'team
     has_enriched_analytics?: boolean
     is_remote_configuration: boolean
     has_encrypted_payloads: boolean
-    status: 'ACTIVE' | 'STALE' | 'DELETED' | 'UNKNOWN'
+    status: 'ACTIVE' | 'STALE' | 'ARCHIVED' | 'DELETED' | 'UNKNOWN'
     _create_in_folder?: string | null
     evaluation_runtime: FeatureFlagEvaluationRuntime
     bucketing_identifier?: FeatureFlagBucketingIdentifier | null
@@ -4245,6 +4280,25 @@ export interface OrganizationFeatureFlag {
     filters: FeatureFlagFilters
     active: boolean
     evaluations_7d?: number | null
+}
+
+export interface OrganizationFeatureFlagRow {
+    id: number
+    team_id: number
+    key: string
+    name: string
+    // active + filters power the instant first paint of the current team's cell and are free
+    // (already on the row). created_by/created_at are omitted: the grid never renders them, and
+    // serializing created_by would force a per-row join.
+    active: boolean
+    filters: FeatureFlagFilters
+}
+
+export interface OrganizationFeatureFlagKeysResponse {
+    count: number
+    next: string | null
+    previous: string | null
+    results: OrganizationFeatureFlagRow[]
 }
 
 export interface OrganizationFeatureFlagsCopyBody {
@@ -4264,6 +4318,7 @@ export type OrganizationFeatureFlags = {
 export enum FeatureFlagStatus {
     ACTIVE = 'active',
     STALE = 'stale',
+    ARCHIVED = 'archived',
     DELETED = 'deleted',
     UNKNOWN = 'unknown',
 }
@@ -4445,6 +4500,8 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
+    /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
+    ai_gateway_url?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -4683,6 +4740,8 @@ export interface ExperimentHoldoutType {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExperimentStatsMethod {
@@ -4728,8 +4787,8 @@ export interface Experiment {
         custom_exposure_filter?: FilterType
         aggregation_group_type_index?: integer
         variant_screenshot_media_ids?: Record<string, string[]>
+        variant_notes?: Record<string, string>
         rollout_percentage?: number
-        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4738,9 +4797,13 @@ export interface Experiment {
         }
     }
     running_time_calculation?: ExperimentRunningTimeCalculationConfig
+    /** Variant keys dropped from statistical analysis. Canonical home for what historically lived in `parameters.excluded_variants`. */
+    excluded_variants?: string[] | null
     start_date?: string | null
     end_date?: string | null
     status?: ExperimentStatus | null
+    /** Server-computed: whether the experiment uses any legacy-engine metrics (ExperimentTrendsQuery/ExperimentFunnelsQuery). Present on every list and detail response; optional here because locally-constructed/new experiments don't set it (and are never legacy). */
+    is_legacy?: boolean
     archived?: boolean
     secondary_metrics: SecondaryExperimentMetric[]
     created_at: string | null
@@ -4882,7 +4945,6 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
-    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5287,6 +5349,7 @@ export const INTEGRATION_KINDS = [
     'customerio-app',
     'customerio-webhook',
     'customerio-track',
+    'postgresql',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5472,6 +5535,7 @@ export interface ExportedAssetType {
     created_at: string
     expires_after?: string
     exception?: string
+    user_access_level?: AccessControlLevel
 }
 
 export enum FeatureFlagReleaseType {
@@ -5527,7 +5591,6 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
@@ -5536,6 +5599,7 @@ export type APIScopeObject =
     | 'evaluation'
     | 'event_definition'
     | 'experiment'
+    | 'experiment_holdout'
     | 'experiment_saved_metric'
     | 'external_data_source'
     | 'export'
@@ -5566,7 +5630,6 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
@@ -6067,7 +6130,7 @@ export interface SimpleExternalDataSourceSchema {
     label: string | null
     should_sync: boolean
     last_synced_at?: Dayjs
-    sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
+    sync_type?: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
 }
 
 export interface AvailableColumn {
@@ -6096,6 +6159,7 @@ export type SchemaIncrementalFieldsResponse = {
     available_columns: AvailableColumn[]
     detected_primary_keys: string[] | null
     cdc_available?: boolean
+    xmin_available?: boolean
 }
 
 // numeric is snowflake specific and objectid is mongodb specific
@@ -6118,11 +6182,15 @@ export interface ExternalDataSourceSyncSchema {
     sync_time_of_day: string | null
     incremental_field: string | null
     incremental_field_type: string | null
-    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
+    sync_type: 'full_refresh' | 'incremental' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
     cdc_available?: boolean
+    xmin_available?: boolean
     cdc_table_mode?: 'consolidated' | 'cdc_only' | 'both'
     supports_webhooks: boolean
     /** True when the resource has no API list endpoint and can only be populated via webhooks
@@ -6160,12 +6228,15 @@ export interface ExternalDataSourceSyncSchema {
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
     table?: SimpleDataWarehouseTable
     incremental: boolean
-    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | null
+    sync_type: 'incremental' | 'full_refresh' | 'append' | 'webhook' | 'cdc' | 'xmin' | null
     sync_time_of_day: string | null
     status?: ExternalDataSchemaStatus
     latest_error: string | null
     incremental_field: string | null
     incremental_field_type: string | null
+    /** Seconds subtracted from the incremental watermark at sync time to re-read a rolling overlap
+     *  window (catches late/backdated rows). Timestamp/date incremental fields only. */
+    incremental_field_lookback_seconds?: number | null
     sync_frequency: DataWarehouseSyncInterval
     description?: string | null
     should_sync_default?: boolean
@@ -6297,11 +6368,12 @@ export type BatchExportServiceS3Compatible = {
 
 export type BatchExportServicePostgres = {
     type: 'Postgres'
+    integration?: number
     config: {
-        user: string
-        password: string
-        host: string
-        port: number
+        user?: string
+        password?: string
+        host?: string
+        port?: number
         database: string
         schema: string
         table_name: string
@@ -6767,7 +6839,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.ERROR_TRACKING
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
-    | ProductKey.LOGS,
+    | ProductKey.LOGS
+    | ProductKey.MCP_ANALYTICS,
     OnboardingProduct
 >
 
@@ -7245,6 +7318,13 @@ export interface Conversation {
     is_internal?: boolean
     pending_approvals?: PendingApproval[]
     is_sandbox?: boolean
+    /**
+     * Runtime the conversation was created on. Stamped at create-time from the `phai-sandbox-mode`
+     * flag and never re-read. Existing rows default to `'langgraph'`.
+     */
+    agent_runtime?: 'langgraph' | 'sandbox'
+    /** Backing products/tasks Task for sandbox conversations. Null until the first message creates it. `latest_run` is the newest TaskRun id used to bootstrap the sandbox stream. */
+    task?: { id: string; latest_run: string | null } | null
 }
 
 export interface ConversationDetail extends Conversation {
@@ -7324,6 +7404,10 @@ export type OAuthApplicationPublicMetadata = {
     client_id: string
     is_verified: boolean
     logo_uri: string | null
+    /** Scopes the user cannot deselect at consent. Empty unless the app declares optional scopes. */
+    required_scopes?: string[]
+    /** Server-computed read-only form of a `*` grant; the consent page must not derive this client-side. */
+    wildcard_read_scopes?: string[]
 }
 export interface EmailSenderDomainStatus {
     status: 'pending' | 'success'
@@ -7423,6 +7507,7 @@ export interface HeatmapScreenshotType {
     width: number
     status: HeatmapStatus
     has_content: boolean
+    block_consent_modals?: boolean
     created_at: string
     updated_at: string
     exception?: string

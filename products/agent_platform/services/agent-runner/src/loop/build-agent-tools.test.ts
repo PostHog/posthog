@@ -6,13 +6,11 @@ import {
     AgentSession,
     AgentSpecSchema,
     buildTestBundleStore,
-    type CredentialBroker,
     EMPTY_USAGE_TOTAL,
     type HttpFetcher,
     HttpClient,
     InProcessSandboxPool,
     McpRef,
-    MemoryCredentialBroker,
     newTestPrefix,
     S3BundleStore,
     ToolRefSchema,
@@ -58,7 +56,8 @@ function makeRev(
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills, mcps }),
+        spec: AgentSpecSchema.parse({ model: 'test/x', tools: toolRefs, skills, mcps }),
+        encrypted_env: null,
     }
 }
 
@@ -142,7 +141,6 @@ function makeDeps(rev: AgentRevision, over: Partial<AgentToolDeps> = {}): AgentT
         rev,
         session: makeSession(),
         sandbox: null,
-        integrations: {},
         secrets: {},
         bundle: makeBundle(),
         log: () => undefined,
@@ -165,15 +163,18 @@ function byId(
 
 /**
  * `@posthog/query` (like every `@posthog/*` data tool) runs AS the connected
- * user through the credential broker. makeSession's principal is `posthog`
- * (team 1), so these tools just need a `posthog_api` bearer — mirroring what
- * the ingress verifier writes for a `posthog`-auth session — plus an HTTP
- * endpoint to hit.
+ * user, resolving its bearer through `ctx.identity` (the dispatch wrapper
+ * pre-resolves the tool's `requires.provider`). This fake resolves `posthog` to
+ * a bearer — mirroring a trigger-edge seed / linked credential.
  */
-function posthogBroker(): CredentialBroker {
-    const broker = new MemoryCredentialBroker()
-    void broker.write('s1', { posthog_api: { kind: 'posthog_bearer', token: 'tok' } })
-    return broker
+function posthogIdentity(): AgentToolDeps['identity'] {
+    return {
+        resolve: async () => ({
+            kind: 'ok',
+            credential: { kind: 'posthog_bearer', token: 'tok' },
+            allowedHosts: ['localhost:8010'],
+        }),
+    }
 }
 
 /** Echoes a HogQL `/query/` response so query tests don't need a live Django. */
@@ -198,6 +199,44 @@ describe('buildAgentTools', () => {
         const rev = makeRev([], [{ id: 'research', path: 'skills/research.md', description: 'd' }])
         const withSkills = await buildAgentTools(rev, makeDeps(rev))
         expect(withSkills.tools.map((t) => t.label)).toContain('@posthog/load-skill')
+    })
+
+    it('auto-includes @posthog/identity-connect when the agent has a linkable identity', async () => {
+        // No identity surface → no connect tool (it would just error on use).
+        const none = await buildAgentTools(makeRev([]), makeDeps(makeRev([])))
+        expect(none.tools.map((t) => t.label)).not.toContain('@posthog/identity-connect')
+
+        // An MCP that authenticates through a provider makes connect available so
+        // the agent can hand the user a (re)link on demand.
+        const rev = makeRev(
+            [],
+            [],
+            [{ id: 'posthog', url: 'https://x/mcp', secrets: [], auth: { provider: 'posthog' } }]
+        )
+        const built = await buildAgentTools(rev, makeDeps(rev))
+        expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
+    })
+
+    describe('@posthog/web-search gating', () => {
+        const rev = makeRev([{ kind: 'native', id: '@posthog/web-search' }])
+
+        it('drops the tool when no providers are configured', async () => {
+            const built = await buildAgentTools(rev, makeDeps(rev))
+            expect(built.tools.map((t) => t.label)).not.toContain('@posthog/web-search')
+        })
+
+        it('drops the tool when the provider chain is empty', async () => {
+            const built = await buildAgentTools(rev, makeDeps(rev, { webSearchProviders: [] }))
+            expect(built.tools.map((t) => t.label)).not.toContain('@posthog/web-search')
+        })
+
+        it('includes the tool when at least one provider is configured', async () => {
+            const built = await buildAgentTools(
+                rev,
+                makeDeps(rev, { webSearchProviders: [{ name: 'exa', search: async () => [] }] })
+            )
+            expect(built.tools.map((t) => t.label)).toContain('@posthog/web-search')
+        })
     })
 
     it('maps provider-safe names back to original ids', async () => {
@@ -231,10 +270,7 @@ describe('buildAgentTools', () => {
 
     it('native tool execute calls native.run and returns JSON content + raw output detail', async () => {
         const rev = makeRev([{ kind: 'native', id: '@posthog/query' }])
-        const built = await buildAgentTools(
-            rev,
-            makeDeps(rev, { credentialBroker: posthogBroker(), http: queryEchoHttp() })
-        )
+        const built = await buildAgentTools(rev, makeDeps(rev, { identity: posthogIdentity(), http: queryEchoHttp() }))
         const result = await byId(built, '@posthog/query').execute('c1', { query: 'select 1 as a' })
         expect(result.content).toEqual([{ type: 'text', text: JSON.stringify({ rows: [{ a: 1 }], columns: ['a'] }) }])
         expect(result.details.output).toEqual({ rows: [{ a: 1 }], columns: ['a'] })
@@ -247,8 +283,28 @@ describe('buildAgentTools', () => {
             },
         }
         const rev = makeRev([{ kind: 'native', id: '@posthog/query' }])
-        const built = await buildAgentTools(rev, makeDeps(rev, { credentialBroker: posthogBroker(), http }))
+        const built = await buildAgentTools(rev, makeDeps(rev, { identity: posthogIdentity(), http }))
         await expect(byId(built, '@posthog/query').execute('c1', { query: 'x' })).rejects.toThrow('boom')
+    })
+
+    it('returns auth_required without running when the tool identity is unlinked', async () => {
+        let fetched = false
+        const http: HttpFetcher = {
+            fetch: async () => {
+                fetched = true
+                return new Response('{}', { status: 200 })
+            },
+        }
+        const identity: AgentToolDeps['identity'] = {
+            resolve: async () => ({ kind: 'link_required', provider: 'posthog', authorizeUrl: 'https://link.test/go' }),
+        }
+        const rev = makeRev([{ kind: 'native', id: '@posthog/query' }])
+        const built = await buildAgentTools(rev, makeDeps(rev, { identity, http }))
+        const result = await byId(built, '@posthog/query').execute('c1', { query: 'select 1' })
+        expect(result.details.output).toEqual({
+            auth_required: { provider: 'posthog', authorize_url: 'https://link.test/go' },
+        })
+        expect(fetched).toBe(false)
     })
 
     it('skips an unknown native id in the spec', async () => {

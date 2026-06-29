@@ -12,9 +12,16 @@ import temporalio.activity
 
 logger = structlog.get_logger(__name__)
 
-PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus"]
+PARTITIONED_TABLES = ["sourcebatch", "sourcebatchstatus", "sourcebatchduckgresstatus"]
 PARTITIONS_AHEAD = 7
 RETENTION_DAYS = 7
+
+# The duckgres apply-marker table is unpartitioned (small rows, UNIQUE-constrained),
+# so retention is DELETE-based. Must comfortably exceed the consumers' eligibility
+# window (PARTITION_PRUNING_INTERVAL, 14d): the duckgres ordering gate and
+# has_applied idempotency read apply rows for everything still eligible.
+DUCKGRES_APPLY_TABLE = "sourcebatchduckgresapply"
+DUCKGRES_APPLY_RETENTION_DAYS = 30
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +90,17 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
         _verify_partitions(conn, today, errors)
 
+        try:
+            cursor = conn.execute(
+                f"DELETE FROM {DUCKGRES_APPLY_TABLE} "
+                f"WHERE created_at < now() - interval '{DUCKGRES_APPLY_RETENTION_DAYS} days'"
+            )
+            if cursor.rowcount:
+                logger.info("duckgres_apply_markers_pruned", count=cursor.rowcount)
+        except Exception as e:
+            errors.append(f"Failed to prune {DUCKGRES_APPLY_TABLE}: {e}")
+            logger.exception("Failed to prune duckgres apply markers")
+
     s3_deleted = _cleanup_old_s3_extractions(today, errors)
 
     result = PartitionResult(ensured=ensured, dropped=dropped, errors=errors, s3_deleted=s3_deleted)
@@ -110,7 +128,7 @@ async def manage_warehouse_sources_queue_partitions() -> dict:
 
 def _cleanup_old_s3_extractions(today: date, errors: list[str]) -> list[str]:
     """Delete S3 date-partitioned extraction prefixes older than RETENTION_DAYS."""
-    from products.data_warehouse.backend.s3 import get_s3_client
+    from products.data_warehouse.backend.facade.api import get_s3_client
 
     s3 = get_s3_client()
     base_prefix = f"{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract"

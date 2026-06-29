@@ -55,6 +55,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Actions: () => import('../../products/actions/frontend/pages/Actions'),
     Action: () => import('../../products/actions/frontend/pages/Action'),
     NewAction: () => import('../../products/actions/frontend/pages/Action'),
+    AIGateway: () => import('../../products/ai_gateway/frontend/AIGatewayScene'),
     AIObservability: () => import('../../products/ai_observability/frontend/AIObservabilityScene'),
     AIObservabilityTrace: () => import('../../products/ai_observability/frontend/AIObservabilityTraceScene'),
     AIObservabilitySession: () => import('../../products/ai_observability/frontend/AIObservabilitySessionScene'),
@@ -109,6 +110,12 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsScene'),
     EngineeringAnalyticsPullRequest: () =>
         import('../../products/engineering_analytics/frontend/scenes/PullRequestDetailScene'),
+    EngineeringAnalyticsWorkflowRun: () =>
+        import('../../products/engineering_analytics/frontend/scenes/WorkflowRunDetailScene'),
+    EngineeringAnalyticsWorkflowRuns: () =>
+        import('../../products/engineering_analytics/frontend/scenes/WorkflowRunsScene'),
+    EngineeringAnalyticsAuthor: () =>
+        import('../../products/engineering_analytics/frontend/scenes/EngineeringAnalyticsAuthorScene'),
     ErrorTracking: () => import('../../products/error_tracking/frontend/scenes/ErrorTrackingScene/ErrorTrackingScene'),
     ErrorTrackingIssue: () =>
         import('../../products/error_tracking/frontend/scenes/ErrorTrackingIssueScene/ErrorTrackingIssueScene'),
@@ -117,6 +124,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     FeatureFlagTemplates: () => import('../../products/feature_flags/frontend/FeatureFlagTemplatesScene'),
     Game368Hedgehogs: () => import('../../products/games/368Hedgehogs/368Hedgehogs'),
     FlappyHog: () => import('../../products/games/FlappyHog/FlappyHog'),
+    IdentityMatching: () => import('../../products/growth/frontend/IdentityMatchingScene'),
     LegalDocuments: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentsScene'),
     LegalDocumentNew: () => import('../../products/legal_documents/frontend/scenes/LegalDocumentNewScene'),
     Links: () => import('../../products/links/frontend/LinksScene'),
@@ -134,6 +142,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     MCPAnalytics: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsScene'),
     MCPAnalyticsToolDetail: () => import('../../products/mcp_analytics/frontend/MCPAnalyticsToolDetail'),
     Metrics: () => import('../../products/metrics/frontend/MetricsScene'),
+    TaskTracker: () => import('../../products/posthog_ai/frontend/scenes/TaskTracker/TaskTracker'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
@@ -143,8 +152,6 @@ export const productScenes: Record<string, () => Promise<any>> = {
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
     Skills: () => import('../../products/skills/frontend/LLMSkillsScene'),
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
-    TaskTracker: () => import('../../products/tasks/frontend/TaskTracker'),
-    TaskDetail: () => import('../../products/tasks/frontend/TaskDetailScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
@@ -169,6 +176,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/data-management/actions/new': ['NewAction', 'actionNew'],
     '/data-management/actions/:id': ['Action', 'action'],
     '/data-management/actions/new/': ['NewAction', 'actionNew'],
+    '/ai-gateway': ['AIGateway', 'aiGateway'],
     '/ai-observability/dashboard': ['AIObservability', 'aiObservabilityDashboard'],
     '/ai-observability/generations': ['AIObservability', 'aiObservabilityGenerations'],
     '/ai-observability/reviews': ['AIObservability', 'aiObservabilityReviews'],
@@ -236,10 +244,20 @@ export const productRoutes: Record<string, [string, string]> = {
     '/endpoints/:name': ['EndpointScene', 'endpoint'],
     '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
     '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
-    '/engineering-analytics/pr/:repoOwner/:repoName/:number': [
+    '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
+    '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
         'EngineeringAnalyticsPullRequest',
         'engineeringAnalyticsPullRequest',
     ],
+    '/engineering-analytics/:repoOwner/:repoName/actions/runs/:runId': [
+        'EngineeringAnalyticsWorkflowRun',
+        'engineeringAnalyticsWorkflowRun',
+    ],
+    '/engineering-analytics/:repoOwner/:repoName/actions/workflows/:workflowName': [
+        'EngineeringAnalyticsWorkflowRuns',
+        'engineeringAnalyticsWorkflowRuns',
+    ],
+    '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     '/error_tracking': ['ErrorTracking', 'errorTracking'],
     '/error_tracking/:id': ['ErrorTrackingIssue', 'errorTrackingIssue'],
     '/error_tracking/:id/fingerprints': ['ErrorTrackingIssueFingerprints', 'errorTrackingIssueFingerprints'],
@@ -248,6 +266,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/feature_flags/templates': ['FeatureFlagTemplates', 'featureFlagTemplates'],
     '/games/368hedgehogs': ['Game368Hedgehogs', 'game368Hedgehogs'],
     '/games/flappyhog': ['FlappyHog', 'flappyHog'],
+    '/identity-matching': ['IdentityMatching', 'identityMatching'],
     '/legal': ['LegalDocuments', 'legalDocuments'],
     '/legal/new/:type': ['LegalDocumentNew', 'legalDocumentNew'],
     '/links': ['Links', 'links'],
@@ -266,6 +285,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/mcp-analytics/tool-quality/:toolName': ['MCPAnalyticsToolDetail', 'mcpAnalyticsTool'],
     '/mcp-analytics/intent-clustering': ['MCPAnalytics', 'mcpAnalyticsIntentClustering'],
     '/metrics': ['Metrics', 'metrics'],
+    '/tasks': ['TaskTracker', 'taskTracker'],
+    '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
@@ -276,9 +297,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/session-summaries': ['SessionGroupSummariesTable', 'sessionGroupSummariesTable'],
     '/session-summaries/:sessionGroupId': ['SessionGroupSummary', 'sessionGroupSummary'],
     '/skills': ['Skills', 'skills'],
+    '/skills/scouts': ['Skills', 'skillsScouts'],
     '/skills/:name': ['Skill', 'skill'],
-    '/tasks': ['TaskTracker', 'taskTracker'],
-    '/tasks/:taskId': ['TaskDetail', 'taskDetail'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
     '/user_research': ['UserInterviews', 'userInterviews'],
@@ -468,6 +488,13 @@ export const productConfiguration: Record<string, any> = {
     },
     Action: { name: 'Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
     NewAction: { name: 'New Action', projectBased: true, activityScope: 'Action', iconType: 'action' },
+    AIGateway: {
+        projectBased: true,
+        name: 'AI gateway',
+        description: 'Every major LLM through one endpoint, billed at cost \u2014 usage tracked per project.',
+        layout: 'app-container',
+        iconType: 'ai_gateway',
+    },
     AIObservability: {
         projectBased: true,
         name: 'AI observability',
@@ -647,6 +674,27 @@ export const productConfiguration: Record<string, any> = {
         description: 'A single pull request: lifecycle milestones and CI runs on its head commit.',
         iconType: 'health',
     },
+    EngineeringAnalyticsWorkflowRun: {
+        projectBased: true,
+        name: 'Workflow run',
+        layout: 'app-container',
+        description: 'A single workflow run: status, duration, branch, and the attributed pull request.',
+        iconType: 'health',
+    },
+    EngineeringAnalyticsWorkflowRuns: {
+        projectBased: true,
+        name: 'Workflow runs',
+        layout: 'app-container',
+        description: "A single workflow's recent runs across the connected repo.",
+        iconType: 'health',
+    },
+    EngineeringAnalyticsAuthor: {
+        projectBased: true,
+        name: 'Author CI',
+        layout: 'app-container',
+        description: "One author's pull requests and the CI cost they incurred.",
+        iconType: 'health',
+    },
     ErrorTracking: {
         projectBased: true,
         name: 'Error tracking',
@@ -658,6 +706,14 @@ export const productConfiguration: Record<string, any> = {
     FeatureFlagTemplates: { projectBased: true, name: 'Feature flag templates' },
     Game368Hedgehogs: { name: '368Hedgehogs', projectBased: true, activityScope: 'Games' },
     FlappyHog: { name: 'FlappyHog', projectBased: true, activityScope: 'Games' },
+    IdentityMatching: {
+        name: 'Identity matching',
+        projectBased: true,
+        activityScope: 'IdentityMatching',
+        description:
+            'Review probable links between anonymous visitors and identified persons, recovered from first-party signals.',
+        iconType: 'persons',
+    },
     LegalDocuments: {
         name: 'Legal documents',
         organizationBased: true,
@@ -724,6 +780,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze application metrics to understand system performance and health.',
         iconType: 'metrics',
     },
+    TaskTracker: {
+        name: 'Tasks',
+        projectBased: true,
+        activityScope: 'TaskTracker',
+        description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
+        iconType: 'task',
+        layout: 'app-full-scene-height',
+    },
     ReplayVision: {
         name: 'Replay vision',
         projectBased: true,
@@ -777,14 +841,6 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'llm_prompts',
     },
     Skill: { projectBased: true, name: 'Skill', layout: 'app-container', iconType: 'llm_prompts' },
-    TaskTracker: {
-        name: 'Tasks',
-        projectBased: true,
-        activityScope: 'TaskTracker',
-        description: 'Tasks are work that agents can do for you, like creating a pull request or fixing an issue.',
-        iconType: 'task',
-    },
-    TaskDetail: { name: 'Task', projectBased: true, activityScope: 'TaskDetail' },
     SlackTaskContext: { name: 'Slack task context', projectBased: true },
     Toolbar: {
         name: 'Toolbar',
@@ -838,6 +894,7 @@ export const productUrls = {
     },
     action: (id: string | number): string => `/data-management/actions/${id}`,
     actions: (): string => '/data-management/actions',
+    aiGateway: (): string => '/ai-gateway',
     aiObservabilityDashboard: (): string => '/ai-observability/dashboard',
     aiObservabilityGenerations: (): string => '/ai-observability/generations',
     aiObservabilityReviews: (): string => '/ai-observability/reviews',
@@ -1012,8 +1069,15 @@ export const productUrls = {
     },
     engineeringAnalytics: (): string => '/engineering-analytics',
     engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+    engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
     engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
-        `/engineering-analytics/pr/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/${number}`,
+        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
+    engineeringAnalyticsWorkflowRun: (repoOwner: string, repoName: string, runId: number | string): string =>
+        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
+    engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
+        `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
+    engineeringAnalyticsAuthor: (handle: string): string =>
+        `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     errorTracking: (params = {}): string => combineUrl('/error_tracking', params).url,
     errorTrackingConfiguration: (params = {}): string =>
         combineUrl('/error_tracking', { ...params, activeTab: 'configuration' }).url,
@@ -1080,6 +1144,7 @@ export const productUrls = {
     groupsNew: (groupTypeIndex: string | number): string => `/groups/${groupTypeIndex}/new`,
     group: (groupTypeIndex: string | number, groupKey: string, encode: boolean = true, tab?: string | null): string =>
         `/groups/${groupTypeIndex}/${encode ? encodeURIComponent(groupKey) : groupKey}${tab ? `/${tab}` : ''}`,
+    identityMatching: (): string => '/identity-matching',
     legalDocuments: (): string => '/legal',
     legalDocumentNew: (type: 'BAA' | 'DPA'): string => `/legal/new/${type.toLowerCase()}`,
     links: (): string => '/links',
@@ -1109,6 +1174,9 @@ export const productUrls = {
     personByUUID: (uuid: string, encode: boolean = true): string =>
         encode ? `/persons/${encodeURIComponent(uuid)}` : `/persons/${uuid}`,
     persons: (): string => '/persons',
+    taskTracker: (): string => '/tasks',
+    taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
+    taskNew: (): string => '/tasks/new',
     insights: (): string => '/insights',
     insightNew: ({
         type,
@@ -1210,6 +1278,7 @@ export const productUrls = {
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,
     skills: (): string => '/skills',
+    skillsCategoryTab: (categoryTab: string): string => `/skills/${categoryTab}`,
     skill: (
         name: string,
         params?: {
@@ -1222,8 +1291,6 @@ export const productUrls = {
     surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
     surveyWizard: (id: string = 'new', template?: string): string =>
         `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,
-    taskTracker: (): string => '/tasks',
-    taskDetail: (taskId: string | number): string => `/tasks/${taskId}`,
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
@@ -1562,6 +1629,22 @@ export const getTreeItemsNew = (): FileSystemImport[] => [
 /** This const is auto-generated, as is the whole file */
 export const getTreeItemsProducts = (): FileSystemImport[] => [
     {
+        path: 'AI gateway',
+        intents: [ProductKey.AI_GATEWAY],
+        category: ProductItemCategory.AI_ENGINEERING,
+        type: 'ai_gateway',
+        iconType: 'ai_gateway' as FileSystemIconType,
+        iconColor: [
+            'var(--color-product-ai-gateway-light)',
+            'var(--color-product-ai-gateway-dark)',
+        ] as FileSystemIconColor,
+        href: urls.aiGateway(),
+        flag: FEATURE_FLAGS.AI_GATEWAY,
+        tags: ['alpha'],
+        sceneKey: 'AIGateway',
+        sceneKeys: ['AIGateway'],
+    },
+    {
         path: 'Business knowledge',
         intents: [ProductKey.CONVERSATIONS],
         category: ProductItemCategory.AI_ENGINEERING,
@@ -1584,7 +1667,13 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.ENGINEERING_ANALYTICS,
         tags: ['alpha'],
         sceneKey: 'EngineeringAnalytics',
-        sceneKeys: ['EngineeringAnalytics', 'EngineeringAnalyticsPullRequest'],
+        sceneKeys: [
+            'EngineeringAnalytics',
+            'EngineeringAnalyticsPullRequest',
+            'EngineeringAnalyticsWorkflowRun',
+            'EngineeringAnalyticsWorkflowRuns',
+            'EngineeringAnalyticsAuthor',
+        ],
     },
     {
         path: 'Clusters',
@@ -1736,7 +1825,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_evaluations' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-evaluations-light)'] as FileSystemIconColor,
         href: urls.aiObservabilityEvaluations(),
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS,
         sceneKey: 'AIObservabilityEvaluations',
         sceneKeys: [
             'AIObservability',
@@ -1787,6 +1875,17 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         tags: ['beta'],
         sceneKey: 'Heatmaps',
         sceneKeys: ['Heatmaps'],
+    },
+    {
+        path: 'Identity matching',
+        intents: [ProductKey.MARKETING_ANALYTICS],
+        category: ProductItemCategory.UNRELEASED,
+        href: urls.identityMatching(),
+        flag: FEATURE_FLAGS.IDENTITY_MATCHING,
+        tags: ['alpha'],
+        iconType: 'persons',
+        sceneKey: 'IdentityMatching',
+        sceneKeys: ['IdentityMatching'],
     },
     {
         path: 'LLM analytics',
@@ -1867,7 +1966,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconColor: ['var(--color-product-llm-analytics-light)'] as FileSystemIconColor,
         href: urls.mcpAnalyticsDashboard(),
         flag: FEATURE_FLAGS.MCP_ANALYTICS,
-        tags: ['alpha'],
+        tags: ['beta'],
         sceneKey: 'MCPAnalytics',
         sceneKeys: ['MCPAnalytics', 'MCPAnalyticsToolDetail'],
     },
@@ -1964,7 +2063,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.aiObservabilityPrompts(),
-        flag: FEATURE_FLAGS.PROMPT_MANAGEMENT,
         tags: ['beta'],
         sceneKey: 'AIObservabilityPrompts',
         sceneKeys: [
@@ -2044,7 +2142,6 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'llm_prompts' as FileSystemIconType,
         iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
         href: urls.skills(),
-        flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
         sceneKey: 'Skills',
         sceneKeys: ['Skills', 'Skill'],
     },

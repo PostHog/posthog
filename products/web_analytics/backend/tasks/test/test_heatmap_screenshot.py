@@ -76,14 +76,32 @@ class TestHeatmapScreenshotTask(APIBaseTest):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _make_heatmap(self, target_widths: list[int] | None = None) -> SavedHeatmap:
+    def _make_heatmap(self, target_widths: list[int] | None = None, block_consent_modals: bool = False) -> SavedHeatmap:
         return SavedHeatmap.objects.create(
             team=self.team,
             url="https://example.com",
             created_by=self.user,
             target_widths=target_widths or [1024],
             status=SavedHeatmap.Status.PROCESSING,
+            block_consent_modals=block_consent_modals,
         )
+
+    @parameterized.expand([("blocking_on", True), ("blocking_off", False)])
+    @override_settings(**BROWSERLESS_SETTINGS, HEATMAP_BROWSERLESS_BLOCK_ADS=False)
+    @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
+    def test_per_heatmap_consent_blocking_flows_into_body(
+        self, _name: str, block_consent_modals: bool, mock_requests: MagicMock
+    ) -> None:
+        mock_requests.post.return_value = _make_response(_jpeg(b"1024"))
+
+        heatmap = self._make_heatmap(block_consent_modals=block_consent_modals)
+        generate_heatmap_screenshot(heatmap.id)
+
+        body = mock_requests.post.call_args.kwargs["json"]
+        if block_consent_modals:
+            assert body["blockConsentModals"] is True
+        else:
+            assert "blockConsentModals" not in body
 
     @override_settings(**BROWSERLESS_SETTINGS)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
@@ -192,7 +210,6 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
         HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000,
         HEATMAP_BROWSERLESS_BLOCK_ADS=False,
-        HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS=True,
     )
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_posts_full_page_body_with_viewport_width(
@@ -200,7 +217,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     ) -> None:
         mock_requests.post.return_value = _make_response(_jpeg(b"img"))
 
-        content = _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", width)
+        content = _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://example.com", width, block_consent_modals=True
+        )
 
         assert content == _jpeg(b"img")
         body = mock_requests.post.call_args.kwargs["json"]
@@ -223,21 +242,24 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_block_ads_added_to_body_when_enabled(self, mock_requests: MagicMock) -> None:
         mock_requests.post.return_value = _make_response()
-        _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+        _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+        )
         assert mock_requests.post.call_args.kwargs["json"]["blockAds"] is True
 
     @override_settings(
         HEATMAP_BROWSERLESS_TIMEOUT_MS=180000,
         HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000,
         HEATMAP_BROWSERLESS_BLOCK_ADS=False,
-        HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS=False,
     )
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.requests")
     def test_cloud_only_fields_omitted_when_disabled(self, mock_requests: MagicMock) -> None:
         # The self-hosted OSS browserless image rejects bodies carrying these cloud-only fields,
         # so disabling them must omit the keys entirely rather than send false.
         mock_requests.post.return_value = _make_response()
-        _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+        _browserless_screenshot(
+            "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+        )
         body = mock_requests.post.call_args.kwargs["json"]
         assert "blockAds" not in body
         assert "blockConsentModals" not in body
@@ -257,7 +279,7 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
             mock_requests.post.side_effect = Exception("ECONNREFUSED https://host/screenshot?token=secret-token")
 
         with self.assertRaises(BrowserlessError) as ctx:
-            _browserless_screenshot(endpoint, "https://example.com", 1024)
+            _browserless_screenshot(endpoint, "https://example.com", 1024, block_consent_modals=False)
 
         message = str(ctx.exception)
         # The token must never reach the (API-readable) persisted exception
@@ -279,7 +301,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
         # A 200 that isn't a real JPEG must not be stored and served as image/jpeg.
         mock_requests.post.return_value = _make_response(content, content_type=content_type)
         with self.assertRaises(BrowserlessError):
-            _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+            _browserless_screenshot(
+                "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+            )
 
     @override_settings(HEATMAP_BROWSERLESS_TIMEOUT_MS=180000, HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS=30000)
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.HEATMAP_SCREENSHOT_MAX_BYTES", 8)
@@ -287,7 +311,9 @@ class TestBrowserlessScreenshotRequest(SimpleTestCase):
     def test_rejects_oversized_body_as_permanent(self, mock_requests: MagicMock) -> None:
         mock_requests.post.return_value = _make_response(_jpeg(b"way over the cap"))
         with self.assertRaises(BrowserlessPermanentError):
-            _browserless_screenshot("https://host/screenshot?token=t", "https://example.com", 1024)
+            _browserless_screenshot(
+                "https://host/screenshot?token=t", "https://example.com", 1024, block_consent_modals=False
+            )
 
 
 # Pure-function tests for the Browserless URL helpers — no DB, so they run on SimpleTestCase.

@@ -1449,6 +1449,7 @@ async def insert_into_snowflake_activity_from_stage(
                     transformer=transformer,
                     # TODO: Deprecate this argument once all other destinations are also migrated.
                     json_columns=(),
+                    records_total=inputs.records_total,
                 )
 
                 # TODO - maybe move this into the consumer finalize method?

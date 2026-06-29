@@ -12,16 +12,23 @@ from products.dashboards.backend.widget_specs.configs import (
     ERROR_TRACKING_LIST_WIDGET_TYPE,
     EXPERIMENT_RESULTS_WIDGET_TYPE,
     EXPERIMENTS_LIST_WIDGET_TYPE,
+    LOGS_LIST_WIDGET_TYPE,
     SESSION_REPLAY_LIST_WIDGET_TYPE,
     ActivityEventsListWidgetConfig,
     ErrorTrackingListWidgetConfig,
     ExperimentResultsWidgetConfig,
     ExperimentsListWidgetConfig,
+    LogsListWidgetConfig,
     SessionReplayListWidgetConfig,
 )
 
 DashboardWidgetType = Literal[
-    "activity_events_list", "error_tracking_list", "session_replay_list", "experiments_list", "experiment_results"
+    "activity_events_list",
+    "error_tracking_list",
+    "session_replay_list",
+    "experiments_list",
+    "experiment_results",
+    "logs_list",
 ]
 
 __all__ = [
@@ -83,6 +90,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
     from products.dashboards.backend.widgets.error_tracking_list import run_error_tracking_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiment_results import run_experiment_results_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.experiments_list import run_experiments_list_widget  # noqa: PLC0415
+    from products.dashboards.backend.widgets.logs_list import run_logs_list_widget  # noqa: PLC0415
     from products.dashboards.backend.widgets.session_replay_list import run_session_replay_list_widget  # noqa: PLC0415
 
     return {
@@ -99,7 +107,7 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message=None,
             availability_requirements=(),
             form_fields=("limit", "dateRange", "filterTestAccounts"),
-            filter_fields=(),
+            filter_fields=("eventName",),
         ),
         ERROR_TRACKING_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=ERROR_TRACKING_LIST_WIDGET_TYPE,
@@ -160,6 +168,23 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             availability_requirements=(),
             form_fields=("experimentId",),
             filter_fields=("experimentId",),
+        ),
+        LOGS_LIST_WIDGET_TYPE: WidgetSpec(
+            widget_type=LOGS_LIST_WIDGET_TYPE,
+            config_model=LogsListWidgetConfig,
+            query_fn=run_logs_list_widget,
+            required_scopes=("logs:read",),
+            group_id="logs",
+            group_label="Logs",
+            label="Recent logs",
+            description="Latest log lines, filterable by severity level and service.",
+            required_product_access="logs",
+            product_access_denied_message="You do not have access to logs.",
+            # No cheap team-flag setup check for logs (availability would need a ClickHouse
+            # has-logs query, which we keep off the widget-add path) — leave ungated like activity.
+            availability_requirements=(),
+            form_fields=("limit", "dateRange", "wrapLines", "timezone"),
+            filter_fields=("severityLevels", "serviceNames"),
         ),
     }
 

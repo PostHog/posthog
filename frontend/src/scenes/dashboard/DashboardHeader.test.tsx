@@ -1,8 +1,9 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
@@ -10,6 +11,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, DashboardMode, DashboardType, QueryBasedInsightModel } from '~/types'
 
+import { addTilePickerModalLogic } from './addTilePickerModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { dashboardLogic } from './dashboardLogic'
 
@@ -161,4 +163,27 @@ describe('DashboardHeader', () => {
             logic.unmount()
         }
     )
+
+    // The add-tile-picker experiment: the flag must route the Add click to the picker modal in the
+    // `test` variant and to the existing dropdown (never the picker) in control. Guards against the
+    // gating being removed or inverted in DashboardAddTileButton.
+    it.each([
+        { variant: 'test' as string | undefined, expectPicker: true },
+        { variant: undefined, expectPicker: false },
+    ])('add button opens picker only for the test variant (variant=$variant)', ({ variant, expectPicker }) => {
+        if (variant) {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL], {
+                [FEATURE_FLAGS.DASHBOARD_ADD_TILE_PICKER_MODAL]: variant,
+            })
+        }
+
+        const { logic } = renderHeader({})
+        addTilePickerModalLogic.mount()
+
+        fireEvent.click(document.querySelector('[data-attr="dashboard-add-tile"]')!)
+
+        expect(addTilePickerModalLogic.values.addTilePickerModalVisible).toBe(expectPicker)
+
+        logic.unmount()
+    })
 })
