@@ -14,6 +14,9 @@ _LAZY = {
     "delete_node_from_dag": "logic.saved_query_dag_sync",
     "sync_saved_query_to_dag": "logic.saved_query_dag_sync",
     "update_node_type": "logic.saved_query_dag_sync",
+    "is_saved_query_on_v2_schedule": "logic.node_materialization",
+    "materialize_saved_query": "logic.node_materialization",
+    "start_node_materialization": "logic.node_materialization",
 }
 
 __all__ = sorted(_LAZY)
