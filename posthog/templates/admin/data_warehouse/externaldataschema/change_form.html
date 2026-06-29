@@ -199,7 +199,7 @@
                            type="text" value="{% if current_partition_keys %}{{ current_partition_keys|join:',' }}{% endif %}"
                            placeholder="comma-separated column names (table not synced yet)">
                 {% endif %}
-                <span class="help">datetime/numerical need exactly one; leave blank for md5 to use the table's primary keys.</span>
+                <span class="help" id="repartition_keys_hint">md5 hashes one or more keys together; datetime/numerical use a single column. Leave blank for md5 to use the table's primary keys.</span>
             </div>
             <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
                 <label for="repartition_format">Partition format:</label>
@@ -258,6 +258,21 @@
                             c.disabled = !visible;
                         });
                     }
+                    // md5 hashes all keys together (composite), so it allows several; datetime and
+                    // numerical only use the first key, so restrict the picker to a single choice.
+                    var keysEl = document.getElementById("repartition_keys");
+                    function applyKeyMode(mode) {
+                        var single = mode === "datetime" || mode === "numerical";
+                        if (keysEl && keysEl.tagName === "SELECT") {
+                            keysEl.multiple = !single;
+                            if (single) {
+                                var firstSelected = keysEl.selectedOptions[0] || null;
+                                Array.prototype.forEach.call(keysEl.options, function (o) {
+                                    o.selected = o === firstSelected;
+                                });
+                            }
+                        }
+                    }
                     function sync() {
                         var mode = modeSelect.value;
                         Object.keys(groups).forEach(function (m) {
@@ -265,6 +280,7 @@
                                 setVisible(id, m === mode);
                             });
                         });
+                        applyKeyMode(mode);
                     }
                     modeSelect.addEventListener("change", sync);
                     sync();
