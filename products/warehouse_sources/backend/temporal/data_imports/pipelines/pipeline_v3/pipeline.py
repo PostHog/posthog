@@ -150,9 +150,16 @@ class PipelineV3(Generic[ResumableData]):
         partition_size = (
             self._schema.partition_size_override or self._schema.partition_size or self._resource.partition_size
         )
-        partition_keys = self._schema.partitioning_keys or self._resource.partition_keys or self._resource.primary_keys
+        partition_keys = (
+            self._schema.partitioning_keys_override
+            or self._schema.partitioning_keys
+            or self._resource.partition_keys
+            or self._resource.primary_keys
+        )
         partition_format = self._schema.partition_format or self._resource.partition_format
-        partition_mode = self._schema.partition_mode or self._resource.partition_mode
+        partition_mode = (
+            self._schema.partition_mode_override or self._schema.partition_mode or self._resource.partition_mode
+        )
 
         # Determine if this is the first-ever sync (no DWH table exists yet)
         is_first_ever_sync = self._schema.table is None

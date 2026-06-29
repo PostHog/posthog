@@ -1,5 +1,6 @@
 from io import StringIO
 
+import pytest
 from posthog.test.base import BaseTest
 
 from django.core.management import call_command
@@ -12,6 +13,8 @@ from posthog.persons_seed import insert_seed_group
 from products.customer_analytics.backend.models.account import Account
 from products.customer_analytics.backend.models.team_customer_analytics_config import TeamCustomerAnalyticsConfig
 from products.notebooks.backend.models import Notebook, ResourceNotebook
+
+pytestmark = pytest.mark.persons_db_direct
 
 
 class TestSeedCustomerAnalyticsAccounts(BaseTest):

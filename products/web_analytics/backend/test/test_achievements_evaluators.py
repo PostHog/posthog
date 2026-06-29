@@ -1,15 +1,16 @@
 from datetime import date, timedelta
 
-from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
-from posthog.models import Team, User
+from posthog.models import Element, Team, User
 
+from products.actions.backend.models.action import Action
 from products.web_analytics.backend.achievements.definitions import STREAK_ARM_DAILY, STREAK_ARM_WEEKLY
 from products.web_analytics.backend.achievements.evaluators import (
     EvalContext,
+    evaluate_conversions,
     evaluate_cumulative_pageviews,
     evaluate_data_events,
     evaluate_loyal_days,
@@ -67,19 +68,42 @@ class TestAchievementEvaluators(BaseTest):
         ctx = EvalContext(team=self.team, user=self.user, today=TODAY, arm=None)
         self.assertEqual(evaluate_data_events(ctx), 0)
 
-    @patch("products.web_analytics.backend.achievements.evaluators.WebOverviewQueryRunner")
-    def test_cumulative_pageviews_sums_across_environments(self, mock_runner_cls: MagicMock) -> None:
-        Team.objects.create(organization=self.organization, project=self.team.project, name="Second environment")
 
-        def make_runner(team: Team, query: object) -> MagicMock:
-            item = MagicMock()
-            item.key = "views"
-            item.value = 100
-            runner = MagicMock()
-            runner.calculate.return_value = MagicMock(results=[item])
-            return runner
+class TestTeamEvaluators(ClickhouseTestMixin, APIBaseTest):
+    def _ctx(self) -> EvalContext:
+        return EvalContext(team=self.team, user=None, today=date.today(), arm=None)
 
-        mock_runner_cls.side_effect = make_runner
-        ctx = EvalContext(team=self.team, user=None, today=TODAY, arm=None)
-        # Both environments of the project contribute 100 each.
-        self.assertEqual(evaluate_cumulative_pageviews(ctx), 200)
+    def test_cumulative_pageviews_counts_pageviews_across_environments(self) -> None:
+        second_env = Team.objects.create(organization=self.organization, project=self.team.project, name="env 2")
+        _create_event(team=self.team, event="$pageview", distinct_id="d1")
+        _create_event(team=self.team, event="$screen", distinct_id="d1")
+        _create_event(team=self.team, event="custom_event", distinct_id="d1")
+        _create_event(team=second_env, event="$pageview", distinct_id="d2")
+        flush_persons_and_events()
+
+        self.assertEqual(evaluate_cumulative_pageviews(self._ctx()), 3)
+
+    def test_conversions_returns_best_goal_conversion_count(self) -> None:
+        Action.objects.create(
+            team=self.team,
+            name="Clicked Pay",
+            steps_json=[{"event": "$autocapture", "tag_name": "button", "text": "Pay $10"}],
+        )
+        for _ in range(2):
+            _create_event(
+                team=self.team,
+                event="$autocapture",
+                distinct_id="d1",
+                elements=[Element(nth_of_type=1, nth_child=0, tag_name="button", text="Pay $10")],
+            )
+        flush_persons_and_events()
+
+        self.assertEqual(evaluate_conversions(self._ctx()), 2)
+
+    def test_conversions_falls_back_to_goal_count_without_conversions(self) -> None:
+        Action.objects.create(
+            team=self.team,
+            name="Clicked Pay",
+            steps_json=[{"event": "$autocapture", "tag_name": "button", "text": "Pay $10"}],
+        )
+        self.assertEqual(evaluate_conversions(self._ctx()), 1)

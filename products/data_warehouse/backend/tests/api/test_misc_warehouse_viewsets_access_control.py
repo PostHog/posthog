@@ -15,9 +15,8 @@ from rest_framework.response import Response
 
 from posthog.models.organization import OrganizationMembership
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 MANAGED_VIEWSET_KIND = "revenue_analytics"
 

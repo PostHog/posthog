@@ -111,7 +111,6 @@ rules:
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -169,6 +168,7 @@ rules:
                               |IntervieweeContext
                               |KnowledgeChunk
                               |KnowledgeDocument
+                              |KnowledgeGapSuggestion
                               |KnowledgeSource
                               |Link
                               |LiveDebuggerBreakpoint
@@ -230,6 +230,7 @@ rules:
                               |SlackThreadTaskMapping
                               |SourceBatch
                               |SourceBatchDuckgresApply
+                              |SourceGroupLease
                               |StreamlitApp
                               |Subscription
                               |SubscriptionDelivery
@@ -378,7 +379,6 @@ rules:
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext
@@ -436,6 +436,7 @@ rules:
                         |IntervieweeContext
                         |KnowledgeChunk
                         |KnowledgeDocument
+                        |KnowledgeGapSuggestion
                         |KnowledgeSource
                         |Link
                         |LiveDebuggerBreakpoint
@@ -493,6 +494,7 @@ rules:
                         |SlackThreadTaskMapping
                         |SourceBatch
                         |SourceBatchDuckgresApply
+                        |SourceGroupLease
                         |StreamlitApp
                         |Subscription
                         |SubscriptionDelivery

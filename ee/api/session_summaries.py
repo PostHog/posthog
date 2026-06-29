@@ -17,7 +17,6 @@ import structlog
 from asgiref.sync import async_to_sync
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
@@ -32,6 +31,7 @@ from posthog.api.streaming import _release_request_connections
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -760,7 +760,7 @@ class SessionGroupSummaryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             organization_id=self.request.user.current_organization_id,
             team_id=self.team_id,
             user=self.request.user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
         )
         super().perform_destroy(instance)
 

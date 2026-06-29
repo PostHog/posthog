@@ -9,7 +9,8 @@ from unittest import mock
 
 from rest_framework import status
 
-from posthog.models import Organization, Person, Team
+from posthog.models import Organization, Team
+from posthog.models.person.util import get_person_by_uuid
 from posthog.personhog_client.test_helpers import PersonhogTestMixin
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -368,7 +369,7 @@ class TestDestroyPerson(PersonhogTestMixin, APIBaseTest):
         resp = self.client.delete(f"/api/person/{person.uuid}/?keep_person=true&delete_events=true")
 
         assert resp.status_code == status.HTTP_202_ACCEPTED
-        assert Person.objects.filter(team_id=self.team.pk, uuid=person.uuid).count() == 1
+        assert get_person_by_uuid(self.team.pk, str(person.uuid)) is not None
         self._assert_personhog_not_called("delete_persons")
 
 
@@ -429,7 +430,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
         assert data["persons_deleted"] == 0
         assert data["events_queued_for_deletion"] is True
         assert data["deletion_errors"] == []
-        assert Person.objects.filter(team_id=self.team.pk, uuid=p1.uuid).count() == 1
+        assert get_person_by_uuid(self.team.pk, str(p1.uuid)) is not None
         self._assert_personhog_not_called("delete_persons")
 
     def test_cross_team_isolation(self):
@@ -455,7 +456,7 @@ class TestBulkDeletePersons(PersonhogTestMixin, APIBaseTest):
             assert calls[0].request.team_id == self.team.pk
             assert list(calls[0].request.person_uuids) == [str(p1.uuid)]
         # Other team's person should be untouched
-        assert Person.objects.filter(team_id=other_team.pk, uuid=other_person.uuid).count() == 1
+        assert get_person_by_uuid(other_team.pk, str(other_person.uuid)) is not None
 
     @mock.patch("posthog.models.person.bulk_delete.delete_person")
     def test_bulk_delete_partial_failure_only_deletes_successful_from_postgres(self, mock_delete_person):

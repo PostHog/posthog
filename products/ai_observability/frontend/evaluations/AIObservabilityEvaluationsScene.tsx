@@ -279,6 +279,15 @@ function AIObservabilityEvaluationsContent(): JSX.Element {
                     return <span className="text-muted text-sm">No runs</span>
                 }
 
+                // Sentiment evals classify rather than pass/fail, so a pass rate is meaningless
+                if (evaluation.evaluation_type === 'sentiment') {
+                    return (
+                        <div className="text-sm">
+                            {stats.runs_count} run{stats.runs_count !== 1 ? 's' : ''}
+                        </div>
+                    )
+                }
+
                 const passRateColor =
                     stats.pass_rate >= PASS_RATE_SUCCESS_THRESHOLD
                         ? 'text-success'
