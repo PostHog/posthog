@@ -100,11 +100,15 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         let mut duplicates: u64 = 0;
         for captured in data {
             // Drop repeat UUIDs so a source-level duplicate can't make capture reject the batch.
-            if !seen.insert(captured.inner.uuid) {
+            if seen.contains(&captured.inner.uuid) {
                 duplicates += 1;
                 continue;
             }
-            events.push(convert_event(captured)?);
+            // Record the UUID only after a successful conversion, so a convert error never
+            // leaves a UUID marked seen with no corresponding event.
+            let event = convert_event(captured)?;
+            seen.insert(captured.inner.uuid);
+            events.push(event);
         }
         drop(events);
         drop(seen);
