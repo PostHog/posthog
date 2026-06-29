@@ -112,8 +112,6 @@ def _initial_time_start(
 
 def _get_timeseries_rows(
     config: CoinApiEndpointConfig,
-    session: requests.Session,
-    headers: dict[str, str],
     logger: FilteringBoundLogger,
     fetch: Any,
     symbol_id: str,
@@ -151,7 +149,7 @@ def _get_timeseries_rows(
         if len(data) < PAGE_LIMIT:
             break
 
-        next_time_start = _format_time(data[-1].get(incremental_field))
+        next_time_start = _format_time(data[-1][incremental_field])
         # `time_start` is inclusive, so the boundary row is re-fetched and deduped on merge. If a full
         # page shares one timestamp (e.g. a microsecond burst of trades), advancing wouldn't progress —
         # stop rather than loop forever. ISO 8601 strings in CoinAPI's fixed format compare chronologically.
@@ -221,8 +219,6 @@ def get_rows(
 
     yield from _get_timeseries_rows(
         config=config,
-        session=session,
-        headers=headers,
         logger=logger,
         fetch=fetch,
         symbol_id=symbol_id,
