@@ -1262,9 +1262,7 @@ class TestHogFlowAPI(APIBaseTest):
         flow_id = self._create_draft_flow_with_graph()
         mock_emit.reset_mock()
 
-        response = self._patch_graph(
-            flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}]
-        )
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
         assert response.status_code == 200, response.json()
 
         assert mock_emit.call_count == 1
