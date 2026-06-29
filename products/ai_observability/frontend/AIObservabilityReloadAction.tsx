@@ -57,9 +57,10 @@ export function AIObservabilityReloadAction(): JSX.Element {
     )
     const { refreshMetrics: refreshEvaluationMetrics } = useActions(evaluationMetricsLogic)
     const { loadEvaluations } = useActions(llmEvaluationsLogic)
+    const { sessionsLoading } = useValues(aiObservabilitySessionsViewLogic)
     const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
 
-    const isLoading = shouldUseDashboardLogic ? dashboardLoading : false
+    const isLoading = shouldUseDashboardLogic ? dashboardLoading : activeTab === 'sessions' ? sessionsLoading : false
     const lastRefresh = shouldUseDashboardLogic ? effectiveLastRefresh : null
 
     const handleRefresh = (): void => {

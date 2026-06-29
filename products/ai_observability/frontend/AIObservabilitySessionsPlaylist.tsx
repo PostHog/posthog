@@ -7,6 +7,7 @@ import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useWindowSize } from 'lib/hooks/useWindowSize'
+import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { cn } from 'lib/utils/css-classes'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'
@@ -96,10 +97,11 @@ function ListPane({ className }: { className?: string }): JSX.Element {
     return (
         <div
             className={cn(
-                'flex flex-col min-h-0 overflow-hidden rounded border border-primary bg-surface-primary',
+                'relative flex flex-col min-h-0 overflow-hidden rounded border border-primary bg-surface-primary',
                 className
             )}
         >
+            <LemonTableLoader loading={sessionsLoading && sessions.length > 0} placement="top" />
             <div className="flex-1 min-h-0 overflow-y-auto" data-attr="llma-sessions-list">
                 {sessionsLoading && sessions.length === 0 ? (
                     <div className="flex flex-col gap-2 p-2">

@@ -30,6 +30,7 @@ import {
     formatLLMCost,
     formatLLMLatency,
     formatLLMUsage,
+    getTraceStepCount,
     getTraceTimestamp,
     LLM_TRACES_PAGE_SIZE,
     sanitizeTraceUrlSearchParams,
@@ -344,7 +345,7 @@ const StepsColumn: QueryContextColumnComponent = ({ record }) => {
     const row = record as LLMTrace
     return (
         <Tooltip title="Number of steps (generations, spans, embeddings) in this trace">
-            <span>{row.events?.length ?? 0}</span>
+            <span>{getTraceStepCount(row)}</span>
         </Tooltip>
     )
 }

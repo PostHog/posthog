@@ -100,6 +100,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         moreSessionsLoading: [
             false,
             {
+                loadSessions: () => false,
                 loadMoreSessions: () => true,
                 loadMoreSessionsSuccess: () => false,
                 loadMoreSessionsFailure: () => false,
@@ -127,43 +128,71 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         ],
     }),
 
-    listeners(({ actions, values }) => ({
-        loadSessions: async ({ refresh }) => {
-            const source = values.sessionsQuery.source as HogQLQuery
-            try {
-                // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
-                const response = await api.query(source, { refresh })
-                const sessions = parseSessionsResponse(response)
-                actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
-            } catch {
-                actions.loadSessionsFailure()
-            }
-        },
-        loadMoreSessions: async () => {
-            if (!values.hasMoreSessions) {
-                actions.loadMoreSessionsFailure()
-                return
-            }
-            const source = values.sessionsQuery.source as HogQLQuery
-            try {
-                const response = await api.query({
-                    ...source,
-                    query: buildSessionsQuery(values.sessionsSort, values.sessions.length),
-                })
-                const sessions = parseSessionsResponse(response)
-                actions.loadMoreSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
-            } catch {
-                actions.loadMoreSessionsFailure()
-            }
-        },
-        // Pre-load titles for the whole list (batched + deduped), so each row shows
-        // its name and re-selecting a listed session never re-queries its title.
-        loadSessionsSuccess: ({ sessions }) => {
-            for (const session of sessions) {
-                actions.ensureSessionTitleLoaded(session.sessionId, values.dateFilter)
-            }
-        },
-    })),
+    listeners(({ actions, values }) => {
+        let loadSessionsRequestId = 0
+        let loadMoreSessionsRequestId = 0
+
+        return {
+            loadSessions: async ({ refresh }) => {
+                const requestId = ++loadSessionsRequestId
+                // A first-page reload supersedes any pagination request already in flight.
+                loadMoreSessionsRequestId++
+                const source = values.sessionsQuery.source as HogQLQuery
+                try {
+                    // Default loads use cache (fast, PostHog convention); the Refresh button forces a recompute
+                    const response = await api.query(source, { refresh })
+                    if (requestId !== loadSessionsRequestId) {
+                        return
+                    }
+                    if (values.sessionsQuery.source !== source) {
+                        actions.loadSessionsFailure()
+                        return
+                    }
+                    const sessions = parseSessionsResponse(response)
+                    actions.loadSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+                } catch {
+                    if (requestId === loadSessionsRequestId) {
+                        actions.loadSessionsFailure()
+                    }
+                }
+            },
+            loadMoreSessions: async () => {
+                if (!values.hasMoreSessions) {
+                    actions.loadMoreSessionsFailure()
+                    return
+                }
+                const requestId = ++loadMoreSessionsRequestId
+                const source = values.sessionsQuery.source as HogQLQuery
+                const offset = values.sessions.length
+                try {
+                    const response = await api.query({
+                        ...source,
+                        query: buildSessionsQuery(values.sessionsSort, offset),
+                    })
+                    if (requestId !== loadMoreSessionsRequestId) {
+                        return
+                    }
+                    if (values.sessionsQuery.source !== source || values.sessions.length !== offset) {
+                        actions.loadMoreSessionsFailure()
+                        return
+                    }
+                    const sessions = parseSessionsResponse(response)
+                    actions.loadMoreSessionsSuccess(sessions, sessions.length === SESSIONS_PAGE_SIZE)
+                } catch {
+                    if (requestId === loadMoreSessionsRequestId) {
+                        actions.loadMoreSessionsFailure()
+                    }
+                }
+            },
+            // Pre-load titles for the whole list (batched + deduped), so each row shows
+            // its name and re-selecting a listed session never re-queries its title.
+            loadSessionsSuccess: ({ sessions }) => {
+                for (const session of sessions) {
+                    actions.ensureSessionTitleLoaded(session.sessionId, values.dateFilter)
+                }
+            },
+        }
+    }),
 
     selectors({
         sessionsQuery: [

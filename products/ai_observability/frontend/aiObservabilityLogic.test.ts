@@ -209,6 +209,27 @@ describe('aiObservabilitySessionsViewLogic', () => {
         ]
     }
 
+    function sessionResponse(indexes: number[]): { columns: string[]; results: unknown[][] } {
+        return {
+            columns: sessionColumns,
+            results: indexes.map((index) => sessionRow(index)),
+        }
+    }
+
+    function deferredResponse(): {
+        promise: Promise<{ columns: string[]; results: unknown[][] }>
+        resolve: (response: { columns: string[]; results: unknown[][] }) => void
+        reject: (error: unknown) => void
+    } {
+        let resolve!: (response: { columns: string[]; results: unknown[][] }) => void
+        let reject!: (error: unknown) => void
+        const promise = new Promise<{ columns: string[]; results: unknown[][] }>((promiseResolve, promiseReject) => {
+            resolve = promiseResolve
+            reject = promiseReject
+        })
+        return { promise, resolve, reject }
+    }
+
     beforeEach(() => {
         initKeaTests()
         querySpy = jest.spyOn(api, 'query').mockResolvedValue({
@@ -247,6 +268,61 @@ describe('aiObservabilitySessionsViewLogic', () => {
         await settleListeners()
 
         expect(querySpy).not.toHaveBeenCalled()
+    })
+
+    it('ignores stale session reloads after filters change', async () => {
+        setActiveTab('aiObservabilitySessions')
+        const staleResponse = deferredResponse()
+        const freshResponse = deferredResponse()
+        querySpy.mockImplementationOnce(() => staleResponse.promise).mockImplementationOnce(() => freshResponse.promise)
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
+
+        freshResponse.resolve(sessionResponse([2]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-2'])
+        expect(logic.values.sessionsLoading).toBe(false)
+
+        staleResponse.resolve(sessionResponse([1]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-2'])
+        expect(querySpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('ignores stale load-more responses after a first-page reload', async () => {
+        querySpy.mockResolvedValueOnce(sessionResponse(Array.from({ length: 50 }, (_, i) => i)))
+
+        logic.actions.loadSessions()
+        await settleListeners()
+        expect(logic.values.sessions).toHaveLength(50)
+        expect(logic.values.hasMoreSessions).toBe(true)
+
+        const staleLoadMoreResponse = deferredResponse()
+        const refreshResponse = deferredResponse()
+        querySpy
+            .mockImplementationOnce(() => staleLoadMoreResponse.promise)
+            .mockImplementationOnce(() => refreshResponse.promise)
+
+        logic.actions.loadMoreSessions()
+        await settleListeners()
+        expect(logic.values.moreSessionsLoading).toBe(true)
+
+        logic.actions.loadSessions({ refresh: 'force_blocking' })
+        await settleListeners()
+        expect(logic.values.moreSessionsLoading).toBe(false)
+
+        refreshResponse.resolve(sessionResponse([60]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-60'])
+
+        staleLoadMoreResponse.resolve(sessionResponse([50]))
+        await settleListeners()
+        expect(logic.values.sessions.map((session) => session.sessionId)).toEqual(['session-60'])
+        expect(querySpy).toHaveBeenCalledTimes(3)
     })
 
     it('appends additional session pages', async () => {
