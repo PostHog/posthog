@@ -704,7 +704,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
                 "^/api/(environments|projects)/\\d+/cohorts/?$",
                 "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",
