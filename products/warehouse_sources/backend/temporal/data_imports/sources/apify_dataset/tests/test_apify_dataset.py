@@ -59,6 +59,14 @@ class TestItemsUrl:
         assert f"limit={limit}" in url
         assert "format=json" in url
 
+    def test_items_url_encodes_dataset_id_as_path_segment(self) -> None:
+        # A crafted dataset_id must not be able to inject extra path segments or query params
+        # (e.g. dropping the enforced offset/limit); it has to stay a single encoded path segment.
+        url = _items_url("evil/items?format=json#", 0, 1000)
+        assert url.startswith("https://api.apify.com/v2/datasets/evil%2Fitems%3Fformat%3Djson%23/items?")
+        assert "offset=0" in url
+        assert "limit=1000" in url
+
 
 class TestValidateCredentials:
     @parameterized.expand(

@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -42,12 +42,15 @@ def _get_headers(api_token: str) -> dict[str, str]:
 def _items_url(dataset_id: str, offset: int, limit: int) -> str:
     # `format=json` returns a JSON array of the raw rows; offset/limit drive the pagination.
     params = {"offset": offset, "limit": limit, "format": "json"}
-    return f"{APIFY_BASE_URL}/datasets/{dataset_id}/items?{urlencode(params)}"
+    # Encode the dataset_id as a single path segment so a crafted value can't inject extra path
+    # segments or query params (e.g. dropping the enforced offset/limit).
+    return f"{APIFY_BASE_URL}/datasets/{quote(dataset_id, safe='')}/items?{urlencode(params)}"
 
 
 def validate_credentials(api_token: str, dataset_id: str) -> tuple[bool, str | None]:
     """Probe the dataset itself so a bad token (401) and a wrong/inaccessible dataset (404) are both caught."""
-    url = f"{APIFY_BASE_URL}/datasets/{dataset_id}"
+    # Encode the dataset_id as a single path segment so a crafted value can't escape the path.
+    url = f"{APIFY_BASE_URL}/datasets/{quote(dataset_id, safe='')}"
     try:
         response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
     except Exception:
