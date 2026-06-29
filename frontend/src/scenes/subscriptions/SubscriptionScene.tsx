@@ -14,6 +14,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { SubscriptionAIControls } from './components/SubscriptionAIControls'
 import { SubscriptionDeliveryHistory } from './components/SubscriptionDeliveryHistory'
 import { isSubscriptionEnabled, subscriptionEditHref, subscriptionName } from './components/SubscriptionsTable'
 import { SubscriptionSummary } from './components/SubscriptionSummary'
@@ -108,6 +109,7 @@ export function SubscriptionScene(): JSX.Element {
                             <SubscriptionSummary sub={subscription} />
                         </div>
                     ) : null}
+                    {subscription?.resource_type === ResourceTypeEnumApi.AiPrompt ? <SubscriptionAIControls /> : null}
                     <SubscriptionDeliveryHistory
                         deliveriesPage={deliveriesPage}
                         deliveriesPageLoading={deliveriesPageLoading}
