@@ -674,9 +674,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         return instance
 
-    # Fields whose value defines *what* gets delivered. A change to any of these
+    # Scalar fields whose value defines *what* gets delivered. A change to any of these
     # warrants an immediate confirmation delivery on update; schedule/meta edits
-    # (frequency, interval, title, summary_*, …) must not re-fire one.
+    # (frequency, interval, title, summary_*, …) must not re-fire one. The
+    # dashboard_export_insights M2M is also delivery-relevant but is popped from
+    # validated_data and compared separately in update() (it can't live in this scalar set).
     DELIVERY_RELEVANT_FIELDS: ClassVar[tuple[str, ...]] = (
         "target_value",
         "target_type",
@@ -694,10 +696,16 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
 
-        # Snapshot delivery-relevant values before the write so we can tell, after,
-        # whether the edit actually changed what gets delivered.
+        # Snapshot delivery-relevant scalar values before the write so we can tell, after,
+        # whether the edit actually changed what gets delivered. Only snapshot the
+        # dashboard_export_insights M2M when the payload carries it — that's the only case
+        # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
         old_delivery_values = {field: getattr(instance, field) for field in self.DELIVERY_RELEVANT_FIELDS}
-        old_export_insight_ids = set(instance.dashboard_export_insights.values_list("id", flat=True))
+        old_export_insight_ids = (
+            set(instance.dashboard_export_insights.values_list("id", flat=True))
+            if dashboard_export_insight_ids
+            else set()
+        )
 
         if is_delete:
             with slo_operation(
@@ -748,10 +756,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # expects a confirmation delivery in both cases. A schedule/meta-only edit
         # (frequency, interval, title, summary_*, …) re-saves next_delivery_date via
         # the model's save() but must not push a fresh delivery.
-        delivery_target_changed = (
-            any(getattr(instance, field) != old_value for field, old_value in old_delivery_values.items())
-            or set(instance.dashboard_export_insights.values_list("id", flat=True)) != old_export_insight_ids
-        )
+        delivery_target_changed = any(
+            getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
+        ) or (bool(dashboard_export_insight_ids) and set(dashboard_export_insight_ids) != old_export_insight_ids)
         if not is_re_enabling and not delivery_target_changed:
             return instance
 
