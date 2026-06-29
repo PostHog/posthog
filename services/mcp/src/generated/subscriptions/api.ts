@@ -165,7 +165,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
                 'Typed view over the Subscription.delivery_config JSON blob. New per-delivery options\nare added as fields here so the generated API/MCP types stay typed and extensible without\na migration per option.'
             )
             .optional()
-            .describe('Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery.'),
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
 
@@ -320,7 +320,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
                 'Typed view over the Subscription.delivery_config JSON blob. New per-delivery options\nare added as fields here so the generated API/MCP types stay typed and extensible without\na migration per option.'
             )
             .optional()
-            .describe('Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery.'),
+            .describe('Per-delivery rendering options. Each option documents which delivery targets it applies to.'),
     })
     .describe('Standard Subscription serializer.')
 

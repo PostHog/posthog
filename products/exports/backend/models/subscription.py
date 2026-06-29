@@ -408,6 +408,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
+            "post_all_insights_in_main_message": self.delivery_config.get("post_all_insights_in_main_message", False),
         }
 
 

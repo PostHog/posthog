@@ -24,7 +24,6 @@ from posthog.api.integration import IntegrationSerializer, IntegrationViewSet
 from posthog.models.integration import (
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
-    POSTHOG_SLACK_SCOPE,
     PRIVATE_CHANNEL_WITHOUT_ACCESS,
     SLACK_INTEGRATION_KINDS,
     EmailIntegration,
@@ -4354,22 +4353,19 @@ class TestGoogleSearchConsoleSitesEndpoint:
 
 
 class TestIntegrationSerializerFilesWriteRequestable(APIBaseTest):
-    def test_slack_integration_exposes_files_write_requestable(self):
-        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": "chat:write"})
-        res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
-        assert "files_write_requestable" in res.json()
-
-    def test_non_slack_integration_returns_files_write_requestable_false(self):
-        integration = Integration.objects.create(
-            team=self.team,
-            kind="github",
-            config={"installation_id": "12345"},
-        )
-        res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
-        assert res.json()["files_write_requestable"] is False
-
-    def test_slack_integration_files_write_requestable_reflects_scope(self):
-        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": "chat:write"})
-        res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
-        expected = "files:write" in POSTHOG_SLACK_SCOPE
+    @parameterized.expand(
+        [
+            # files_write_requestable advertises whether reconnecting Slack *could* grant files:write,
+            # so it tracks the scope PostHog requests (POSTHOG_SLACK_SCOPE), not the scope the
+            # integration currently holds. Patch the requested scope to make each case deterministic.
+            ("slack_requests_files_write", "slack", "chat:write,files:write", True),
+            ("slack_does_not_request_files_write", "slack", "chat:write", False),
+            ("non_slack_is_never_requestable", "github", "chat:write,files:write", False),
+        ]
+    )
+    def test_files_write_requestable(self, _name, kind, requested_scope, expected):
+        config = {"scope": "chat:write"} if kind == "slack" else {"installation_id": "12345"}
+        integration = Integration.objects.create(team=self.team, kind=kind, config=config)
+        with patch("posthog.api.integration.POSTHOG_SLACK_SCOPE", requested_scope):
+            res = self.client.get(f"/api/environments/{self.team.id}/integrations/{integration.id}/")
         assert res.json()["files_write_requestable"] is expected

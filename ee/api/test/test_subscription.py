@@ -522,6 +522,22 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST
         assert "files:write" in str(res.json())
 
+    def test_patch_post_all_in_main_requires_files_write_scope(self):
+        integration = Integration.objects.create(
+            team=self.team, kind="slack", config={"scope": "chat:write,channels:read"}
+        )
+        subscription_id = self._create_subscription(
+            target_type="slack",
+            target_value="C1234|#general",
+            integration_id=integration.id,
+        ).json()["id"]
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
+            {"delivery_config": {"post_all_insights_in_main_message": True}},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST
+        assert "files:write" in str(res.json())
+
     def test_post_all_in_main_allowed_with_files_write(self):
         integration = Integration.objects.create(
             team=self.team, kind="slack", config={"scope": "chat:write,files:write"}

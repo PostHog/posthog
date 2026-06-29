@@ -244,7 +244,7 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
-    /** Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery. */
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
     delivery_config?: DeliveryConfigApi
 }
 
@@ -390,7 +390,7 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
-    /** Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery. */
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
     delivery_config?: DeliveryConfigApi
 }
 

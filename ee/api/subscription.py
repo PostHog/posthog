@@ -126,9 +126,9 @@ class DashboardExportInsightsField(serializers.Field):
 
 
 class DeliveryConfigSerializer(serializers.Serializer):
-    """Typed view over the Subscription.delivery_config JSON blob. New per-delivery options
-    are added as fields here so the generated API/MCP types stay typed and extensible without
-    a migration per option."""
+    """Typed view over the Subscription.delivery_config JSON blob. Per-delivery options are
+    declared as fields here so the generated API/MCP types stay typed and forward-compatible
+    without a migration per option."""
 
     post_all_insights_in_main_message = serializers.BooleanField(
         required=False,
@@ -175,7 +175,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     delivery_config = DeliveryConfigSerializer(
         required=False,
-        help_text="Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery.",
+        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
     )
 
     class Meta:
@@ -444,8 +444,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                         }
                     )
 
-        # delivery_config currently holds Slack-only options; reject them on non-Slack subs so the
-        # API contract doesn't silently accept a value that never takes effect (mirrors integration_id).
+        # post_all_insights_in_main_message only applies to Slack delivery; reject it on non-Slack subs
+        # so the API contract doesn't silently accept a value that never takes effect (mirrors integration_id).
         delivery_config = attrs.get("delivery_config")
         if (
             delivery_config

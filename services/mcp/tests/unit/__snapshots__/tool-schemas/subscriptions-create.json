@@ -63,7 +63,7 @@
             "type": "array"
         },
         "delivery_config": {
-            "description": "Per-delivery options (e.g. Slack layout). Slack-only options have no effect on email delivery.",
+            "description": "Per-delivery rendering options. Each option documents which delivery targets it applies to.",
             "properties": {
                 "post_all_insights_in_main_message": {
                     "default": false,
