@@ -189,6 +189,7 @@ class TestPromptBuilder(BaseTest):
         # signals, it does not author reports.
         assert "signals-scout-emit-report" not in prompt
         assert "Suggested reviewers route the report" not in prompt
+        assert "scratchpad entry is a pointer" not in prompt
 
     def test_report_channel_renders_report_persona_and_guidance(self) -> None:
         LLMSkill.objects.create(
@@ -216,6 +217,12 @@ class TestPromptBuilder(BaseTest):
         assert "inbox-reports-list" in prompt
         assert "Suggested reviewers route the report" in prompt
         assert "suggested_reviewers" in prompt
+        # The report channel teaches that the `report:` scratchpad entry is a pointer
+        # into the inbox, not a copy of the report — the inbox stays the source of
+        # truth, so the scout retrieves the live report before editing. Dropping this
+        # discipline re-opens the duplicate / stale-edit failure mode.
+        assert "scratchpad entry is a pointer" in prompt
+        assert "source of truth" in prompt
         # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
         # for a report scout — it doesn't fire `emit_signal`.
         assert "signals-scout-emit-signal" not in prompt
