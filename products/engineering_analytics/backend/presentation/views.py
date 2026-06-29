@@ -643,5 +643,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["post"], url_path="quarantine/request", pagination_class=None)
     def quarantine_request(self, request: TypedRequest[QuarantineRequest], **kwargs) -> Response:
-        result = api.request_quarantine(team=self.team, request=request.validated_data)
+        result = api.request_quarantine(
+            team=self.team,
+            request=request.validated_data,
+            user_access_control=self.user_access_control,
+        )
         return Response(QuarantineRequestResultSerializer(instance=result).data, status=status.HTTP_201_CREATED)

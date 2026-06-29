@@ -277,13 +277,22 @@ def _most_active_repo(
     return str(owner), str(name)
 
 
-def _repo_is_connected(team: Team, owner: str, name: str) -> bool:
+def _repo_is_connected(
+    team: Team,
+    owner: str,
+    name: str,
+    *,
+    user_access_control: "UserAccessControl | None" = None,
+) -> bool:
     """True when ``owner/name`` is one of the team's connected GitHub sources — the authorization
     set for a client-supplied write repo override. Reads the same connected-source list the read
     endpoint surfaces, so a connected-but-quiet repo still qualifies and a deleted source's repo
     does not. A team with no connected source has none, so this is False."""
     target = f"{owner}/{name}".lower()
-    return any(source.repo.lower() == target for source in list_github_sources(team=team))
+    return any(
+        source.repo.lower() == target
+        for source in list_github_sources(team=team, user_access_control=user_access_control)
+    )
 
 
 def _fetch_quarantine_text(owner: str, name: str) -> tuple[str | None, str | None]:
@@ -349,7 +358,12 @@ _MAX_QUARANTINE_DAYS = 30
 _DEFAULT_QUARANTINE_DAYS = 14
 
 
-def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineRequestResult:
+def request_quarantine(
+    *,
+    team: Team,
+    request: QuarantineRequest,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineRequestResult:
     """Open a PR (and, for a new quarantine, a tracking issue) that edits the repo's
     ``.test_quarantine.json``. Raises ``QuarantineWriteError`` with a user-safe message
     for anything the caller can fix (App not installed, malformed file, GitHub failure).
@@ -359,7 +373,12 @@ def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineR
         raise QuarantineWriteError("A test selector is required.")
 
     try:
-        return _open_quarantine_pr(team=team, selector=selector, request=request)
+        return _open_quarantine_pr(
+            team=team,
+            selector=selector,
+            request=request,
+            user_access_control=user_access_control,
+        )
     except QuarantineWriteError:
         # Already a user-safe message — let it through to the 400 the view renders.
         raise
@@ -376,8 +395,14 @@ def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineR
         ) from exc
 
 
-def _open_quarantine_pr(*, team: Team, selector: str, request: QuarantineRequest) -> QuarantineRequestResult:
-    github, owner, name = _resolve_write_target(team, request.repo)
+def _open_quarantine_pr(
+    *,
+    team: Team,
+    selector: str,
+    request: QuarantineRequest,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineRequestResult:
+    github, owner, name = _resolve_write_target(team, request.repo, user_access_control=user_access_control)
     default_branch = github.get_default_branch(name)
     current = github.get_file_contents(name, QUARANTINE_FILENAME, ref=default_branch)
     entries, extras = _load_writable(current["content"] if current else None)
@@ -449,14 +474,19 @@ def _validate_quarantine_inputs(request: QuarantineRequest, *, today: date, expi
         raise QuarantineWriteError("An owning team or person is required.")
 
 
-def _resolve_write_target(team: Team, repo: str | None) -> tuple[GitHubIntegration, str, str]:
+def _resolve_write_target(
+    team: Team,
+    repo: str | None,
+    *,
+    user_access_control: "UserAccessControl | None" = None,
+) -> tuple[GitHubIntegration, str, str]:
     """Resolve the target ``(integration, owner, name)`` or raise a user-safe error.
     Writing needs the App installed on the repo's org, so a mismatch fails loudly
     instead of silently opening a PR on the wrong repo."""
     if repo is not None:
         owner, _, name = repo.partition("/")
     else:
-        resolved = _most_active_repo(team)
+        resolved = _most_active_repo(team, user_access_control=user_access_control)
         if resolved is None:
             raise QuarantineWriteError(
                 "Couldn't tell which repository to quarantine in — no workflow runs in the last 30 days. "
@@ -471,7 +501,7 @@ def _resolve_write_target(team: Team, repo: str | None) -> tuple[GitHubIntegrati
     # that org — without this gate a caller could aim the App's write token at any repo in the
     # install's org. Constrain it to a repo the team has connected as a GitHub source; the default
     # path is already constrained because _most_active_repo only returns the team's own repos.
-    if repo is not None and not _repo_is_connected(team, owner, name):
+    if repo is not None and not _repo_is_connected(team, owner, name, user_access_control=user_access_control):
         raise QuarantineWriteError(
             f"'{owner}/{name}' isn't one of this team's connected GitHub repositories — "
             "connect it as a GitHub source to quarantine there."

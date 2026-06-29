@@ -206,5 +206,10 @@ def get_quarantine(
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
 
 
-def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineRequestResult:
-    return logic.request_quarantine(team=team, request=request)
+def request_quarantine(
+    *,
+    team: Team,
+    request: QuarantineRequest,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineRequestResult:
+    return logic.request_quarantine(team=team, request=request, user_access_control=user_access_control)
