@@ -1,9 +1,9 @@
 import uuid as uuid_lib
 import asyncio
 import builtins
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
-from itertools import batched
 from typing import cast
 
 from django.conf import settings
@@ -136,6 +136,30 @@ def queue_person_recording_deletion(
 # at once so the fan-out can't saturate the read replicas again.
 _RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
 _MAX_CONCURRENT_WORKFLOW_STARTS = 20
+# Also bound a chunk by total distinct IDs so the combined ``RecordingsWithPersonInput``
+# stays well under Temporal's payload limit even when persons carry large distinct-ID
+# sets. A single person over the cap still gets its own (oversized) workflow — no worse
+# than the previous one-per-person fan-out.
+_MAX_DISTINCT_IDS_PER_WORKFLOW = 2000
+
+
+def _chunk_persons(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
+    """Group persons into workflow batches, bounded by both person and distinct-ID count."""
+    batch: builtins.list[Person] = []
+    batch_distinct_ids = 0
+    for person in persons:
+        person_distinct_ids = len(person.distinct_ids)
+        over_caps = len(batch) >= _RECORDING_DELETION_PERSONS_PER_WORKFLOW or (
+            batch_distinct_ids + person_distinct_ids > _MAX_DISTINCT_IDS_PER_WORKFLOW
+        )
+        if batch and over_caps:
+            yield batch
+            batch = []
+            batch_distinct_ids = 0
+        batch.append(person)
+        batch_distinct_ids += person_distinct_ids
+    if batch:
+        yield batch
 
 
 def _start_recording_workflows(
@@ -150,12 +174,12 @@ def _start_recording_workflows(
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
     temporal = sync_connect()
-    config = DeletionConfig(deleted_by=getattr(actor, "email", None), reason=reason)
+    config = DeletionConfig(deleted_by=getattr(actor, "email", None) or "", reason=reason)
 
     async def start_all_workflows():
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
 
-        async def start_batch(batch: tuple[Person, ...]) -> None:
+        async def start_batch(batch: builtins.list[Person]) -> None:
             distinct_ids = sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})
             if not distinct_ids:
                 return
@@ -173,8 +197,6 @@ def _start_recording_workflows(
                     ),
                 )
 
-        await asyncio.gather(
-            *(start_batch(batch) for batch in batched(persons, _RECORDING_DELETION_PERSONS_PER_WORKFLOW, strict=False))
-        )
+        await asyncio.gather(*(start_batch(batch) for batch in _chunk_persons(persons)))
 
     asyncio.run(start_all_workflows())

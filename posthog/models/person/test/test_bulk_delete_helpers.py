@@ -145,3 +145,36 @@ class QueueRecordingDeletionTests(BaseTest):
         with patch("posthog.models.person.bulk_delete.sync_connect", return_value=client):
             _start_recording_workflows(self.team.pk, [person], self.user, "test reason")
         client.start_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("packs_until_distinct_id_cap", [2, 2, 2], 4, 2),
+            ("single_person_over_cap_stands_alone", [5, 1], 4, 2),
+            ("each_person_own_workflow_when_cap_tiny", [2, 2], 1, 2),
+        ]
+    )
+    def test_chunks_by_distinct_id_count(self, _name, distinct_id_counts, cap, expected_workflows):
+        # Guards the payload cap: a chunk's combined distinct IDs must stay bounded so the
+        # workflow input can't exceed Temporal's payload limit, independent of person count.
+        persons = [
+            _person_with_distinct_ids(*[f"p{i}-d{j}" for j in range(count)])
+            for i, count in enumerate(distinct_id_counts)
+        ]
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        with (
+            patch("posthog.models.person.bulk_delete.sync_connect", return_value=client),
+            patch("posthog.models.person.bulk_delete._MAX_DISTINCT_IDS_PER_WORKFLOW", cap),
+        ):
+            _start_recording_workflows(self.team.pk, persons, self.user, "test reason")
+        assert client.start_workflow.call_count == expected_workflows
+
+    def test_uses_empty_deleted_by_when_actor_missing(self):
+        # The Dagster deletion path passes actor=None; DeletionConfig.deleted_by is a
+        # required str, so the workflow start must not raise on a missing actor.
+        client = MagicMock()
+        client.start_workflow = AsyncMock()
+        with patch("posthog.models.person.bulk_delete.sync_connect", return_value=client):
+            _start_recording_workflows(self.team.pk, [_person_with_distinct_ids("a")], None, "test reason")
+        client.start_workflow.assert_called_once()
+        assert client.start_workflow.call_args.args[1].config.deleted_by == ""
