@@ -4,12 +4,14 @@ import { Form } from 'kea-forms'
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
+import api from 'lib/api'
 import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
 import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { UsageLimitPaywall } from 'lib/components/PayGateMini/UsageLimitPaywall'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
 import { usersLemonSelectOptions } from 'lib/components/UserSelectItem'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -278,6 +280,11 @@ function EditSubscriptionForm({
     const { slackIntegrations, integrations } = useValues(integrationsLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
+    // Reconnecting Slack (to grant files:write) re-runs the OAuth flow — project-admin only.
+    const slackReconnectRestriction = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const emailDisabled = !preflight?.email_service_available
     const isAiPrompt = subscription?.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -580,17 +587,32 @@ function EditSubscriptionForm({
                                                                     onChange={onChange}
                                                                     disabledReason={
                                                                         !hasFilesWrite
-                                                                            ? 'Reconnect Slack to grant image-upload (files:write) permission'
+                                                                            ? 'Needs the Slack file-upload permission — reconnect Slack below to enable'
                                                                             : undefined
                                                                     }
                                                                     bordered
                                                                     fullWidth
                                                                     label="Post all insights in the main message"
                                                                 />
-                                                                {value && !hasFilesWrite && (
-                                                                    <LemonBanner type="warning">
-                                                                        To post insights as a grouped gallery, reconnect
-                                                                        Slack with the image-upload permission.
+                                                                {!hasFilesWrite && (
+                                                                    <LemonBanner
+                                                                        type="info"
+                                                                        className="mt-2"
+                                                                        action={{
+                                                                            children: 'Reconnect Slack',
+                                                                            disableClientSideRouting: true,
+                                                                            to: api.integrations.authorizeUrl({
+                                                                                kind: selectedIntegration.kind,
+                                                                                next: window.location.pathname,
+                                                                            }),
+                                                                            disabledReason: slackReconnectRestriction,
+                                                                        }}
+                                                                    >
+                                                                        Posting all insights as one grouped gallery
+                                                                        needs the Slack file-upload permission (
+                                                                        <code>files:write</code>). Reconnect Slack to
+                                                                        grant it — you will return to this page when
+                                                                        done.
                                                                     </LemonBanner>
                                                                 )}
                                                             </>
