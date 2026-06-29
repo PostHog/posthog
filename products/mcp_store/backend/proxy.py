@@ -8,7 +8,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 import httpx
 import structlog
 
-from posthog.api.streaming import _release_request_connections
+from posthog.api.streaming import sse_streaming_response
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -404,7 +404,6 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     content_type = upstream_response.headers.get("content-type", "")
 
     if "text/event-stream" in content_type:
-        _release_request_connections()
         return _build_sse_response(upstream_response, client)
 
     # Read body then close to avoid memory leaks from buffered responses
@@ -444,21 +443,8 @@ def _stream_upstream(upstream_response: httpx.Response, client: httpx.Client) ->
 
 def _build_sse_response(upstream_response: httpx.Response, client: httpx.Client) -> StreamingHttpResponse:
     stream = _stream_upstream(upstream_response, client)
-
-    if SERVER_GATEWAY_INTERFACE == "ASGI":
-        astream = SyncIterableToAsync(stream)
-        response = StreamingHttpResponse(
-            streaming_content=astream,
-            content_type="text/event-stream",
-        )
-    else:
-        response = StreamingHttpResponse(
-            streaming_content=stream,
-            content_type="text/event-stream",
-        )
-
-    response["Cache-Control"] = "no-cache"
-    response["X-Accel-Buffering"] = "no"
+    astream = SyncIterableToAsync(stream) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream
+    response = sse_streaming_response(astream)
 
     upstream_session_id = upstream_response.headers.get("mcp-session-id")
     if upstream_session_id:
