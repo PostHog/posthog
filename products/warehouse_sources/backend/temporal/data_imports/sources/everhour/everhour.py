@@ -54,6 +54,16 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str) -> requests.Session:
+    """Tracked session for Everhour requests.
+
+    `redact_values=(api_key,)` masks the credential everywhere it could surface in logged URLs
+    or captured samples. `allow_redirects=False` keeps the static `X-Api-Key` header pinned to the
+    validated `https://api.everhour.com` origin so a 30x can't replay it cross-origin.
+    """
+    return make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+
+
 def _with_query(path_or_url: str, params: dict[str, Any]) -> str:
     """Append query params to a path/URL that may already carry a query string."""
     clean = {key: value for key, value in params.items() if value is not None}
@@ -112,8 +122,10 @@ def _fetch_page(
         response.raise_for_status()
 
     data = response.json()
-    # Everhour list endpoints return a bare JSON array.
+    # Everhour list endpoints return a bare JSON array; anything else (an error envelope with a
+    # 200, or a future API change) would otherwise be swallowed as an empty page and stop pagination.
     if not isinstance(data, list):
+        logger.warning(f"Everhour: expected list response, got {type(data).__name__} for url={url}")
         return []
     return data
 
@@ -169,7 +181,7 @@ def _parent_project_id(url: str) -> Optional[str]:
 def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is valid. /users/me needs only a genuine key, no extra permissions."""
     try:
-        response = make_tracked_session().get(
+        response = _make_session(api_key).get(
             f"{EVERHOUR_BASE_URL}/users/me",
             headers=_get_headers(api_key),
             timeout=10,
@@ -190,7 +202,7 @@ def get_rows(
     config = EVERHOUR_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session for the whole run so pagination and fan-out reuse pooled connections.
-    session = make_tracked_session()
+    session = _make_session(api_key)
 
     window = (
         _time_records_window(should_use_incremental_field, db_incremental_field_last_value)
@@ -218,8 +230,8 @@ def get_rows(
         items = _fetch_page(_with_query(current, {"offset": offset}), headers, logger, session)
         pages_on_current += 1
 
-        new_items = [item for item in items if item.get("id") not in seen_ids]
-        seen_ids.update(item.get("id") for item in new_items)
+        new_items = [item for item in items if item["id"] not in seen_ids]
+        seen_ids.update(item["id"] for item in new_items)
 
         if config.include_parent_id_as:
             parent_id = _parent_project_id(current)
@@ -228,7 +240,10 @@ def get_rows(
 
         # A full page of genuinely new rows means there may be more; a short page (or one that
         # surfaced no new ids, i.e. offset was ignored) ends this URL.
-        has_more = len(items) >= config.page_size and len(new_items) > 0 and pages_on_current < MAX_PAGES_PER_URL
+        would_continue = len(items) >= config.page_size and len(new_items) > 0
+        if would_continue and pages_on_current >= MAX_PAGES_PER_URL:
+            logger.warning(f"Everhour: hit max page cap while paginating {current}")
+        has_more = would_continue and pages_on_current < MAX_PAGES_PER_URL
 
         if has_more:
             new_remaining = remaining
