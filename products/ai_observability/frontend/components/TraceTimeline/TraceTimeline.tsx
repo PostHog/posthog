@@ -23,8 +23,8 @@ const KIND_CLASS: Record<TraceBarKind, string> = {
 // a caption line beneath it; LANE_GAP keeps stacked rows from touching.
 const BAR_H = 20
 const CAPTION_H = 12
-const BAR_CAPTION_GAP = 2
-const LANE_GAP = 10
+const BAR_CAPTION_GAP = 6
+const LANE_GAP = 14
 const ROW_H = BAR_H + BAR_CAPTION_GAP + CAPTION_H
 
 export function TraceTimeline({
