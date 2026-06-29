@@ -15,7 +15,6 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.engineering_analytics.backend.facade import api
 from products.engineering_analytics.backend.facade.contracts import (
     GitHubSource,
@@ -47,6 +46,7 @@ from products.engineering_analytics.backend.tests.test_views import (
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 # Every query module runs HogQL through this method; patch it to test row mapping without a
 # warehouse. Patching the unbound method means the mock is called without `self`, so a plain

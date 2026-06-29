@@ -38,7 +38,7 @@ const SortingKeyToLabel = {
     keypress_count: 'Keystrokes',
     mouse_activity_count: 'Mouse activity',
     recording_ttl: 'Expiration',
-    surfacing_score: 'Relevant',
+    surfacing_score: 'Relevance',
 }
 
 function getLabel(filters: RecordingUniversalFilters): string {
@@ -69,6 +69,8 @@ function SortedBy({
                     ? [
                           {
                               label: SortingKeyToLabel['surfacing_score'],
+                              tooltip:
+                                  'Ranks recordings by a relevance score so the sessions most likely to be worth watching appear first.',
                               onClick: () => setFilters({ order: 'surfacing_score', order_direction: 'DESC' }),
                               active: filters.order === 'surfacing_score',
                           },
