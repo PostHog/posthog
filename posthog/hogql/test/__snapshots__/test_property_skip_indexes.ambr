@@ -1,12 +1,4 @@
 # serializer version: 1
-# name: TestEventPropertySkipIndexes.test_dmat_string_no_skip_indexes
-  '''
-  SELECT count() AS `count()`
-  FROM events
-  WHERE and(equals(events.team_id, 99999), and(equals(events.dmat_string_0, '5'), isNotNull(events.dmat_string_0)))
-  LIMIT 50000
-  '''
-# ---
 # name: TestEventPropertySkipIndexes.test_json_only__no_skip_indexes_used_0_eq
   '''
   SELECT count() AS `count()`

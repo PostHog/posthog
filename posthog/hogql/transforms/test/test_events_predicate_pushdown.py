@@ -1,7 +1,5 @@
 import re
-import json
 from typing import Any, cast
-from uuid import uuid4
 
 import pytest
 from posthog.test.base import (
@@ -46,13 +44,11 @@ from posthog.hogql.transforms.events_predicate_pushdown import (
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.clickhouse.client import sync_execute
-from posthog.models import MaterializedColumnSlot, MaterializedColumnSlotState, PropertyDefinition
+from posthog.models import PropertyDefinition
 from posthog.models.utils import uuid7
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import recalculate_cohortpeople
-from products.event_definitions.backend.models.property_definition import PropertyType
 
 
 class TestEventsPredicatePushdownTransform(BaseTest):
@@ -982,7 +978,6 @@ class TestSavedQueryWithLazyJoins(BaseTest):
 class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
     snapshot: Any
     _property_groups_mode: PropertyGroupsMode | None = None
-    _pass_team = False  # Dmat slot resolution needs the team on the print context
 
     def _modifiers(self, *, push_down: bool) -> HogQLQueryModifiers:
         extra = {"propertyGroupsMode": self._property_groups_mode} if self._property_groups_mode is not None else {}
@@ -991,7 +986,7 @@ class _PushdownExecutionTestBase(ClickhouseTestMixin, APIBaseTest):
     def _print_pushdown_sql(self, select: str) -> str:
         context = HogQLContext(
             team_id=self.team.pk,
-            team=self.team if self._pass_team else None,
+            team=None,
             enable_select_queries=True,
             modifiers=self._modifiers(push_down=True),
         )
@@ -1955,53 +1950,3 @@ class TestEventsPredicatePushdownPropertyGroupsExecution(_PushdownExecutionTestB
         )
         with_pushdown = self._assert_results_equivalent(select)
         assert len(with_pushdown) == 2  # u1's two tier='pro' events
-
-
-class TestEventsPredicatePushdownDmatExecution(_PushdownExecutionTestBase):
-    """Pushdown must expose dmat (dynamic materialized) columns in the subquery too.
-
-    A property with a READY MaterializedColumnSlot is read from `dmat_string_<n>` by the printer, so an
-    outer reference to that property after pushdown must resolve against the subquery alias. The test DB
-    has the physical dmat columns but `_create_event` doesn't populate them, so events are inserted with
-    the column pre-filled (same approach as test_property_types_dmat.py).
-    """
-
-    _SLOT_INDEX = 0
-    _pass_team = True  # the print context needs the team to resolve the dmat slot
-
-    def _setup_dmat_events(self) -> None:
-        prop_def = PropertyDefinition.objects.create(
-            team=self.team,
-            name="tier",
-            property_type=PropertyType.String,
-            type=PropertyDefinition.Type.EVENT,
-        )
-        MaterializedColumnSlot.objects.create(
-            team=self.team,
-            property_definition=prop_def,
-            slot_index=self._SLOT_INDEX,
-            state=MaterializedColumnSlotState.READY,
-        )
-        for distinct_id, tier in [("u1", "pro"), ("u2", "free")]:
-            sync_execute(
-                f"""
-                INSERT INTO sharded_events (uuid, team_id, event, distinct_id, timestamp, properties, dmat_string_{self._SLOT_INDEX})
-                SELECT %(uuid)s, %(team_id)s, 'watched movie', %(distinct_id)s, now(), %(properties)s, %(dmat)s
-                """,
-                {
-                    "uuid": str(uuid4()),
-                    "team_id": self.team.pk,
-                    "distinct_id": distinct_id,
-                    "properties": json.dumps({"tier": tier}),
-                    "dmat": tier,
-                },
-                flush=False,
-            )
-
-    def test_exec_dmat_property_in_select_stays_equivalent(self):
-        self._setup_dmat_events()
-        select = "SELECT properties.tier AS t, session.$session_duration AS d FROM events WHERE timestamp >= '2020-01-01' LIMIT 50"
-        printed = self._print_pushdown_sql(select)
-        assert f"dmat_string_{self._SLOT_INDEX}" in self._events_subquery(printed), printed
-        on = self._assert_results_equivalent(select)
-        assert len(on) == 2

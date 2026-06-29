@@ -1,1 +1,1 @@
-1247_oauthaccesstoken_token_idx
+1248_delete_materialized_column_slot
