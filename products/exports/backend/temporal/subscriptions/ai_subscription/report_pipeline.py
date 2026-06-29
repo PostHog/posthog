@@ -52,9 +52,11 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
-# Total result budget across all steps entering the synthesis prompt. A plan can have up to 25 steps,
-# and the per-step backstop alone would allow 25 x _QUERY_RESULT_MAX_CHARS into one LLM call; this caps
-# the combined size. Split across steps with a floor so small plans keep the full per-step backstop.
+# Total result budget across all steps entering the synthesis prompt: without it, the per-step backstop
+# alone would let MAX_QUERY_PLAN_STEPS x _QUERY_RESULT_MAX_CHARS into one synthesis call. `per_step_cap`
+# derives from this — the outer min() lets small plans keep the full per-step backstop, while the floor
+# guarantees each step a minimum budget so a large plan can't starve any single step. The floor is
+# forward-defense: at today's cap it's inert (200_000 // 25 == 8_000) and only bites if the step cap rises.
 _SYNTHESIS_RESULTS_CHAR_BUDGET = 200_000
 _MIN_STEP_RESULT_CHARS = 8_000
 
