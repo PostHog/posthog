@@ -1,3 +1,5 @@
+from typing import cast
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -6,6 +8,7 @@ from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
+    SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
 
@@ -18,11 +21,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.source import BigMailerSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import BigMailerSourceConfig
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
-def _config(api_key: str = "key") -> object:
-    return BigMailerSource()._config_class(api_key=api_key)
+def _config(api_key: str = "key") -> BigMailerSourceConfig:
+    return cast(BigMailerSourceConfig, BigMailerSource()._config_class(api_key=api_key))
 
 
 def _inputs(schema_name: str) -> SourceInputs:
@@ -56,7 +60,7 @@ class TestSourceConfig:
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/bigmailer"
 
     def test_single_password_api_key_field(self) -> None:
-        fields = BigMailerSource().get_source_config.fields
+        fields = cast(list[SourceFieldInputConfig], BigMailerSource().get_source_config.fields)
         assert [f.name for f in fields] == ["api_key"]
         assert fields[0].type == SourceFieldInputConfigType.PASSWORD
         assert fields[0].required is True

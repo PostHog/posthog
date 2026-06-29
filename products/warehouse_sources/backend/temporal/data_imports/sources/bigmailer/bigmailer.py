@@ -89,7 +89,8 @@ def _iter_pages(
         data = _fetch_page(session, _build_url(path, cursor), logger)
         items = data.get("data", []) or []
 
-        yield items
+        if items:
+            yield items
 
         # The API always returns a `cursor`, but only `has_more` tells us another page exists.
         next_cursor = data.get("cursor") if data.get("has_more") else None

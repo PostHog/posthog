@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigmailer.
     get_rows,
     validate_credentials,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 
 
 def _resp(status: int = 200, body: dict | None = None, text: str = "") -> MagicMock:
@@ -32,8 +33,11 @@ def _resp(status: int = 200, body: dict | None = None, text: str = "") -> MagicM
     return response
 
 
-class FakeManager:
-    """Stand-in for ResumableSourceManager: records saved state and replays a seeded resume state."""
+class FakeManager(ResumableSourceManager[BigMailerResumeConfig]):
+    """Stand-in for ResumableSourceManager: records saved state and replays a seeded resume state.
+
+    Overrides every method `get_rows` touches, so the Redis-bound base `__init__` is skipped.
+    """
 
     def __init__(self, state: BigMailerResumeConfig | None = None) -> None:
         self._state = state

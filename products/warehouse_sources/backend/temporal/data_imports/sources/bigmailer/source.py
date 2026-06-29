@@ -119,7 +119,7 @@ Create an API key in your BigMailer console under **Account Settings → API Key
         if validate_bigmailer_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid BigMailer API key"
+        return False, "Could not connect to BigMailer. Check your API key and try again."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BigMailerResumeConfig]:
         return ResumableSourceManager[BigMailerResumeConfig](inputs, BigMailerResumeConfig)
