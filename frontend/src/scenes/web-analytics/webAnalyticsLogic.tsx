@@ -2480,8 +2480,16 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    trackedActionToUrl(({ values }) => {
-        const stateToUrl = (): string => {
+    trackedActionToUrl(({ values, cache }) => {
+        const stateToUrl = (): string | undefined => {
+            // While `urlToAction` is applying state from the URL, the actions it dispatches would each
+            // re-enter `actionToUrl` and recompute the (already-current) URL. Returning `undefined` here
+            // tells kea-router to skip the write, breaking the actionToUrl <-> urlToAction cascade that
+            // otherwise fires a burst of redundant evaluations and trips the rapid-URL-change detector.
+            if (cache.isApplyingUrlState) {
+                return undefined
+            }
+
             const urlParams = new URLSearchParams(router.values.location.search)
 
             const {
@@ -2627,8 +2635,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
-        const toAction = (
+    urlToAction(({ actions, values, cache }) => {
+        const applyUrlState = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
                 filters,
@@ -2767,6 +2775,18 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (parsed !== values.includeHostPath) {
                     actions.setIncludeHostPath(parsed)
                 }
+            }
+        }
+
+        // Guard the state-restoration so the actions it dispatches don't write back to the URL via
+        // `actionToUrl` (see `stateToUrl`). Restoring a URL with several params would otherwise fan out
+        // into a burst of redundant URL evaluations and trip the rapid-URL-change detector.
+        const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
+            cache.isApplyingUrlState = true
+            try {
+                applyUrlState(params, searchParams)
+            } finally {
+                cache.isApplyingUrlState = false
             }
         }
 

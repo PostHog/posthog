@@ -2,6 +2,7 @@ import './ErrorBoundary.scss'
 
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconCopy } from '@posthog/icons'
 import { PostHogErrorBoundary, type PostHogErrorBoundaryFallbackProps } from '@posthog/react'
@@ -27,9 +28,26 @@ interface ErrorBoundaryProps {
     children?: React.ReactNode
     exceptionProps?: Record<string, number | string | boolean | bigint | symbol | null | undefined>
     className?: string
+    /**
+     * When provided, the boundary recovers (drops its caught error and re-renders its children) the
+     * next time any value in this list changes — e.g. on a data refresh or filter change. Without it
+     * `PostHogErrorBoundary` has no reset path, so a transient crash (such as the `removeChild`
+     * NotFoundError browser extensions trigger during reconciliation) leaves the fallback mounted
+     * until the whole boundary is unmounted. Healthy children are never remounted on key changes.
+     */
+    resetKeys?: ReadonlyArray<unknown>
 }
 
-export function ErrorBoundary({ children, exceptionProps = {}, className }: ErrorBoundaryProps): JSX.Element {
+function resetKeysChanged(a: ReadonlyArray<unknown>, b: ReadonlyArray<unknown>): boolean {
+    return a.length !== b.length || a.some((value, index) => !Object.is(value, b[index]))
+}
+
+export function ErrorBoundary({
+    children,
+    exceptionProps = {},
+    className,
+    resetKeys,
+}: ErrorBoundaryProps): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const { openSupportForm } = useActions(supportLogic)
 
@@ -39,10 +57,32 @@ export function ErrorBoundary({ children, exceptionProps = {}, className }: Erro
         additionalProperties.team_id = currentTeamId
     }
 
+    // Bumping `remountKey` gives PostHogErrorBoundary a fresh instance, which drops its caught error.
+    // We only do this when the boundary is currently showing the fallback (`hasErroredRef`), so a
+    // resetKeys change never remounts a healthy subtree.
+    const [remountKey, setRemountKey] = useState(0)
+    const hasErroredRef = useRef(false)
+    const previousResetKeys = useRef(resetKeys)
+
+    useEffect(() => {
+        const previous = previousResetKeys.current
+        if (resetKeys && previous && resetKeysChanged(previous, resetKeys)) {
+            previousResetKeys.current = resetKeys
+            if (hasErroredRef.current) {
+                hasErroredRef.current = false
+                setRemountKey((key) => key + 1)
+            }
+        } else if (resetKeys !== previous) {
+            previousResetKeys.current = resetKeys
+        }
+    }, [resetKeys])
+
     return (
         <PostHogErrorBoundary
+            key={remountKey}
             additionalProperties={additionalProperties}
             fallback={(props: PostHogErrorBoundaryFallbackProps) => {
+                hasErroredRef.current = true
                 const rawError = props.error
                 const normalizedError =
                     rawError instanceof Error
