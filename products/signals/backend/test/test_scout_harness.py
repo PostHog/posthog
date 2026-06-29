@@ -185,6 +185,9 @@ class TestPromptBuilder(BaseTest):
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.
         assert "Writing the description (how it renders in the inbox)" in prompt
+        # The writing-style section is wired into the tail, carrying the
+        # session-replay-vs-recording terminology rule scouts must follow.
+        assert "session recordings" in prompt
         # A signal scout never sees the report-channel guidance — it fires weak
         # signals, it does not author reports.
         assert "signals-scout-emit-report" not in prompt

@@ -430,6 +430,15 @@ you this run.
   run (emit / remember / summary) exactly as you would otherwise.
 - Never put customer PII or sensitive query content in a feedback field."""
 
+_WRITING_STYLE = """# Writing style
+
+- We use American English and the Oxford comma.
+- Sentence case rather than title case, including in titles, headings, subheadings, and bold text (keep the original case when quoting provided text).
+- When writing numbers in the thousands to the billions, abbreviate them (like 10M or 100B, capital letter, no space) or write the full number with commas (like 15,000,000).
+- Never use the em-dash (—); use the en-dash (–).
+- Session replay is the product name; the sessions it captures are called session recordings. Refer to them as "session recordings" (not "session replays")."""
+
+
 _OUTPUT_FORMAT = """# Output format
 
 Respond at end_turn with a single JSON object matching this schema:
@@ -446,6 +455,7 @@ _SIGNAL_TAIL_SECTIONS = [
     _FINDING_SCHEMA,
     _TAGGING,
     _WRITING_DESCRIPTION_SIGNAL,
+    _WRITING_STYLE,
     _WRITING_SUMMARY,
     _BUSINESS_KNOWLEDGE,
     _DEDUPE_RULES_SIGNAL,
@@ -487,6 +497,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
         _SCRATCHPAD_KEYS,
         _RECENCY_LENS,
         *channel_sections,
+        _WRITING_STYLE,
         _WRITING_SUMMARY,
         _BUSINESS_KNOWLEDGE,
         _GROUND_RULES,
