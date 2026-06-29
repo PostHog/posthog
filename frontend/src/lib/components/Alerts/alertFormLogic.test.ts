@@ -787,7 +787,54 @@ describe('alertFormLogic', () => {
             ],
         ])('%s', (_name, insightData, config, bounds, expected) => {
             expect(
-                deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any)
+                deriveFunnelAlertPreview(insightData as Record<string, any> | null, config as any, bounds as any, false)
+            ).toEqual(expected)
+        })
+
+        // Trends funnels return a conversion-rate time series; the alert evaluates the latest period.
+        const trend = (data: (number | null)[], breakdown_value: unknown = null): Record<string, any> => ({
+            data,
+            days: data.map((_, i) => `d${i}`),
+            breakdown_value,
+        })
+        it.each([
+            [
+                'latest period is the evaluated rate',
+                { result: [trend([10, 25, 40])] },
+                { lower: 50 },
+                { status: 'ok', values: [value(null, 40, true)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'a null latest period coerces to 0%',
+                { result: [trend([10, null])] },
+                undefined,
+                { status: 'ok', values: [value(null, 0, false)], isBreakdown: false, hasBounds: false },
+            ],
+            [
+                'breakdown yields one value per series and drops previous-period rows',
+                {
+                    result: [
+                        { ...trend([10, 40], ['Chrome']), compare_label: 'current' },
+                        { ...trend([5, 20], ['Safari']), compare_label: 'current' },
+                        { ...trend([8, 30], ['Chrome']), compare_label: 'previous' },
+                    ],
+                },
+                { lower: 30 },
+                {
+                    status: 'ok',
+                    values: [value('Chrome', 40, false), value('Safari', 20, true)],
+                    isBreakdown: true,
+                    hasBounds: true,
+                },
+            ],
+        ])('trends funnel: %s', (_name, insightData, bounds, expected) => {
+            expect(
+                deriveFunnelAlertPreview(
+                    insightData as Record<string, any> | null,
+                    FROM_START as any,
+                    bounds as any,
+                    true
+                )
             ).toEqual(expected)
         })
     })
