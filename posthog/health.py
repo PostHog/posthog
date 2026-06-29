@@ -39,7 +39,7 @@ from posthog.security.outbound_proxy import internal_requests
 
 logger = get_logger(__name__)
 
-ServiceRole = Literal["events", "web", "worker", "decide", "query", "report"]
+ServiceRole = Literal["events", "web", "worker", "decide", "query", "report", "conversations"]
 
 service_dependencies: dict[ServiceRole, list[str]] = {
     "events": ["http"],
@@ -72,6 +72,7 @@ service_dependencies: dict[ServiceRole, list[str]] = {
     "decide": ["http"],
     "query": ["http", "postgres", "cache"],
     "report": ["http"],
+    "conversations": ["http", "postgres", "cache"],
 }
 
 # if atleast one of the checks is True, then the service is considered healthy

@@ -49,7 +49,6 @@ DataWarehouseSavedQueryFolder
 DataWarehouseTable
 Dataset
 DatasetItem
-DesktopRecording
 EarlyAccessFeature
 Edge
 EmailChannel
@@ -156,6 +155,7 @@ SignalTeamConfig
 SingleSessionSummary
 SlackThreadTaskMapping
 SourceBatch
+SourceGroupLease
 Subscription
 SubscriptionDelivery
 Survey
