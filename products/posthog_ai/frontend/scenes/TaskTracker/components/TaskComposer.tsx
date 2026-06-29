@@ -21,6 +21,11 @@ export function TaskComposer(): JSX.Element {
             <div className="w-full max-w-2xl flex flex-col gap-4">
                 <h2 className="text-lg font-semibold text-center mb-0">What should the agent do?</h2>
 
+                <RepositorySelector
+                    value={newTaskData.repositoryConfig}
+                    onChange={(config) => setNewTaskData({ repositoryConfig: config })}
+                />
+
                 <Composer.Root
                     value={newTaskData.description}
                     onChange={(value) => setNewTaskData({ description: value })}
@@ -33,12 +38,6 @@ export function TaskComposer(): JSX.Element {
                             <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
                             <Composer.Textarea submitShortcut="cmd-enter" autoFocus data-attr="task-composer-input" />
                         </Composer.Field>
-                        <Composer.Footer>
-                            <RepositorySelector
-                                value={newTaskData.repositoryConfig}
-                                onChange={(config) => setNewTaskData({ repositoryConfig: config })}
-                            />
-                        </Composer.Footer>
                     </Composer.Frame>
                     <Composer.Submit data-attr="task-composer-send" />
                 </Composer.Root>

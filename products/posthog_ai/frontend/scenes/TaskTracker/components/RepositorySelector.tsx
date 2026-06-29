@@ -1,7 +1,8 @@
 import { useValues } from 'kea'
 
-import { IconGithub } from '@posthog/icons'
+import { IconGitBranch, IconGithub } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { Button, ButtonGroup } from '@posthog/quill-primitives'
 
 import api from 'lib/api'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
@@ -19,9 +20,9 @@ export interface RepositorySelectorProps {
 const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
 
 /**
- * Compact repo/branch picker rendered as chips inside the composer footer. With no GitHub integration it
- * shows a single "Connect GitHub" chip; with one or more it shows [repo ▾] then (once a repo is picked)
- * [branch ▾], plus a leading integration switcher when several GitHub orgs are connected.
+ * Compact repo/branch picker. With no GitHub integration it shows a single "Connect GitHub" chip;
+ * with one or more it shows a joined [repo ▾][branch ▾] ButtonGroup (matching the posthog/code
+ * composer), plus a leading integration switcher when several GitHub orgs are connected.
  */
 export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
     const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
@@ -43,17 +44,18 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
     if (integrationsLoading) {
         // Inert placeholder so we never flash "Connect GitHub" before the integration list resolves.
         return (
-            <div className="flex items-center gap-1 flex-wrap pl-2">
-                <LemonButton size="small" type="secondary" icon={<IconGithub />} disabledReason="Loading…">
+            <div className="flex items-center gap-2 flex-wrap">
+                <Button variant="outline" size="sm" disabled>
+                    <IconGithub className="shrink-0" />
                     GitHub
-                </LemonButton>
+                </Button>
             </div>
         )
     }
 
     if (githubIntegrations.length === 0) {
         return (
-            <div className="flex items-center gap-1 flex-wrap pl-2">
+            <div className="flex items-center gap-2 flex-wrap">
                 <LemonButton
                     size="small"
                     type="secondary"
@@ -68,7 +70,7 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
     }
 
     return (
-        <div className="flex items-center gap-1 flex-wrap pl-2">
+        <div className="flex items-center gap-2 flex-wrap">
             {githubIntegrations.length > 1 && (
                 <LemonMenu
                     items={[
@@ -101,20 +103,26 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
             )}
 
             {value.integrationId ? (
-                <GitHubRepositoryCombobox
-                    integrationId={value.integrationId}
-                    value={value.repository ?? ''}
-                    onChange={handleRepositoryChange}
-                />
-            ) : null}
-
-            {value.integrationId && value.repository ? (
-                <GitHubBranchCombobox
-                    integrationId={value.integrationId}
-                    repo={value.repository}
-                    value={value.branch ?? ''}
-                    onChange={handleBranchChange}
-                />
+                <ButtonGroup>
+                    <GitHubRepositoryCombobox
+                        integrationId={value.integrationId}
+                        value={value.repository ?? ''}
+                        onChange={handleRepositoryChange}
+                    />
+                    {value.repository ? (
+                        <GitHubBranchCombobox
+                            integrationId={value.integrationId}
+                            repo={value.repository}
+                            value={value.branch ?? ''}
+                            onChange={handleBranchChange}
+                        />
+                    ) : (
+                        <Button variant="outline" size="sm" disabled aria-label="Branch">
+                            <IconGitBranch className="shrink-0" />
+                            Branch
+                        </Button>
+                    )}
+                </ButtonGroup>
             ) : null}
         </div>
     )
