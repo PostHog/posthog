@@ -1,7 +1,8 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from rest_framework import status
 
+from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.tag_suggestions import (
     _MAX_SUGGESTIONS,
     SuggestionError,
@@ -9,10 +10,18 @@ from products.replay_vision.backend.tag_suggestions import (
     _finalize,
     _LlmSuggestion,
     _LlmSuggestions,
+    _sibling_vocabularies,
 )
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.tag_suggestions._generate"
+
+
+def _access_control(*, allow: bool) -> MagicMock:
+    """Stand-in for UserAccessControl: either pass the queryset through or deny everything."""
+    ac = MagicMock()
+    ac.filter_queryset_by_access_level.side_effect = (lambda qs: qs) if allow else (lambda qs: qs.none())
+    return ac
 
 
 def _llm(*items: tuple[str, str, str]) -> _LlmSuggestions:
@@ -126,3 +135,14 @@ class TestSuggestTagsEndpoint(_VisionAPITestCase):
         )
 
         assert resp.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_sibling_vocabularies_respect_object_rbac(self):
+        self._create_scanner(
+            name="other classifier",
+            scanner_type=ScannerType.CLASSIFIER,
+            scanner_config={"prompt": "tag it", "tags": ["private_tag"], "multi_label": True},
+        )
+
+        # A readable sibling contributes its tags; an unreadable one must be filtered out entirely.
+        assert _sibling_vocabularies(self.team, None, _access_control(allow=True)) == ["private_tag"]
+        assert _sibling_vocabularies(self.team, None, _access_control(allow=False)) == []

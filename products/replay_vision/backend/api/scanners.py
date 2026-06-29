@@ -803,6 +803,7 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 multi_label=data["multi_label"],
                 allow_freeform_tags=data["allow_freeform_tags"],
                 scanner=scanner,
+                user_access_control=self.user_access_control,
             )
         except SuggestionError:
             return Response(

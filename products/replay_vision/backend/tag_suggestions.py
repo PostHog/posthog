@@ -24,6 +24,7 @@ from posthog.models import EventDefinition
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.queries.property_values import get_event_property_values_from_aggregated_table
+from posthog.rbac.user_access_control import UserAccessControl
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
@@ -127,14 +128,18 @@ def _product_taxonomy(team: Team) -> tuple[list[str], list[str]]:
     return events, screens
 
 
-def _sibling_vocabularies(team: Team, exclude_scanner_id: uuid.UUID | None) -> list[str]:
-    """Tags other classifiers on the team use — keeps naming consistent and avoids overlap."""
+def _sibling_vocabularies(
+    team: Team, exclude_scanner_id: uuid.UUID | None, user_access_control: UserAccessControl
+) -> list[str]:
+    """Tags from classifiers the caller can read — keeps naming consistent and avoids overlap."""
     seen: set[str] = set()
     vocab: list[str] = []
     try:
         qs = ReplayScanner.objects.filter(team_id=team.id, scanner_type=ScannerType.CLASSIFIER)
         if exclude_scanner_id is not None:
             qs = qs.exclude(id=exclude_scanner_id)
+        # Only surface tags from scanners the caller is allowed to read — never leak a private scanner's vocabulary.
+        qs = user_access_control.filter_queryset_by_access_level(qs)
         for config in qs.values_list("scanner_config", flat=True):
             for tag in (config or {}).get("tags", []) if isinstance(config, dict) else []:
                 key = str(tag).strip().lower()
@@ -221,6 +226,7 @@ def suggest_classifier_tags(
     multi_label: bool,
     allow_freeform_tags: bool,
     scanner: ReplayScanner | None,
+    user_access_control: UserAccessControl,
 ) -> list[TagSuggestion]:
     """Assemble grounding evidence and synthesize tag suggestions. Raises SuggestionError on model failure."""
     freeform: list[tuple[str, int]] = []
@@ -234,7 +240,7 @@ def suggest_classifier_tags(
             )
 
     events, screens = _product_taxonomy(team)
-    sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None)
+    sibling_tags = _sibling_vocabularies(team, scanner.id if scanner is not None else None, user_access_control)
 
     user_content = _build_user_content(
         prompt=prompt,

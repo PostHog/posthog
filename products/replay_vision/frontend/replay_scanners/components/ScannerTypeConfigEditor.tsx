@@ -173,21 +173,25 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
 
     return (
         <div className="space-y-2">
-            <div className="flex items-center justify-between gap-2">
-                <label className="text-sm font-medium">Tag vocabulary</label>
-                <LemonButton
-                    size="xsmall"
-                    type="secondary"
-                    icon={<IconAI />}
-                    loading={tagSuggestionsLoading}
-                    disabledReason={hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'}
-                    onClick={() => loadTagSuggestions()}
-                    data-attr="replay-vision-suggest-tags-with-ai"
-                >
-                    Suggest tags with PostHog AI
-                </LemonButton>
-            </div>
-            <LemonField name="scanner_config.tags">
+            <LemonField
+                name="scanner_config.tags"
+                label={
+                    <span className="flex w-full items-center justify-between gap-2">
+                        Tag vocabulary
+                        <LemonButton
+                            size="xsmall"
+                            type="secondary"
+                            icon={<IconAI />}
+                            loading={tagSuggestionsLoading}
+                            disabledReason={hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'}
+                            onClick={() => loadTagSuggestions()}
+                            data-attr="replay-vision-suggest-tags-with-ai"
+                        >
+                            Suggest tags with PostHog AI
+                        </LemonButton>
+                    </span>
+                }
+            >
                 {({ value, onChange }) => (
                     <LemonInputSelect
                         mode="multiple"
