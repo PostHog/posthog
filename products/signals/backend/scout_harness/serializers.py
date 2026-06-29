@@ -498,6 +498,37 @@ class ReportEvidenceSerializer(serializers.Serializer):
     )
 
 
+class SuggestedReviewerSerializer(serializers.Serializer):
+    """One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+
+    The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+    org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+    `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+    reviewer is never silently dropped."""
+
+    github_login = serializers.CharField(
+        required=False,
+        allow_blank=False,
+        max_length=200,
+        help_text=(
+            "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
+            "name. Resolve one via `org-member-get-github-login` / git history when you only have a name."
+        ),
+    )
+    user_uuid = serializers.UUIDField(
+        required=False,
+        help_text=(
+            "PostHog user UUID (from `org-members-list`, or `@me`). Resolved server-side to the member's "
+            "linked GitHub login — use this when you know the PostHog user but not their GitHub handle."
+        ),
+    )
+
+    def validate(self, attrs: dict) -> dict:
+        if not attrs.get("github_login") and not attrs.get("user_uuid"):
+            raise serializers.ValidationError("Each reviewer must include `github_login` or `user_uuid` (or both).")
+        return attrs
+
+
 class EmitReportRequestSerializer(serializers.Serializer):
     """Request body for `emit-report`. Run attribution is taken from the URL path."""
 
@@ -561,10 +592,12 @@ class EmitReportRequestSerializer(serializers.Serializer):
     )
     suggested_reviewers = serializers.ListField(
         required=False,
-        child=serializers.CharField(),
+        child=SuggestedReviewerSerializer(),
         help_text=(
-            "Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if "
-            "at least one clears their autonomy threshold; omit to skip the PR path."
+            "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
+            "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
+            "of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. "
+            "It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."
         ),
     )
 
@@ -618,6 +651,16 @@ class EditReportRequestSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Optional free-form note to append to the report's work log (attributed to this scout).",
     )
+    suggested_reviewers = serializers.ListField(
+        required=False,
+        child=SuggestedReviewerSerializer(),
+        help_text=(
+            "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
+            "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
+            "autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An "
+            "empty list is a no-op (existing reviewers are left untouched, never cleared)."
+        ),
+    )
 
 
 class EditReportResponseSerializer(serializers.Serializer):
@@ -627,6 +670,7 @@ class EditReportResponseSerializer(serializers.Serializer):
         help_text="Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended.",
     )
     note_appended = serializers.BooleanField(help_text="Whether a note artefact was appended.")
+    reviewers_set = serializers.BooleanField(help_text="Whether the report's suggested reviewers were replaced.")
 
 
 # --- Project profile ------------------------------------------------------

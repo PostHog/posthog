@@ -247,14 +247,16 @@ class TestPromptBuilder(BaseTest):
 
     def test_edit_only_report_scout_never_references_emit_tool(self) -> None:
         # The mirror case: an edit_report-only scout must never be told to author via
-        # `signals-scout-emit-report`, and the author-time sections (suggested reviewers, writing a
-        # report) are dropped since it can't author.
+        # `signals-scout-emit-report`, and the standalone author-time sections (the suggested-reviewers
+        # deep-dive, writing a report) are dropped since it can't author. It still learns it can SET
+        # reviewers via edit (the routing rescue), folded into the editing guidance — not the H1 section.
         prompt = self._report_prompt_for(["edit_report"])
         assert "signals-scout-edit-report" in prompt
         assert "signals-scout-emit-report" not in prompt
         assert "Editing existing reports" in prompt
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
+        assert "suggested_reviewers" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

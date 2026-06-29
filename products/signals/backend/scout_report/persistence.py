@@ -303,6 +303,55 @@ def append_report_note(
     return report_id
 
 
+def set_scout_report_reviewers(
+    *,
+    team_id: int,
+    report_id: str,
+    suggested_reviewers: SuggestedReviewers,
+    attribution: ArtefactAttribution,
+    author: str | None = None,
+) -> bool:
+    """Replace an existing report's `suggested_reviewers` status artefact (latest-wins) — the
+    `edit_report` reviewer path. Returns True when reviewers were written, False when the supplied list
+    is empty (a no-op that leaves any existing reviewers untouched, never silently clears them).
+
+    Team-scoped fail-closed: a `report_id` the team doesn't own raises. `edit_report` can target ANY
+    inbox report (pipeline-authored included), so the change is attributed (to the scout's task) and an
+    audit note is logged, keeping it auditable and distinguishable from pipeline output.
+
+    The append opts out of the model's autostart re-eval hook (`reevaluate_autostart=False`); the caller
+    (`_do_edit_report`) fires `maybe_autostart_from_report_artefacts` after this returns — never in-txn,
+    since it spawns a Task — mirroring `create_scout_report`. Autostart is idempotent, so re-running it
+    for an already-started report no-ops, while a report that lacked a qualifying reviewer can now open a
+    draft PR."""
+    _validate_report_id(report_id)
+    if len(suggested_reviewers.root) == 0:
+        return False
+    logins = [entry.github_login for entry in suggested_reviewers.root]
+    with transaction.atomic():
+        # Existence is the team-scoped gate; the artefact append itself is keyed by report_id.
+        if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        SignalReportArtefact.append_status(
+            team_id=team_id,
+            report_id=report_id,
+            content=suggested_reviewers,
+            attribution=attribution,
+            reevaluate_autostart=False,
+        )
+        SignalReportArtefact.add_log(
+            team_id=team_id,
+            report_id=report_id,
+            content=NoteArtefact(note=f"Set suggested reviewers: {', '.join(logins)}", author=author),
+            attribution=attribution,
+        )
+    logger.info(
+        "signals_scout.edit_report: reviewers set",
+        extra={"team_id": team_id, "report_id": report_id, "reviewers": logins},
+    )
+    return True
+
+
 def soft_delete_scout_signal(
     *,
     team_id: int,

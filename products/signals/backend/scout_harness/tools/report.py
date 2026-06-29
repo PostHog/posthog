@@ -38,6 +38,7 @@ from products.signals.backend.artefact_schemas import (
     SuggestedReviewers,
 )
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalScoutRun
+from products.signals.backend.report_generation.resolve_reviewers import get_org_member_github_logins_by_user_uuid
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.scout_harness.tools.emit import (
     SCOUT_SIGNAL_WEIGHT,
@@ -53,6 +54,7 @@ from products.signals.backend.scout_report import (
     append_report_note,
     create_scout_report,
     record_report_edit,
+    set_scout_report_reviewers,
     update_scout_report,
 )
 from products.signals.backend.scout_report.judge import ScoutReportJudgement, judge_scout_report
@@ -84,6 +86,19 @@ class ReportEvidence:
 
 
 @dataclass(frozen=True)
+class ReviewerInput:
+    """One reviewer a scout supplies to `emit_report` / `edit_report` — by `github_login`, `user_uuid`, or both.
+
+    Mirrors the inbox `SuggestedReviewerEntryWriteSerializer`: at least one of the two must be set. A
+    `user_uuid` is resolved server-side to the org member's linked GitHub login (and wins over a
+    supplied `github_login` when both are given), so a scout that only knows a PostHog user — e.g.
+    routing a report to an account owner — can route it without first looking up the handle."""
+
+    github_login: str | None = None
+    user_uuid: str | None = None
+
+
+@dataclass(frozen=True)
 class EmitReportResult:
     """Outcome of an `emit_report` call.
 
@@ -105,6 +120,7 @@ class EditReportResult:
     report_id: str
     updated_fields: list[str]
     note_appended: bool
+    reviewers_set: bool = False
 
 
 def _surfaced(status: SignalReport.Status) -> bool:
@@ -200,20 +216,54 @@ def _build_priority(priority: str | None, explanation: str | None) -> PriorityAs
     return PriorityAssessment(priority=priority_level, explanation=explanation)
 
 
-def _build_suggested_reviewers(github_logins: list[str] | None) -> SuggestedReviewers | None:
-    """Build the `suggested_reviewers` artefact from scout-supplied github logins, or None to omit it.
+def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | None) -> SuggestedReviewers | None:
+    """Resolve scout-supplied reviewer entries to a canonical, lowercased, deduped `suggested_reviewers`
+    artefact (GitHub logins), or None to omit it.
 
-    These are who autostart considers (each must clear their autonomy threshold). The scout supplies
-    the logins — exactly how a custom agent supplies assignees — rather than us resolving them from
-    repo history. Empty/blank logins are dropped; an all-empty list yields None."""
-    if not github_logins:
+    Each entry identifies a reviewer by `github_login`, `user_uuid`, or both — mirroring the inbox
+    `SuggestedReviewerEntryWriteSerializer`. A `user_uuid` is resolved to the org member's linked GitHub
+    login (and wins over a supplied `github_login` when both are given), so a scout that only knows a
+    PostHog user can still route a report. Resolution is fail-loud: a `user_uuid` that isn't an org
+    member of this team with a linked GitHub identity raises `InvalidScoutReportError` rather than
+    silently dropping the reviewer (matching the inbox artefact-write endpoint), since a quietly-lost
+    reviewer is what leaves a report routed to no one. Entries are deduped by resolved login; an
+    all-empty list yields None. Does a DB read (UUID resolution), so callers on the async path must
+    bridge it off the event loop."""
+    if not reviewers:
         return None
-    cleaned = [login.strip() for login in github_logins if login and login.strip()]
-    if not cleaned:
+
+    for entry in reviewers:
+        has_login = bool(entry.github_login and entry.github_login.strip())
+        if not has_login and not entry.user_uuid:
+            raise InvalidScoutReportError("each suggested reviewer needs a github_login or a user_uuid")
+
+    uuids_to_resolve = [str(entry.user_uuid) for entry in reviewers if entry.user_uuid]
+    uuid_to_login = get_org_member_github_logins_by_user_uuid(team_id, uuids_to_resolve) if uuids_to_resolve else {}
+
+    logins: list[str] = []
+    seen: set[str] = set()
+    for entry in reviewers:
+        if entry.user_uuid:
+            resolved = uuid_to_login.get(str(entry.user_uuid))
+            if not resolved:
+                raise InvalidScoutReportError(
+                    f"user_uuid '{entry.user_uuid}' is not an org member of this team with a linked GitHub identity"
+                )
+            login = resolved.lower()
+        else:
+            login = (entry.github_login or "").strip().lower()
+            if not login:
+                raise InvalidScoutReportError("github_login resolved to empty after normalization")
+        if login in seen:
+            continue
+        seen.add(login)
+        logins.append(login)
+
+    if not logins:
         return None
-    if len(cleaned) > MAX_SUGGESTED_REVIEWERS:
-        raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(cleaned)}")
-    return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in cleaned])
+    if len(logins) > MAX_SUGGESTED_REVIEWERS:
+        raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(logins)}")
+    return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins])
 
 
 def _wants_repo_selection(
@@ -363,13 +413,15 @@ def _capture_report_emitted(*, team: Team, run: SignalScoutRun, result: EmitRepo
 def _capture_report_edited(*, team: Team, run: SignalScoutRun, result: EditReportResult) -> None:
     """Emit the scout-owned `signals_scout_report_edited` event when a scout mutates an existing report via
     `edit_report`, so edits are observable separately from fresh authorship. `updated_fields` /
-    `note_appended` distinguish a title/summary rewrite from a note-only append. Best-effort; never fails
-    the edit. Accesses `team.organization` — call on a sync thread."""
+    `note_appended` / `reviewers_set` distinguish a title/summary rewrite from a note-only append from a
+    reviewer (re-routing) change. Best-effort; never fails the edit. Accesses `team.organization` — call
+    on a sync thread."""
     properties = {
         **_report_event_base(run),
         "report_id": result.report_id,
         "updated_fields": result.updated_fields,
         "note_appended": result.note_appended,
+        "reviewers_set": result.reviewers_set,
     }
     try:
         posthoganalytics.capture(
@@ -398,7 +450,7 @@ async def emit_report(
     repository: str | None = None,
     priority: str | None = None,
     priority_explanation: str | None = None,
-    suggested_reviewers: list[str] | None = None,
+    suggested_reviewers: list[ReviewerInput] | None = None,
 ) -> EmitReportResult:
     """Author a full report: judge for safety, then persist at the judged status. Async entry (used by
     the in-Temporal runner); routes the sync DB work through `database_sync_to_async`.
@@ -416,7 +468,11 @@ async def emit_report(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    reviewers = _build_suggested_reviewers(suggested_reviewers)
+    # Resolves user_uuid → github_login (a DB read), so bridge it off the event loop. Runs before the
+    # safety judge so an unresolvable reviewer fails fast rather than after paying for the LLM call.
+    reviewers = await database_sync_to_async(_build_suggested_reviewers, thread_sensitive=False)(
+        team.id, suggested_reviewers
+    )
 
     preflight = await database_sync_to_async(_preflight_emit_gates, thread_sensitive=False)(team, run)
     if preflight is not None:
@@ -478,7 +534,7 @@ def emit_report_sync(
     repository: str | None = None,
     priority: str | None = None,
     priority_explanation: str | None = None,
-    suggested_reviewers: list[str] | None = None,
+    suggested_reviewers: list[ReviewerInput] | None = None,
 ) -> EmitReportResult:
     """Sync entry used by the DRF view path. Mirrors `emit_report` but keeps the sync DB work on the
     calling thread/connection (gates, persist) — only the safety-judge LLM call, the free-form repo
@@ -495,7 +551,7 @@ def emit_report_sync(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
     priority_assessment = _build_priority(priority, priority_explanation)
-    reviewers = _build_suggested_reviewers(suggested_reviewers)
+    reviewers = _build_suggested_reviewers(team.id, suggested_reviewers)
 
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
@@ -548,9 +604,12 @@ def _do_edit_report(
     title: str | None,
     summary: str | None,
     append_note: str | None,
+    suggested_reviewers: list[ReviewerInput] | None,
 ) -> EditReportResult:
     """Fully-sync edit core (no LLM step). The async/sync entrypoints both funnel here — directly in
-    the sync path, via `database_sync_to_async` in the async path."""
+    the sync path, via `database_sync_to_async` in the async path. Reviewer resolution does a DB read
+    and the autostart re-eval bridges an async hand-off via `async_to_sync`, both safe on this sync
+    thread."""
     preflight = _preflight_emit_gates(team, run)
     if preflight is not None:
         raise InvalidScoutReportError(f"edit_report blocked by preflight gate: {preflight}")
@@ -566,29 +625,60 @@ def _do_edit_report(
             attribution=attribution,
             author=run.skill_name,
         )
+    # Reviewers: resolve (user_uuid → login) and replace the report's `suggested_reviewers` status
+    # artefact (latest-wins). This is the routing fix — a report authored without a reviewer (so it
+    # routes to no one) can have one added after the fact. `_build_suggested_reviewers` returning None
+    # (empty/all-blank input) leaves the existing reviewers untouched rather than clearing them.
+    reviewers = _build_suggested_reviewers(team.id, suggested_reviewers)
+    reviewers_set = (
+        set_scout_report_reviewers(
+            team_id=team.id,
+            report_id=report_id,
+            suggested_reviewers=reviewers,
+            attribution=attribution,
+            author=run.skill_name,
+        )
+        if reviewers is not None
+        else False
+    )
     note_appended = False
     if append_note is not None:
         append_report_note(
             team_id=team.id, report_id=report_id, note=append_note, attribution=attribution, author=run.skill_name
         )
         note_appended = True
+    # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
+    # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
+    # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
+    if reviewers_set:
+        async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
     logger.info(
         "signals_scout.edit_report: edited",
-        extra={"team_id": team.id, "report_id": report_id, "fields": updated_fields, "note": note_appended},
+        extra={
+            "team_id": team.id,
+            "report_id": report_id,
+            "fields": updated_fields,
+            "note": note_appended,
+            "reviewers_set": reviewers_set,
+        },
     )
-    result = EditReportResult(report_id=report_id, updated_fields=updated_fields, note_appended=note_appended)
+    result = EditReportResult(
+        report_id=report_id, updated_fields=updated_fields, note_appended=note_appended, reviewers_set=reviewers_set
+    )
     # Record the edit on the run tally only when something actually changed — a no-op edit (e.g. a
     # title rewrite to its current value) must not claim the run touched the report.
-    if updated_fields or note_appended:
+    if updated_fields or note_appended or reviewers_set:
         record_report_edit(team_id=team.id, run_id=run.id, report_id=report_id)
     _capture_report_edited(team=team, run=run, result=result)
     return result
 
 
-def _validate_edit_inputs(team: Team, run: SignalScoutRun, title, summary, append_note) -> None:
+def _validate_edit_inputs(team: Team, run: SignalScoutRun, title, summary, append_note, suggested_reviewers) -> None:
     _assert_team_owns_run(team, run)
-    if title is None and summary is None and append_note is None:
-        raise InvalidScoutReportError("edit_report needs at least one of title, summary, append_note")
+    if title is None and summary is None and append_note is None and not suggested_reviewers:
+        raise InvalidScoutReportError(
+            "edit_report needs at least one of title, summary, append_note, suggested_reviewers"
+        )
 
 
 async def edit_report(
@@ -599,12 +689,20 @@ async def edit_report(
     title: str | None = None,
     summary: str | None = None,
     append_note: str | None = None,
+    suggested_reviewers: list[ReviewerInput] | None = None,
 ) -> EditReportResult:
-    """Edit an existing inbox report: rewrite title/summary and/or append a note. Team-scoped
-    fail-closed in the service. Async entry; runs the sync edit core in the thread pool."""
-    _validate_edit_inputs(team, run, title, summary, append_note)
+    """Edit an existing inbox report: rewrite title/summary, append a note, and/or set suggested
+    reviewers (which re-runs autostart so a report missing a qualifying reviewer can open a draft PR).
+    Team-scoped fail-closed in the service. Async entry; runs the sync edit core in the thread pool."""
+    _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers)
     return await database_sync_to_async(_do_edit_report, thread_sensitive=False)(
-        team=team, run=run, report_id=report_id, title=title, summary=summary, append_note=append_note
+        team=team,
+        run=run,
+        report_id=report_id,
+        title=title,
+        summary=summary,
+        append_note=append_note,
+        suggested_reviewers=suggested_reviewers,
     )
 
 
@@ -616,9 +714,16 @@ def edit_report_sync(
     title: str | None = None,
     summary: str | None = None,
     append_note: str | None = None,
+    suggested_reviewers: list[ReviewerInput] | None = None,
 ) -> EditReportResult:
     """Sync entry used by the DRF view path. Same behavior as `edit_report`, on the calling thread."""
-    _validate_edit_inputs(team, run, title, summary, append_note)
+    _validate_edit_inputs(team, run, title, summary, append_note, suggested_reviewers)
     return _do_edit_report(
-        team=team, run=run, report_id=report_id, title=title, summary=summary, append_note=append_note
+        team=team,
+        run=run,
+        report_id=report_id,
+        title=title,
+        summary=summary,
+        append_note=append_note,
+        suggested_reviewers=suggested_reviewers,
     )
