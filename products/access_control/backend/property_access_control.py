@@ -278,6 +278,7 @@ def get_restricted_properties_for_team(
     *,
     team_id: int,
     user: User | None,
+    team: Team | None = None,
 ) -> set[tuple[str, int]]:
     """
     Returns the set of (property_name, property_type) pairs that are restricted for the given user on the team.
@@ -291,6 +292,9 @@ def get_restricted_properties_for_team(
 
     :param team_id: The team whose property restrictions we are checking.
     :param user: (optional) The user making the query. When not provided, only the default (property-level) rules apply.
+    :param team: (optional) The already-loaded Team for ``team_id``. Pass it when available — e.g. the HogQL printer
+        runs on every query and has it on the context — so the feature-enabled check and org-membership lookup don't
+        re-fetch the team from Postgres on a hot path.
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
@@ -302,7 +306,7 @@ def get_restricted_properties_for_team(
             return cached
 
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
-    if not is_property_access_control_enabled(team_id=team_id):
+    if not is_property_access_control_enabled(team=team, team_id=team_id):
         empty_no_feature: set[tuple[str, int]] = set()
         if cache is not None:
             cache[cache_key] = empty_no_feature
@@ -335,7 +339,11 @@ def get_restricted_properties_for_team(
     membership = None
     user_role_ids: set[int] = set()
     if user is not None:
-        org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        org_id = (
+            team.organization_id
+            if team is not None
+            else Team.objects.values_list("organization_id", flat=True).get(id=team_id)
+        )
         membership_qs = OrganizationMembership.objects.filter(
             user=user,
             organization_id=org_id,

@@ -153,6 +153,7 @@ def prepare_ast_for_printing(
             context.restricted_properties = get_restricted_properties_for_team(
                 team_id=context.team_id,
                 user=context.user,
+                team=context.team,
             )
 
     if context.modifiers.inCohortVia == InCohortVia.LEFTJOIN_CONJOINED:

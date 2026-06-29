@@ -414,6 +414,26 @@ class TestGetRestrictedPropertiesForTeam(BaseTest):
         restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
         assert restricted == set()
 
+    def test_passing_team_avoids_team_lookup(self):
+        # The HogQL printer runs on every query and already has the team loaded on its context.
+        # Passing it must short-circuit the feature check and org lookup so we never re-fetch the
+        # Team row from Postgres on that hot path.
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=self.event_prop,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        team = self.team
+        # Prime the lazily-loaded organization FK so accessing it later doesn't issue a query.
+        _ = team.organization
+
+        with patch("products.access_control.backend.property_access_control.Team.objects") as mock_team_manager:
+            restricted = get_restricted_properties_for_team(team_id=team.pk, user=self.user, team=team)
+
+        assert restricted == {("secret_event_prop", PropertyDefinition.Type.EVENT)}
+        assert mock_team_manager.mock_calls == []
+
 
 class TestRestrictionCacheScope(BaseTest):
     def setUp(self):
