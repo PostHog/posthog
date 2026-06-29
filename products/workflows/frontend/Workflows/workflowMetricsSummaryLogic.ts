@@ -15,9 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { ActivityTab, PropertyFilterType, PropertyOperator } from '~/types'
-
-import { LogEntryLevel } from '~/types'
+import { ActivityTab, LogEntryLevel, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { isEmailAction } from './hogflows/steps/types'
 import { workflowLogic } from './workflowLogic'
