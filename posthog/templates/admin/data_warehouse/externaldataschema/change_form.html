@@ -182,7 +182,7 @@
                 <label for="partition_mode_select">Partition mode:</label>
                 <select id="partition_mode_select" name="partition_mode" form="repartition-action-form" required>
                     {% for choice in partition_mode_choices %}
-                        <option value="{{ choice }}" {% if choice == current_partition_mode %}selected{% endif %}>{{ choice }}</option>
+                        <option value="{{ choice }}" {% if choice == effective_partition_mode %}selected{% endif %}>{{ choice }}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -201,7 +201,7 @@
                 {% endif %}
                 <span class="help">datetime/numerical need exactly one; leave blank for md5 to use the table's primary keys.</span>
             </div>
-            <div class="partitioning-controls" id="repartition_format_row">
+            <div class="partitioning-controls" id="repartition_format_row"{% if effective_partition_mode != "datetime" %} style="display: none"{% endif %}>
                 <label for="repartition_format">Partition format:</label>
                 <select id="repartition_format" name="partition_format" form="repartition-action-form">
                     {% for choice in partition_format_choices %}
@@ -209,13 +209,13 @@
                     {% endfor %}
                 </select>
             </div>
-            <div class="partitioning-controls" id="repartition_count_row">
+            <div class="partitioning-controls" id="repartition_count_row"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
                 <label for="repartition_count">Partition count:</label>
                 <input id="repartition_count" name="partition_count" form="repartition-action-form"
                        type="number" min="1" step="1" value="{{ current_partition_count|default_if_none:'' }}"
                        placeholder="number of buckets">
             </div>
-            <p class="help" id="repartition_md5_help">
+            <p class="help" id="repartition_md5_help"{% if effective_partition_mode != "md5" %} style="display: none"{% endif %}>
                 md5 hashes the primary key into <code>partition_count</code> buckets.
                 <strong>Sizing:</strong> the pipeline targets ~200&nbsp;MB per partition, so a good
                 start is <code>partition_count ≈ ceil(table size / 200&nbsp;MB)</code> (2&nbsp;GB → ~10,
@@ -223,13 +223,13 @@
                 rows across all buckets, so every incremental sync rewrites every changed partition —
                 don't over-partition a small or low-churn table.
             </p>
-            <div class="partitioning-controls" id="repartition_size_row">
+            <div class="partitioning-controls" id="repartition_size_row"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
                 <label for="repartition_size">Partition size:</label>
                 <input id="repartition_size" name="partition_size" form="repartition-action-form"
                        type="number" min="1" step="1" value="{{ current_partition_size|default_if_none:'' }}"
                        placeholder="rows per bucket">
             </div>
-            <p class="help" id="repartition_numerical_help">
+            <p class="help" id="repartition_numerical_help"{% if effective_partition_mode != "numerical" %} style="display: none"{% endif %}>
                 Numerical mode buckets by an integer id, <code>partition_size</code> rows per bucket
                 (typical 1,000,000–10,000,000).
             </p>
@@ -239,7 +239,7 @@
                     Repartition &amp; resync
                 </button>
             </div>
-            <script>
+            <script nonce="{{ request.csp_nonce }}">
                 (function () {
                     var modeSelect = document.getElementById("partition_mode_select");
                     if (!modeSelect) return;

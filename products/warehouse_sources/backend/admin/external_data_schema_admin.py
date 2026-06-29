@@ -491,6 +491,10 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["partition_mode_choices"] = PARTITION_MODE_CHOICES
             extra_context["current_partition_format"] = obj.partition_format
             extra_context["current_partition_mode"] = obj.partition_mode
+            # The mode the form opens on: the current mode, or the first dropdown option when unset
+            # (no sync yet). Drives both the selected <option> and the initial server-side field
+            # show/hide so the right fields render before the JS toggle runs.
+            extra_context["effective_partition_mode"] = obj.partition_mode or PARTITION_MODE_CHOICES[0]
             extra_context["current_partition_keys"] = obj.partitioning_keys
             extra_context["current_partition_size"] = obj.partition_size
             extra_context["current_partition_count"] = obj.partition_count
