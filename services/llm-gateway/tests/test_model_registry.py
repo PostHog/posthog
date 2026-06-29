@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
 from llm_gateway.services.model_registry import (
     ModelInfo,
@@ -132,12 +133,17 @@ def create_mock_settings(
     anthropic: bool = True,
     openrouter: bool = False,
     fireworks: bool = False,
+    cloudflare: bool = False,
 ) -> MagicMock:
     settings = MagicMock()
     settings.openai_api_key = "sk-test" if openai else None
     settings.anthropic_api_key = "sk-ant-test" if anthropic else None
     settings.openrouter_api_key = "or-test" if openrouter else None
     settings.fireworks_api_key = "fw-test" if fireworks else None
+    # CF needs both a key and an account id; default off so a MagicMock's truthy
+    # auto-attributes don't silently enable Cloudflare model advertising.
+    settings.cloudflare_api_key = "cf-test" if cloudflare else None
+    settings.cloudflare_account_id = "acct-test" if cloudflare else None
     return settings
 
 
@@ -304,6 +310,45 @@ class TestProviderFiltering:
             models = get_available_models("llm_gateway")
             providers = {m.provider for m in models}
             assert providers == {"openai", "anthropic", "openrouter", "fireworks_ai"}
+
+
+class TestCloudflareModelAdvertising:
+    """CF Workers AI models aren't in litellm's cost map, so /v1/models advertises them explicitly
+    when CF creds are set — gated on both key + account id, filtered by the product allowlist."""
+
+    def _cf_ids(self, product: str) -> set[str]:
+        return {m.id for m in get_available_models(product) if m.id.startswith("@cf/")}
+
+    def test_cf_models_listed_when_configured(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=True),
+        ):
+            models = get_available_models("llm_gateway")
+            cf = [m for m in models if m.id.startswith("@cf/")]
+            assert {m.id for m in cf} == set(CLOUDFLARE_ALLOWED_MODELS)
+            assert all(m.provider == "cloudflare" for m in cf)
+
+    def test_cf_models_absent_when_not_configured(self):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=False),
+        ):
+            assert self._cf_ids("llm_gateway") == set()
+
+    def test_cf_requires_both_key_and_account_id(self):
+        settings = create_mock_settings(cloudflare=True)
+        settings.cloudflare_account_id = None
+        with patch("llm_gateway.services.model_registry.get_settings", return_value=settings):
+            assert self._cf_ids("llm_gateway") == set()
+
+    def test_cf_models_filtered_by_product_allowlist(self):
+        # posthog_code's allowlist includes @cf/zai-org/glm-5.2 but not the other CF model(s).
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=True),
+        ):
+            assert self._cf_ids("posthog_code") == {"@cf/zai-org/glm-5.2"}
 
 
 class TestModelMatchesAllowlist:

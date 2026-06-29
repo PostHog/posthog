@@ -74,6 +74,10 @@ def _inject_cloudflare_params(kwargs: dict[str, Any], api_base: str, api_key: st
     kwargs["api_base"] = api_base
     kwargs["api_key"] = api_key
     kwargs["model"] = cloudflare_litellm_model(kwargs["model"])
+    # CF Workers AI is reached through litellm's OpenAI-compatible surface, which rejects
+    # provider-specific params a caller's runtime sends (e.g. Anthropic's reasoning_effort /
+    # context_management). Drop the unsupported ones instead of failing the request.
+    kwargs.setdefault("drop_params", True)
 
 
 def make_cloudflare_anthropic_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
