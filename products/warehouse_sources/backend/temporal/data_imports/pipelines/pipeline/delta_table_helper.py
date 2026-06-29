@@ -26,12 +26,27 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     pyarrow_schema_from_arrow_exportable,
 )
 
-# Files-per-partition above this triggers a defensive compact at the start of a
-# sync run. Set above the natural steady-state (a few files per partition per
-# successful run) but well below the level where per-merge file-listing scans
-# dominate the merge time (we've observed ~45s merges of <300 rows once a table
-# reaches tens of thousands of files). Tune once we have real-world distributions.
+# A pre-write defensive compact fires when EITHER threshold is exceeded.
+#
+# Calibrated against the production file-count distribution (delta merge stats across
+# all teams): total files per table sit at p50≈60, p90≈470, p95≈850, with a long tail
+# (p99≈12k → ~14s merges; an observed pathological case hit ~82k files → ~45s merges).
+# Merge planning time tracks TOTAL files, not files-per-partition — delta still
+# enumerates every file's metadata even when partition pruning skips reading them — so
+# we gate on both:
+#
+# - files-per-partition: bounds per-partition fragmentation and rescues partitioned
+#   (esp. md5) tables, where a merge touches every partition. 200 sits well above the
+#   healthy steady state (compaction runs at the end of each successful sync) yet
+#   triggers long before a table reaches the slow tail.
+# - total files: a partition-count-independent backstop so a table with a high
+#   partition_count can't accumulate tens of thousands of files (each adding to merge
+#   planning time) while staying under the per-partition bar. 5,000 is above p95 (~850)
+#   — so healthy tables never trip it — and well below the p99/pathological tail.
+#
+# Tune further once the admin fragmentation view gives per-customer distributions.
 DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
+DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD = 5000
 
 
 def _write_deltalake(
@@ -638,14 +653,20 @@ class DeltaTableHelper:
         self,
         partition_count: int | None,
         threshold: int = DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD,
+        total_threshold: int = DEFAULT_COMPACT_TOTAL_FILES_THRESHOLD,
     ) -> bool:
-        """Run compact + vacuum only if files-per-partition exceeds threshold.
+        """Run compact + vacuum if the table is fragmented past either threshold.
 
-        Returns True if compaction ran, False if it was skipped. Cheap when the
-        table is healthy: one S3 LIST via `get_file_uris`. Intended for pre-write
-        defensive cleanup so a sync that arrived at a fragmented state (e.g. an
-        earlier attempt that failed before reaching `_post_run_operations`) cleans
-        up before adding to the pile.
+        Fragmented = files-per-partition > `threshold` OR total files > `total_threshold`.
+        The total-files backstop matters because delta enumerates every file's metadata
+        during a merge even when partition pruning skips reading them, so merge planning
+        time tracks total files — a high partition_count must not let a table accumulate
+        tens of thousands of files while staying under the per-partition bar.
+
+        Returns True if compaction ran, False if it was skipped. Cheap when the table is
+        healthy: one S3 LIST via `get_file_uris`. Intended for pre-write defensive cleanup
+        so a sync that arrived at a fragmented state (e.g. an earlier attempt that failed
+        before reaching `_post_run_operations`) cleans up before adding to the pile.
         """
         table = await self.get_delta_table()
         if table is None:
@@ -657,18 +678,16 @@ class DeltaTableHelper:
         effective_partitions = max(partition_count or 1, 1)
         files_per_partition = total_files / effective_partitions
 
-        if files_per_partition <= threshold:
-            await self._logger.adebug(
-                f"compact_if_fragmented: skipping (total_files={total_files}, "
-                f"partitions={effective_partitions}, files_per_partition={files_per_partition:.1f}, "
-                f"threshold={threshold})"
-            )
+        fragmented = files_per_partition > threshold or total_files > total_threshold
+        stats = (
+            f"total_files={total_files}, partitions={effective_partitions}, "
+            f"files_per_partition={files_per_partition:.1f}, threshold={threshold}, "
+            f"total_threshold={total_threshold}"
+        )
+        if not fragmented:
+            await self._logger.adebug(f"compact_if_fragmented: skipping ({stats})")
             return False
 
-        await self._logger.ainfo(
-            f"compact_if_fragmented: triggering compact (total_files={total_files}, "
-            f"partitions={effective_partitions}, files_per_partition={files_per_partition:.1f}, "
-            f"threshold={threshold})"
-        )
+        await self._logger.ainfo(f"compact_if_fragmented: triggering compact ({stats})")
         await self.compact_table()
         return True

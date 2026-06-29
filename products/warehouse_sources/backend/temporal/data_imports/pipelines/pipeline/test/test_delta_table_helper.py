@@ -181,7 +181,7 @@ class TestHasBatchBeenCommitted:
 
 
 class TestCompactIfFragmented:
-    """Pre-write defensive compaction gates on files-per-partition threshold."""
+    """Pre-write defensive compaction fires on files-per-partition OR total-files threshold."""
 
     @pytest.mark.asyncio
     async def test_skips_when_no_delta_table(self, helper: DeltaTableHelper):
@@ -202,6 +202,11 @@ class TestCompactIfFragmented:
         ("custom_threshold_fires", 100, 10, 5, True),
         # Boundary: exactly at threshold -> `>` not `>=`, so skip
         ("exactly_at_default_threshold", 2_000, 10, None, False),
+        # Total-files backstop: 6,000 / 100 = 60 fpp (under the per-partition bar) but
+        # total 6,000 > 5,000 default total threshold -> fire. Guards high-partition tables.
+        ("total_cap_fires_under_per_partition", 6_000, 100, None, True),
+        # Under both bars: 4,000 / 100 = 40 fpp and total 4,000 < 5,000 -> skip.
+        ("below_both_thresholds", 4_000, 100, None, False),
     ]
 
     @parameterized.expand(_THRESHOLD_CASES)
