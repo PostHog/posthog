@@ -194,6 +194,10 @@ from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
+from products.merge_queue.backend.facade.temporal import (
+    ACTIVITIES as MERGE_QUEUE_ACTIVITIES,
+    WORKFLOWS as MERGE_QUEUE_WORKFLOWS,
+)
 from products.replay_vision.backend.temporal import (
     ACTIVITIES as REPLAY_VISION_ACTIVITIES,
     WORKFLOWS as REPLAY_VISION_WORKFLOWS,
@@ -294,6 +298,11 @@ _task_queue_specs = [
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
         EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS + ALERT_WORKFLOWS,
         EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES + ALERT_ACTIVITIES,
+    ),
+    (
+        settings.MERGE_QUEUE_TASK_QUEUE,
+        MERGE_QUEUE_WORKFLOWS,
+        MERGE_QUEUE_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,

@@ -284,6 +284,12 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         "EventBuffer",
         "EventIngestionRestrictionConfig",
         "MessagingRecord",
+        # Stampede merge queue
+        "Partition",
+        "Enrollment",
+        "Slot",
+        "Trial",
+        "QueueEvent",
     }
 
     # Baseline violations — these models SHOULD have team_id but don't yet.
