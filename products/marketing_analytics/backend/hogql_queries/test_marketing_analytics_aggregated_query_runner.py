@@ -3,8 +3,9 @@ from typing import Optional
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from posthog.schema import BaseMathType, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
+from posthog.schema import BaseMathType, CompareFilter, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -78,3 +79,39 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
 
         # Snapshot the query
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot
+
+    def test_compare_shares_database_across_periods(self):
+        # The previous-period runner has no user; if it builds its own HogQL database it resolves
+        # warehouse tables without the user's access, the marketing source adapters come back empty,
+        # and every previous value silently falls back to 0. Sharing the current period's database
+        # (built with the user) fixes that — observable as Database.create_for running once, not twice.
+        query = MarketingAnalyticsAggregatedQuery(
+            dateRange=self.default_date_range,
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+        )
+        runner = self._create_query_runner(query)
+
+        mock_adapter = Mock()
+        mock_adapter.get_source_id.return_value = "test_source"
+        mock_adapter.supports_level.return_value = True
+        mock_adapter.build_query.return_value = parse_select(
+            "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
+            "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
+            "25.0 as reported_conversion_value, 'Campaign' as match_key"
+        )
+
+        with (
+            patch.object(
+                MarketingAnalyticsAggregatedQueryRunner,
+                "_get_marketing_source_adapters",
+                return_value=[mock_adapter],
+            ),
+            patch.object(Database, "create_for", wraps=Database.create_for) as create_for_spy,
+        ):
+            runner.calculate_with_compare()
+
+        assert create_for_spy.call_count == 1, (
+            f"both periods must share one HogQL database (the previous runner has no user); "
+            f"Database.create_for ran {create_for_spy.call_count} times"
+        )

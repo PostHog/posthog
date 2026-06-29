@@ -212,6 +212,12 @@ class MarketingAnalyticsAggregatedQueryRunner(
             modifiers=self.modifiers,
             limit_context=self.limit_context,
         )
+        # Share the prebuilt HogQL database (built for the current request, with the user) across both
+        # periods. Besides paying Database.create_for once instead of twice, this is a correctness fix:
+        # the previous runner has no user, so building its own database would resolve warehouse tables
+        # without the user's access — the marketing source adapters come back empty and every
+        # previous-period value silently falls back to 0. The table runners already do this.
+        previous_runner.__dict__["_shared_hogql_database"] = self._shared_hogql_database
 
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
