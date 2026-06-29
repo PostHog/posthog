@@ -221,6 +221,18 @@ class TestStorage(APIBaseTest):
         with self.assertRaises(ObjectStorageError):
             storage.read_bytes("test-bucket", "test-key")
 
+    def test_write_stream_disables_transfer_threads(self) -> None:
+        # The threaded s3transfer executor raises "cannot schedule new futures after interpreter
+        # shutdown" when an upload races a worker recycle / SIGTERM, so the transfer must stay on
+        # the calling thread.
+        mock_client = MagicMock()
+        storage = ObjectStorage(mock_client)
+
+        storage.write_stream("test-bucket", "test-key", MagicMock())
+
+        config = mock_client.upload_fileobj.call_args.kwargs["Config"]
+        assert config.use_threads is False
+
     def test_delete_objects_batches_keys_and_returns_failures(self) -> None:
         mock_client = MagicMock()
         mock_client.delete_objects.side_effect = [

@@ -7,6 +7,7 @@ from django.conf import settings
 
 import structlog
 from boto3 import client
+from boto3.s3.transfer import TransferConfig
 from botocore.client import Config
 from botocore.exceptions import ClientError
 
@@ -300,11 +301,15 @@ class ObjectStorage(ObjectStorageClient):
         instead of buffering the whole body before calling `write()`.
         """
         try:
+            # use_threads=False keeps the transfer on the calling thread instead of dispatching it
+            # through s3transfer's ThreadPoolExecutor, which raises "cannot schedule new futures after
+            # interpreter shutdown" when an upload races a worker recycle / SIGTERM during a deploy.
             self.aws_client.upload_fileobj(
                 Fileobj=fileobj,
                 Bucket=bucket,
                 Key=key,
                 ExtraArgs=extras or {},
+                Config=TransferConfig(use_threads=False),
             )
         except Exception as e:
             logger.exception(
