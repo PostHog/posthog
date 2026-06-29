@@ -114,10 +114,11 @@ context, model=Shape)` then `await session.end()`. A **single-turn** session is 
 **Target pipeline:**
 
 1. **Fetch PR data** (GitHub API) — unchanged.
-2. **Chunk gate → chunk only if needed.** Chunk when `changed_files > MAX_FILES_BEFORE_CHUNKING` **OR**
-   `changed_lines > MAX_LINES_BEFORE_CHUNKING` (new tunable constants; start ~8 files / ~400 lines). Below the
-   gate, treat the whole PR as a single chunk and **skip the chunker agent entirely**. Above it, run the
-   existing meaning/area chunker (sandbox).
+2. **Chunk gate → chunk only if needed.** _(Superseded — now BUILT, see "✅ BUILT 2026-06-29 — size-aware
+   chunk gate" below: the final gate is additions-only ≤ `CHUNK_TARGET_ADDITIONS` (1000), no file-count gate,
+   and the chunker prompt was rewritten for semantic, uncapped-count, size-targeted chunks. The original
+   ~8-files / ~400-lines `MAX_\*`sketch never landed.)_ Chunk when`changed_files > MAX_FILES_BEFORE_CHUNKING`**OR**`changed_lines > MAX_LINES_BEFORE_CHUNKING`. Below the gate, treat the whole PR as a single chunk and
+   **skip the chunker agent entirely**. Above it, run the existing meaning/area chunker (sandbox).
 3. **Per-chunk analysis** (KEEP) — one isolated analysis sandbox per chunk; its `goal` text is injected into
    that chunk's reviewers (analysis finishes before the chunk's reviewers start).
 4. **Parallel specialist review** — for each `(chunk × specialty)` spawn an isolated single-turn sandbox
@@ -1897,6 +1898,30 @@ The fact that keeps all of this safe: **the output schema is fixed; only the ski
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against
 `ChunksList` — all **code, not skills** — so editing a skill cannot change the output format and the downstream
 pipeline (combine → dedup → validate → publish) stays schema-uniform.
+
+##### ✅ BUILT 2026-06-29 — size-aware chunk gate + semantic chunker rewrite (uncommitted; 9 chunking tests + downstream green, ruff+ty+tach clean)
+
+The long-planned "chunk gate" (Stage 2 sketched it at lines ~117/143 as `MAX_FILES_BEFORE_CHUNKING` / `MAX_LINES_BEFORE_CHUNKING` ~8 files / ~400 lines — **never actually landed**; `split_chunks_activity` always called the LLM) is now built, but **refined to the final decisions** below. The motivating bug: a 155-line PR was being split into 2 chunks, **doubling** the dominant cost (analyze fans out 1 sandbox turn per chunk; review fans out 1 per `perspective × chunk`), because the chunker was **size-blind** and its prompt was biased toward _more, smaller_ chunks. As built:
+
+- **The gate is deterministic and runs before the LLM.** `plan_deterministic_chunks(pr_files)` (`tools/split_pr_into_chunks.py`) returns a single all-files `ChunksList` when reviewable **additions ≤ `CHUNK_TARGET_ADDITIONS` (1000)**, else `None` (defer to the LLM). `split_chunks_activity` persists that single chunk and **returns without a sandbox turn** — so small PRs skip the chunking LLM _and_ never multiply the per-chunk fan-out. Empty reviewable set → zero chunks (run no-ops).
+- **Metric = additions only**, summed over the already-`PRFilter`-filtered `pr_files` (lock/build/generated/images/`.txt`/`.schema.py` are stripped upstream in `fetch_pr_files`). Deletions don't drive chunking (cheaper to read); `PRMetadata.additions` is _raw/unfiltered_ and deliberately not used.
+- **One number, two roles.** `CHUNK_TARGET_ADDITIONS` is both the single-chunk threshold _and_ the LLM's per-chunk target, so the boundary is smooth (a PR just over 1000 comes back as ~one chunk near target, no halving discontinuity). The deterministic gate is purely a cost optimization for the common case — it gives the same single chunk the LLM would.
+- **No mechanical size cap.** Chunking exists to make a 10k PR as reviewable as a 1k one, not to bound chunk size. `CHUNK_SOFT_MAX_ADDITIONS` (1500) is **prompt guidance only**: prefer chunks under it, split a large concern at natural sub-seams, keep a genuinely atomic concern whole even if it runs over. There is no upper limit on the _number_ of chunks.
+- **Heavy `prompts/chunking/prompt.jinja` rewrite.** Stripped the "prioritize more, smaller chunks", the 3–8-files / ≤10-files heuristics, the single-file "red flag", and the layer-splitting bias. New philosophy: fewest coherent independently-reviewable chunks the PR's _distinct concerns_ require; group by concern (tests with impl, tightly-coupled files together); split only at real seams; size by added lines toward the target/soft-max injected from constants. **Plus the explicit rule the user asked for: auto-generated files (generated API types/clients/schemas) are not real code → don't let their size drive chunk count/sizing, attach them to the source that produces them, never give them a chunk just to isolate bulk.**
+- **Output schema unchanged** (`ChunksList`), so finding identity `{pass}-{chunk}-{issue}`, persistence, and the body renderer are untouched. A deterministic single chunk carries `chunk_type=None` / `key_changes=[]`, which the body renderer already handles (falls back to a "## Changes" heading; key-changes block skipped).
+- **Assumption flagged to the user (not yet revisited):** the "generated stuff shouldn't count" rule is _prompt-only_ (a soft down-weight is inherently the LLM's job; a deterministic counter can only include/exclude). So a generated-heavy _small_ PR can still cross the 1000-addition gate and reach the LLM, which then groups it sensibly — acceptable, no second deterministic filter list added.
+
+Tests: `test_split_pr_into_chunks.py::TestPlanDeterministicChunks` (parameterized inclusive-boundary threshold; additions-only / deletions-ignored; single-chunk shape = all files under `chunk_id 1` with neutral metadata; empty → no chunks) + the existing prompt test extended to assert the budget numbers render. Knobs live in `constants.py` (`CHUNK_TARGET_ADDITIONS`, `CHUNK_SOFT_MAX_ADDITIONS`). **User commits manually — not yet committed.**
+
+**e2e ✅ #66842** (838 additions / 15 files → 12 reviewable after `PRFilter`): the worker logged "PR within the single-chunk size; … skipping the chunking LLM turn", produced **1 chunk** (`chunk_id 1`, 12 files, `chunk_type=None`) with **no chunking task** and all sandbox tasks `-c1` (1 analysis + 3 perspective reviews). Review quality held — 3 distinct should-fix findings (unescaped user input into Slack mrkdwn; unbounded sync Slack calls in the request path; reply-backfill silently dropping on partial failure). ~4 sandbox turns vs. the prior chunking-turn + multi-chunk fan-out.
+
+##### ✅ BUILT 2026-06-29 — standalone `publish_review` command (publish a computed review, no recompute) (uncommitted; tests green, ruff+ty+tach clean)
+
+"I reviewed without `--publish`, the result is good, post it without paying for another run." Cheap because publish is already DB-driven. As built:
+
+- **`publish_persisted_review(...)` extracted into `tools/publish_review.py`** — the DB-driven publish path (idempotency skip on `published_head_sha == head_sha`, load snapshot → rebuild inline comments from the run's valid findings, post, set the watermark only on a real post). `activities._publish` is now a thin wrapper (`_installation_token` → `publish_persisted_review`); **one code path, no duplication.** `test_publish_idempotency` patch targets moved to the tool accordingly.
+- **New `publish_review` management command** (`--pr-url --team-id`): parses the PR, loads the `(team, repository, pr_number)` report, errors clearly if no review exists / no run completed (`run_count == 0`) / no `head_sha`, resolves the team's GitHub App installation token, **best-effort warns if the PR head moved** past the reviewed commit, then publishes the **latest completed turn** (`run_index == run_count`, at the report's reviewed `head_sha`). No Temporal, no sandbox.
+- Tests: `test_publish_review_command.py` (no-review error, never-completed error, happy-path arg resolution = `run_index`/`head_sha`/owner-repo-number/token) + the existing idempotency suite now covers `publish_persisted_review` through `_publish`. **User commits manually — not yet committed.**
 
 ---
 
