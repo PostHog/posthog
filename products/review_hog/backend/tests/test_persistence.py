@@ -17,6 +17,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_chunk_set,
     load_perspective_results,
     load_pr_snapshot,
+    load_prior_findings,
     load_valid_findings,
     persist_chunk_analyses,
     persist_chunk_set,
@@ -101,12 +102,13 @@ class TestPersistResults(BaseTest):
             is_directly_related_to_changes=True,
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue]) == 1
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue], run_index=1) == 1
         assert (
             persist_verdicts(
                 team_id=self.team.id,
                 report_id=report_id,
                 issues=[issue],
+                run_index=1,
                 validations={"1-2-3": IssueValidation(is_valid=True, argumentation="real bug", category="bug")},
             )
             == 1
@@ -148,12 +150,13 @@ class TestPersistResults(BaseTest):
             priority=IssuePriority.SHOULD_FIX,
         )
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b]) == 2
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[a, b], run_index=1) == 2
         assert (
             persist_verdicts(
                 team_id=self.team.id,
                 report_id=report_id,
                 issues=[a, b],
+                run_index=1,
                 validations={
                     "1-2-1": IssueValidation(is_valid=True, argumentation="A is real"),
                     "1-2-2": IssueValidation(is_valid=False, argumentation="B dismissed"),
@@ -192,12 +195,13 @@ class TestPersistResults(BaseTest):
         )
         bad = _issue("1-1-2", file="b.py", start=1, title="bad", issue="   ", priority=IssuePriority.CONSIDER)
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad]) == 1
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad], run_index=1) == 1
         assert (
             persist_verdicts(
                 team_id=self.team.id,
                 report_id=report_id,
                 issues=[good, bad],
+                run_index=1,
                 validations={
                     "1-1-1": IssueValidation(is_valid=True, argumentation="ok"),
                     "1-1-2": IssueValidation(is_valid=True, argumentation="orphan ruling"),
@@ -222,7 +226,7 @@ class TestPersistResults(BaseTest):
         )
         bad = _issue("1-1-2", file="b.py", title="bad", lines=[], issue="   ", priority=IssuePriority.CONSIDER)
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad]) == 1
+        assert persist_findings(team_id=self.team.id, report_id=report_id, issues=[good, bad], run_index=1) == 1
 
         rows = ReviewReportArtefact.objects.for_team(self.team.id).filter(
             report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING
@@ -238,18 +242,19 @@ class TestLoadValidFindings(BaseTest):
         valid = _issue("1-1-1", file="a.py", title="keep me", issue="real")
         invalid = _issue("1-1-2", file="b.py", title="drop me", issue="not real")
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        persist_findings(team_id=self.team.id, report_id=report_id, issues=[valid, invalid])
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[valid, invalid], run_index=1)
         persist_verdicts(
             team_id=self.team.id,
             report_id=report_id,
             issues=[valid, invalid],
+            run_index=1,
             validations={
                 "1-1-1": IssueValidation(is_valid=True, argumentation="real"),
                 "1-1-2": IssueValidation(is_valid=False, argumentation="not real"),
             },
         )
 
-        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id)
+        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)
         assert len(pairs) == 1
         finding, verdict = pairs[0]
         assert finding.title == "keep me"
@@ -261,24 +266,83 @@ class TestLoadValidFindings(BaseTest):
         # confirmed must publish (and vice versa). Guards the loop-y re-review contract.
         issue = _issue("1-1-1", file="a.py", title="flip", issue="real")
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
-        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue])
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue], run_index=1)
         persist_verdicts(
             team_id=self.team.id,
             report_id=report_id,
             issues=[issue],
+            run_index=1,
             validations={"1-1-1": IssueValidation(is_valid=False, argumentation="dismissed")},
         )
-        assert load_valid_findings(team_id=self.team.id, report_id=report_id) == []
+        assert load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1) == []
 
         persist_verdicts(
             team_id=self.team.id,
             report_id=report_id,
             issues=[issue],
+            run_index=1,
             validations={"1-1-1": IssueValidation(is_valid=True, argumentation="actually real")},
         )
-        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id)
+        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)
         assert len(pairs) == 1
         assert pairs[0][1].argumentation == "actually real"
+
+    def test_scopes_findings_to_the_requested_run(self) -> None:
+        # The #66456 duplicate: publish read the report's WHOLE history and re-posted a prior turn's
+        # finding (a comment the PR already carried). Each run's findings must stay scoped to that run
+        # — even when a later turn reuses the same positional id — so publish never replays an earlier
+        # turn's findings.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        old = _issue("1-1-1", file="a.py", title="run-1 finding", issue="real")
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[old], run_index=1)
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=old,
+            validation=IssueValidation(is_valid=True, argumentation="real"),
+            run_index=1,
+        )
+        new = _issue("1-1-1", file="b.py", title="run-2 finding", issue="real")
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[new], run_index=2)
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=new,
+            validation=IssueValidation(is_valid=True, argumentation="real"),
+            run_index=2,
+        )
+
+        assert [f.title for f, _ in load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=2)] == [
+            "run-2 finding"
+        ]
+        assert [f.title for f, _ in load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)] == [
+            "run-1 finding"
+        ]
+
+
+class TestLoadPriorFindings(BaseTest):
+    def test_returns_only_earlier_turns_findings(self) -> None:
+        # The "already covered" context for a re-review must be PRIOR turns' findings only — never the
+        # current turn's own, which would tell the agent to skip the very issues it's there to find.
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        persist_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[_issue("1-1-1", file="a.py", title="run-1 issue")],
+            run_index=1,
+        )
+        persist_findings(
+            team_id=self.team.id,
+            report_id=report_id,
+            issues=[_issue("1-1-1", file="b.py", title="run-2 issue")],
+            run_index=2,
+        )
+
+        # Reviewing turn 2 sees turn 1's findings as covered, not its own; turn 1 has nothing prior.
+        assert [
+            f.title for f in load_prior_findings(team_id=self.team.id, report_id=report_id, before_run_index=2)
+        ] == ["run-1 issue"]
+        assert load_prior_findings(team_id=self.team.id, report_id=report_id, before_run_index=1) == []
 
 
 # The per-turn working-state rows that back the DB-driven resume.
@@ -491,16 +555,17 @@ class TestPersistVerdict(BaseTest):
         # orphan the verdict and drop the finding from publish.
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
         issue = _issue("1-1-1")
-        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue])
+        persist_findings(team_id=self.team.id, report_id=report_id, issues=[issue], run_index=1)
         wrote = persist_verdict(
             team_id=self.team.id,
             report_id=report_id,
             issue=issue,
             validation=IssueValidation(is_valid=True, argumentation="reachable bug", category="bug"),
+            run_index=1,
         )
 
         assert wrote is True
-        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id)
+        pairs = load_valid_findings(team_id=self.team.id, report_id=report_id, run_index=1)
         assert len(pairs) == 1
         finding, verdict = pairs[0]
         assert verdict.is_valid is True

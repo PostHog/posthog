@@ -20,9 +20,10 @@ from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.artefact_schemas import ArtefactContentValidationError, TaskRunArtefact
 
 
-def _finding(issue_key: str = "f.py:10:logic") -> ReviewIssueFinding:
+def _finding(issue_key: str = "r1:f.py:10:logic") -> ReviewIssueFinding:
     return ReviewIssueFinding(
         issue_key=issue_key,
+        run_index=1,
         title="Off-by-one",
         file="f.py",
         lines=[LineRange(start=10)],
@@ -123,7 +124,7 @@ class TestReviewArtefactFunnel(BaseTest):
         # content survives the JSON round-trip with its typed shape.
         parsed = parse_artefact_content(artefact.type, artefact.content)
         assert isinstance(parsed, ReviewIssueFinding)
-        assert parsed.issue_key == "f.py:10:logic"
+        assert parsed.issue_key == "r1:f.py:10:logic"
         assert parsed.priority == IssuePriority.MUST_FIX
 
     @parameterized.expand(

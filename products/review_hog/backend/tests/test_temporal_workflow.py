@@ -44,6 +44,7 @@ def _stage_kwargs() -> dict:
         "head_sha": "sha1",
         "repository": "o/r",
         "branch": "feat",
+        "run_index": 1,
     }
 
 
@@ -70,6 +71,7 @@ async def _run_full_review_pr_workflow(*, publish: bool, already_published: bool
             head_sha="sha1",
             branch="feat",
             repository="o/r",
+            run_index=1,
             snapshotted=not already_published,
             already_published=already_published,
             new_comment_count=0,

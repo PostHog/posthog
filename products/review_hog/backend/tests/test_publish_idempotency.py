@@ -1,14 +1,56 @@
+from typing import cast
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
+
+from github import GithubException
+from github.PullRequest import PullRequest
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.models.github_meta import PRMetadata
 from products.review_hog.backend.reviewer.persistence import upsert_review_report
+from products.review_hog.backend.reviewer.tools.publish_review import _review_already_posted, _review_marker
 from products.review_hog.backend.temporal.activities import _publish
 
 _PUBLISH = "products.review_hog.backend.temporal.activities.publish_review"
 _SNAPSHOT = "products.review_hog.backend.temporal.activities.load_pr_snapshot"
 _TOKEN = "products.review_hog.backend.temporal.activities._installation_token"
+
+
+class _FakeReview:
+    def __init__(self, body: str | None) -> None:
+        self.body = body
+
+
+class _FakePR:
+    def __init__(self, reviews: list[_FakeReview], *, boom: bool = False) -> None:
+        self._reviews = reviews
+        self._boom = boom
+
+    def get_reviews(self) -> list[_FakeReview]:
+        if self._boom:
+            raise GithubException(500, "boom", None)
+        return self._reviews
+
+
+def _pr(reviews: list[_FakeReview], *, boom: bool = False) -> PullRequest:
+    return cast(PullRequest, _FakePR(reviews, boom=boom))
+
+
+def test_review_already_posted_detects_our_own_markered_review() -> None:
+    # The post-then-crash backstop: a review we already posted carries this run's hidden marker, so a
+    # retry must recognize it and skip rather than double-post. A review without the marker (another
+    # turn / another author) must not match.
+    marker = _review_marker("rep-1", "sha1")
+    assert _review_already_posted(_pr([_FakeReview(f"body text\n\n{marker}")]), marker) is True
+    assert _review_already_posted(_pr([_FakeReview("an unrelated review"), _FakeReview(None)]), marker) is False
+    assert _review_already_posted(_pr([_FakeReview(_review_marker("rep-1", "other-sha"))]), marker) is False
+
+
+def test_review_already_posted_proceeds_when_readback_fails() -> None:
+    # Best-effort: if listing reviews errors we post rather than silently drop the review (the
+    # published_head_sha watermark still guards the common retry path).
+    assert _review_already_posted(_pr([], boom=True), _review_marker("rep-1", "sha1")) is False
 
 
 def _pr_metadata(head_sha: str) -> PRMetadata:
@@ -50,7 +92,7 @@ class TestPublishIdempotency(BaseTest):
     def test_first_publish_posts_promo_and_records_watermark(self, _token, _snapshot, mock_publish) -> None:
         mock_publish.return_value = True
         report_id = self._report()
-        _publish(self.team.id, report_id, "sha1", "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1)
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is True
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha1"
@@ -60,7 +102,7 @@ class TestPublishIdempotency(BaseTest):
     @patch(_TOKEN, return_value="tok")
     def test_republish_same_head_is_skipped(self, _token, _snapshot, mock_publish) -> None:
         report_id = self._report(published_head_sha="sha1")
-        _publish(self.team.id, report_id, "sha1", "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1)
         mock_publish.assert_not_called()
 
     @patch(_PUBLISH)
@@ -69,7 +111,7 @@ class TestPublishIdempotency(BaseTest):
     def test_new_head_publishes_without_promo(self, _token, _snapshot, mock_publish) -> None:
         mock_publish.return_value = True
         report_id = self._report(published_head_sha="oldsha")
-        _publish(self.team.id, report_id, "sha2", "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha2", 1, "PostHog", "posthog", 1)
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is False
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
@@ -82,6 +124,6 @@ class TestPublishIdempotency(BaseTest):
         # later turn with a valid finding can still publish at the same head.
         mock_publish.return_value = False
         report_id = self._report()
-        _publish(self.team.id, report_id, "sha1", "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1)
         assert mock_publish.call_count == 1
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha is None
