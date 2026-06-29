@@ -17,6 +17,9 @@ from posthog.schema import (
     SourceFieldSelectConfigOption,
 )
 
+from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SourceInputs,
     SourceResponse,
@@ -33,6 +36,20 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_she
     google_sheets_source,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Frontend hides the OAuth option behind this flag, but the API/MCP path bypasses the UI — so the
+# backend rejects an OAuth config too until the flag is on for the team. Mirrors is_xmin_enabled_for_team.
+_OAUTH_FEATURE_FLAG = "dwh-google-sheets-oauth"
+
+
+def _oauth_enabled_for_team(team_id: int) -> bool:
+    organization_id = str(Team.objects.get(id=team_id).organization_id)
+    return feature_enabled_or_false(
+        _OAUTH_FEATURE_FLAG,
+        organization_id,
+        groups={"organization": organization_id},
+        group_properties={"organization": {"id": organization_id}},
+    )
 
 
 @SourceRegistry.register
@@ -108,6 +125,11 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
         self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         integration_id = config.auth_method.google_sheets_integration_id if config.auth_method else None
+        if integration_id and not _oauth_enabled_for_team(team_id):
+            return (
+                False,
+                "Connecting a Google account for Google Sheets isn't available for your project yet.",
+            )
         if integration_id:
             try:
                 self.get_oauth_integration(integration_id, team_id)

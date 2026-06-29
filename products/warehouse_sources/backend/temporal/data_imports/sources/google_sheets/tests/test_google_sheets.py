@@ -540,6 +540,7 @@ def test_google_sheets_client_sets_request_timeout():
 
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets"
+_SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.source"
 
 
 # Cross-tenant guard: a cached worksheet carries the requesting team's OAuth session, so the cache
@@ -602,11 +603,31 @@ def test_validate_credentials_missing_oauth_integration_fails_gracefully():
         }
     )
 
-    # OAuthMixin.get_oauth_integration raises ValueError when the integration is gone.
-    with mock.patch.object(
-        GoogleSheetsSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 1")
+    # OAuthMixin.get_oauth_integration raises ValueError when the integration is gone (flag is on here).
+    with (
+        mock.patch(f"{_SOURCE_MODULE}._oauth_enabled_for_team", return_value=True),
+        mock.patch.object(
+            GoogleSheetsSource, "get_oauth_integration", side_effect=ValueError("Integration not found: 1")
+        ),
     ):
         ok, error = GoogleSheetsSource().validate_credentials(config, team_id=1)
 
     assert ok is False
     assert error is not None and "reconnect" in error.lower()
+
+
+# Backend gate: an OAuth config must be rejected when the team isn't in the flag rollout. The frontend
+# hides the option, but API/MCP callers bypass the UI, so the gate has to live in the backend too.
+def test_validate_credentials_blocks_oauth_when_flag_off():
+    config = GoogleSheetsSourceConfig.from_dict(
+        {
+            "spreadsheet_url": "https://docs.google.com/spreadsheets/d/fake",
+            "auth_method": {"google_sheets_integration_id": 1},
+        }
+    )
+
+    with mock.patch(f"{_SOURCE_MODULE}._oauth_enabled_for_team", return_value=False):
+        ok, error = GoogleSheetsSource().validate_credentials(config, team_id=1)
+
+    assert ok is False
+    assert error is not None and "isn't available" in error
