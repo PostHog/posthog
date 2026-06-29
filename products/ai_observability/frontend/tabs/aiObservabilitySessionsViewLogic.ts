@@ -132,6 +132,12 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
         let loadSessionsRequestId = 0
         let loadMoreSessionsRequestId = 0
 
+        const preloadSessionTitles = (sessions: SessionListRow[]): void => {
+            for (const session of sessions) {
+                actions.ensureSessionTitleLoaded(session.sessionId, values.dateFilter)
+            }
+        }
+
         return {
             loadSessions: async ({ refresh }) => {
                 const requestId = ++loadSessionsRequestId
@@ -187,9 +193,10 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             // Pre-load titles for the whole list (batched + deduped), so each row shows
             // its name and re-selecting a listed session never re-queries its title.
             loadSessionsSuccess: ({ sessions }) => {
-                for (const session of sessions) {
-                    actions.ensureSessionTitleLoaded(session.sessionId, values.dateFilter)
-                }
+                preloadSessionTitles(sessions)
+            },
+            loadMoreSessionsSuccess: ({ sessions }) => {
+                preloadSessionTitles(sessions)
             },
         }
     }),

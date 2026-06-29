@@ -14,6 +14,7 @@ import { PropertyFilterType, PropertyOperator } from '~/types'
 import { sceneLogic } from '../../../frontend/src/scenes/sceneLogic'
 import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
 import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
@@ -346,6 +347,27 @@ describe('aiObservabilitySessionsViewLogic', () => {
         expect(logic.values.sessions[50].sessionId).toBe('session-50')
         expect(logic.values.hasMoreSessions).toBe(false)
         expect(querySpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('preloads titles for appended session pages', async () => {
+        const titleLogic = llmSessionTitleLazyLoaderLogic()
+        titleLogic.mount()
+        try {
+            querySpy.mockResolvedValueOnce(sessionResponse(Array.from({ length: 50 }, (_, i) => i)))
+            querySpy.mockResolvedValueOnce(sessionResponse([50]))
+
+            logic.actions.loadSessions()
+            await settleListeners()
+            expect(logic.values.hasMoreSessions).toBe(true)
+
+            logic.actions.loadMoreSessions()
+            await settleListeners()
+
+            expect(logic.values.sessions[50].sessionId).toBe('session-50')
+            expect(titleLogic.values.loadingSessionIds.has('session-50')).toBe(true)
+        } finally {
+            titleLogic.unmount()
+        }
     })
 })
 
