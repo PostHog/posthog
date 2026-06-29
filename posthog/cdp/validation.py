@@ -562,7 +562,12 @@ def topological_sort(nodes: list[str], edges: dict[str, list[str]]) -> list[str]
     return sorted_list
 
 
-def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> list[Any]:
+def compile_hog(
+    hog: str,
+    hog_type: str,
+    in_repl: Optional[bool] = False,
+    null_safe_comparisons: bool = False,
+) -> list[Any]:
     # Attempt to compile the hog
     try:
         program = parse_program(hog)
@@ -582,7 +587,12 @@ def compile_hog(hog: str, hog_type: str, in_repl: Optional[bool] = False) -> lis
             # Stated explicitly so a future refactor can't silently widen the surface.
             supported_functions = set()
 
-        return create_bytecode(program, supported_functions=supported_functions, in_repl=in_repl).bytecode
+        return create_bytecode(
+            program,
+            supported_functions=supported_functions,
+            in_repl=in_repl,
+            null_safe_comparisons=null_safe_comparisons,
+        ).bytecode
     except serializers.ValidationError:
         raise
     except Exception as e:

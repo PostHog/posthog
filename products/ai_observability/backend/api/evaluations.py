@@ -786,7 +786,7 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         from posthog.models.team import Team
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_hog(source, "destination", null_safe_comparisons=True)
         except serializers.ValidationError as e:
             return Response({"error": f"Compilation error: {e.detail}"}, status=400)
         except Exception:

@@ -198,7 +198,11 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # Compile Hog source to bytecode
         if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
             try:
-                bytecode = compile_hog(self.evaluation_config["source"], "destination")
+                bytecode = compile_hog(
+                    self.evaluation_config["source"],
+                    "destination",
+                    null_safe_comparisons=True,
+                )
                 self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
                 raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})

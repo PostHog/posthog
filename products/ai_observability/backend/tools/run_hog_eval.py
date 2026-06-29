@@ -51,7 +51,7 @@ class RunHogEvalTestTool(MaxTool):
         from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_hog(source, "destination", null_safe_comparisons=True)
         except Exception as e:
             return (f"Compilation error: {e}", None)
 
