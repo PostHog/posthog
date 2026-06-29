@@ -35,6 +35,19 @@ def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHog
     )
 
 
+def _make_slack_file(**overrides: object) -> dict[str, object]:
+    file: dict[str, object] = {
+        "id": "F123",
+        "name": "debug.log",
+        "mimetype": "text/plain",
+        "filetype": "text",
+        "size": 12,
+        "url_private_download": "https://files.slack.com/files-pri/T123-F123/debug.log",
+    }
+    file.update(overrides)
+    return file
+
+
 def _command_result(**kwargs):
     defaults = {"success": False, "status_code": 0, "error": None, "retryable": False, "data": None}
     defaults.update(kwargs)
@@ -230,6 +243,64 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         )
         assert mapping.task_id == task.id
         assert mapping.task_run_id == task.latest_run.id
+
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_initial_task_uploads_slack_attachment_to_pending_prompt(
+        self, mock_slack_cls, mock_execute_workflow
+    ) -> None:
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_instance.client.chat_getPermalink.return_value = {
+            "ok": True,
+            "permalink": "https://slack.example.com/thread",
+        }
+        mock_slack_cls.return_value = mock_slack_instance
+
+        event = {
+            "channel": "C123",
+            "ts": "1234.5678",
+            "user": "U_ALICE",
+            "text": "<@BOT> review this log",
+            "files": [_make_slack_file(name="debug.log", size=9)],
+        }
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+        )
+
+        with (
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
+            patch("posthog.storage.object_storage.write") as mock_write,
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            create_posthog_code_task_for_repo_activity(
+                inputs,
+                "C123",
+                "1234.5678",
+                "U_ALICE",
+                self.user.id,
+                event,
+                [{"user": "U_ALICE", "text": "review this log", "ts": "1234.5678"}],
+                None,
+            )
+
+        task = self.Task.objects.get(team=self.team)
+        run = self.TaskRun.objects.get(task=task)
+        assert "review this log" in run.state["pending_user_message"]
+        assert (
+            "Slack attachment(s) available to the agent as task files: debug.log." in run.state["pending_user_message"]
+        )
+        assert len(run.state["pending_user_artifact_ids"]) == 1
+        assert run.artifacts[0]["id"] == run.state["pending_user_artifact_ids"][0]
+        assert run.artifacts[0]["name"] == "debug.log"
+        assert run.artifacts[0]["type"] == "user_attachment"
+        assert run.artifacts[0]["source"] == "slack_user_attachment"
+        assert run.artifacts[0]["content_type"] == "text/plain"
+        mock_write.assert_called_once()
+        assert mock_write.call_args.args[1] == b"log bytes"
+        mock_execute_workflow.assert_called_once()
 
     @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
@@ -611,6 +682,52 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
 
     @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
     @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_run_resumes_with_slack_attachment(self, mock_slack_cls, mock_execute_workflow) -> None:
+        self.task_run.status = self.TaskRun.Status.COMPLETED
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_instance = MagicMock()
+        mock_slack_instance.client.token = "xoxb-test"
+        mock_slack_cls.return_value = mock_slack_instance
+
+        event = {
+            "channel": "C123",
+            "ts": "1234.5679",
+            "user": "U_ALICE",
+            "text": "<@BOT> check this run",
+            "files": [_make_slack_file(name="resume.txt", size=11)],
+        }
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+        )
+
+        with (
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"resume data"),
+            patch("posthog.storage.object_storage.write"),
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            result = forward_posthog_code_followup_activity(
+                inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> check this run", "1234.5679"
+            )
+
+        assert result is True
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        assert new_run.state["initial_prompt_override"] == "check this run"
+        assert "check this run" in new_run.state["pending_user_message"]
+        assert (
+            "Slack attachment(s) available to the agent as task files: resume.txt."
+            in new_run.state["pending_user_message"]
+        )
+        assert len(new_run.state["pending_user_artifact_ids"]) == 1
+        assert new_run.artifacts[0]["id"] == new_run.state["pending_user_artifact_ids"][0]
+        assert new_run.artifacts[0]["name"] == "resume.txt"
+        assert new_run.artifacts[0]["source"] == "slack_user_attachment"
+
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
     def test_terminal_no_repo_run_resumes_with_pr_creation_enabled(self, mock_slack_cls, mock_execute_workflow):
         self.task.repository = None
         self.task.save()
@@ -923,6 +1040,53 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mapping.refresh_from_db()
         assert mapping.latest_actor_slack_user_id == "U_ALICE"
         assert mapping.mentioning_slack_user_id == "U_ALICE"
+
+    def test_attachment_only_followup_uploads_and_forwards_to_sandbox(self) -> None:
+        self._create_mapping()
+        event = {
+            "channel": "C123",
+            "ts": "1234.5679",
+            "user": "U_ALICE",
+            "text": "",
+            "files": [_make_slack_file(name="only-log.txt", size=10)],
+        }
+        inputs = PostHogCodeSlackMentionWorkflowInputs(
+            event=event,
+            integration_id=self.integration.id,
+            slack_team_id="T_SLACK",
+        )
+
+        with (
+            patch("posthog.models.integration.SlackIntegration") as mock_slack_cls,
+            patch("products.tasks.backend.logic.services.agent_command.send_user_message") as mock_send,
+            patch(
+                "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",
+                return_value="jwt-token",
+            ),
+            patch("posthog.temporal.ai.slack_app.attachments._download_slack_file", return_value=b"log bytes"),
+            patch("products.slack_app.backend.services.slack_messages.collect_thread_messages", return_value=[]),
+            patch("posthog.storage.object_storage.write") as mock_write,
+            patch("posthog.storage.object_storage.tag"),
+        ):
+            mock_slack_instance = MagicMock()
+            mock_slack_instance.client.token = "xoxb-test"
+            mock_slack_instance.client.auth_test.return_value = {"bot_id": "B123"}
+            mock_slack_cls.return_value = mock_slack_instance
+            mock_send.return_value = _command_result(success=True, status_code=200)
+
+            result = forward_posthog_code_followup_activity(inputs, "C123", "1234.5678", "U_ALICE", "", "1234.5679")
+
+        assert result is True
+        sent_run, sent_message = mock_send.call_args.args
+        assert sent_run.id == self.task_run.id
+        assert sent_message.startswith("Attached Slack file(s).")
+        assert "Slack attachment(s) available to the agent as task files: only-log.txt." in sent_message
+        sent_artifacts = mock_send.call_args.kwargs["artifacts"]
+        assert len(sent_artifacts) == 1
+        assert sent_artifacts[0]["name"] == "only-log.txt"
+        assert sent_artifacts[0]["source"] == "slack_user_attachment"
+        assert mock_send.call_args.kwargs["auth_token"] == "jwt-token"
+        mock_write.assert_called_once()
 
     @patch(
         "products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token",

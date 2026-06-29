@@ -126,7 +126,9 @@ class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
             # forward. The webhook handler punted on this so its 3-second ack
             # budget stays unencumbered; here we run it under Temporal's retry
             # policy. Drop on chitchat or any failure (default-deny).
-            if inputs.untagged_followup:
+            event_files = event.get("files")
+            event_has_files = isinstance(event_files, list) and len(event_files) > 0
+            if inputs.untagged_followup and not event_has_files:
                 should_forward = await _execute_posthog_code_activity(
                     classify_untagged_followup_activity,
                     inputs,
