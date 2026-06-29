@@ -284,13 +284,8 @@ class DeltaTableHelper:
             use_partitioning = True
             await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
 
-        # An existing table can carry `_ph_partition_key` in its schema without being
-        # partitioned by it — e.g. a prior write committed with partition_by=None (the
-        # schema-mismatch fallback below), or evolve_pyarrow_schema re-adding the column
-        # to a batch bound for an unpartitioned table. Deriving partitioning from column
-        # presence then writes with partition_by against a table delta-rs considers
-        # unpartitioned, raising "Specified table partitioning does not match". The
-        # table's own partition_columns is the source of truth — defer to it.
+        # The column can exist without the table being partitioned by it; defer to the
+        # table's real partition_columns or delta-rs rejects the write as a mismatch.
         if use_partitioning and delta_table is not None:
             existing_partition_columns = getattr(delta_table.metadata(), "partition_columns", None) or []
             if PARTITION_KEY not in existing_partition_columns:
