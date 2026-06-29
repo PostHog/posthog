@@ -42,6 +42,7 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
+    "products.data_tools",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -71,6 +72,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.analytics_platform",
+    "products.approvals",
     "products.batch_exports",
     "products.business_knowledge",
     "products.cdp",
@@ -160,6 +162,16 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.approvals"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.feature_flags",
+    "products.notifications",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.batch_exports"
 depends_on = [
     "ee",
@@ -237,6 +249,7 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.notifications",
     "products.posthog_ai",
     "products.warehouse_sources_queue",
     "products.workflows",
@@ -252,13 +265,6 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.desktop_recordings"
-depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -307,6 +313,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.actions",
+    "products.approvals",
     "products.ai_observability",
     "products.analytics_platform",
     "products.data_tools",
@@ -325,6 +332,7 @@ depends_on = [
     "products.cohorts",
     "ee",
     "posthog",
+    "products.approvals",
     "products.dashboards",
     "products.early_access_features",
     "products.experiments",
@@ -708,7 +716,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -793,6 +801,32 @@ expose = [
 ]
 from = [
     "products.warehouse_sources",
+]
+
+# data_modeling — facade landed; external consumers route through backend.facade.* now.
+# This leak exposes its models only to frozen Django migrations (core + the data_warehouse
+# model-migration) that reference the historical model classes directly and cannot route
+# through a facade. Permanent (migrations are immutable), so backend:contract-check stays off.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "products.data_modeling",
+]
+
+# data_warehouse — facade landed (Phase 2) + presentation wave complete; now enforced via
+# the canonical interface above. This legacy-leak exposes the test helpers core tests still
+# import directly. Shrinks to zero when those fixtures relocate; backend:contract-check stays
+# off until then AND until the cross-product presentation allowances to not-yet-isolated
+# products (data_modeling, data_tools, cdp, batch_exports, revenue_analytics) clear.
+[[interfaces]]
+expose = [
+    "backend\\.test.*",
+    "backend\\.tests.*",
+]
+from = [
+    "products.data_warehouse",
 ]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc

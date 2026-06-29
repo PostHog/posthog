@@ -117,18 +117,7 @@ pub async fn remote_config(
                 rate_limit_key,
             } => (should_decrypt, team_id, rate_limit_key),
             AuthOutcome::Forbidden => return Ok(StatusCode::FORBIDDEN.into_response()),
-            AuthOutcome::ProjectNotFound => {
-                // TEMPORARY (remote_config shadow phase 2): diagnose Django↔Rust 404 mismatches.
-                // Delete with the shadow at cutover.
-                warn!(
-                    scope_team_id,
-                    key = %key,
-                    via_token = token_param.is_some(),
-                    reason = "auth_project_not_found",
-                    "remote_config 404"
-                );
-                return Ok(StatusCode::NOT_FOUND.into_response());
-            }
+            AuthOutcome::ProjectNotFound => return Ok(StatusCode::NOT_FOUND.into_response()),
         };
 
     // Throttle mirroring Django's RemoteConfigThrottle: only personal-API-key requests are
@@ -167,18 +156,6 @@ pub async fn remote_config(
     let Some((filters, has_encrypted_payloads)) =
         load_remote_config_flag(&state, scope_project_id, &key).await?
     else {
-        // TEMPORARY (remote_config shadow phase 2): a 404 from here while Django serves the flag is
-        // the mismatch we are chasing. Log what Rust actually resolved so we can tell "wrong project
-        // resolved" (scope_project_id != Django's project) from "reader missing the row"
-        // (scope_project_id correct, but the read replica returns nothing). Delete with the shadow.
-        warn!(
-            scope_project_id,
-            scope_team_id,
-            key = %key,
-            via_token = token_param.is_some(),
-            reason = "flag_not_found",
-            "remote_config 404"
-        );
         return Ok(StatusCode::NOT_FOUND.into_response());
     };
 

@@ -300,21 +300,26 @@ export const TasksCreateBody = /* @__PURE__ */ zod
                 'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
@@ -402,21 +407,26 @@ export const TasksUpdateBody = /* @__PURE__ */ zod
                 'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
@@ -504,21 +514,26 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod
                 'Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.'
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 'Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.'
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
@@ -1275,21 +1290,26 @@ export const TasksWarmCreateBody = /* @__PURE__ */ zod
                 "Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted."
             ),
         runtime_adapter: zod
-            .enum(['claude', 'codex'])
-            .describe('\* `claude` - claude\n\* `codex` - codex')
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
             .optional()
             .describe(
                 "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.\n\n\* `claude` - claude\n\* `codex` - codex"
             ),
         model: zod
             .string()
-            .optional()
+            .nullish()
             .describe(
                 "LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run."
             ),
         reasoning_effort: zod
-            .enum(['low', 'medium', 'high', 'xhigh', 'max'])
-            .describe('\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max')
+            .union([
+                zod
+                    .enum(['low', 'medium', 'high', 'xhigh', 'max'])
+                    .describe(
+                        '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'
+                    ),
+                zod.null(),
+            ])
             .optional()
             .describe(
                 'Reasoning effort to warm the sandbox on for models that expose an effort control.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max'

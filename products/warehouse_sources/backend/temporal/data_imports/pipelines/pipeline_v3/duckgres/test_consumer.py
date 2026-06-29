@@ -212,15 +212,56 @@ class TestDuckgresEnablementGating:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
                 new_callable=AsyncMock,
-                return_value=(0, None),
+                return_value=(0, None, 0, None),
             ) as mock_backlog,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
+            ) as mock_planner,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.compute_blocked_schema_ids",
+                return_value=["blocked-schema"],
+            ),
         ):
             await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=30)
 
         assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
         assert mock_fetch.call_args[1]["retry_backoff_base_seconds"] == 30
+        assert mock_fetch.call_args[1]["blocked_schema_ids"] == ["blocked-schema"]
         mock_supersede.assert_called_once()
         mock_backlog.assert_called_once()
+        mock_planner.assert_called_once_with([1, 2])
+
+    @pytest.mark.asyncio
+    async def test_fetch_claims_nothing_until_planner_succeeds(self):
+        adapter = DuckgresBatchConsumerAdapter()
+        adapter._team_ids = [1]
+        adapter._team_ids_fetched_at = time.monotonic()
+        conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_delta_succeeded_and_lock",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.supersede_replaced_runs",
+                new_callable=AsyncMock,
+                return_value=0,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_backlog_stats",
+                new_callable=AsyncMock,
+                return_value=(0, None, 0, None),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.run_backfill_planner",
+                side_effect=RuntimeError("app DB down"),
+            ),
+        ):
+            batches = await adapter.fetch_and_lock(conn, limit=50, retry_backoff_base_seconds=0)
+
+        assert batches == []
+        mock_fetch.assert_not_called()
 
 
 class TestStuckBatchWatchdog:

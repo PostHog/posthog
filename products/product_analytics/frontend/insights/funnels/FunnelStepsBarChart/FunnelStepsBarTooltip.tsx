@@ -1,7 +1,7 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
-import { funnelComparePeriodDateRange } from 'scenes/funnels/funnelUtils'
+import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
@@ -36,6 +36,7 @@ export function FunnelStepsBarTooltip({
 
     const breakdownIndex = entry.series.meta?.breakdownIndex ?? 0
     const series = step.nested_breakdown?.[breakdownIndex] ?? step
+    const aggregateConversionRate = getFunnelAggregateConversionRate(series, step)
 
     return (
         <FunnelTooltip
@@ -44,6 +45,7 @@ export function FunnelStepsBarTooltip({
             series={series}
             groupTypeLabel={groupTypeLabel}
             breakdownFilter={breakdownFilter}
+            aggregateConversionRate={aggregateConversionRate}
             comparePeriodDateRange={
                 series.compare_label
                     ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)

@@ -254,7 +254,7 @@ class BatchConsumer(SharedBatchConsumer):
 
 
 def _update_job_status_to_failed(*, job_id: str, team_id: int, error: str) -> None:
-    from products.data_warehouse.backend.logic.external_data_source.jobs import update_external_job_status
+    from products.data_warehouse.backend.facade.api import update_external_job_status
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     # Drop stale app-DB connections so this write reconnects instead of leaving the job stuck in Running.

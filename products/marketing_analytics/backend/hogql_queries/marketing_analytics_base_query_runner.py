@@ -50,6 +50,11 @@ logger = structlog.get_logger(__name__)
 
 ResponseType = TypeVar("ResponseType", bound=AnalyticsQueryResponseProtocol)
 
+# Discriminator column tagging each row in the compare UNION ALL with its period.
+COMPARE_PERIOD_FIELD = "_period"
+COMPARE_PERIOD_CURRENT = "current"
+COMPARE_PERIOD_PREVIOUS = "previous"
+
 
 class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC, Generic[ResponseType]):
     """Base class for marketing analytics query runners with shared functionality."""
@@ -288,43 +293,65 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         comparison the live adapters use (`_get_where_conditions`). The `job_id` filter alone is not
         enough: the lazy framework reuses a job whose materialized window can be wider than the
         request (e.g. one period of a compare query reusing the other's window), so without the date
-        bound the read over-counts boundary/overlap days."""
+        bound the read over-counts boundary/overlap days.
+
+        The same cost cell (source/campaign/ad/day) can also be materialized under several job_ids — a
+        re-materialization once the day matures (the source revises the figure), an exact duplicate from
+        a double-triggered job, or a compare period reusing the other's wider window. job_id is in the
+        ReplacingMergeTree sort key, so those survive as distinct rows and a bare SUM downstream would
+        double-count. We collapse each cell to its latest job via argMax(metric, computed_at)
+        (computed_at is the ReplacingMergeTree version), so a matured value supersedes the stale one and
+        exact duplicates fold together — mirroring the conversion/touchpoint read dedup."""
         adapter = MarketingSourceAdapter
 
         def field(name: str) -> ast.Expr:
             return ast.Field(chain=[name])
 
-        select_columns: list[ast.Expr] = [
-            ast.Alias(alias=adapter.match_key_field, expr=field("match_key")),
-            ast.Alias(alias=adapter.campaign_name_field, expr=field("campaign_name")),
-            ast.Alias(alias=adapter.campaign_id_field, expr=field("campaign_id")),
-            ast.Alias(alias=adapter.source_name_field, expr=field("source_name")),
+        def latest(name: str) -> ast.Expr:
+            # Metric from the cell's most recently computed job (ReplacingMergeTree version).
+            return ast.Call(name="argMax", args=[field(name), field("computed_at")])
+
+        # Cost-cell identity (everything that isn't a metric). The query groups by these plus cost_date
+        # so each cell folds to one latest-job row; with no duplicate jobs it is one row per cell, as before.
+        dimension_columns: list[tuple[str, str]] = [
+            (adapter.match_key_field, "match_key"),
+            (adapter.campaign_name_field, "campaign_name"),
+            (adapter.campaign_id_field, "campaign_id"),
+            (adapter.source_name_field, "source_name"),
         ]
         if self.config.drill_down_level in (
             MarketingAnalyticsDrillDownLevel.AD_GROUP,
             MarketingAnalyticsDrillDownLevel.AD,
         ):
-            select_columns.extend(
+            dimension_columns.extend(
                 [
-                    ast.Alias(alias=adapter.ad_group_name_field, expr=field("ad_group_name")),
-                    ast.Alias(alias=adapter.ad_group_id_field, expr=field("ad_group_id")),
-                    ast.Alias(alias=adapter.ad_name_field, expr=field("ad_name")),
-                    ast.Alias(alias=adapter.ad_id_field, expr=field("ad_id")),
+                    (adapter.ad_group_name_field, "ad_group_name"),
+                    (adapter.ad_group_id_field, "ad_group_id"),
+                    (adapter.ad_name_field, "ad_name"),
+                    (adapter.ad_id_field, "ad_id"),
                 ]
             )
+
+        select_columns: list[ast.Expr] = [ast.Alias(alias=alias, expr=field(name)) for alias, name in dimension_columns]
         select_columns.extend(
             [
-                ast.Alias(alias=adapter.impressions_field, expr=field("impressions")),
-                ast.Alias(alias=adapter.clicks_field, expr=field("clicks")),
-                ast.Alias(alias=adapter.cost_field, expr=field("cost")),
-                ast.Alias(alias=adapter.reported_conversion_field, expr=field("reported_conversions")),
-                ast.Alias(alias=adapter.reported_conversion_value_field, expr=field("reported_conversion_value")),
+                ast.Alias(alias=adapter.impressions_field, expr=latest("impressions")),
+                ast.Alias(alias=adapter.clicks_field, expr=latest("clicks")),
+                ast.Alias(alias=adapter.cost_field, expr=latest("cost")),
+                ast.Alias(alias=adapter.reported_conversion_field, expr=latest("reported_conversions")),
+                ast.Alias(alias=adapter.reported_conversion_value_field, expr=latest("reported_conversion_value")),
             ]
         )
+
+        # cost_date stays out of the SELECT (the downstream campaign_costs CTE sums across days per
+        # campaign) but anchors the grouping so each per-day cell collapses independently.
+        group_by_exprs: list[ast.Expr] = [field(name) for _, name in dimension_columns]
+        group_by_exprs.append(field("cost_date"))
 
         return ast.SelectQuery(
             select=select_columns,
             select_from=ast.JoinExpr(table=ast.Field(chain=["posthog", "marketing_costs_preaggregated"])),
+            group_by=group_by_exprs,
             where=ast.And(
                 exprs=[
                     ast.Call(
@@ -954,6 +981,99 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             # channel is a computed alias, so GROUP BY the same expression
             return [self._build_channel_type_expr()]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
+
+    def _build_compare_pivot(
+        self,
+        current_period_query: ast.SelectQuery,
+        previous_period_query: ast.SelectQuery,
+        select_columns: list[ast.Expr],
+        key_columns: list[str],
+    ) -> ast.SelectQuery:
+        """Combine the two period queries with UNION ALL + a GROUP BY pivot instead of a LEFT JOIN.
+
+        ClickHouse runs a LEFT JOIN sequentially (build the right side, then probe the left); the
+        UNION ALL lets it run both period branches as concurrent pipelines. The pivot reproduces the
+        LEFT JOIN exactly:
+        - Each period query already emits one row per key, so `anyIf(col, _period=...)` picks that
+          single value.
+        - For a current row with no previous counterpart, `anyIf(col, _period='previous')` matches
+          no rows and returns the default of the column's type — '' / 0 for non-Nullable columns,
+          NULL for already-Nullable ones (CPC / CTR / ROAS). This is exactly what the LEFT JOIN
+          produces under ClickHouse's default `join_use_nulls = 0`, so reproducing it manually
+          (e.g. forcing NULL) would actually diverge from the join.
+        - `HAVING countIf(current) > 0` drops previous-only rows — matching the LEFT JOIN keeping
+          `current_period` as the left side.
+        The output tuples, aliases, order and limit are identical to the join form, so the ORDER BY
+        (over a current-period metric, expressed on the same tuple alias) and pagination are unchanged.
+
+        `key_columns` are the columns that uniquely identify a row — the same keys the old LEFT JOIN
+        matched on. Each runner passes the keys appropriate to its query shape.
+        """
+        column_aliases = [col.alias if isinstance(col, ast.Alias) else str(col) for col in select_columns]
+
+        def _labeled_period(period: str, period_query: ast.SelectQuery) -> ast.SelectQuery:
+            select: list[ast.Expr] = [
+                ast.Alias(alias=COMPARE_PERIOD_FIELD, expr=ast.Constant(value=period)),
+                *(ast.Field(chain=[alias]) for alias in column_aliases),
+            ]
+            return ast.SelectQuery(
+                select=select,
+                select_from=ast.JoinExpr(table=period_query),
+            )
+
+        union_query = ast.SelectSetQuery.create_from_queries(
+            [
+                _labeled_period(COMPARE_PERIOD_CURRENT, current_period_query),
+                _labeled_period(COMPARE_PERIOD_PREVIOUS, previous_period_query),
+            ],
+            "UNION ALL",
+        )
+        union_alias = "combined"
+
+        def _period_eq(period: str) -> ast.Expr:
+            return ast.CompareOperation(
+                left=ast.Field(chain=[union_alias, COMPARE_PERIOD_FIELD]),
+                op=ast.CompareOperationOp.Eq,
+                right=ast.Constant(value=period),
+            )
+
+        def _any_if(alias: str, period: str) -> ast.Expr:
+            return ast.Call(
+                name="anyIf",
+                args=[ast.Field(chain=[union_alias, alias]), _period_eq(period)],
+            )
+
+        # Build the pivot columns in the same order/alias as the join form.
+        pivot_columns: list[ast.Expr] = [
+            ast.Alias(
+                alias=alias,
+                expr=ast.Call(
+                    name="tuple",
+                    args=[_any_if(alias, COMPARE_PERIOD_CURRENT), _any_if(alias, COMPARE_PERIOD_PREVIOUS)],
+                ),
+            )
+            for alias in column_aliases
+        ]
+
+        group_by: list[ast.Expr] = [ast.Field(chain=[union_alias, key]) for key in key_columns]
+        having = ast.CompareOperation(
+            left=ast.Call(name="countIf", args=[_period_eq(COMPARE_PERIOD_CURRENT)]),
+            op=ast.CompareOperationOp.Gt,
+            right=ast.Constant(value=0),
+        )
+
+        select_from = ast.JoinExpr(table=union_query, alias=union_alias)
+        paginated = self._build_paginated_query(pivot_columns, select_from)
+        paginated.group_by = group_by
+        paginated.having = having
+        return paginated
+
+    def _build_paginated_query(
+        self, select_columns: list[ast.Expr], select_from: ast.JoinExpr | None, ctes=None
+    ) -> ast.SelectQuery:
+        """Build a paginated SelectQuery. Only the compare-capable table runners override this
+        (order-by / limit differ); the aggregated runner never builds a compare pivot."""
+        raise NotImplementedError
 
     # Abstract methods that subclasses must implement
 

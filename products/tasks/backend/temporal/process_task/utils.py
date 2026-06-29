@@ -15,7 +15,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.constants import InitialPermissionMode, filter_user_sandbox_env_vars
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -689,7 +689,8 @@ def build_sandbox_environment_variables(
     env_vars: dict[str, str] = {}
 
     if sandbox_environment and sandbox_environment.environment_variables:
-        env_vars.update(sandbox_environment.environment_variables)
+        safe_vars, _ = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+        env_vars.update(safe_vars)
 
     if github_token:
         env_vars["GITHUB_TOKEN"] = github_token

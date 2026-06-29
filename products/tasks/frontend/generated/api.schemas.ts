@@ -496,9 +496,12 @@ export interface TaskWriteApi {
      *
      * * `claude` - claude
      * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
-    model?: string
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
     /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
      *
      * * `low` - low
@@ -506,7 +509,7 @@ export interface TaskWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**
@@ -583,9 +586,12 @@ export interface PatchedTaskWriteApi {
      *
      * * `claude` - claude
      * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model. */
-    model?: string
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
     /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
      *
      * * `low` - low
@@ -593,7 +599,7 @@ export interface PatchedTaskWriteApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**
@@ -1923,9 +1929,12 @@ export interface WarmTaskRequestApi {
      *
      * * `claude` - claude
      * * `codex` - codex */
-    runtime_adapter?: RuntimeAdapterEnumApi
-    /** LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run. */
-    model?: string
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.
+     * @nullable
+     */
+    model?: string | null
     /** Reasoning effort to warm the sandbox on for models that expose an effort control.
      *
      * * `low` - low
@@ -1933,7 +1942,7 @@ export interface WarmTaskRequestApi {
      * * `high` - high
      * * `xhigh` - xhigh
      * * `max` - max */
-    reasoning_effort?: ReasoningEffortEnumApi
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**

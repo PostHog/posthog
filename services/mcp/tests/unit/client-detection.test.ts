@@ -34,6 +34,8 @@ describe('isCliModeEnabledClient', () => {
             ['librechat'],
             ['notion'],
             ['opencode'],
+            ['amp-mcp-client'],
+            ['poke'],
         ])('returns true for %s', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })
@@ -59,6 +61,8 @@ describe('isCliModeEnabledClient', () => {
             ['Devin'],
             ['OpenCode'],
             ['opencode/1.2.3'],
+            ['Amp MCP Client'],
+            ['Poke'],
         ])('returns true for variant %s (case-insensitive substring match)', (clientName) => {
             expect(isCliModeEnabledClient(clientName)).toBe(true)
         })

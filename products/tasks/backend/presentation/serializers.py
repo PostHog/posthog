@@ -338,10 +338,16 @@ class TaskWriteSerializer(serializers.Serializer):
             "is otherwise carried on the run). Omit to match a warm Run on the default branch."
         ),
     )
+    # These three warm-reuse hints are all optional: clients send an explicit
+    # null when nothing is selected, so they take allow_null=True (null == "no
+    # selection", same as omitting the key — it's read back as None downstream).
+    # null and "" are not interchangeable: model keeps allow_blank=False so an
+    # empty string, which is never a valid model id, is still rejected.
     runtime_adapter = serializers.ChoiceField(
         choices=[adapter.value for adapter in RuntimeAdapter],
         required=False,
         default=None,
+        allow_null=True,
         write_only=True,
         help_text=(
             "Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: "
@@ -353,6 +359,7 @@ class TaskWriteSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
+        allow_null=True,
         write_only=True,
         help_text="Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.",
     )
@@ -360,6 +367,7 @@ class TaskWriteSerializer(serializers.Serializer):
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
         required=False,
         default=None,
+        allow_null=True,
         write_only=True,
         help_text="Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.",
     )
@@ -1230,6 +1238,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         choices=[adapter.value for adapter in RuntimeAdapter],
         required=False,
         default=None,
+        allow_null=True,
         help_text=(
             "Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the "
             "agent on this runtime so a matching submit reuses it; a submit selecting a different runtime "
@@ -1240,12 +1249,14 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         required=False,
         default=None,
         allow_blank=False,
+        allow_null=True,
         help_text="LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.",
     )
     reasoning_effort = serializers.ChoiceField(
         choices=[effort.value for effort in PUBLIC_REASONING_EFFORTS],
         required=False,
         default=None,
+        allow_null=True,
         help_text="Reasoning effort to warm the sandbox on for models that expose an effort control.",
     )
 
@@ -1703,6 +1714,15 @@ class SandboxEnvironmentWriteSerializer(serializers.Serializer):
                 if not tasks_facade.is_valid_sandbox_env_var_key(key):
                     raise serializers.ValidationError(
                         f"Invalid environment variable key: {key!r}. Must match [A-Za-z_][A-Za-z0-9_]*"
+                    )
+                if tasks_facade.is_blocked_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Environment variable key {key!r} is not allowed: it can change how sandbox "
+                        "processes execute code (e.g. NODE_OPTIONS, LD_PRELOAD)."
+                    )
+                if tasks_facade.is_reserved_sandbox_env_var_key(key):
+                    raise serializers.ValidationError(
+                        f"Environment variable key {key!r} is reserved and managed by PostHog; it cannot be set."
                     )
         return value
 

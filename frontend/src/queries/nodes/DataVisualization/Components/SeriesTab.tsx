@@ -47,7 +47,8 @@ export const SeriesTab = (): JSX.Element => {
         dataVisualizationProps,
         effectiveVisualizationType,
     } = useValues(dataVisualizationLogic)
-    const { updateXSeries, addYSeries, setTransposeResults } = useActions(dataVisualizationLogic)
+    const { updateXSeries, addYSeries, updateSeriesIndex, deleteYSeries, setTransposeResults } =
+        useActions(dataVisualizationLogic)
     const breakdownLogic = seriesBreakdownLogic({ key: dataVisualizationProps.key })
     const { selectedSeriesBreakdownColumn, showSeriesBreakdown } = useValues(breakdownLogic)
     const { addSeriesBreakdown } = useActions(breakdownLogic)
@@ -98,6 +99,66 @@ export const SeriesTab = (): JSX.Element => {
             </div>
         ),
     }))
+
+    if (effectiveVisualizationType === ChartDisplayType.ActionsPie) {
+        const valueColumn = selectedYAxis?.find((series) => series !== null)?.name ?? null
+        const valueOptions = numericalColumns.map(({ name, type }) => ({
+            value: name,
+            label: (
+                <div className="items-center flex-1">
+                    {name}
+                    <LemonTag className="ml-2" type="default">
+                        {type.name}
+                    </LemonTag>
+                </div>
+            ),
+        }))
+
+        // A pie encodes a single value column. Set it on the first series and drop any others
+        // the chart may have carried over from another chart type.
+        const setValueColumn = (columnName: string): void => {
+            if (!selectedYAxis || selectedYAxis.length === 0) {
+                addYSeries(columnName)
+                return
+            }
+            updateSeriesIndex(0, columnName)
+            for (let index = selectedYAxis.length - 1; index >= 1; index--) {
+                deleteYSeries(index)
+            }
+        }
+
+        return (
+            <div className="flex flex-col w-full p-3">
+                <LemonLabel className="mb-1">Label</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    value={xData !== null ? xData.column.name : 'None'}
+                    options={options}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        const column = columns.find((n) => n.name === value)
+                        if (column) {
+                            updateXSeries(column.name)
+                        }
+                    }}
+                />
+
+                <LemonLabel className="mt-4 mb-1">Value</LemonLabel>
+                <LemonSelect
+                    className="w-full"
+                    placeholder="Select a column"
+                    value={valueColumn}
+                    options={valueOptions}
+                    disabledReason={responseLoading ? 'Query loading...' : undefined}
+                    onChange={(value) => {
+                        if (value) {
+                            setValueColumn(value)
+                        }
+                    }}
+                />
+            </div>
+        )
+    }
 
     return (
         <div className="flex flex-col w-full p-3">

@@ -32,6 +32,7 @@ import {
     createMetricsServer,
     handleMetricsRequest,
     HttpClient,
+    HttpGatewayCatalog,
     HttpGatewayClient,
     initMetrics,
     installProcessHandlers,
@@ -217,6 +218,17 @@ async function main(): Promise<void> {
         ? new HttpGatewayClient({ baseUrl: config.aiGatewayUrl, http: new DirectHttpClient() })
         : null
 
+    // Served-model catalog off the same gateway the data plane uses — source of
+    // truth for models resolution + the models tool. DirectHttpClient:
+    // cluster-internal, smokescreen would deny it.
+    const gatewayCatalog = config.useAiGateway
+        ? new HttpGatewayCatalog({
+              baseUrl: config.aiGatewayUrl,
+              bearer: config.posthogAiGatewayKey,
+              http: new DirectHttpClient(),
+          })
+        : undefined
+
     // Agent memory: S3-backed file store. Required everywhere — the runner
     // refuses to boot without it so the `@posthog/memory-*` + `@posthog/table-*`
     // tools always work the same way in dev as in prod. Bucket + endpoint are
@@ -323,6 +335,7 @@ async function main(): Promise<void> {
                       apiKey: config.posthogAiGatewayKey!,
                   })
             : undefined,
+        gatewayCatalog,
         // Per-session bearer for pi-ai's `streamSimple` (no client-level default).
         // Gateway path → the static phs_ (cost bills to the team that owns it);
         // direct path → boot-time provider key (ANTHROPIC_API_KEY / OPENAI / etc).

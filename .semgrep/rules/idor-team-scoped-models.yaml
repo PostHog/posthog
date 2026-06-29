@@ -111,7 +111,6 @@ rules:
                               |Deployment
                               |DeploymentEvent
                               |DeploymentProject
-                              |DesktopRecording
                               |EarlyAccessFeature
                               |EmailMessageMapping
                               |EvaluationContext
@@ -260,6 +259,7 @@ rules:
                               |VisionAction
                               |VisionActionRun
                               |WarehouseColumnAnnotation
+                              |WarehouseColumnStatistics
                               |WebAnalyticsAchievementProgress
                               |WebAnalyticsFilterPreset
                               |WebAnalyticsInteraction
@@ -377,7 +377,6 @@ rules:
                         |Deployment
                         |DeploymentEvent
                         |DeploymentProject
-                        |DesktopRecording
                         |EarlyAccessFeature
                         |EmailMessageMapping
                         |EvaluationContext
@@ -522,6 +521,7 @@ rules:
                         |VisionAction
                         |VisionActionRun
                         |WarehouseColumnAnnotation
+                        |WarehouseColumnStatistics
                         |WebAnalyticsAchievementProgress
                         |WebAnalyticsFilterPreset
                         |WebAnalyticsInteraction

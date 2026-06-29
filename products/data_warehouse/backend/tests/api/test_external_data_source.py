@@ -42,14 +42,15 @@ from products.data_warehouse.backend.presentation.views.external_data_source imp
     strip_sensitive_from_dict,
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseTable,
+    ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
+    PendingSourceCredential,
     sync_frequency_interval_to_sync_frequency,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.pending_source_credential import PendingSourceCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import IncrementalFieldType
 from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import BigQuerySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
@@ -91,7 +92,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.settings import (
     ENDPOINTS as STRIPE_ENDPOINTS,
 )
-from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestExternalDataSource(APIBaseTest):
@@ -3996,6 +3996,49 @@ class TestExternalDataSource(APIBaseTest):
             assert response.status_code == 400
             assert "Stripe credentials lack permissions for Account, Invoice" in response.json()["message"]
 
+    @parameterized.expand(
+        [
+            ("expected_source_error", False),
+            ("unexpected_source_error", True),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_captures_only_unexpected_source_errors(
+        self, _name, expect_capture, mock_get_source, mock_capture_exception
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
+            BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            BigQueryDatasetNotFoundError,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.source import BigQuerySource
+
+        error: Exception = (
+            RuntimeError("schema discovery exploded")
+            if expect_capture
+            else BigQueryDatasetNotFoundError(BIGQUERY_DATASET_NOT_FOUND_ERROR)
+        )
+        source = BigQuerySource()
+        mock_get_source.return_value = source
+
+        with (
+            patch.object(source, "validate_config", return_value=(True, [])),
+            patch.object(source, "parse_config", return_value=None),
+            patch.object(source, "validate_credentials", return_value=(True, None)),
+            patch.object(source, "get_schemas", side_effect=error),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+                data={"source_type": "BigQuery"},
+            )
+
+        assert response.status_code == 400
+        assert response.json()["message"] == str(error)
+        if expect_capture:
+            mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
+        else:
+            mock_capture_exception.assert_not_called()
+
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
         """Schema-selection step calls get_endpoint_permissions and merges the per-endpoint
         result into each schema row so the UI can disable tables the credentials can't reach."""
@@ -7268,8 +7311,8 @@ class TestCreateWebhook(APIBaseTest):
         # Inject a second required webhook field into the source config so we can test
         # that a partial update which omits one required field is accepted while still
         # preserving the existing value on the HogFunction.
+        from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
         from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-        from products.warehouse_sources.backend.types import ExternalDataSourceType
 
         original_source = SourceRegistry.get_source(ExternalDataSourceType("Stripe"))
         original_config = original_source.get_source_config

@@ -24,10 +24,14 @@ from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     GitHubSource,
+    PRCostSummary,
     PRLifecycle,
     PullRequestList,
     QuarantineFile,
     WorkflowHealthItem,
+    WorkflowJob,
+    WorkflowRunDetail,
+    WorkflowRunnerCost,
 )
 
 if TYPE_CHECKING:
@@ -51,12 +55,99 @@ def get_pr_lifecycle(
     *,
     team: Team,
     pr_number: int,
-    repo: str | None = None,
+    repo: str,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
     return logic.build_pr_lifecycle(
         curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def get_pr_cost(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> PRCostSummary:
+    return logic.build_pr_cost(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def get_workflow_run(
+    *,
+    team: Team,
+    run_id: int,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> WorkflowRunDetail | None:
+    return logic.build_workflow_run(curated=_authorized_source(team, source_id, user_access_control), run_id=run_id)
+
+
+def list_pr_runs(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowRunDetail]:
+    return logic.build_pr_runs(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def list_workflow_runs(
+    *,
+    team: Team,
+    repo: str,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowRunDetail]:
+    return logic.build_workflow_run_list(
+        curated=_authorized_source(team, source_id, user_access_control),
+        repo=repo,
+        workflow_name=workflow_name,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def get_workflow_runner_costs(
+    *,
+    team: Team,
+    repo: str,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowRunnerCost]:
+    return logic.build_workflow_runner_costs(
+        curated=_authorized_source(team, source_id, user_access_control),
+        repo=repo,
+        workflow_name=workflow_name,
+        date_from=date_from,
+        date_to=date_to,
+    )
+
+
+def list_workflow_jobs(
+    *,
+    team: Team,
+    run_id: int,
+    run_attempt: int | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> list[WorkflowJob]:
+    return logic.build_workflow_jobs(
+        curated=_authorized_source(team, source_id, user_access_control), run_id=run_id, run_attempt=run_attempt
     )
 
 
@@ -70,11 +161,12 @@ def list_pull_requests(
     *,
     team: Team,
     date_from: str | None = None,
+    author: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PullRequestList:
     return logic.build_pull_request_list(
-        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from
+        curated=_authorized_source(team, source_id, user_access_control), date_from=date_from, author=author
     )
 
 

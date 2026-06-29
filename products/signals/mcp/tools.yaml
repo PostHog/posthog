@@ -390,6 +390,44 @@ tools:
             Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or
             `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed.
             Enabling records who flipped it on and is activity-logged, since running a scout drives spend.
+    signals-scout-edit-report:
+        operation: signals_scout_edit_report
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Edit an existing report for a run
+        description: >
+            The report channel's edit half: rewrite a report's `title`/`summary` and/or append a note. Can target ANY of
+            the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Prefer
+            `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits
+            are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried
+            `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their
+            skill's `allowed_tools`.
+    signals-scout-emit-report:
+        operation: signals_scout_emit_report
+        enabled: true
+        scopes:
+            - signal_scout_report:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Author a full report for a run
+        description: >
+            The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've
+            already done the research and want 1:1 control over the report rather than letting the pipeline cluster it.
+            The report passes the safety judge, then surfaces at the status your `actionability` call implies
+            (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed);
+            an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report
+            behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list`
+            to find a prior report and `signals-scout-edit-report` to update it instead. For a concrete, fixable issue
+            you can also open a draft PR automatically by passing `repository` + `priority` + `suggested_reviewers`
+            (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts
+            that list `emit_report` in their skill's `allowed_tools`.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
@@ -478,14 +516,16 @@ tools:
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error`
-            (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with
-            `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary
-            scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs
-            that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a
-            case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit
-            findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`)
-            to scope to a window. Results capped at 100.
+            run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored
+            directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the
+            report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus
+            `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope
+            the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist
+            dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding
+            (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on
+            the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
+            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
+            capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -526,7 +566,11 @@ tools:
         title: Remember a scratchpad entry
         description: >
             Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so
-            this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.
+            this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking,
+            not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and
+            defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as
+            Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for
+            ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.
     signals-scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true

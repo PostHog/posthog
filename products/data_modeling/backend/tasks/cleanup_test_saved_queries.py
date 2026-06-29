@@ -123,7 +123,7 @@ def _delete_s3_data(saved_query: "DataWarehouseSavedQuery") -> None:
 
     from posthog.exceptions_capture import capture_exception
 
-    from products.data_warehouse.backend.s3 import get_s3_client
+    from products.data_warehouse.backend.facade.api import get_s3_client
 
     # The materialization workflow writes to:
     #   {BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}

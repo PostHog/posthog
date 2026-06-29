@@ -189,6 +189,26 @@ describe('Tool Filtering - Tools Allowlist', () => {
             expect(toolsWithoutFlags).not.toContain('agent-feedback')
         })
 
+        it('should hide read-data-warehouse-schema when mcp-sql-schema-discovery is on (disable gate)', () => {
+            // SQL information_schema discovery replaces the tool while the flag is on.
+            const withFlagOn = getToolsForFeatures({
+                tools: ['read-data-warehouse-schema'],
+                featureFlags: { 'mcp-sql-schema-discovery': true },
+            })
+            expect(withFlagOn).not.toContain('read-data-warehouse-schema')
+
+            // Off / unevaluated → the tool stays available (disable default is "show").
+            expect(getToolsForFeatures({ tools: ['read-data-warehouse-schema'] })).toContain(
+                'read-data-warehouse-schema'
+            )
+            expect(
+                getToolsForFeatures({
+                    tools: ['read-data-warehouse-schema'],
+                    featureFlags: { 'mcp-sql-schema-discovery': false },
+                })
+            ).toContain('read-data-warehouse-schema')
+        })
+
         it('should union with features (OR) when both are provided', () => {
             const tools = getToolsForFeatures({ features: ['flags'], tools: ['dashboard-get'] })
 
@@ -368,7 +388,12 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // Minted directly into a server-issued token, never advertised via OAuth metadata
     // (mirrors INTERNAL_API_SCOPE_OBJECTS in posthog/scopes.py). Tools may require them, but
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
-    const SERVER_MINT_ONLY_SCOPES = new Set(['signal_scout_internal:read', 'signal_scout_internal:write'])
+    const SERVER_MINT_ONLY_SCOPES = new Set([
+        'signal_scout_internal:read',
+        'signal_scout_internal:write',
+        'signal_scout_report:read',
+        'signal_scout_report:write',
+    ])
 
     it('should include every scope referenced in tool definitions', () => {
         const supportedScopes = new Set<string>(OAUTH_SCOPES_SUPPORTED)
@@ -749,9 +774,10 @@ describe('Tool Filtering - Feature Flags', () => {
                 'field-notes',
                 'mcp-analytics',
                 'metrics',
+                'mcp-sql-schema-discovery',
             ])
         )
-        expect(flags).toHaveLength(18)
+        expect(flags).toHaveLength(19)
     })
 
     // Exercise the real predicate (toolPassesFlagGate) over hand-rolled entries

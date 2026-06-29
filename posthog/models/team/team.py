@@ -261,6 +261,11 @@ class Team(UUIDTClassicModel):
     class Meta:
         verbose_name = "environment (aka team)"
         verbose_name_plural = "environments (aka teams)"
+        # Route forward-FK / related-object loads (e.g. `request.user.current_team`) through the
+        # `objects` manager so they inherit its `.defer(*DEPRECATED_ATTRS)`. Without this, Django
+        # falls back to a bare `Manager()` for related access and re-loads the fat deprecated
+        # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
+        base_manager_name = "objects"
         constraints = [
             models.CheckConstraint(
                 name="project_id_is_not_null",
@@ -406,6 +411,15 @@ class Team(UUIDTClassicModel):
             choices=SessionRecordingRetentionPeriod,
             default=SessionRecordingRetentionPeriod.THIRTY_DAYS,
         ),
+        "project",
+        "admin",
+    )
+
+    # Events data retention in months — denormalized from the billing entitlement by sync_events_retention, read on
+    # the HogQL hot path. Default 84 (7 years) grandfathers existing teams. db_default because posthog_team is also
+    # written by raw inserts in nodejs/rust and the test-schema builder.
+    event_retention_months = field_access_control(
+        models.PositiveSmallIntegerField(default=84, db_default=84),
         "project",
         "admin",
     )

@@ -19,6 +19,7 @@ import type {
     QuarantineEntryApi,
     QuarantineFileApi,
     WorkflowHealthItemApi,
+    WorkflowRunDetailApi,
 } from '../generated/api.schemas'
 import { ciStatusOf } from '../lib/ci'
 import { summarizeLifecycle, workflowRuns } from '../lib/lifecycle'
@@ -29,12 +30,13 @@ import {
     QuarantineEntryRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
+    workflowFailureSeries,
     filterQuarantineEntries,
     quarantineCountsOf,
-    workflowTrendSeries,
+    workflowFailureTrend,
 } from './engineeringAnalyticsLogic'
 import { engineeringAnalyticsSceneLogic } from './engineeringAnalyticsSceneLogic'
-import { sortRunsForTriage } from './pullRequestDetailLogic'
+import { groupRunsByCommit, sortRunsForTriage } from './pullRequestDetailLogic'
 
 jest.mock('../generated/api', () => ({
     engineeringAnalyticsCiCards: jest.fn(),
@@ -134,6 +136,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         pushes: 0,
         rerunCycles: 0,
         estimatedCostUsd: null,
+        billableMinutes: null,
         ...overrides,
     }
 }
@@ -176,13 +179,16 @@ const PRS: PullRequestListItemApi[] = [
 const WORKFLOWS: WorkflowHealthItemApi[] = [
     {
         repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
-        daily: [{ day: '2026-05-30', run_count: 100, completed: 95, successes: 90, failures: 4 }],
+        granularity: 'day',
+        buckets: [{ bucket_start: '2026-05-30T00:00:00Z', run_count: 100, completed: 95, successes: 90, failures: 4 }],
         workflow_name: 'CI',
         run_count: 100,
         success_rate: 0.95,
         p50_seconds: 120,
         p95_seconds: 600,
         last_failure_at: '2026-05-30T00:00:00Z',
+        latest_run_failed: false,
+        latest_run_conclusion: 'success',
     },
 ]
 const SOURCES: GitHubSourceApi[] = [
@@ -308,8 +314,10 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.pullRequests[1].openToMergeSeconds).toBe(86400)
         expect(logic.values.workflowHealth).toHaveLength(1)
         expect(logic.values.workflowHealth[0].successRate).toBe(0.95)
-        expect(logic.values.workflowHealth[0].daily).toEqual([
-            { day: '2026-05-30', runCount: 100, completed: 95, successes: 90, failures: 4 },
+        expect(logic.values.workflowHealth[0].latestRunFailed).toBe(false)
+        expect(logic.values.workflowHealth[0].granularity).toBe('day')
+        expect(logic.values.workflowHealth[0].buckets).toEqual([
+            { bucketStart: '2026-05-30T00:00:00Z', runCount: 100, completed: 95, successes: 90, failures: 4 },
         ])
         // Default state filter is "open", so only the open PR survives.
         expect(logic.values.filteredPullRequests).toHaveLength(1)
@@ -322,7 +330,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h' })
 
         logic.actions.setWorkflowDateRange('-90d', null)
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
@@ -337,7 +345,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic = engineeringAnalyticsLogic()
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h' })
 
         // Typing only stages the value — no reload until applied.
         logic.actions.setBranchFilter('main')
@@ -349,7 +357,7 @@ describe('engineeringAnalyticsLogic', () => {
         logic.actions.applyBranchFilter()
         await expectLogic(logic).toDispatchActions(['loadWorkflowHealth', 'loadWorkflowHealthSuccess'])
         expect(logic.values.appliedBranch).toBe('main')
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', branch: 'main' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h', branch: 'main' })
 
         // Re-applying an unchanged value (e.g. a blur with no edit) does not reload.
         mockWorkflowHealth.mockClear()
@@ -415,7 +423,7 @@ describe('engineeringAnalyticsLogic', () => {
         expect(logic.values.sourceId).toBe('src-newer')
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
         expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
-        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-30d', source_id: 'src-newer' })
+        expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-24h', source_id: 'src-newer' })
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {
@@ -436,24 +444,49 @@ describe('engineeringAnalyticsLogic', () => {
     })
 
     it.each([
-        ['a bad day spikes', { completed: 25, successes: 22, failures: 3 }, 0.12, 'Jun 5 · 3 of 25 failed'],
-        ['an all-green day stays flat', { completed: 25, successes: 25, failures: 0 }, 0, 'Jun 5 · 0 of 25 failed'],
-        // Skipped/cancelled/action_required runs are completed but not failures — they must not spike the bar.
+        // Stacked bar: total height is completed (volume), the red portion is failures, so the red
+        // fraction reads as the rate. Skipped/cancelled/action_required are completed but not failures.
+        [
+            'a bad day stacks failures over completed',
+            { completed: 25, successes: 22, failures: 3 },
+            25,
+            3,
+            'Jun 5 · 3 of 25 failed',
+        ],
+        ['an all-green day has no red', { completed: 25, successes: 25, failures: 0 }, 25, 0, 'Jun 5 · 0 of 25 failed'],
         [
             'skipped/cancelled runs are not failures',
             { completed: 25, successes: 20, failures: 0 },
+            25,
             0,
             'Jun 5 · 0 of 25 failed',
         ],
         [
-            'a day with nothing completed stays flat',
+            'a bucket with nothing completed is empty',
             { completed: 0, successes: 0, failures: 0 },
+            0,
             0,
             'Jun 5 · no completed runs',
         ],
-    ])('workflowTrendSeries: %s', (_label, counts, value, label) => {
-        const series = workflowTrendSeries([{ day: '2026-06-05', runCount: 30, ...counts }])
-        expect(series).toEqual({ values: [value], labels: [label] })
+    ])('workflowFailureSeries: %s', (_label, counts, completed, failures, label) => {
+        const series = workflowFailureSeries([{ bucketStart: '2026-06-05', runCount: 30, ...counts }], 'day')
+        expect(series).toEqual({ completed: [completed], failures: [failures], labels: [label] })
+    })
+
+    it.each([
+        ['rising failures trend up', [0, 0, 2, 3], 'up'],
+        ['falling failures trend down', [4, 3, 1, 0], 'down'],
+        ['steady failures stay flat', [1, 1, 1, 1], 'flat'],
+        ['a single bucket is flat', [5], 'flat'],
+    ])('workflowFailureTrend: %s', (_label, failuresPerBucket, expected) => {
+        const buckets = failuresPerBucket.map((failures, i) => ({
+            bucketStart: `2026-06-0${i + 1}`,
+            runCount: 10,
+            completed: 10,
+            successes: 10 - failures,
+            failures,
+        }))
+        expect(workflowFailureTrend(buckets)).toBe(expected)
     })
 
     it('summarizeLifecycle rolls events up into milestones and verdicts', () => {
@@ -506,6 +539,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: '2026-06-01T00:31:00Z',
                 durationSeconds: 1800,
                 runId: 9001,
+                runAttempt: null,
             },
             {
                 workflow: 'Frontend CI',
@@ -514,6 +548,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: null,
                 durationSeconds: null,
                 runId: null,
+                runAttempt: null,
             },
             {
                 workflow: 'Backend CI',
@@ -522,6 +557,7 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: '2026-06-01T01:20:00Z',
                 durationSeconds: 1200,
                 runId: 9002,
+                runAttempt: null,
             },
             // A finish without a matching start (outside the window) still yields a row.
             {
@@ -531,10 +567,37 @@ describe('engineeringAnalyticsLogic', () => {
                 finishedAt: '2026-06-01T00:10:00Z',
                 durationSeconds: null,
                 runId: 9003,
+                runAttempt: null,
             },
         ])
         // The detail page triages: failures first, then still-running, then passes.
         expect(sortRunsForTriage(runs).map((run) => run.conclusion)).toEqual(['failure', null, 'success', 'success'])
+    })
+
+    it('groupRunsByCommit groups by head SHA, newest push first', () => {
+        const apiRun = (overrides: Partial<WorkflowRunDetailApi>): WorkflowRunDetailApi => ({
+            repo: { provider: 'github', owner: 'posthog', name: 'posthog' },
+            id: 1,
+            workflow_name: 'CI',
+            head_sha: 'sha',
+            head_branch: 'main',
+            status: 'completed',
+            conclusion: 'success',
+            run_started_at: '2026-06-01T00:00:00Z',
+            updated_at: '2026-06-01T00:05:00Z',
+            duration_seconds: 300,
+            run_attempt: 1,
+            pr_number: 10,
+            ...overrides,
+        })
+        const groups = groupRunsByCommit([
+            apiRun({ id: 1, head_sha: 'old', run_started_at: '2026-06-01T00:00:00Z' }),
+            apiRun({ id: 2, head_sha: 'old', run_started_at: '2026-06-01T00:01:00Z' }),
+            apiRun({ id: 3, head_sha: 'new', run_started_at: '2026-06-02T00:00:00Z' }),
+        ])
+        // Newest push (latest start) first; runs map into WorkflowRun shape under their commit.
+        expect(groups.map((g) => g.headSha)).toEqual(['new', 'old'])
+        expect(groups[1].runs.map((r) => r.runId)).toEqual([1, 2])
     })
 
     it('flags notConnected when no GitHub source is connected (cards 400s)', async () => {

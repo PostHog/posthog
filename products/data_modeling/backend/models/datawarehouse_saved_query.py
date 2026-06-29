@@ -168,7 +168,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         This also guarantees model paths are properly created or updated.
         """
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
-        from products.data_warehouse.backend.logic.data_load.saved_query_service import (
+        from products.data_warehouse.backend.facade.api import (
             saved_query_workflow_exists,
             sync_saved_query_workflow,
             unpause_saved_query_schedule,
@@ -208,7 +208,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
 
     def revert_materialization(self):
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-        from products.data_warehouse.backend.logic.data_load.saved_query_service import delete_saved_query_schedule
+        from products.data_warehouse.backend.facade.api import delete_saved_query_schedule
 
         self.sync_frequency_interval = None
         self.last_run_at = None

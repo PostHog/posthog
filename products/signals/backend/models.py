@@ -382,6 +382,29 @@ class SignalReport(UUIDModel):
             return S(prior)
         return S.POTENTIAL
 
+    def update_authored_content(self, *, title: str | None = None, summary: str | None = None) -> list[str]:
+        """Rewrite an agent-authored report's `title`/`summary` in place, independent of status.
+
+        The pipeline only ever sets title/summary as a side effect of the `IN_PROGRESS -> READY`
+        (or `-> PENDING_INPUT`) transition — there is no path to edit them on an already-surfaced
+        report. The scout report-authoring channel needs one: `emit_report` writes them at creation
+        (a report born READY, not transitioned there) and `edit_report` rewrites them afterwards.
+
+        Only the provided fields change; passing neither is a no-op. Returns the modified field names
+        (with `updated_at`) for a targeted `save(update_fields=...)`; does NOT call `.save()` — the
+        caller owns the write so it can batch this with other changes in one transaction.
+        """
+        updated_fields: set[str] = set()
+        if title is not None:
+            self.title = title
+            updated_fields.add("title")
+        if summary is not None:
+            self.summary = summary
+            updated_fields.add("summary")
+        if updated_fields:
+            updated_fields.add("updated_at")
+        return list(updated_fields)
+
     @staticmethod
     def _merge_task_runs(
         artefact_rows: "list[tuple[datetime, str]]",
@@ -1119,6 +1142,21 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # to its `Signal` rows (`source_id = run:<run_id>:finding:<finding_id>`) without a
     # ClickHouse scan. Parallel to `emitted_count` (`len(emitted_finding_ids) == emitted_count`).
     emitted_finding_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # The `SignalReport` ids a run authored directly via `emit_report` (the second emit channel),
+    # in emit order. Parallel to `emitted_finding_ids` but for the report-authoring path: a scout
+    # that opts into `emit_report` writes a full report rather than a weak signal, so its output
+    # isn't a `finding_id` -> signal but a `report_id` the run owns. Lets "which reports did this
+    # run create/edit?" be a column lookup. Nullable with a `[]` db_default so the AddField stays
+    # non-blocking on the populated table — new and historical rows both read `[]`.
+    emitted_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # The `SignalReport` ids a run *mutated* via `edit_report` (rewrote title/summary and/or appended a
+    # note) — the edit-channel counterpart to `emitted_report_ids`. Deduped (set-membership, not a
+    # multiset): a run that edits the same report twice records it once, because the queryable question
+    # is "which reports did this run touch?", not "how many edits did it make" — that detail lives in the
+    # per-report artefact log. Distinct from `emitted_report_ids` because `edit_report` targets ANY inbox
+    # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
+    # with a `[]` db_default so the AddField stays non-blocking on the populated table.
+    edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

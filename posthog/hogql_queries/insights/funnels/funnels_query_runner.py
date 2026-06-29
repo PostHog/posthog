@@ -163,12 +163,16 @@ class FunnelsQueryRunner(AnalyticsQueryRunner[FunnelsQueryResponse]):
         )
 
         results = funnel_class._format_results(response.results)
+        total_median_conversion_time = funnel_class._extract_total_median_conversion_time(
+            response.results, response.columns
+        )
 
         if response.timings is not None:
             timings.extend(response.timings)
 
         return FunnelsQueryResponse(
             results=results,
+            total_median_conversion_time=total_median_conversion_time,
             timings=timings,
             hogql=hogql,
             modifiers=self.modifiers,

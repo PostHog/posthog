@@ -240,6 +240,7 @@ import type { ErrorTrackingRecommendation } from 'products/error_tracking/fronte
 import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -250,7 +251,6 @@ import type {
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
-import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -2609,7 +2609,10 @@ const api = {
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{ success: FeatureFlagType[]; failed: any }> {
+        ): Promise<{
+            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
+            failed: any
+        }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
         },
         async keys(
@@ -2939,6 +2942,9 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // false (default) groups by trace_id and returns root spans; true returns every
+                // matching span (root and child) flat. See products/tracing/backend logic.py.
+                flatSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2980,6 +2986,17 @@ const api = {
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
+        },
+        async count(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{ count: number; traceCount: number }> {
+            return new ApiRequest().tracingSpans().withAction('count').create({ signal, data: { query } })
         },
         async durationHistogram(
             query: {
@@ -5675,7 +5692,7 @@ const api = {
                 savedQueryId: DataWarehouseSavedQuery['id'],
                 pageSize: number,
                 offset: number
-            ): Promise<PaginatedResponse<DataModelingJob>> {
+            ): Promise<CountedPaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
         },

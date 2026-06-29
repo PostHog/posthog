@@ -1963,6 +1963,8 @@ export interface FunnelsQueryResponseApi {
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+    total_median_conversion_time?: number | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -7012,6 +7014,30 @@ export interface YAxisSettingsApi {
     startAtZero?: boolean | null
 }
 
+export type SliceContentApi = (typeof SliceContentApi)[keyof typeof SliceContentApi]
+
+export const SliceContentApi = {
+    Labels: 'labels',
+    Values: 'values',
+    None: 'none',
+} as const
+
+export type ValueDisplayApi = (typeof ValueDisplayApi)[keyof typeof ValueDisplayApi]
+
+export const ValueDisplayApi = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface PieChartSettingsApi {
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean | null
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: SliceContentApi | null
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
+    valueDisplay?: ValueDisplayApi | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7071,13 +7097,13 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
-    showPieTotal?: boolean | null
     showTotalRow?: boolean | null
     showValuesOnSeries?: boolean | null
     showXAxisBorder?: boolean | null

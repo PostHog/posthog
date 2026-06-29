@@ -88,6 +88,7 @@ class LinkedInAdsSource(ResumableSource[LinkedinAdsSourceConfig, LinkedInAdsResu
         return SourceConfig(
             name=SchemaExternalDataSourceType.LINKEDIN_ADS,
             category=DataWarehouseSourceCategory.ADVERTISING,
+            featured=True,
             keywords=["linkedin advertising"],
             label="LinkedIn Ads",
             caption="Ensure you have granted PostHog access to your LinkedIn Ads account, learn how to do this in [the documentation](https://posthog.com/docs/cdp/sources/linkedin-ads).",

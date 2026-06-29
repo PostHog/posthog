@@ -6,7 +6,7 @@ import time
 import collections
 import dataclasses
 from collections.abc import Callable, Iterator
-from contextlib import _GeneratorContextManager, contextmanager
+from contextlib import ExitStack, _GeneratorContextManager, contextmanager
 from datetime import (
     UTC,
     date,
@@ -172,6 +172,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # no-SSL-support source fails with a different message ("server does not support SSL") and, on
     # require_ssl sources, is converted to SSLRequiredError before reaching this check.
     "ssl connection has been closed unexpectedly",
+    # The lower-level form of the same TLS drop: a socket-level failure during the SSL handshake or
+    # read (EOF, connection reset) surfaces as "... SSL SYSCALL error: EOF detected" (and similar).
+    # Same transient class as the bare SSL drop above — a pooler/firewall idle cull, failover, or
+    # network blip mid-handshake — and recovers on reconnect. Never the unsupported-SSL signal,
+    # which is the distinct "server does not support SSL" message.
+    "ssl syscall error",
     "no connection to the server",
     "terminating connection due to",
     # psycopg's own message when libpq finds the socket already gone (PGconn.socket
@@ -197,6 +203,22 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # recovers on reconnect, so match the code itself rather than any one message wording. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
+
+# Connect-time capacity errors: the source refuses a *new* connection because it has hit a
+# connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
+# clients already" once max_connections is reached, "remaining connection slots are reserved for
+# roles with the SUPERUSER attribute" once only the superuser_reserved_connections slots remain,
+# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. All three are
+# transient capacity conditions on the customer's database — a slot frees the moment another
+# connection closes — so a fresh connect after a short backoff usually succeeds. Retried in-process
+# on the read/sync connect path (see `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`);
+# kept retryable and intentionally NOT added to `get_non_retryable_errors` for the same reason as
+# pooler saturation (see source.py).
+_CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
+    "sorry, too many clients already",
+    "remaining connection slots are reserved",
+    "too many connections for role",
+)
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
 # PgBouncer's synthetic error packet; OperationalError is libpq detecting the dead
@@ -256,19 +278,38 @@ def _is_connection_dropped_error(error: BaseException) -> bool:
     return False
 
 
+def _is_connection_limit_error(error: BaseException) -> bool:
+    """True if the source refused a new connection because it's at a connection limit.
+
+    Distinct from `_is_connection_dropped_error`: the connection was never established, so this is
+    only meaningful on the connect path (`_connect_with_dropped_retry`), not for mid-stream fetch
+    failures on an already-open connection.
+    """
+    if not isinstance(error, psycopg.OperationalError):
+        return False
+    message = " ".join(str(arg) for arg in error.args).lower()
+    return any(substring in message for substring in _CONNECTION_LIMIT_ERROR_SUBSTRINGS)
+
+
 def _is_dropped_or_connect_timeout(error: BaseException) -> bool:
     """Transient connect-path failures the import/read reconnect recovers from in process.
 
-    Either a mid-stream drop (`_is_connection_dropped_error`) or a connect-time timeout. psycopg
-    raises `ConnectionTimeout` ("connection timeout expired") only while *establishing* a connection,
-    never mid-query, so on the import/read path it's transient: the source was reachable moments
-    earlier in the same sync, and the reconnect just needs retrying. Used by the read/sync connect
-    retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The user-facing
-    validation path (`get_schemas`, via `_retry_on_connection_dropped` directly) deliberately keeps
-    failing fast on the same timeout, where it usually means an unreachable host / unconfigured
-    firewall (see `PostgresErrors` and `get_non_retryable_errors`).
+    A mid-stream drop (`_is_connection_dropped_error`), a connect-time timeout, or a connect-time
+    connection-limit refusal (`_is_connection_limit_error`). psycopg raises `ConnectionTimeout`
+    ("connection timeout expired") only while *establishing* a connection, never mid-query, so on the
+    import/read path it's transient: the source was reachable moments earlier in the same sync, and
+    the reconnect just needs retrying. Connection-limit refusals ("sorry, too many clients already",
+    etc.) are likewise transient — a slot frees the moment another connection closes. Used by the
+    read/sync connect retry (`_connect_with_dropped_retry`) and the `offset_chunking` reconnect. The
+    user-facing validation path (`get_schemas`, via `_retry_on_connection_dropped` directly)
+    deliberately keeps failing fast on the same connect-time conditions, where a timeout usually means
+    an unreachable host / unconfigured firewall (see `PostgresErrors` and `get_non_retryable_errors`).
     """
-    return _is_connection_dropped_error(error) or isinstance(error, psycopg.errors.ConnectionTimeout)
+    return (
+        _is_connection_dropped_error(error)
+        or _is_connection_limit_error(error)
+        or isinstance(error, psycopg.errors.ConnectionTimeout)
+    )
 
 
 def _raise_if_setup_connection_broken(connection: psycopg.Connection) -> None:
@@ -305,8 +346,9 @@ def _retry_on_connection_dropped(
 
     `is_retryable` decides which errors are transient; it defaults to `_is_connection_dropped_error`
     (mid-stream drops only). The read/sync connect path widens it to also retry connect-time timeouts
-    (see `_connect_with_dropped_retry`). Permanent errors (auth failures, SSL-required) are re-raised
-    immediately because neither predicate matches them.
+    and connection-limit refusals (see `_connect_with_dropped_retry` / `_is_dropped_or_connect_timeout`).
+    Permanent errors (auth failures, SSL-required) are re-raised immediately because no predicate
+    matches them.
     """
     attempt = 0
     while True:
@@ -333,10 +375,11 @@ def _connect_with_dropped_retry(
     The streaming recovery path (offset chunking) is reached precisely because the
     source just dropped our connection (idle cull, failover, mid-stream SSL EOF), so
     the very reconnect that bootstraps the recovery can itself hit a still-recovering
-    source and fail with another connection-dropped error — or time out establishing the
-    socket. Without this, that transient failure escapes the recovery loop and fails the
-    whole sync. Retry both transient classes with bounded backoff; permanent errors (auth
-    failures, SSL-required) are re-raised immediately because neither predicate matches them.
+    source and fail with another connection-dropped error — time out establishing the
+    socket, or refuse the reconnect with a connection-limit error while still saturated.
+    Without this, that transient failure escapes the recovery loop and fails the whole sync.
+    Retry all transient classes with bounded backoff; permanent errors (auth failures,
+    SSL-required) are re-raised immediately because no transient predicate matches them.
     """
     return _retry_on_connection_dropped(
         connect, logger, max_attempts=max_attempts, is_retryable=_is_dropped_or_connect_timeout
@@ -381,6 +424,24 @@ def _statement_timeout_as_non_retryable(
     return QueryTimeoutException(
         f"10 min timeout statement reached. Please ensure your incremental field "
         f"({incremental_field}) has an appropriate index created"
+    )
+
+
+def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
+    """Build the timeout error for the fallback `id` primary-key uniqueness probe.
+
+    When a table has no declared primary key we fall back to assuming `id` is unique and verify
+    it with a full-table `GROUP BY id HAVING COUNT(*) > 1`, which can exhaust the statement_timeout
+    on large tables. The generic table-setup timeout message points at the incremental field, but
+    indexing that field doesn't help this probe — the fix is a primary key / index on `id`. Keeps
+    the "has an appropriate index" fragment so it stays non-retryable at the activity layer too
+    (see source.py).
+    """
+    return QueryTimeoutException(
+        'Timed out verifying that the "id" column is unique. This table has no primary key, so '
+        'PostHog assumed "id" was unique to sync incrementally but could not confirm it within the '
+        'timeout. Add a primary key, or ensure the "id" column has an appropriate index created, so '
+        "PostHog can sync this table incrementally."
     )
 
 
@@ -503,7 +564,12 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+        if (
+            require_ssl
+            and "SSL" in str(e)
+            and not _is_invalid_ssl_negotiation_response(e)
+            and not _is_connection_dropped_error(e)
+        ):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2424,6 +2490,33 @@ def _project_table_columns(
     return Table(name=table.name, parents=table.parents, columns=filtered, type=table.type, alias=table.alias)
 
 
+# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
+# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
+# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it (it
+# only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an empty
+# `str()`, matching no non-retryable rule and retrying forever. `_tunnel_with_handshake_translation`
+# turns it into this stable, classifiable message (see `PostgresSource.get_non_retryable_errors`) —
+# same gateway-configuration class as a wrapped "Could not establish session to SSH gateway".
+_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
+
+
+@contextmanager
+def _tunnel_with_handshake_translation(
+    tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
+) -> Iterator[tuple[str, int]]:
+    """Enter `tunnel()`, translating a bare paramiko handshake EOFError into a classifiable message.
+
+    The `yield` sits outside the `except` so a failure raised by the body can never be
+    misattributed to the tunnel handshake.
+    """
+    with ExitStack() as stack:
+        try:
+            host, port = stack.enter_context(tunnel())
+        except EOFError as e:
+            raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
+        yield host, port
+
+
 def postgres_source(
     tunnel: Callable[[], _GeneratorContextManager[tuple[str, int]]],
     user: str,
@@ -2453,7 +2546,7 @@ def postgres_source(
 
     effective_sslmode = _get_sslmode(require_ssl)
 
-    with tunnel() as (host, port):
+    with _tunnel_with_handshake_translation(tunnel) as (host, port):
 
         def _open_setup_connection() -> psycopg.Connection:
             try:
@@ -2475,7 +2568,12 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+                if (
+                    require_ssl
+                    and "SSL" in str(e)
+                    and not _is_invalid_ssl_negotiation_response(e)
+                    and not _is_connection_dropped_error(e)
+                ):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2710,9 +2808,14 @@ def postgres_source(
                             has_duplicate_primary_keys = False
                             if used_id_pk_fallback:
                                 logger.debug("Checking duplicate primary keys...")
-                                has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                                    cursor, schema, table_name, primary_keys, logger
-                                )
+                                try:
+                                    has_duplicate_primary_keys = _has_duplicate_primary_keys(
+                                        cursor, schema, table_name, primary_keys, logger
+                                    )
+                                except psycopg.errors.QueryCanceled as e:
+                                    # Surface a message about the assumed `id` primary key rather than
+                                    # falling through to the generic incremental-field timeout below.
+                                    raise _pk_uniqueness_probe_timeout_error() from e
                         except psycopg.errors.QueryCanceled:
                             if should_use_incremental_field:
                                 raise QueryTimeoutException(
@@ -2770,7 +2873,7 @@ def postgres_source(
             # The forced `_ph_xmin` projection isn't part of the discovered columns, so add it to
             # the Arrow schema (as the leading field, matching the SELECT) for a clean zip.
             arrow_schema = arrow_schema.insert(0, pa.field(XMIN_PROJECTED_COLUMN, pa.int64(), nullable=False))
-        with tunnel() as (host, port):
+        with _tunnel_with_handshake_translation(tunnel) as (host, port):
             cursor_factory = psycopg.ServerCursor if not using_read_replica else None
 
             def get_connection():
@@ -2794,7 +2897,12 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+                    if (
+                        require_ssl
+                        and "SSL" in str(e)
+                        and not _is_invalid_ssl_negotiation_response(e)
+                        and not _is_connection_dropped_error(e)
+                    ):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."

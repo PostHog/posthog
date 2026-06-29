@@ -54,6 +54,7 @@ export interface TicketViewFilters {
     priority?: TicketPriority[]
     channel?: TicketChannel | 'all'
     sla?: TicketSlaState | 'all'
+    aiTriageResult?: AITriageFilterValue[]
     assignee?: AssigneeFilterValue
     tags?: string[]
     tagsMatch?: TicketTagsMatch
@@ -239,12 +240,21 @@ export const slaOptions: { value: TicketSlaState | 'all'; label: string }[] = [
 
 export const aiTriageResultLabel: Record<AITriageResult, string> = {
     persisted: 'Resolved',
-    escalated_with_best: 'Escalated (best)',
-    escalated_no_reply: 'Escalated',
+    escalated_with_best: 'Escalated with draft',
+    escalated_no_reply: 'Escalated, no draft',
     skipped_unactionable: 'Skipped',
-    blocked_unsafe: 'Blocked',
-    blocked_unsafe_reply: 'Blocked (reply)',
+    blocked_unsafe: 'Blocked unsafe ticket',
+    blocked_unsafe_reply: 'Blocked unsafe reply',
 }
+
+export const aiTriageProcessingLabel = 'Processing'
+
+export type AITriageFilterValue = AITriageResult | 'in_progress'
+
+export const aiTriageFilterOptions: { key: AITriageFilterValue; label: string }[] = [
+    { key: 'in_progress', label: aiTriageProcessingLabel },
+    ...(Object.entries(aiTriageResultLabel) as [AITriageResult, string][]).map(([key, label]) => ({ key, label })),
+]
 
 export type AITriageTagType = 'success' | 'warning' | 'danger' | 'default'
 

@@ -9,7 +9,7 @@ import pyarrow.parquet as pq
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
-from products.data_warehouse.backend.s3 import get_s3_client
+from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_s3_write_duration_metric,

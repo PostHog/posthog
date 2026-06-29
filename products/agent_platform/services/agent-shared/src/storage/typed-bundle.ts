@@ -106,14 +106,13 @@ export type TypedTool = z.infer<typeof TypedToolSchema>
  */
 export const TypedSpecSchema = z
     .object({
-        model: z.string().min(1).optional(),
+        models: z.unknown().optional(),
         triggers: z.array(z.unknown()).optional(),
         mcps: z.array(z.unknown()).optional(),
         identity_providers: z.array(z.unknown()).optional(),
         secrets: z.array(z.string()).optional(),
         limits: z.unknown().optional(),
         auth: z.unknown().optional(),
-        entrypoint: z.string().optional(),
         reasoning: z.string().optional(),
         framework_prompt: z.unknown().optional(),
         resume: z.unknown().optional(),

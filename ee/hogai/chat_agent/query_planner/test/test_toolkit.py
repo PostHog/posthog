@@ -223,6 +223,11 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
 
     @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
     def test_retrieve_entity_property_values_virtual_property_without_examples(self, mock_runner_class):
+        # The real runner reads ClickHouse actor data, which sibling tests on the same
+        # shard can pollute (file-level sharding runs the whole file together and
+        # ClickHouse writes are not rolled back per test), making $virt_mrr resolve to a
+        # stray value instead of nothing. Mock an empty result so this asserts the
+        # no-values fallback deterministically.
         now = datetime(2024, 1, 1, tzinfo=UTC)
         mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
             cache_key="test",

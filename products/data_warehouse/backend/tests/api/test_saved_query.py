@@ -10,13 +10,15 @@ from parameterized import parameterized
 
 from posthog.models import ActivityLog
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataWarehouseManagedViewSet,
+    DataWarehouseSavedQuery,
+)
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 
 class TestSavedQuery(APIBaseTest):

@@ -16,7 +16,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY

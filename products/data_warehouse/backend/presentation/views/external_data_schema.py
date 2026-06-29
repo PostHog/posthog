@@ -21,50 +21,44 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
-from products.data_warehouse.backend.direct_mysql import hide_direct_mysql_table
-from products.data_warehouse.backend.direct_postgres import hide_direct_postgres_table
-from products.data_warehouse.backend.logic.data_load.service import (
+from products.data_warehouse.backend.facade.api import (
     cancel_external_data_workflow,
+    create_and_register_webhook,
     external_data_workflow_exists,
+    get_or_create_webhook_hog_function,
+    get_postgres_source_location,
+    hide_direct_mysql_table,
+    hide_direct_postgres_table,
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_xmin_enabled_for_team,
     pause_external_data_schedule,
+    reconcile_webhook_events,
+    reproject_direct_mysql_table,
+    reproject_direct_postgres_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
-from products.data_warehouse.backend.logic.external_data_source.webhooks import (
-    create_and_register_webhook,
-    get_or_create_webhook_hog_function,
-    reconcile_webhook_events,
-)
-from products.data_warehouse.backend.mysql_helpers import reproject_direct_mysql_table
-from products.data_warehouse.backend.postgres_helpers import (
-    get_postgres_source_location,
-    reproject_direct_postgres_table,
-)
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import (
+from products.warehouse_sources.backend.facade.models import (
+    ExternalDataJob,
     ExternalDataSchema,
+    ExternalDataSource,
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import (
+from products.warehouse_sources.backend.facade.source_management import (
+    RowFilterValidationError,
+    SourceRegistry,
+    WebhookSource,
+    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
     source_type_supports_cdc,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
-    RowFilterValidationError,
-    filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     validate_and_coerce_row_filters,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalFieldType
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType, IncrementalFieldType
 
 logger = structlog.get_logger(__name__)
 
