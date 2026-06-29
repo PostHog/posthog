@@ -342,6 +342,14 @@ export interface PatchedOrganizationMemberApi {
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
+export interface OrganizationMemberGithubLoginApi {
+    /**
+     * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+     * @nullable
+     */
+    github_login: string | null
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string

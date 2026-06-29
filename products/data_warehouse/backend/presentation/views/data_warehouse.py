@@ -135,7 +135,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
             tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
-            result = execute_hogql_query(query, team=self.team)
+            result = execute_hogql_query(query, team=self.team, user=request.user)
 
             values = [row[0] for row in result.results]
             span.set_attribute("result_count", len(values))
