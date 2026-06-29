@@ -339,20 +339,11 @@ class BatchConsumer:
             await self._close()
 
     def _reap_finished_tasks(self) -> None:
-        """Remove completed group tasks from the in-flight registry and log exceptions."""
+        """Remove completed group tasks from the in-flight registry."""
         finished = [key for key, task in self._in_flight.items() if task.done()]
         for key in finished:
-            task = self._in_flight.pop(key)
+            self._in_flight.pop(key)
             self._metrics.active_groups.dec()
-            exc = task.exception() if not task.cancelled() else None
-            if exc is not None:
-                logger.exception(
-                    self._event("group_task_unhandled_exception"),
-                    team_id=key[0],
-                    schema_id=key[1],
-                    exc_info=exc,
-                )
-                capture_exception(exc)
 
     async def _process_group_tracked(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
         """Wrapper that ensures the group task never propagates exceptions to the event loop."""
@@ -662,10 +653,9 @@ class BatchConsumer:
         self,
         batch: PendingBatch,
         reason: str,
-        conn: psycopg.AsyncConnection[Any] | None = None,
+        conn: psycopg.AsyncConnection[Any],
     ) -> None:
         """Fail the run via the adapter; the adapter isolates each step so a failure can't crash the consumer."""
-        conn = conn or await self._ensure_poll_conn()
 
         try:
             await self._adapter.fail_run(conn, batch=batch, reason=reason)

@@ -385,7 +385,9 @@ class TestFailRun:
                 side_effect=Exception("the connection is closed"),
             ),
         ):
-            await consumer._fail_run(batch, reason="max retries exceeded: the connection is closed")
+            await consumer._fail_run(
+                batch, reason="max retries exceeded: the connection is closed", conn=consumer._poll_conn
+            )
 
         mock_fail_run.assert_called_once()  # queue batches still marked failed
 
@@ -404,7 +406,7 @@ class TestFailRun:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer._update_job_status_to_failed",
             ) as mock_status,
         ):
-            await consumer._fail_run(batch, reason="boom")
+            await consumer._fail_run(batch, reason="boom", conn=consumer._poll_conn)
 
         mock_status.assert_called_once()
 
