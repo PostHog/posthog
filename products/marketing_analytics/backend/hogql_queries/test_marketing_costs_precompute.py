@@ -87,7 +87,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 date_range=DateRange(date_from=WIDE_FROM, date_to=WIDE_TO),
                 team=self.team,
                 interval=None,
-                now=datetime.now(),
+                now=datetime(2025, 1, 1),
             ),
             team=self.team,
             base_currency=self.team.base_currency or "USD",
@@ -203,7 +203,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         read = runner._costs_native_read_query(
             [job_old, job_new],
             MarketingAnalyticsDrillDownLevel.CAMPAIGN,
-            QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime.now()),
+            QueryDateRange(date_range=date_range, team=self.team, interval=None, now=datetime(2025, 1, 1)),
         )
         result_rows, result_cols = self._execute(read)
         total_cost = sum(float(r[self._col(result_cols, MarketingSourceAdapter.cost_field)]) for r in result_rows)
