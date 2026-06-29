@@ -182,7 +182,7 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             managed_dag = DAG.get_or_create_revenue_analytics(self.team)
             for saved_query in saved_queries_to_schedule:
                 try:
-                    sync_saved_query_to_dag(saved_query, dag=managed_dag)
+                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
                     # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
                     # unless something there still depends on it (don't orphan a dependent).
                     for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
