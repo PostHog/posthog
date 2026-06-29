@@ -270,7 +270,7 @@ impl RateLimitingStage {
         }
 
         let results = send_iter_to_kafka(
-            &self.ctx.immediate_producer,
+            &self.ctx.app_metrics_producer,
             APP_METRICS2_TOPIC,
             app_metrics,
         )

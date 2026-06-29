@@ -24,6 +24,22 @@ class ReplayObservation(UUIDModel):
     scanner = models.ForeignKey("replay_vision.ReplayScanner", on_delete=models.CASCADE, related_name="observations")
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
     session_id = models.CharField(max_length=200, help_text="Session recording id this scanner was applied to.")
+    distinct_id = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True,
+        help_text="Distinct id of the person in the recorded session (the subject), resolved from session metadata.",
+    )
+    recording_subject_email = models.TextField(
+        null=True,
+        blank=True,
+        help_text="Email of the recording subject at scan time; denormalized so the list can filter and sort on it.",
+    )
+    session_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="Start time of the recorded session; copied from session metadata so downstream steps don't re-query.",
+    )
 
     status = models.CharField(max_length=16, choices=ObservationStatus.choices, default=ObservationStatus.PENDING)
     error_reason = models.TextField(
@@ -85,6 +101,8 @@ class ReplayObservation(UUIDModel):
         indexes = [
             models.Index(fields=["team", "created_at"], name="rlo_team_created_idx"),
             models.Index(fields=["scanner", "status"], name="rlo_scanner_status_idx"),
+            # Serves the per-scanner list ordering and the prev/next-neighbor lookups (both order by created_at).
+            models.Index(fields=["scanner", "created_at"], name="rlo_scanner_created_idx"),
             models.Index(
                 fields=["workflow_id"],
                 name="rlo_workflow_id_idx",

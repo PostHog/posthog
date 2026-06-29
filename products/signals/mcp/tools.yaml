@@ -516,14 +516,16 @@ tools:
         description: >
             Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout
             to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the
-            run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error`
-            (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with
-            `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary
-            scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs
-            that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a
-            case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit
-            findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`)
-            to scope to a window. Results capped at 100.
+            run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored
+            directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the
+            report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus
+            `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope
+            the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist
+            dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding
+            (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on
+            the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` /
+            `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results
+            capped at 100.
     signals-scout-runs-retrieve:
         operation: signals_scout_runs_retrieve
         enabled: true
@@ -566,8 +568,9 @@ tools:
             Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so
             this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking,
             not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and
-            defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Optionally pass
-            `run_id` to record which run wrote it.
+            defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as
+            Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for
+            ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.
     signals-scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true

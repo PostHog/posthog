@@ -42,6 +42,7 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
+    "products.data_tools",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -248,6 +249,7 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.notifications",
     "products.posthog_ai",
     "products.warehouse_sources_queue",
     "products.workflows",
@@ -263,13 +265,6 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.desktop_recordings"
-depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -721,7 +716,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -808,12 +803,19 @@ from = [
     "products.warehouse_sources",
 ]
 
-# NOTE: data_warehouse is NOT yet added to [[interfaces]]. Its Phase 2 facade is in
-# place and external consumers route through backend.facade.* now, but the facade is
-# operational wiring (no facade/contracts.py), so it cannot join the canonical facade
-# interface — that requires contracts + a real (non-re-export) facade.api, which land
-# with the presentation wave. Until then dw stays un-enforced (consumers reach it via
-# the declared depends_on).
+# data_warehouse — facade landed (Phase 2) + presentation wave complete; now enforced via
+# the canonical interface above. This legacy-leak exposes the test helpers core tests still
+# import directly. Shrinks to zero when those fixtures relocate; backend:contract-check stays
+# off until then AND until the cross-product presentation allowances to not-yet-isolated
+# products (data_modeling, data_tools, cdp, batch_exports, revenue_analytics) clear.
+[[interfaces]]
+expose = [
+    "backend\\.test.*",
+    "backend\\.tests.*",
+]
+from = [
+    "products.data_warehouse",
+]
 
 # legal_documents has a non-standard public surface — posthog/urls registers its pandadoc
 # webhook (presentation.webhook), not the canonical presentation.views — so it gets a dedicated

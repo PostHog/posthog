@@ -3,12 +3,15 @@ import datetime as dt
 import itertools
 from typing import Any
 
+import structlog
 from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models import Team
+from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import (
     MAX_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
     MIN_ACTIVE_SECONDS_FOR_VIDEO_SCANNER_S,
@@ -27,6 +30,8 @@ from products.replay_vision.backend.temporal.types import (
     ScannerLlmInputs,
     SessionMetadata,
 )
+
+logger = structlog.get_logger(__name__)
 
 # Pagination shape mirrors session_summary's fetcher; without it HogQL applies LimitContext.QUERY's default of 100.
 # Events are no longer inlined in the prompt — they're loaded into the table the model queries on demand — so we
@@ -71,7 +76,27 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
             kind=IneligibleSessionKind.NO_EVENTS,
         )
 
+    # Persist the session identity so downstream steps read it off the row instead of re-querying ClickHouse.
+    await sync_to_async(_persist_session_identity)(inputs.observation_id, payload)
+
     await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
+
+
+def _persist_session_identity(observation_id: Any, payload: ScannerLlmInputs) -> None:
+    email: str | None = None
+    if payload.distinct_id:
+        try:
+            person = get_person_by_distinct_id(payload.team_id, payload.distinct_id)
+            email = person.properties.get("email") if person is not None else None
+        except Exception:
+            logger.warning(
+                "replay_vision.fetch.subject_email_lookup_failed", observation_id=str(observation_id), exc_info=True
+            )
+    ReplayObservation.objects.filter(pk=observation_id).update(
+        distinct_id=payload.distinct_id,
+        recording_subject_email=email,
+        session_started_at=payload.metadata.start_time,
+    )
 
 
 def _fetch_payload(team_id: int, session_id: str) -> ScannerLlmInputs | None:

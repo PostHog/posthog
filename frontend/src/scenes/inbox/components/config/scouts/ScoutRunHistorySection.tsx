@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 import { useMemo, useState } from 'react'
 
-import { IconChevronDown, IconExternal } from '@posthog/icons'
+import { IconArrowRight, IconChevronDown, IconExternal } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SignalScoutRunSummary } from '../../../types'
@@ -16,7 +17,10 @@ import {
     normalizeRunStatus,
     runDurationSeconds,
     runMatchesFilter,
+    runProducedOutput,
+    runReportActivity,
     ScoutRunFilter,
+    scoutReportActivityLabel,
     SCOUT_RUNS_WINDOW_SPAN,
 } from '../../../utils/scoutRunsWindow'
 
@@ -32,7 +36,8 @@ function truncateId(value: string): string {
     return value.length > 12 ? `${value.slice(0, 12)}…` : value
 }
 
-/** A compact status glyph: ✗ failed · pulsing dot running/queued · ◆ emitted · · quiet. */
+/** A compact status glyph: ✗ failed · pulsing dot running/queued · ◆ produced output (finding or
+ * report) · · quiet. */
 function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     const status = normalizeRunStatus(run.status)
     if (status === 'failed') {
@@ -41,7 +46,7 @@ function RunGlyph({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     if (status === 'running' || status === 'queued') {
         return <span className="inline-block size-2 shrink-0 rounded-full bg-primary animate-pulse" />
     }
-    if ((run.emitted_count ?? 0) > 0) {
+    if (runProducedOutput(run)) {
         return <span className="text-primary-3000 text-sm font-medium leading-none">◆</span>
     }
     return <span className="text-muted text-sm leading-none">·</span>
@@ -59,6 +64,8 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
     const failureKind = deriveRunFailureKind(run, now)
     const duration = formatRunDuration(runDurationSeconds(run, now))
     const emitted = run.emitted_count ?? 0
+    const reportActivityLabel = scoutReportActivityLabel(run)
+    const { authored: authoredReportIds, edited: editedReportIds } = runReportActivity(run)
     const hasBody = Boolean(run.summary) || status === 'failed' || expanded
 
     return (
@@ -87,6 +94,10 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                     <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
                         {pluralize(emitted, 'signal')} emitted
                     </span>
+                ) : reportActivityLabel ? (
+                    <span className="whitespace-nowrap rounded bg-primary-highlight px-1.5 py-0.5 text-[11px] font-medium text-primary-3000">
+                        {reportActivityLabel}
+                    </span>
                 ) : status === 'completed' ? (
                     <span className="whitespace-nowrap text-[11px] text-muted">0 signals emitted</span>
                 ) : null}
@@ -111,6 +122,24 @@ function ScoutRunRow({ run }: { run: SignalScoutRunSummary }): JSX.Element {
                     {expanded && (
                         <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
                             <span className="font-mono">{truncateId(run.run_id)}</span>
+                            {authoredReportIds.map((reportId) => (
+                                <Link
+                                    key={reportId}
+                                    to={urls.inboxReport('reports', reportId)}
+                                    className="flex items-center gap-1 font-medium shrink-0"
+                                >
+                                    Authored report <IconArrowRight className="size-3" />
+                                </Link>
+                            ))}
+                            {editedReportIds.map((reportId) => (
+                                <Link
+                                    key={reportId}
+                                    to={urls.inboxReport('reports', reportId)}
+                                    className="flex items-center gap-1 font-medium shrink-0"
+                                >
+                                    Edited report <IconArrowRight className="size-3" />
+                                </Link>
+                            ))}
                             {run.task_url && (
                                 <>
                                     <span className="flex-1" />
