@@ -35,6 +35,7 @@ class BillingAlertConfiguration(UUIDModel):
     team = models.ForeignKey(
         "posthog.Team",
         db_column="execution_team_id",
+        db_constraint=False,
         on_delete=models.CASCADE,
         related_name="+",
     )
@@ -125,7 +126,7 @@ class BillingAlertEvent(UUIDModel):
         BROKEN_CONFIG = "broken_config", "Broken config"
 
     alert = models.ForeignKey(BillingAlertConfiguration, on_delete=models.CASCADE, related_name="events")
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    team = models.ForeignKey("posthog.Team", db_constraint=False, on_delete=models.CASCADE, related_name="+")
     kind = models.CharField(max_length=32, choices=Kind.choices, default=Kind.CHECK)
 
     created_at = models.DateTimeField(auto_now_add=True)
