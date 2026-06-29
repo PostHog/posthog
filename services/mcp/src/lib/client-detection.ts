@@ -19,9 +19,7 @@
  *   the formatted-results workaround.
  *
  * - `isPostHogCodeConsumer()` matches the `x-posthog-mcp-consumer` header
- *   sent by the PostHog Code Tasks wrapper. `isPostHogUiAppsConsumer()` is the
- *   broader check covering every PostHog-owned UI-apps host (PostHog Code and
- *   posthog_ai/Max) — it gates single-exec mode and UI-apps payload emission.
+ *   sent by the PostHog Code Tasks wrapper.
  *
  * - `isVibeCodingClient()` matches the OAuth application name (returned by
  *   token introspection — see `StateManager._fetchApiKey`). Vibe-coding
@@ -133,19 +131,10 @@ export function resolveEffectiveClientName(
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
 // PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps
-// emission in single-exec mode. Slack-launched runs send `"slack"` instead.
+// emission in single-exec mode. Slack-launched runs send `"slack"` and
+// posthog_ai (Max) runs send `"posthog_ai"`; only PostHog Code renders MCP UI
+// apps, so this is the sole consumer that gates UI-apps payload emission.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
-
-// Value sent in `x-posthog-mcp-consumer` by posthog_ai (Max) sandbox runs.
-// posthog_ai is also a PostHog-owned UI-apps host, so it gets the same
-// UI-apps and single-exec gating as PostHog Code — the distinct value only
-// separates the two in analytics attribution. Keep in sync with
-// `_resolve_mcp_consumer` in `products/tasks/backend/temporal/process_task/utils.py`.
-export const POSTHOG_AI_CONSUMER = 'posthog_ai'
-
-// Consumers that are PostHog-owned UI-apps hosts: they render interactive
-// MCP UI apps and so should receive UI-apps payloads in single-exec mode.
-export const POSTHOG_UI_APPS_CONSUMERS: readonly string[] = [POSTHOG_CODE_CONSUMER, POSTHOG_AI_CONSUMER]
 
 // OAuth application names (from token introspection) for upstream tools that
 // should default to single-exec mode. These match against the OAuth
@@ -262,13 +251,6 @@ export class MCPClientProfile {
         return this.consumer === POSTHOG_CODE_CONSUMER
     }
 
-    // True for PostHog-owned UI-apps hosts (PostHog Code and posthog_ai/Max).
-    // Drives single-exec mode and UI-apps payload emission — both surfaces
-    // render interactive MCP UI apps, unlike Slack or direct coding-agent callers.
-    isPostHogUiAppsConsumer(): boolean {
-        return this.consumer !== undefined && POSTHOG_UI_APPS_CONSUMERS.includes(this.consumer)
-    }
-
     isVibeCodingClient(): boolean {
         return matchesAnyFragment(this.oauthClientName, VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS)
     }
@@ -311,10 +293,6 @@ export function isCliModeEnabledClient(clientName: string | undefined): boolean 
 
 export function isPostHogCodeConsumer(mcpConsumer: string | undefined): boolean {
     return new MCPClientProfile({ consumer: mcpConsumer }).isPostHogCodeConsumer()
-}
-
-export function isPostHogUiAppsConsumer(mcpConsumer: string | undefined): boolean {
-    return new MCPClientProfile({ consumer: mcpConsumer }).isPostHogUiAppsConsumer()
 }
 
 export function isVibeCodingClient(oauthClientName: string | undefined): boolean {

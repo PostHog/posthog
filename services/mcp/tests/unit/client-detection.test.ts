@@ -7,13 +7,11 @@ import {
     CODING_AGENT_CLIENT_NAME_FRAGMENTS,
     DEFAULT_CLIENT_CAPABILITIES,
     MCPClientProfile,
-    POSTHOG_AI_CONSUMER,
     POSTHOG_CODE_CONSUMER,
     VIBE_CODING_OAUTH_CLIENT_NAME_FRAGMENTS,
     isClaudeUiHostClient,
     isCliModeEnabledClient,
     isPostHogCodeConsumer,
-    isPostHogUiAppsConsumer,
     isVibeCodingClient,
     resolveEffectiveClientName,
 } from '@/lib/client-detection'
@@ -161,8 +159,8 @@ describe('isPostHogCodeConsumer', () => {
         expect(isPostHogCodeConsumer('posthog-code')).toBe(true)
     })
 
-    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['']])(
-        'returns false for %s (must be exact match)',
+    it.each([['posthog_code'], ['PostHog-Code'], ['posthog-code-v2'], ['posthog'], ['slack'], ['posthog_ai'], ['']])(
+        'returns false for %s (must be exact match — posthog_ai is not a UI-apps host)',
         (consumer) => {
             expect(isPostHogCodeConsumer(consumer)).toBe(false)
         }
@@ -170,22 +168,6 @@ describe('isPostHogCodeConsumer', () => {
 
     it('returns false for undefined', () => {
         expect(isPostHogCodeConsumer(undefined)).toBe(false)
-    })
-})
-
-describe('isPostHogUiAppsConsumer', () => {
-    it('matches every PostHog-owned UI-apps host', () => {
-        expect(isPostHogUiAppsConsumer(POSTHOG_CODE_CONSUMER)).toBe(true)
-        expect(isPostHogUiAppsConsumer(POSTHOG_AI_CONSUMER)).toBe(true)
-        expect(isPostHogUiAppsConsumer('posthog_ai')).toBe(true)
-    })
-
-    it.each([['posthog-ai'], ['posthog'], ['slack'], ['posthog-cli'], ['']])('returns false for %s', (consumer) => {
-        expect(isPostHogUiAppsConsumer(consumer)).toBe(false)
-    })
-
-    it('returns false for undefined', () => {
-        expect(isPostHogUiAppsConsumer(undefined)).toBe(false)
     })
 })
 
@@ -365,30 +347,15 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile({ consumer: POSTHOG_CODE_CONSUMER }).isPostHogCodeConsumer()).toBe(true)
         })
 
-        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['']])('returns false for %s', (consumer) => {
-            expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
-        })
+        it.each([['slack'], ['posthog'], ['PostHog-Code'], ['posthog_ai'], ['']])(
+            'returns false for %s',
+            (consumer) => {
+                expect(new MCPClientProfile({ consumer }).isPostHogCodeConsumer()).toBe(false)
+            }
+        )
 
         it('returns false when consumer is undefined', () => {
             expect(new MCPClientProfile({}).isPostHogCodeConsumer()).toBe(false)
-        })
-
-        it('does not match posthog_ai (that is a UI-apps consumer, not the Code consumer)', () => {
-            expect(new MCPClientProfile({ consumer: POSTHOG_AI_CONSUMER }).isPostHogCodeConsumer()).toBe(false)
-        })
-    })
-
-    describe('isPostHogUiAppsConsumer()', () => {
-        it.each([[POSTHOG_CODE_CONSUMER], [POSTHOG_AI_CONSUMER]])('returns true for %s', (consumer) => {
-            expect(new MCPClientProfile({ consumer }).isPostHogUiAppsConsumer()).toBe(true)
-        })
-
-        it.each([['slack'], ['posthog'], ['posthog-ai'], ['']])('returns false for %s', (consumer) => {
-            expect(new MCPClientProfile({ consumer }).isPostHogUiAppsConsumer()).toBe(false)
-        })
-
-        it('returns false when consumer is undefined', () => {
-            expect(new MCPClientProfile({}).isPostHogUiAppsConsumer()).toBe(false)
         })
     })
 

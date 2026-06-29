@@ -314,10 +314,10 @@ def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
 
     Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
     `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
-    origin) is treated as PostHog Code. The MCP server treats both
-    `"posthog-code"` and `"posthog_ai"` as PostHog UI-apps hosts (so they emit
-    UI-apps payloads in single-exec mode) — keep in sync with
-    `POSTHOG_CODE_CONSUMER` / `POSTHOG_AI_CONSUMER` in
+    origin) is treated as PostHog Code. Only `"posthog-code"` is a UI-apps host
+    on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
+    `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
+    in sync with `POSTHOG_CODE_CONSUMER` in
     `services/mcp/src/lib/client-detection.ts`.
     """
     if interaction_origin == "slack":
