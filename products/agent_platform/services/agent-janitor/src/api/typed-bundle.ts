@@ -42,6 +42,7 @@ import {
     TypedSkillSchema,
     TypedSpecSchema,
     TypedToolSchema,
+    toolCapabilitiesPath,
     writeToolSourceAndSchema,
 } from '@posthog/agent-shared'
 
@@ -147,6 +148,13 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             for (const { tool, result } of compileResults) {
                 await writeToolSourceAndSchema(req.params.id, opts.bundles, tool)
                 await opts.bundles.write(req.params.id, toolCompiledPath(tool.id), result.compiled_js!)
+                if (result.capabilities) {
+                    await opts.bundles.write(
+                        req.params.id,
+                        toolCapabilitiesPath(tool.id),
+                        JSON.stringify(result.capabilities, null, 2)
+                    )
+                }
             }
 
             // Persist the author-facing spec onto agent_revision.spec.
@@ -284,6 +292,13 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
 
             await writeToolSourceAndSchema(req.params.id, opts.bundles, tool)
             await opts.bundles.write(req.params.id, toolCompiledPath(id), compile.compiled_js!)
+            if (compile.capabilities) {
+                await opts.bundles.write(
+                    req.params.id,
+                    toolCapabilitiesPath(id),
+                    JSON.stringify(compile.capabilities, null, 2)
+                )
+            }
             res.json({ ok: true, tool_id: id, capabilities: compile.capabilities })
         })
     )

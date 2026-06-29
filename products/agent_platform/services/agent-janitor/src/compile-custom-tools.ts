@@ -120,8 +120,10 @@ const BANNED_NODE_MODULES = new Set([
     'wasi',
 ])
 
+const NODE_PREFIX = 'node:'
+
 function isBannedModuleSpecifier(spec: string): boolean {
-    const stripped = spec.startsWith('node:') ? spec.slice('node:'.length) : spec
+    const stripped = spec.startsWith(NODE_PREFIX) ? spec.slice(NODE_PREFIX.length) : spec
     return BANNED_NODE_MODULES.has(stripped)
 }
 

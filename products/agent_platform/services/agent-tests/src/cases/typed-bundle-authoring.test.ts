@@ -489,6 +489,64 @@ describe('typed bundle authoring API: real e2e', () => {
                 dynamic_secret_refs: false,
             })
         })
+
+        it('persists capabilities to the bundle so GET /bundle can surface them', async () => {
+            const rid = await newDraft(c)
+            await request(c.janitor)
+                .put(`/revisions/${rid}/tools/persisted`)
+                .send({
+                    description: 'persisted',
+                    args_schema: { type: 'object' },
+                    source: `export default {
+                        actions: {
+                            default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+                                return { a: ctx.secrets.ref('ALPHA'), b: ctx.secrets.ref('BETA') }
+                            }
+                        }
+                    }`,
+                })
+                .expect(200)
+
+            // The file lands in the bundle...
+            const capsRaw = await c.bundle.readText(rid, 'tools/persisted/capabilities.json')
+            expect(JSON.parse(capsRaw)).toEqual({
+                secret_refs: ['ALPHA', 'BETA'],
+                dynamic_secret_refs: false,
+            })
+
+            // ...and round-trips through the typed read so the UI doesn't have
+            // to re-run the AST walker on every load.
+            const readBack = await request(c.janitor).get(`/revisions/${rid}/bundle`).expect(200)
+            const tool = readBack.body.bundle.tools.find((t: { id: string }) => t.id === 'persisted')
+            expect(tool.capabilities).toEqual({
+                secret_refs: ['ALPHA', 'BETA'],
+                dynamic_secret_refs: false,
+            })
+        })
+
+        it('DELETE /tools/:id sweeps the capabilities.json file too', async () => {
+            const rid = await newDraft(c)
+            await request(c.janitor)
+                .put(`/revisions/${rid}/tools/sweepable`)
+                .send({
+                    description: 'sweepable',
+                    args_schema: { type: 'object' },
+                    source: `export default {
+                        actions: {
+                            default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => ({ x: ctx.secrets.ref('X') })
+                        }
+                    }`,
+                })
+                .expect(200)
+
+            expect(await c.bundle.exists(rid, 'tools/sweepable/capabilities.json')).toBe(true)
+
+            await request(c.janitor).delete(`/revisions/${rid}/tools/sweepable`).expect(200)
+
+            expect(await c.bundle.exists(rid, 'tools/sweepable/capabilities.json')).toBe(false)
+            expect(await c.bundle.exists(rid, 'tools/sweepable/source.ts')).toBe(false)
+            expect(await c.bundle.exists(rid, 'tools/sweepable/compiled.js')).toBe(false)
+        })
     })
 
     // ─── Spec derivation at freeze ───────────────────────────────────
