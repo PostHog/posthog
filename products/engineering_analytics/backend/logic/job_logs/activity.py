@@ -27,6 +27,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.logic.job_logs.emitter import JobLogsEmitter
 from products.engineering_analytics.backend.logic.job_logs.fetcher import fetch_job_log
+from products.engineering_analytics.backend.logic.job_logs.thinning import thin_log
 
 logger = structlog.get_logger(__name__)
 
@@ -80,12 +81,16 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "conclusion": inputs.conclusion or "",
     }
 
+    # Failures-only today, so always thin with the failure preset; when all-jobs ingestion lands,
+    # pass a different ThinningConfig here for non-failure logs.
+    thinned = thin_log(archive)
+
     def _emit() -> int:
         with JobLogsEmitter(endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT, token=log_ingest_token) as emitter:
-            return emitter.emit_log_archive(archive, attributes=attributes)
+            return emitter.emit_log_archive(thinned, attributes=attributes)
 
     lines = await asyncio.to_thread(_emit)
-    log.info("github_job_log_emitted", lines=lines)
+    log.info("github_job_log_emitted", lines=lines, raw_lines=archive.count("\n") + 1)
     return {"status": "emitted", "job_id": inputs.job_id, "lines": lines}
 
 
