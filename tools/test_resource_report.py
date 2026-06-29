@@ -89,9 +89,11 @@ def bucket_ch_unused(rows: list[dict]) -> list[dict]:
 
 
 def bucket_txn_downgrade(rows: list[dict]) -> list[dict]:
+    # Heuristic only — async tests need transaction=True for the async/sync ORM boundary, so exclude them.
+    # Survivors are CANDIDATES; confirm each by swapping to TestCase and re-running before converting.
     out = []
     for r in rows:
-        if not r.get("is_txn") or not is_passing(r):
+        if not r.get("is_txn") or r.get("is_async") or not is_passing(r):
             continue
         if r.get("on_commit", 0) == 0 and not r.get("for_update") and len(used_aliases(r)) <= 1:
             out.append(r)

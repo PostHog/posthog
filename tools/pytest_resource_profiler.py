@@ -35,6 +35,7 @@ from __future__ import annotations
 import os
 import json
 import time
+import inspect
 import contextlib
 from pathlib import Path
 
@@ -112,6 +113,12 @@ def _ch_provisioned(cls) -> bool:
     return any("Clickhouse" in a.__name__ or "ClickHouse" in a.__name__ for a in cls.__mro__)
 
 
+def _is_async(item: pytest.Item) -> bool:
+    """Async tests often need transaction=True for the async/sync ORM boundary — never a txn-downgrade."""
+    func = getattr(item, "function", None) or getattr(item, "obj", None)
+    return bool(func) and inspect.iscoroutinefunction(func)
+
+
 def _new_record(item: pytest.Item) -> dict:
     cls = getattr(item, "cls", None)
     return {
@@ -119,6 +126,7 @@ def _new_record(item: pytest.Item) -> dict:
         "file": str(item.path) if getattr(item, "path", None) else "",
         "base": _testcase_base(cls),
         "is_txn": _is_txn(item, cls),
+        "is_async": _is_async(item),
         "db_enabled": _db_enabled(item, cls),
         "declared_dbs": _declared_dbs(cls),
         "ch_provisioned": _ch_provisioned(cls),
