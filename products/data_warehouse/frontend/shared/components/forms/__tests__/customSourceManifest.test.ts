@@ -793,4 +793,13 @@ describe('oauth2 manifest round-trip', () => {
         const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(bodyManifest))) as any
         expect(rebuilt.client.auth.client_auth_method).toBeUndefined()
     })
+
+    it('coerces token-param values to strings and drops non-scalars to match the backend dict[str, str]', () => {
+        // A hand/AI-authored manifest with non-string values would otherwise round-trip verbatim and
+        // fail backend validation; normalize scalars to strings and drop nested objects in the builder.
+        const manifest = JSON.parse(oauth2Manifest)
+        manifest.client.auth.extra_token_request_params = { audience: 'x', retries: 3, nested: { a: 1 } }
+        const rebuilt = buildManifest(parseManifestIntoState(JSON.stringify(manifest))) as any
+        expect(rebuilt.client.auth.extra_token_request_params).toEqual({ audience: 'x', retries: '3' })
+    })
 })

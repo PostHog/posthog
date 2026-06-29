@@ -764,7 +764,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
         if isinstance(probe_auth, OAuth2Auth):
             try:
-                probe_auth._obtain_token()
+                # Bound the inline token exchange to the same budget as the data probe — this runs
+                # on the API request thread, so a stalled token endpoint must fail fast (well within
+                # the request's idle timeout) rather than block for the generous sync-time read.
+                probe_auth._obtain_token(timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
             except OAuth2AuthRequestError as exc:
                 if exc.is_permanent:
                     return False, _redact_secrets(

@@ -8,6 +8,8 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    _TOKEN_CONNECT_TIMEOUT,
+    _TOKEN_READ_TIMEOUT,
     OAuth2Auth,
     OAuth2AuthRequestError,
 )
@@ -228,6 +230,20 @@ class TestOAuth2Auth(SimpleTestCase):
         )
         _apply_auth(auth)
         assert mock_session.return_value.post.call_args.kwargs["headers"] == {"X-Tenant": "acme"}
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_obtain_token_default_and_explicit_timeout(self, mock_session):
+        # The sync path uses the generous default; the create-time pre-mint passes a tighter budget
+        # so a stalled token endpoint can't pin the inline API request thread for the full read.
+        mock_session.return_value.post.return_value = _token_response(payload={"access_token": "t", "expires_in": 60})
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        _apply_auth(auth)
+        assert mock_session.return_value.post.call_args.kwargs["timeout"] == (
+            _TOKEN_CONNECT_TIMEOUT,
+            _TOKEN_READ_TIMEOUT,
+        )
+        auth._obtain_token(timeout=(3, 7))
+        assert mock_session.return_value.post.call_args.kwargs["timeout"] == (3, 7)
 
     @parameterized.expand(
         [

@@ -169,8 +169,8 @@ export interface ManifestState {
     // Advanced dict knobs with no dedicated builder UI (e.g. Auth0's `audience`, custom token
     // headers). Carried verbatim through parse → build, like `passthrough_params` for tables,
     // so an AI-drafted or hand-authored manifest doesn't lose them when edited in the builder.
-    oauth2_extra_token_request_params: Record<string, unknown>
-    oauth2_token_request_headers: Record<string, unknown>
+    oauth2_extra_token_request_params: Record<string, string>
+    oauth2_token_request_headers: Record<string, string>
     headers: HeaderEntry[]
     tables: TableForm[]
 }
@@ -507,6 +507,22 @@ function asString(value: unknown, fallback = ''): string {
     return typeof value === 'string' ? value : fallback
 }
 
+// OAuth2 token-request params/headers are string-valued by definition (form body params and HTTP
+// header values). Coerce scalar values to string and drop non-scalars so the parsed state matches
+// the backend's `dict[str, str]` — a non-string value from a hand/AI-authored manifest is normalized
+// here instead of silently round-tripping into a backend validation error.
+function asStringRecord(value: unknown): Record<string, string> {
+    const result: Record<string, string> = {}
+    for (const [key, raw] of Object.entries(asObject(value))) {
+        if (typeof raw === 'string') {
+            result[key] = raw
+        } else if (typeof raw === 'number' || typeof raw === 'boolean') {
+            result[key] = String(raw)
+        }
+    }
+    return result
+}
+
 export function parseManifestIntoState(rawJson: string | undefined): ManifestState {
     if (!rawJson) {
         return defaultState()
@@ -568,8 +584,8 @@ export function parseManifestIntoState(rawJson: string | undefined): ManifestSta
         oauth2_expires_in_name: asString(auth.expires_in_name),
         oauth2_expiry_date_format: asString(auth.expiry_date_format),
         oauth2_client_auth_method: oauth2ClientAuthMethod,
-        oauth2_extra_token_request_params: asObject(auth.extra_token_request_params),
-        oauth2_token_request_headers: asObject(auth.token_request_headers),
+        oauth2_extra_token_request_params: asStringRecord(auth.extra_token_request_params),
+        oauth2_token_request_headers: asStringRecord(auth.token_request_headers),
         headers,
         tables,
     }

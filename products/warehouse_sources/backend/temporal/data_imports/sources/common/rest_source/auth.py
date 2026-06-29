@@ -214,7 +214,7 @@ class OAuth2Auth(BearerTokenAuth):
             body.update(self.extra_token_request_params)
         return body
 
-    def _obtain_token(self) -> None:
+    def _obtain_token(self, timeout: Optional[tuple[float, float]] = None) -> None:
         if not self.token_url:
             raise OAuth2AuthRequestError("A token_url is required to obtain an OAuth2 access token", is_permanent=True)
         body = self._build_token_request_body()
@@ -230,12 +230,15 @@ class OAuth2Auth(BearerTokenAuth):
             capture=False,
             retry=Retry(total=0),
         )
+        # `timeout` lets the create-time pre-mint pass a tighter budget than the sync default:
+        # the pre-mint runs inline on the API request thread, so it must stay within the same
+        # bound as the data probe rather than blocking for the full sync-time read timeout.
         response = session.post(
             self.token_url,
             data=body,
             auth=basic_auth,
             headers=self.token_request_headers or None,
-            timeout=(_TOKEN_CONNECT_TIMEOUT, _TOKEN_READ_TIMEOUT),
+            timeout=timeout or (_TOKEN_CONNECT_TIMEOUT, _TOKEN_READ_TIMEOUT),
         )
         if 200 <= response.status_code < 300:
             self._apply_token_response(response)

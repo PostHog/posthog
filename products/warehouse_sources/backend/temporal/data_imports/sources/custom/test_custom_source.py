@@ -554,7 +554,7 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         # (and the static client_secret) are both registered for redaction on the data probe.
         mock_session.return_value.request.return_value = MagicMock(status_code=200)
 
-        def fake_mint(self_auth):
+        def fake_mint(self_auth, timeout=None):
             self_auth.token = "minted-xyz"
             self_auth.token_expiry = datetime.now(UTC) + timedelta(hours=1)
 
