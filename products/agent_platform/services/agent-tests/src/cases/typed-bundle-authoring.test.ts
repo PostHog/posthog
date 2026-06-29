@@ -586,7 +586,7 @@ describe('typed bundle authoring API: real e2e', () => {
             expect(typeof res.body.duration_ms).toBe('number')
         })
 
-        it('surfaces a tool-thrown error as ok:false with the error code', async () => {
+        it('surfaces a tool-thrown error as ok:false, passing the dispatcher code through', async () => {
             const rid = await newDraft(c)
             await putGoodTool(
                 rid,
@@ -602,7 +602,42 @@ describe('typed bundle authoring API: real e2e', () => {
                 .send({ args: {} })
                 .expect(200)
             expect(res.body.ok).toBe(false)
+            // The dispatcher catches the throw and returns ok:false with its
+            // own structured code (in-process → `exception`; docker/modal →
+            // dispatcher-specific). The janitor passes that code through
+            // verbatim — it does NOT overwrite with `sandbox_invoke_failed`,
+            // because that code is reserved for invocations that threw
+            // OUT of the sandbox (infrastructure failure, not tool code).
+            expect(res.body.error.code).not.toBe('sandbox_invoke_failed')
+            expect(res.body.error.code).not.toBe('sandbox_acquire_failed')
             expect(res.body.error.message).toContain('boom')
+        })
+
+        it('captures duration_ms on every path (success, tool-throw)', async () => {
+            // Same `duration_ms` contract on both ok:true and ok:false paths —
+            // measured after sandbox release in the finally block so the two
+            // numbers are comparable.
+            const rid = await newDraft(c)
+            await putGoodTool(rid, 'fast', GOOD_TOOL_SOURCE)
+            await putGoodTool(
+                rid,
+                'fast-thrower',
+                `export default { actions: { default: async () => { throw new Error('x') } } }`
+            )
+            const okRes = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/fast/dry_run`)
+                .send({ args: {} })
+                .expect(200)
+            const throwRes = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/fast-thrower/dry_run`)
+                .send({ args: {} })
+                .expect(200)
+            expect(okRes.body.ok).toBe(true)
+            expect(throwRes.body.ok).toBe(false)
+            expect(typeof okRes.body.duration_ms).toBe('number')
+            expect(typeof throwRes.body.duration_ms).toBe('number')
+            expect(okRes.body.duration_ms).toBeGreaterThanOrEqual(0)
+            expect(throwRes.body.duration_ms).toBeGreaterThanOrEqual(0)
         })
 
         it('plumbs mock_secrets into ctx.secrets.ref(name)', async () => {

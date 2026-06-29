@@ -423,59 +423,75 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             const sessionId = `dry-run-${randomUUID()}`
             const startedAt = Date.now()
 
+            // Build the response in stages so `duration_ms` is captured
+            // consistently — after `release()` runs in the finally — on
+            // every path (acquire failure, invoke throw, invoke not-ok,
+            // invoke ok). Each failure mode gets its own stable `code`
+            // so authors can tell infrastructure problems
+            // (`sandbox_acquire_failed`) from tool-side problems
+            // (`sandbox_invoke_failed`, or the dispatcher's own code on
+            // an `ok:false` invoke result like `secret_not_provisioned`
+            // / `timeout`).
+            let status = 200
+            let body: {
+                ok: boolean
+                result?: unknown
+                error?: { code: string; message: string }
+            } = { ok: false, error: { code: 'dry_run_unknown', message: 'no response produced' } }
+            let sandbox: Awaited<ReturnType<SandboxPool['acquireForSession']>> | undefined
+
             try {
-                const sandbox = await opts.sandboxes.acquireForSession({
-                    sessionId,
-                    teamId: app.team_id,
-                    tools: [
-                        {
-                            id: toolId,
-                            compiledJs,
-                            schemaJson,
-                        },
-                    ],
-                    nonces: parsed.data.mock_secrets ?? {},
-                    sessionTimeoutMs: wallMs,
-                    limits: { wallMs, memoryMb },
-                })
                 try {
-                    const invokeResult = await sandbox.invoke({
-                        toolId,
-                        action: 'default',
-                        args: parsed.data.args,
-                        timeoutMs: wallMs,
+                    sandbox = await opts.sandboxes.acquireForSession({
+                        sessionId,
+                        teamId: app.team_id,
+                        tools: [
+                            {
+                                id: toolId,
+                                compiledJs,
+                                schemaJson,
+                            },
+                        ],
+                        nonces: parsed.data.mock_secrets ?? {},
+                        sessionTimeoutMs: wallMs,
+                        limits: { wallMs, memoryMb },
                     })
-                    const durationMs = Date.now() - startedAt
-                    if (invokeResult.ok) {
-                        res.json({
-                            ok: true,
-                            tool_id: toolId,
-                            result: invokeResult.result,
-                            duration_ms: durationMs,
-                        })
-                    } else {
-                        res.json({
-                            ok: false,
-                            tool_id: toolId,
-                            error: invokeResult.error,
-                            duration_ms: durationMs,
-                        })
+                } catch (err) {
+                    status = 500
+                    body = {
+                        ok: false,
+                        error: { code: 'sandbox_acquire_failed', message: (err as Error).message },
                     }
-                } finally {
+                }
+                if (sandbox) {
+                    try {
+                        const invokeResult = await sandbox.invoke({
+                            toolId,
+                            action: 'default',
+                            args: parsed.data.args,
+                            timeoutMs: wallMs,
+                        })
+                        body = invokeResult.ok
+                            ? { ok: true, result: invokeResult.result }
+                            : { ok: false, error: invokeResult.error }
+                    } catch (err) {
+                        status = 500
+                        body = {
+                            ok: false,
+                            error: { code: 'sandbox_invoke_failed', message: (err as Error).message },
+                        }
+                    }
+                }
+            } finally {
+                if (sandbox) {
                     await opts.sandboxes.release(sessionId).catch(() => {
                         // Sandbox release is best-effort cleanup; the sweep
                         // reaper catches anything we miss. Don't let a slow
                         // release surface as a request failure.
                     })
                 }
-            } catch (err) {
                 const durationMs = Date.now() - startedAt
-                res.status(500).json({
-                    ok: false,
-                    tool_id: toolId,
-                    error: { code: 'sandbox_invoke_failed', message: (err as Error).message },
-                    duration_ms: durationMs,
-                })
+                res.status(status).json({ tool_id: toolId, ...body, duration_ms: durationMs })
             }
         })
     )

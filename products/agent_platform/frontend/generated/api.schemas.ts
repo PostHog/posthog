@@ -1245,7 +1245,7 @@ export interface DryRunToolRequestApi {
 }
 
 export interface AgentRevisionDryRunToolErrorApi {
-    /** Stable error code: `timeout`, `secret_not_provisioned`, `tool_invoke_failed`, etc. */
+    /** Stable error code. `sandbox_acquire_failed` — the platform could not start a sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the sandbox started but the invoke threw uncaught (problem in the tool body, or a runtime error). Dispatcher-side codes come through on `ok:false` invoke results: `timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`. */
     code: string
     /** One-line human-readable detail. */
     message: string
@@ -1259,7 +1259,7 @@ export interface AgentRevisionDryRunToolResponseApi {
     /** Present on success — the value the tool's `actions.default` returned. */
     result?: unknown
     error?: AgentRevisionDryRunToolErrorApi
-    /** Wall-clock duration of the invocation, including sandbox acquire + release. Always present. */
+    /** Wall-clock duration in milliseconds, measured from sandbox acquire to after release. Captured consistently across success, tool-throw, and acquire-failure paths so authors can compare timings between calls. Always present. */
     duration_ms: number
 }
 

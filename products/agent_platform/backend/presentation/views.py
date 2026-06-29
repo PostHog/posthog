@@ -2180,14 +2180,24 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                         name="AgentRevisionDryRunToolError",
                         fields={
                             "code": drf_serializers.CharField(
-                                help_text="Stable error code: `timeout`, `secret_not_provisioned`, `tool_invoke_failed`, etc."
+                                help_text=(
+                                    "Stable error code. `sandbox_acquire_failed` — the platform could not start a "
+                                    "sandbox (infrastructure issue, not tool code). `sandbox_invoke_failed` — the "
+                                    "sandbox started but the invoke threw uncaught (problem in the tool body, or a "
+                                    "runtime error). Dispatcher-side codes come through on `ok:false` invoke results: "
+                                    "`timeout`, `secret_not_provisioned`, `action_not_found`, `tool_not_found`."
+                                )
                             ),
                             "message": drf_serializers.CharField(help_text="One-line human-readable detail."),
                         },
                         required=False,
                     ),
                     "duration_ms": drf_serializers.IntegerField(
-                        help_text="Wall-clock duration of the invocation, including sandbox acquire + release. Always present."
+                        help_text=(
+                            "Wall-clock duration in milliseconds, measured from sandbox acquire to after release. "
+                            "Captured consistently across success, tool-throw, and acquire-failure paths so authors "
+                            "can compare timings between calls. Always present."
+                        )
                     ),
                 },
             )
