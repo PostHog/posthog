@@ -1128,7 +1128,8 @@ class FinageSourceConfig(config.Config):
 
 @config.config
 class FinancialModellingSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
