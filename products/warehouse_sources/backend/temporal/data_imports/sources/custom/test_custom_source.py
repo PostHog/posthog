@@ -1,7 +1,7 @@
 import io
 import gzip
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
 
@@ -18,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     APIKeyAuth,
     BearerTokenAuth,
     HttpBasicAuth,
+    OAuth2Auth,
+    OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
@@ -178,6 +180,25 @@ class TestValidateManifest(SimpleTestCase):
             ("token", {"type": "bearer", "token": "leaked"}),
             ("api_key", {"type": "api_key", "api_key": "leaked"}),
             ("password", {"type": "http_basic", "username": "alice", "password": "leaked"}),
+            (
+                "client_secret",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "client_secret": "leaked",
+                },
+            ),
+            (
+                "refresh_token",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "grant_type": "refresh_token",
+                    "refresh_token": "leaked",
+                },
+            ),
         ]
     )
     def test_rejects_inline_credentials(self, _name, auth):
@@ -188,6 +209,42 @@ class TestValidateManifest(SimpleTestCase):
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
         assert "must not be embedded" in str(ctx.exception)
+
+    def test_accepts_valid_oauth2_manifest(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+            "grant_type": "client_credentials",
+        }
+        validate_manifest(manifest)
+
+    @parameterized.expand(
+        [
+            ("missing_client_id", {"type": "oauth2", "token_url": "https://auth.example.com/t"}),
+            ("missing_token_url", {"type": "oauth2", "client_id": "cid"}),
+        ]
+    )
+    def test_rejects_oauth2_missing_required_fields(self, _name, auth):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = auth
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "OAuth2 auth requires" in str(ctx.exception)
+
+    def test_rejects_oauth2_authorization_code_grant(self):
+        # authorization_code needs an interactive consent flow — out of scope for headless syncs.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/t",
+            "grant_type": "authorization_code",
+        }
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "grant_type" in str(ctx.exception)
 
 
 class TestValidateManifestUrls(SimpleTestCase):
@@ -247,6 +304,46 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert ok, err
 
+    @parameterized.expand(
+        [
+            ("https_loopback", "https://127.0.0.1/oauth2/token"),
+            ("https_imds", "https://169.254.169.254/token"),
+            ("http_public", "http://auth.example.com/token"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (
+            host not in {"127.0.0.1", "169.254.169.254"},
+            None if host not in {"127.0.0.1", "169.254.169.254"} else "blocked",
+        ),
+    )
+    def test_rejects_unsafe_or_http_oauth2_token_url(self, _name: str, token_url: str, _mock):
+        # The token endpoint is vetted like base_url — internal/private hosts and plaintext
+        # http on Cloud are rejected (defense-in-depth alongside the Smokescreen egress proxy).
+        # base_url's host is allowed by the stub so the token_url check is the one under test.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "oauth2", "client_id": "cid", "token_url": token_url}
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "token_url" in (err or "")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (True, None),
+    )
+    def test_accepts_safe_https_oauth2_token_url(self, _mock):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/oauth2/token",
+        }
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert ok, err
+
 
 class TestCustomSourceAssembleManifest(SimpleTestCase):
     def test_rejects_invalid_json(self):
@@ -293,6 +390,44 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
         assembled = source._assemble_manifest(config)
         assert "token" not in assembled["client"]["auth"]
+
+    def test_injects_oauth2_secrets_and_preserves_manifest_fields(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+            "grant_type": "refresh_token",
+            "scopes": "read:users",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_oauth2_client_secret="cs_secret",
+            auth_oauth2_refresh_token="rt_secret",
+        )
+        auth = source._assemble_manifest(config)["client"]["auth"]
+        # Secrets injected from the config fields...
+        assert auth["client_secret"] == "cs_secret"
+        assert auth["refresh_token"] == "rt_secret"
+        # ...and the non-secret manifest fields left intact.
+        assert auth["client_id"] == "cid"
+        assert auth["token_url"] == "https://auth.example.com/token"
+        assert auth["grant_type"] == "refresh_token"
+        assert auth["scopes"] == "read:users"
+
+    def test_oauth2_leaves_secrets_absent_when_not_provided(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        auth = source._assemble_manifest(config)["client"]["auth"]
+        assert "client_secret" not in auth
+        assert "refresh_token" not in auth
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):
@@ -346,6 +481,16 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
         assert schema.incremental_fields[0]["field_type"] == expected
 
 
+def _oauth2_manifest() -> dict:
+    manifest = _minimal_manifest()
+    manifest["client"]["auth"] = {
+        "type": "oauth2",
+        "client_id": "cid",
+        "token_url": "https://auth.example.com/oauth2/token",
+    }
+    return manifest
+
+
 class TestCustomSourceValidateCredentials(SimpleTestCase):
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_returns_true_on_2xx(self, mock_session):
@@ -357,6 +502,59 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
         assert err is None
+
+    @patch.object(
+        OAuth2Auth,
+        "_obtain_token",
+        side_effect=OAuth2AuthRequestError(
+            "HTTP 401 from the OAuth2 token endpoint: invalid_client: bad creds",
+            error_code="invalid_client",
+            is_permanent=True,
+        ),
+    )
+    def test_oauth2_probe_permanent_token_error_blocks_with_clear_message(self, _mock_mint):
+        # A bad client_secret / token_url must fail at create time with a pointed token-endpoint
+        # message — not the generic "resource unreachable" of the data probe.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "OAuth2 token endpoint rejected" in (err or "")
+        assert "invalid_client" in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch.object(
+        OAuth2Auth,
+        "_obtain_token",
+        side_effect=OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False),
+    )
+    def test_oauth2_probe_transient_token_error_does_not_block(self, _mock_mint, mock_session):
+        # A 429 / 5xx at the token endpoint during the create-time probe is transient — it must
+        # not block creation; the first real sync retries it.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200)
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
+        # The pre-mint runs before the probe session is built, so the freshly-minted access token
+        # (and the static client_secret) are both registered for redaction on the data probe.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200)
+
+        def fake_mint(self_auth):
+            self_auth.token = "minted-xyz"
+            self_auth.token_expiry = datetime.now(UTC) + timedelta(hours=1)
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs_secret")
+        with patch.object(OAuth2Auth, "_obtain_token", autospec=True, side_effect=fake_mint):
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        redact = mock_session.call_args.kwargs["redact_values"]
+        assert "cs_secret" in redact
+        assert "minted-xyz" in redact
 
     @parameterized.expand([401, 403])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
@@ -752,6 +950,35 @@ class TestManifestRequestHosts(SimpleTestCase):
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
 
+    def test_oauth2_token_url_host_is_tracked(self):
+        # The token endpoint receives the stored client_secret, so its host must be in the
+        # re-entry set — otherwise an editor who can't read the secret could repoint token_url
+        # at a host they control while keeping the secret, exfiltrating it past the gate.
+        manifest = json.dumps(
+            {
+                "client": {
+                    "base_url": "https://api.example.com",
+                    "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.other.net/oauth2/token"},
+                },
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "auth.other.net"})
+
+    def test_non_oauth2_auth_token_url_is_ignored(self):
+        # A stray token_url on a non-oauth2 auth is inert (no credential goes there), so it
+        # must not register a host and trigger spurious re-entry prompts.
+        manifest = json.dumps(
+            {
+                "client": {
+                    "base_url": "https://api.example.com",
+                    "auth": {"type": "bearer", "token_url": "https://auth.other.net/token"},
+                },
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
+
 
 class TestCustomSourceSourceForPipeline(SimpleTestCase):
     def test_invalid_manifest_raises_non_retryable(self):
@@ -891,6 +1118,18 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
 
         assert "not found in config" in str(ctx.exception)
         assert "not found in config" in CustomSource().get_non_retryable_errors()
+
+    @parameterized.expand(["invalid_client", "invalid_grant"])
+    def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
+        # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
+        # standard error code in OAuth2Auth's failure message, and the classifier matches that
+        # substring so the job fails fast instead of burning its whole retry budget.
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert error_code in non_retryable
+        message = OAuth2AuthRequestError(
+            f"HTTP 401 from the OAuth2 token endpoint: {error_code}: nope", error_code=error_code, is_permanent=True
+        )
+        assert any(key in str(message) for key in non_retryable)
 
 
 def _fanout_manifest() -> dict:

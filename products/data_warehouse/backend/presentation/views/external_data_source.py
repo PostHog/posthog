@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import uuid
 import dataclasses
 from collections.abc import Callable
@@ -74,6 +75,7 @@ from products.data_warehouse.backend.facade.api import (
     is_any_external_data_schema_paused,
     is_cdc_enabled_for_team,
     is_custom_source_ai_builder_enabled_for_team,
+    is_custom_source_oauth2_enabled_for_team,
     is_multi_schema_capable_sql_source,
     is_xmin_enabled_for_team,
     reconcile_mysql_schemas,
@@ -471,6 +473,7 @@ DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE = (
 )
 # Engines surfaced on a direct connection's `connection_metadata.engine` (duckdb backs direct Postgres).
 DIRECT_CONNECTION_ENGINE_CHOICES = ["duckdb", "postgres", "mysql", "snowflake"]
+CUSTOM_SOURCE_OAUTH2_DISABLED_MESSAGE = "OAuth2 auth for custom sources isn't enabled for your organization yet."
 
 
 def count_active_custom_sources(team_id: int) -> int:
@@ -479,6 +482,26 @@ def count_active_custom_sources(team_id: int) -> int:
         .exclude(deleted=True)
         .count()
     )
+
+
+def manifest_declares_oauth2(manifest_json: Any) -> bool:
+    """True when a custom source manifest's `client.auth.type` is `oauth2`.
+
+    Used to gate the oauth2 auth type behind its own rollout flag, separate from the
+    custom source flag. Returns False for anything unparseable — the structural
+    manifest validation rejects malformed manifests elsewhere.
+    """
+    if not isinstance(manifest_json, str):
+        return False
+    try:
+        manifest = json.loads(manifest_json)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(manifest, dict):
+        return False
+    client = manifest.get("client")
+    auth = client.get("auth") if isinstance(client, dict) else None
+    return isinstance(auth, dict) and auth.get("type") == "oauth2"
 
 
 class ExternalDataSourceRevenueAnalyticsConfigSerializer(serializers.ModelSerializer):
@@ -903,6 +926,18 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         source = SourceRegistry.get_source(source_type_model)
         sensitive_fields = get_sensitive_field_names(source.get_source_config.fields)
         discovered_schemas: list[SourceSchema] | None = None
+
+        # The oauth2 auth type rolls out behind its own flag. Block an edit that switches an
+        # existing custom source to oauth2 while the flag is off — the gate fires only when the
+        # edit introduces oauth2, so a source that already uses it isn't trapped from other edits.
+        if (
+            source_type_model == ExternalDataSourceType.CUSTOM
+            and "manifest_json" in incoming_job_inputs
+            and manifest_declares_oauth2(incoming_job_inputs.get("manifest_json"))
+            and not manifest_declares_oauth2(existing_job_inputs.get("manifest_json"))
+            and not is_custom_source_oauth2_enabled_for_team(instance.team)
+        ):
+            raise ValidationError(CUSTOM_SOURCE_OAUTH2_DISABLED_MESSAGE)
 
         new_job_inputs = {**existing_job_inputs, **incoming_job_inputs}
 
@@ -1690,6 +1725,17 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": CUSTOM_SOURCE_LIMIT_MESSAGE},
+            )
+        # The oauth2 auth type rolls out behind its own flag, separate from the custom
+        # source flag — reject a manifest that declares it while the flag is off.
+        if (
+            source_type_model == ExternalDataSourceType.CUSTOM
+            and manifest_declares_oauth2((payload or {}).get("manifest_json"))
+            and not is_custom_source_oauth2_enabled_for_team(self.team)
+        ):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": CUSTOM_SOURCE_OAUTH2_DISABLED_MESSAGE},
             )
         source = SourceRegistry.get_source(source_type_model)
         if skip_credential_validation:

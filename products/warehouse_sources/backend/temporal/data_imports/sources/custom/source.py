@@ -40,7 +40,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     RESTAPIConfig,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAuth2Auth,
+    OAuth2AuthRequestError,
+    auth_secret_values,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
     build_resource_dependency_graph,
     create_auth,
@@ -61,7 +65,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
-INLINE_SECRET_KEYS = ("token", "api_key", "password")
+INLINE_SECRET_KEYS = ("token", "api_key", "password", "client_secret", "refresh_token", "access_token")
 
 logger = structlog.get_logger(__name__)
 
@@ -118,10 +122,27 @@ class _ManifestAuth(BaseModel):
     # engine's `create_auth` with an unexpected-kwarg TypeError at sync time.
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["bearer", "api_key", "http_basic"]
+    type: Literal["bearer", "api_key", "http_basic", "oauth2"]
     name: str | None = None
     location: Literal["header", "query", "param", "cookie"] | None = None
     username: str | None = None
+    # OAuth2 (non-secret) fields. The customer brings their own client: client_id /
+    # token_url and the extensibility knobs live in the manifest, while client_secret /
+    # refresh_token are injected from the secret auth_oauth2_* config fields at sync time.
+    # `authorization_code` is out of scope (needs an interactive consent flow), so the
+    # grant Literal admits only the two non-interactive grants — a manifest declaring any
+    # other grant fails validation here. Every field is optional so the non-oauth2 types
+    # are unaffected; the after-validator enforces what oauth2 actually requires.
+    client_id: str | None = None
+    token_url: str | None = None
+    grant_type: Literal["client_credentials", "refresh_token"] | None = None
+    scopes: str | None = None
+    access_token_name: str | None = None
+    expires_in_name: str | None = None
+    expiry_date_format: str | None = None
+    extra_token_request_params: dict[str, str] | None = None
+    token_request_headers: dict[str, str] | None = None
+    client_auth_method: Literal["body", "basic"] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -135,6 +156,17 @@ class _ManifestAuth(BaseModel):
                     f"Credentials ({', '.join(inline)}) must not be embedded — use the dedicated auth fields"
                 )
         return data
+
+    @model_validator(mode="after")
+    def _require_oauth2_fields(self) -> "_ManifestAuth":
+        # client_id + token_url are the minimum a customer-owned OAuth2 client needs;
+        # without them the token exchange can't run. (client_secret is a separate
+        # secret field, so it isn't required here.)
+        if self.type == "oauth2":
+            missing = [field for field in ("client_id", "token_url") if not getattr(self, field)]
+            if missing:
+                raise ValueError(f"OAuth2 auth requires {' and '.join(missing)} in the manifest")
+        return self
 
 
 class _ManifestClient(BaseModel):
@@ -355,6 +387,19 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     if not ok:
         return False, f"Invalid base_url: {err}"
 
+    # The OAuth2 token endpoint is a second customer-controlled host that receives the
+    # client_secret. Vet it like base_url: https-on-Cloud + internal-host rejection.
+    # Defense-in-depth (Smokescreen already guards egress); the load-bearing control
+    # against repointing token_url to exfiltrate the secret is the re-entry gate, which
+    # sees token_url via manifest_request_hosts.
+    auth = manifest["client"].get("auth")
+    if isinstance(auth, dict) and auth.get("type") == "oauth2":
+        token_url = auth.get("token_url")
+        if isinstance(token_url, str):
+            ok, err = _check_url(token_url, team_id)
+            if not ok:
+                return False, f"Invalid token_url: {err}"
+
     base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
         # Resolve exactly as the engine will (so a whitespace/case-disguised absolute path
@@ -455,6 +500,17 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
             resolved = _endpoint_request_url(base_for_resolve, endpoint)
             if resolved is not None:
                 urls.append(resolved)
+
+    # The OAuth2 token endpoint receives the stored client_secret, so it's a request
+    # destination the re-entry gate must track: an editor who can't read the secret
+    # must not be able to repoint token_url at a host they control while keeping the
+    # secret. It's a literal URL (not a path template), so add its host directly —
+    # don't run the path-resolution logic on it.
+    auth = client.get("auth") if isinstance(client, dict) else None
+    if isinstance(auth, dict) and auth.get("type") == "oauth2":
+        token_url = auth.get("token_url")
+        if isinstance(token_url, str):
+            urls.append(token_url)
 
     # `_url_hostname` returns an already-lowercased host.
     hosts = {host for url in urls if (host := _url_hostname(url))}
@@ -560,7 +616,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         placeholder="",
                         secret=False,
                     ),
-                    # One of the three is used per sync, selected by the manifest's
+                    # One credential is used per sync, selected by the manifest's
                     # client.auth.type. All secret so the generic API layer redacts them.
                     SourceFieldInputConfig(
                         name="auth_token",
@@ -586,6 +642,27 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         placeholder="",
                         secret=True,
                     ),
+                    # OAuth2 (auth.type == "oauth2"): the customer's own client secret and,
+                    # for the refresh_token grant, their pre-obtained refresh token. Both
+                    # secret so the generic API layer redacts them and the re-entry gate
+                    # covers them. The non-secret oauth fields (client_id / token_url / …)
+                    # live in manifest_json.
+                    SourceFieldInputConfig(
+                        name="auth_oauth2_client_secret",
+                        label="OAuth2 client secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="auth_oauth2_refresh_token",
+                        label="OAuth2 refresh token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
                 ],
             ),
         )
@@ -598,6 +675,11 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.
             "not found in config": "A table in this sync points to a resource that no longer exists in the source's manifest. Re-add the resource to the manifest, or remove the table from the sync, then try again.",
+            # The OAuth2 token endpoint rejected the client credentials or the grant. Both are
+            # permanent until the config changes — retrying the sync can't fix them. Match the
+            # standard OAuth2 error codes, which OAuth2Auth surfaces in the failure message.
+            "invalid_client": "The OAuth2 token endpoint rejected the client credentials (invalid_client). Check the configured client_id, client secret, and token URL.",
+            "invalid_grant": "The OAuth2 token endpoint rejected the grant (invalid_grant) — a refresh token may have expired or been revoked. Re-enter the OAuth2 credentials.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -660,6 +742,26 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except (ValueError, TypeError) as exc:
             return False, f"Invalid auth configuration: {exc}"
 
+        # OAuth2 mints its access token lazily on the first request, so pre-mint it now —
+        # a bad client_secret / token_url then fails with a pointed "the OAuth2 token
+        # endpoint rejected the request: …" instead of a misleading "resource unreachable"
+        # on the first data probe. Minting before the probe session is built also lets the
+        # freshly-minted access token join that session's redaction set. A transient
+        # (429 / 5xx) token error must not block creation — the first real sync retries —
+        # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
+        if isinstance(probe_auth, OAuth2Auth):
+            try:
+                probe_auth._obtain_token()
+            except OAuth2AuthRequestError as exc:
+                if exc.is_permanent:
+                    return False, f"The OAuth2 token endpoint rejected the request: {exc}"
+            except Exception as exc:
+                # Redact the credential defensively — a transport-layer exception shouldn't carry
+                # the secret, but the redaction discipline is cheap and uniform here.
+                return False, _redact_secrets(
+                    f"Could not reach the OAuth2 token endpoint: {exc}", auth_secret_values(probe_auth)
+                )
+
         # The probe runs inline on the request thread, so keep it cheap and
         # bounded: no retries (don't multiply outbound volume at create time),
         # no redirects (Smokescreen re-resolves each hop; keep the credential
@@ -717,7 +819,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
                         f"HTTP {response.status_code} from {url} — check the configured auth credentials."
                     )
-                    snippet = _read_capped_text(response)
+                    # Redact the credential from the echoed body before surfacing it: an upstream
+                    # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
+                    # its 401/403 error, and the snippet would otherwise leak it into a user message.
+                    snippet = _redact_secrets(_read_capped_text(response), auth_secret_values(probe_auth))
                     if snippet:
                         message += f" The upstream responded: {snippet}"
                     return False, message
@@ -1157,6 +1262,14 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
         auth["api_key"] = config.auth_api_key
     elif auth_type == "http_basic" and config.auth_password:
         auth["password"] = config.auth_password
+    elif auth_type == "oauth2":
+        # The non-secret oauth fields (client_id / token_url / grant_type / knobs) are
+        # already in the manifest; inject only the secrets. client_credentials needs just
+        # the client_secret; the refresh_token grant also needs the refresh token.
+        if config.auth_oauth2_client_secret:
+            auth["client_secret"] = config.auth_oauth2_client_secret
+        if config.auth_oauth2_refresh_token:
+            auth["refresh_token"] = config.auth_oauth2_refresh_token
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:
