@@ -145,10 +145,10 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
             link_schema(self.team, self.source, name=schema, table=table)
             self.tables[schema] = table
 
-    def _schema_as_runner_builds_it(self, user: Any) -> Database:
-        # Capture the principal the real curated runner forwards, then rebuild the schema with it under
-        # the flag -- so this follows whatever run() passes (user / access control), not a hard-coded shape.
-        uac = UserAccessControl(user=user, team=self.team)
+    def _schema_as_runner_builds_it(self, user_access_control: UserAccessControl | None) -> tuple[Database, dict]:
+        # Capture the principal the real curated runner forwards for this access control, then rebuild the
+        # schema with it under the flag -- so this follows whatever run() passes (user / access control /
+        # bypass), not a hard-coded shape. Returns the schema and the captured kwargs.
         captured: dict = {}
 
         def _capture(*_args: Any, **kwargs: Any) -> SimpleNamespace:
@@ -156,7 +156,7 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
             return SimpleNamespace(results=[])
 
         with mock.patch(_EXECUTE_HOGQL, side_effect=_capture):
-            CuratedGitHubSource.for_team(self.team, user_access_control=uac).run(
+            CuratedGitHubSource.for_team(self.team, user_access_control=user_access_control).run(
                 "SELECT 1", query_type="engineering_analytics.test"
             )
 
@@ -164,20 +164,20 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
             return key == "hogql-warehouse-access-control"
 
         with mock.patch(_FLAG, side_effect=_flag_enabled):
-            return Database.create_for(
+            database = Database.create_for(
                 team=self.team,
                 user=captured.get("user"),
                 user_access_control=captured.get("user_access_control"),
                 bypass_warehouse_access_control=captured.get("bypass_warehouse_access_control", False),
             )
+        return database, captured
 
     def test_member_with_default_access_keeps_github_tables(self) -> None:
         # A normal member (no explicit restriction) defaults to editor on the warehouse tables, so the
         # forwarded user keeps all three GitHub tables in the schema -- the read works under the flag.
-        tables = resolve_github_tables(
-            team=self.team, user_access_control=UserAccessControl(self.editor_user, self.team)
-        )
-        database = self._schema_as_runner_builds_it(self.editor_user)
+        uac = UserAccessControl(self.editor_user, self.team)
+        tables = resolve_github_tables(team=self.team, user_access_control=uac)
+        database, _ = self._schema_as_runner_builds_it(uac)
 
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
@@ -193,10 +193,21 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
             resource_id=str(self.tables[WORKFLOW_RUNS_SCHEMA].id),
             access_level="none",
         )
-        tables = resolve_github_tables(
-            team=self.team, user_access_control=UserAccessControl(self.no_access_user, self.team)
-        )
-        database = self._schema_as_runner_builds_it(self.no_access_user)
+        uac = UserAccessControl(self.no_access_user, self.team)
+        tables = resolve_github_tables(team=self.team, user_access_control=uac)
+        database, _ = self._schema_as_runner_builds_it(uac)
 
         assert not database.has_table(tables.workflow_runs)
         assert database.has_table(tables.pull_requests)
+
+    def test_userless_system_read_bypasses_acl_and_keeps_tables(self) -> None:
+        # The facade documents a userless path (user_access_control=None) for system / Temporal / CLI
+        # callers. There is no principal to honor the table ACL with, so the runner bypasses it rather
+        # than fail closed and strip the tables under the flag.
+        tables = resolve_github_tables(team=self.team)
+        database, captured = self._schema_as_runner_builds_it(None)
+
+        assert captured.get("bypass_warehouse_access_control") is True
+        assert database.has_table(tables.pull_requests)
+        assert database.has_table(tables.workflow_runs)
+        assert database.has_table(tables.workflow_jobs)

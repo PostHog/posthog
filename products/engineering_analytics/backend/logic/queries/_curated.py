@@ -170,15 +170,15 @@ class CuratedGitHubSource:
     ) -> HogQLQueryResponse:
         """Parse + execute a curated HogQL query for this team.
 
-        Passes the requesting user's ``user_access_control`` into execution so HogQL honors the per-table
-        warehouse ACL once the ``hogql-warehouse-access-control`` flag is on — the pattern the data
-        warehouse team intends for request-driven reads (a userless build fails closed and strips every
-        warehouse table). Access is enforced twice over: the resolver (``for_team``) already filtered the
-        source to what this user may read, and now the table-level ACL is honored too, so a user denied a
-        backing ``DataWarehouseTable`` is blocked rather than let through. Every curated read is
-        request-driven (the views thread the user through), so there is no userless caller to fail closed;
-        a future system/Temporal context that needs to read would pass its own principal or opt into
-        ``bypass_warehouse_access_control`` for that narrow call (the warehouse team's escape hatch).
+        Mirrors the two paths the data warehouse team intends for ``hogql-warehouse-access-control``
+        (#61686). Request-driven reads (the common case — the views thread the requesting user through)
+        forward that user so HogQL honors the per-table warehouse ACL: access is enforced twice over —
+        the resolver (``for_team``) already filtered the source to what this user may read, and now the
+        table-level ACL is honored too, so a user denied a backing ``DataWarehouseTable`` is blocked
+        rather than let through. The facade also documents a userless path (``user_access_control=None``)
+        for system / Temporal / CLI contexts; that build has no user to honor the ACL with and would fail
+        closed (strip every warehouse table), so those reads bypass it — the warehouse team's sanctioned
+        escape hatch for userless callers.
         """
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
@@ -186,10 +186,13 @@ class CuratedGitHubSource:
                 query=parse_select(sql, placeholders=placeholders),
                 team=self._team,
                 query_type=query_type,
-                # Forward the real user, not just the access control: a userless database build drops the
-                # access control and fails closed (see _compute_system_table_access_decision), stripping
-                # every warehouse table. Passing the user (with its preloaded access control) is what lets
-                # HogQL honor the per-table warehouse ACL on these reads.
+                # Forward the real user, not just the access control: a userless build drops the access
+                # control and fails closed (see _compute_system_table_access_decision), so the user is what
+                # lets HogQL honor the per-table warehouse ACL.
                 user=uac.user if uac is not None else None,
                 user_access_control=uac,
+                # No user means a system / Temporal / CLI caller (the facade's documented userless path).
+                # There is no principal to honor the ACL with, so bypass it rather than fail closed and
+                # strip the tables — bypass is set ONLY in this genuinely userless case.
+                bypass_warehouse_access_control=uac is None,
             )
