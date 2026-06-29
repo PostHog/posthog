@@ -1769,19 +1769,20 @@ class TestPrinter(BaseTest):
                 "single_column",
                 "SELECT s.platform_group FROM (SELECT 1 AS platform_group) AS s "
                 "LEFT JOIN (SELECT 1 AS platform_group) AS platform USING (platform_group)",
-                "ON equals(s.platform_group, platform.platform_group)",
+                "USING (platform_group)",
             ),
             (
                 "multi_column",
                 "SELECT a.x FROM (SELECT 1 AS x, 2 AS y) AS a INNER JOIN (SELECT 1 AS x, 2 AS y) AS b USING (x, y)",
-                "ON and(equals(a.x, b.x), equals(a.y, b.y))",
+                "USING (x, y)",
             ),
         ],
     )
-    def test_join_using_is_lowered_to_qualified_on(self, _name: str, query: str, expected_on: str):
-        # ClickHouse's analyzer rejects table-qualified columns inside USING (Code 47); the printer must
-        # lower USING to an ON with both sides qualified so the right relation can resolve the column.
-        self.assertIn(expected_on, self._select(query))
+    def test_join_using_prints_bare_identifiers(self, _name: str, query: str, expected_using: str):
+        # ClickHouse's analyzer rejects table-qualified columns inside USING (Code 47). The resolver binds
+        # each USING field to the left table, so the printer must strip that qualification and emit bare
+        # identifiers — not rewrite the join to ON — when there's no guard predicate to fold in.
+        self.assertIn(expected_using, self._select(query))
 
     def test_left_join_using_retains_team_id_guard(self):
         # Lowering USING to ON must still fold the LEFT-JOIN team_id guard into the ON clause, otherwise
