@@ -1,5 +1,6 @@
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
 import type { BaseServerConfig } from '../servers/base-server'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
 
@@ -32,6 +33,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
+    cdp_cyclotron_worker_email_legacy_pg = 'cdp-cyclotron-worker-email-legacy-pg',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -39,6 +41,7 @@ export enum PluginServerMode {
     ingestion_error_tracking = 'ingestion-errortracking',
     ingestion_metrics = 'ingestion-metrics',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     cdp_rerun_worker = 'cdp-rerun-worker',
     recording_api = 'recording-api',

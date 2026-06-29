@@ -393,8 +393,8 @@ export interface SignalScoutConfigApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
-     * @minimum 10
+     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
@@ -423,8 +423,8 @@ export interface SignalScoutConfigCreateApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. Defaults to true. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). Defaults to 1440 (every 24 hours).
-     * @minimum 10
+     * Minutes between runs (30–43200). Defaults to 1440 (every 24 hours).
+     * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
@@ -449,8 +449,8 @@ export interface PatchedSignalScoutConfigApi {
     /** Whether the scout writes findings to the inbox. False = dry-run: it runs and logs but emits nothing. */
     emit?: boolean
     /**
-     * Minutes between runs (10–43200). The scout runs once this interval has elapsed since its last run.
-     * @minimum 10
+     * Minutes between runs (30–43200). The scout runs once this interval has elapsed since its last run.
+     * @minimum 30
      * @maximum 43200
      */
     run_interval_minutes?: number
@@ -1106,6 +1106,10 @@ export interface SignalScoutRunSummaryApi {
     emitted_count: number
     /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
     emitted_finding_ids: string[]
+    /** The `SignalReport` ids this run authored directly via the `emit_report` channel, in emit order. Separate from `emitted_finding_ids` (weak `emit_signal` findings) — a report-authoring scout writes a full report here instead. Empty for runs that authored no report. */
+    emitted_report_ids: string[]
+    /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
+    edited_report_ids: string[]
 }
 
 /**
@@ -1162,6 +1166,43 @@ export interface SignalScoutRunDetailApi {
     emitted_count: number
     /** The `finding_id`s behind `emitted_count`, in emit order. Each maps to a `Signal` with `source_id = run:<run_id>:finding:<finding_id>`. Empty for non-emitting runs. */
     emitted_finding_ids: string[]
+    /** The `SignalReport` ids this run authored directly via the `emit_report` channel, in emit order. Separate from `emitted_finding_ids` (weak `emit_signal` findings) — a report-authoring scout writes a full report here instead. Empty for runs that authored no report. */
+    emitted_report_ids: string[]
+    /** The `SignalReport` ids this run mutated via the `edit_report` channel (rewrote title/summary and/or appended a note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are generally not reports the run authored. Empty for runs that edited no report. */
+    edited_report_ids: string[]
+}
+
+/**
+ * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
+ */
+export interface EditReportRequestApi {
+    /** Id of the report to edit (must belong to this project). */
+    report_id: string
+    /**
+     * Optional new title. Conventional-commit style (`type(scope): description`) renders with type/scope styling. The pipeline may later re-research and overwrite it.
+     * @maxLength 300
+     * @nullable
+     */
+    title?: string | null
+    /**
+     * Optional new summary. Markdown is supported (headings, lists, code, links; images are not rendered); lead with one plain declarative sentence — it becomes the inbox card headline. The pipeline may later re-research and overwrite it.
+     * @nullable
+     */
+    summary?: string | null
+    /**
+     * Optional free-form note to append to the report's work log (attributed to this scout).
+     * @nullable
+     */
+    append_note?: string | null
+}
+
+export interface EditReportResponseApi {
+    /** Id of the edited report. */
+    report_id: string
+    /** Which presentation fields changed (e.g. `title`, `summary`); empty if only a note was appended. */
+    updated_fields: string[]
+    /** Whether a note artefact was appended. */
+    note_appended: boolean
 }
 
 /**
@@ -1253,6 +1294,107 @@ export interface ScoutEmissionReportLinkApi {
     source_id: string
     /** The inbox report this finding linked to, or null if none could be resolved. */
     report: LinkedSignalReportApi | null
+}
+
+/**
+ * One observation backing an authored report — becomes a bound signal row on the report.
+ */
+export interface ReportEvidenceApi {
+    /** Prose for this observation. Embedded and rendered to the safety/research surfaces. */
+    description: string
+    /** Stable id for this observation within the report (lets a later edit address it). */
+    source_id: string
+    /**
+     * Optional per-signal weight (defaults to 1.0). Scouts rarely need to set this.
+     * @minimum 0
+     */
+    weight?: number
+}
+
+/**
+ * * `immediately_actionable` - immediately_actionable
+ * * `requires_human_input` - requires_human_input
+ * * `not_actionable` - not_actionable
+ */
+export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
+
+export const ActionabilityEnumApi = {
+    ImmediatelyActionable: 'immediately_actionable',
+    RequiresHumanInput: 'requires_human_input',
+    NotActionable: 'not_actionable',
+} as const
+
+/**
+ * Request body for `emit-report`. Run attribution is taken from the URL path.
+ */
+export interface EmitReportRequestApi {
+    /**
+     * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
+     * @maxLength 300
+     */
+    title: string
+    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. */
+    summary: string
+    /**
+     * The observations backing the report — each becomes a bound signal. At least one.
+     * @minItems 1
+     */
+    evidence: ReportEvidenceApi[]
+    /** 2-3 sentence evidence-grounded justification for the actionability call below. */
+    actionability_explanation: string
+    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless.
+     *
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable */
+    actionability: ActionabilityEnumApi
+    /** Whether the issue already appears fixed in recent changes (tracked separately). */
+    already_addressed?: boolean
+    /**
+     * Optional repo for autostart (opening a draft PR): `owner/repo` targets that repo, the `NO_REPO` sentinel opts out (report lands without a PR), and omitting it triggers free-form selection across the team's repos — the slow path on a many-repo team, so pass `owner/repo` when you know it.
+     * @nullable
+     */
+    repository?: string | null
+    /** Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority?: AutonomyPriorityEnumApi | null
+    /**
+     * 2-3 sentence justification for `priority`. Required when `priority` is set.
+     * @nullable
+     */
+    priority_explanation?: string | null
+    /** Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path. */
+    suggested_reviewers?: string[]
+}
+
+export interface EmitReportResponseApi {
+    /**
+     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+     * @nullable
+     */
+    report_id: string | null
+    /**
+     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+     * @nullable
+     */
+    report_status: string | null
+    /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
+    emitted: boolean
+    /**
+     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+     * @nullable
+     */
+    skipped_reason: string | null
+    /**
+     * When the safety judge suppressed the report, why; null when safe.
+     * @nullable
+     */
+    safety_explanation: string | null
 }
 
 /**
@@ -1385,7 +1527,7 @@ export interface ScratchpadEntryApi {
  */
 export interface RememberRequestApi {
     /**
-     * Agent-chosen semantic key. Re-using a key updates the existing entry in place.
+     * Agent-chosen semantic key, unique per team; re-using a key overwrites the entry in place. Key off the *stable identity* of what you're tracking — never embed a date, timestamp, or run id (that mints a new row every run and breaks dedupe). For run state/cursors, use one fixed key and keep the timestamp in `content`.
      * @maxLength 300
      */
     key: string

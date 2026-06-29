@@ -56,7 +56,7 @@ function makeRev(
         state: 'live',
         bundle_uri: 's3://',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x', tools: toolRefs, skills, mcps }),
+        spec: AgentSpecSchema.parse({ model: 'test/x', tools: toolRefs, skills, mcps }),
         encrypted_env: null,
     }
 }
@@ -130,7 +130,6 @@ function makeSession(): AgentSession {
         retry_count: 0,
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         usage_total: { ...EMPTY_USAGE_TOTAL },
         created_at: '2026-05-27',
         updated_at: '2026-05-27',
@@ -216,6 +215,28 @@ describe('buildAgentTools', () => {
         )
         const built = await buildAgentTools(rev, makeDeps(rev))
         expect(built.tools.map((t) => t.label)).toContain('@posthog/identity-connect')
+    })
+
+    describe('@posthog/web-search gating', () => {
+        const rev = makeRev([{ kind: 'native', id: '@posthog/web-search' }])
+
+        it('drops the tool when no providers are configured', async () => {
+            const built = await buildAgentTools(rev, makeDeps(rev))
+            expect(built.tools.map((t) => t.label)).not.toContain('@posthog/web-search')
+        })
+
+        it('drops the tool when the provider chain is empty', async () => {
+            const built = await buildAgentTools(rev, makeDeps(rev, { webSearchProviders: [] }))
+            expect(built.tools.map((t) => t.label)).not.toContain('@posthog/web-search')
+        })
+
+        it('includes the tool when at least one provider is configured', async () => {
+            const built = await buildAgentTools(
+                rev,
+                makeDeps(rev, { webSearchProviders: [{ name: 'exa', search: async () => [] }] })
+            )
+            expect(built.tools.map((t) => t.label)).toContain('@posthog/web-search')
+        })
     })
 
     it('maps provider-safe names back to original ids', async () => {
@@ -334,38 +355,6 @@ describe('buildAgentTools', () => {
         const tool = byId(built, 'fetch-acme')
         expect(tool.description).toBe('Fetch from Acme')
         expect(tool.parameters).toEqual({ type: 'object', properties: { name: { type: 'string' } } })
-    })
-
-    describe('preview-mode side-effect suppression', () => {
-        const previewSession = (): AgentSession => ({ ...makeSession(), is_preview: true })
-
-        it('suppresses MCP calls in preview — returns synthetic, never reaches the remote', async () => {
-            const ref: McpRef = { id: 'linear', url: 'https://example.com/linear', secrets: [] }
-            // Handler throws if invoked; suppression must short-circuit before
-            // callTool, so a thrown handler error never surfaces.
-            const mcp = makeFakeMcp('linear', ref, {
-                'create-issue': {
-                    description: 'Open a new Linear issue.',
-                    handler: async () => {
-                        throw new Error('remote MCP must not be called in preview')
-                    },
-                },
-            })
-            const rev = makeRev([], [], [ref])
-            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp], session: previewSession() }))
-            const result = await byId(built, 'linear__create-issue').execute('c1', { title: 'x' })
-            expect(result.details?.output).toEqual({ preview_skipped: true, tool: 'linear__create-issue' })
-        })
-
-        it('suppresses custom-tool calls in preview before touching the sandbox', async () => {
-            // With no sandbox wired, a live custom tool throws "requires a
-            // sandbox"; in preview it must short-circuit to the synthetic skip
-            // first, proving suppression runs ahead of any sandbox access.
-            const rev = makeRev([{ kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' }])
-            const built = await buildAgentTools(rev, makeDeps(rev, { sandbox: null, session: previewSession() }))
-            const result = await byId(built, 'fetch-acme').execute('c1', { name: 'world' })
-            expect(result.details?.output).toEqual({ preview_skipped: true, tool: 'fetch-acme' })
-        })
     })
 
     describe('mcp tools', () => {

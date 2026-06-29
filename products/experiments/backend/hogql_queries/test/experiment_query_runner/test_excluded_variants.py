@@ -25,18 +25,17 @@ class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            # name, extra_variants, attach_holdout, parameters
-            ("excluded_variant_dropped", ["test-2"], False, {"excluded_variants": ["test-2"]}),
-            ("no_exclusions_unchanged", [], False, {}),
-            ("none_parameters_unchanged", [], False, None),
-            ("empty_excluded_variants_unchanged", [], False, {"excluded_variants": []}),
-            ("holdout_and_excluded_both_filtered", ["test-2"], True, {"excluded_variants": ["test-2"]}),
-            ("holdout_attached", [], True, "unset"),
-            ("excluded_variants_naming_holdout_is_idempotent", [], True, {"excluded_variants": [_HOLDOUT_KEY]}),
+            # name, extra_variants, attach_holdout, excluded_variants ("unset" leaves the column as None)
+            ("excluded_variant_dropped", ["test-2"], False, ["test-2"]),
+            ("empty_exclusions", [], False, []),
+            ("column_unset", [], False, "unset"),
+            ("holdout_and_excluded_both_filtered", ["test-2"], True, ["test-2"]),
+            ("holdout_attached_no_exclusions", [], True, "unset"),
+            ("excluded_variants_naming_holdout_is_idempotent", [], True, [_HOLDOUT_KEY]),
         ]
     )
     @freeze_time("2020-01-01T12:00:00Z")
-    def test_runner_variant_filtering(self, name, extra_variants, attach_holdout, parameters):
+    def test_runner_variant_filtering(self, name, extra_variants, attach_holdout, excluded_variants):
         feature_flag = self.create_feature_flag(key=f"{name.replace('_', '-')}-test")
         for index, variant_key in enumerate(extra_variants):
             feature_flag.filters["multivariate"]["variants"].append(
@@ -56,18 +55,11 @@ class TestExcludedVariants(ExperimentQueryRunnerBaseTest):
             )
             experiment.holdout = holdout
 
-        if parameters != "unset":
-            resolved = parameters
-            if isinstance(parameters, dict):
-                holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
-                resolved = {
-                    **parameters,
-                    "excluded_variants": [
-                        holdout_key if key == self._HOLDOUT_KEY else key
-                        for key in parameters.get("excluded_variants", [])
-                    ],
-                }
-            experiment.parameters = resolved
+        if excluded_variants != "unset":
+            holdout_key = f"holdout-{holdout.id}" if holdout is not None else self._HOLDOUT_KEY
+            experiment.excluded_variants = [
+                holdout_key if key == self._HOLDOUT_KEY else key for key in excluded_variants
+            ]
         experiment.save()
 
         runner = self._make_runner(experiment)

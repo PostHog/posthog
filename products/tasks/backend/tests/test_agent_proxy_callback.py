@@ -3,7 +3,7 @@ from typing import Any
 
 from unittest.mock import patch
 
-from django.test import TransactionTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from parameterized import parameterized
 
@@ -18,7 +18,7 @@ from products.tasks.backend.tests.test_api import TEST_RSA_PRIVATE_KEY
 
 
 @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
-class TestAgentProxyCallback(TransactionTestCase):
+class TestAgentProxyCallback(TestCase):
     def setUp(self) -> None:
         super().setUp()
         reset_sandbox_jwt_key_cache()

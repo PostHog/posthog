@@ -1,10 +1,10 @@
 import { URL } from 'url'
 
+import { parseJSON } from '~/common/utils/json-parse'
+import type { FetchResponse } from '~/common/utils/request'
 import { ProcessedPluginEvent } from '~/plugin-scaffold'
 import { Properties, RetryError } from '~/plugin-scaffold'
 
-import { parseJSON } from '../../../../utils/json-parse'
-import type { FetchResponse } from '../../../../utils/request'
 import { LegacyDestinationPluginMeta } from '../../types'
 
 export interface EventSink {

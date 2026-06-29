@@ -76,15 +76,16 @@ def test_scoped_temporal_preserves_function_metadata() -> None:
 
 
 def test_upstream_scoped_breaks_iscoroutinefunction_on_async_fn() -> None:
-    """Documents the upstream bug: posthoganalytics.scoped() wraps an async function
-    in a synchronous wrapper, defeating the iscoroutinefunction check Temporal uses
-    to dispatch activities."""
+    """Documents the upstream bug in older SDKs while tolerating fixed SDKs."""
 
     @posthoganalytics.scoped()
     async def my_activity(x: int) -> int:
         return x + 1
 
-    assert not inspect.iscoroutinefunction(my_activity)
+    if inspect.iscoroutinefunction(my_activity):
+        assert asyncio.run(my_activity(1)) == 2
+        return
+
     coro = my_activity(1)
     try:
         assert inspect.iscoroutine(coro)
@@ -93,15 +94,21 @@ def test_upstream_scoped_breaks_iscoroutinefunction_on_async_fn() -> None:
 
 
 def test_upstream_scoped_result_fails_json_encoding() -> None:
-    """Reproduce the exact production failure: an upstream-scoped async activity
-    returns an unawaited coroutine, and json.dumps raises the same TypeError that
-    appears in Temporal's payload-encoder traceback."""
+    """Reproduce the old SDK failure while tolerating async-aware scoped()."""
 
     @posthoganalytics.scoped()
     async def my_activity(x: int) -> int:
         return x + 1
 
     result = my_activity(1)
+    if inspect.iscoroutinefunction(my_activity):
+        try:
+            assert asyncio.run(result) == 2
+        finally:
+            if inspect.iscoroutine(result):
+                result.close()
+        return
+
     try:
         with pytest.raises(TypeError, match="coroutine"):
             json.dumps(result)

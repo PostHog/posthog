@@ -27,8 +27,8 @@ top-level `required` array.
 - `AGENT_SPEC_JSON_SCHEMA` — full shape, used for OpenAPI annotation so the
   MCP tool surface advertises every field plus its default.
 - `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — relaxed required list, used for
-  Django `validate_spec` so the same `{"model": "x"}` that zod accepts also
-  passes Django.
+  Django `validate_spec` so the same `{"model": "anthropic/claude-haiku-4-5"}`
+  that zod accepts also passes Django.
 """
 
 from __future__ import annotations
@@ -131,7 +131,107 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "properties": {
-        "model": {"type": "string", "minLength": 1},
+        # Model selection (mirrors `AgentSpecSchema.models`, default
+        # auto/medium). auto: platform resolves `level` to a cross-provider list
+        # at runtime. manual: author's explicit priority list.
+        "models": {
+            "description": (
+                "How this agent selects its model. `auto`: pick a quality/cost `level` and the platform "
+                "resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: "
+                "give an explicit priority-ordered `models` list (primary first). `optimize_for` governs "
+                "how the chosen model is treated across the session's turns."
+            ),
+            "default": {"mode": "auto", "level": "medium", "optimize_for": "cost"},
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "const": "auto"},
+                        "level": {
+                            "description": (
+                                "Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning "
+                                "jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded "
+                                "work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a "
+                                "priority-ordered cross-provider list at session start."
+                            ),
+                            "default": "medium",
+                            "type": "string",
+                            "enum": ["low", "medium", "high"],
+                        },
+                        "reasoning": {
+                            "description": (
+                                "Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … "
+                                "xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/"
+                                "spec default."
+                            ),
+                            "type": "string",
+                            "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                        },
+                        "optimize_for": {
+                            "description": (
+                                "Session model stability vs. resilience. `cost` (default): the first turn picks a "
+                                "working model and PINS it for the whole session — keeps the provider's prompt cache "
+                                "warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if "
+                                "the pinned model is down the turn fails rather than re-reading the whole context cold "
+                                "on another provider. `availability`: fail over to the next model when the session's "
+                                "model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` "
+                                "for long/expensive sessions, `availability` where uptime matters more than spend."
+                            ),
+                            "default": "cost",
+                            "type": "string",
+                            "enum": ["cost", "availability"],
+                        },
+                    },
+                    "required": ["mode"],
+                    "additionalProperties": False,
+                },
+                {
+                    "type": "object",
+                    "properties": {
+                        "mode": {"type": "string", "const": "manual"},
+                        "models": {
+                            "description": "Explicit priority-ordered fallback list — the runner tries entries in order (primary first).",
+                            "minItems": 1,
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "model": {
+                                        "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
+                                        "type": "string",
+                                        "minLength": 1,
+                                        # Mirror of `ModelIdSchema` in agent-shared/src/spec/spec.ts.
+                                        # `<provider>/<model-id>` — bare ids freeze fine but the
+                                        # gateway 400s on first session; reject at authoring time.
+                                        "pattern": r"^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$",
+                                    },
+                                    "reasoning": {
+                                        "description": "Per-model reasoning effort override (else the spec default).",
+                                        "type": "string",
+                                        "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                    },
+                                },
+                                "required": ["model"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        "optimize_for": {
+                            "description": (
+                                "Session model stability vs. resilience. `cost` (default): pin the first working model "
+                                "for the whole session (warm prompt cache, no mid-session failover). `availability`: "
+                                "fail over down this list when the session's model fails (survives outages, re-reads "
+                                "context cold)."
+                            ),
+                            "default": "cost",
+                            "type": "string",
+                            "enum": ["cost", "availability"],
+                        },
+                    },
+                    "required": ["mode", "models"],
+                    "additionalProperties": False,
+                },
+            ],
+        },
         "triggers": {
             "default": [],
             "type": "array",
@@ -302,7 +402,7 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                             "kind": {"type": "string", "const": "custom_template"},
                             "from_template": {"type": "string"},
                             "alias": {"type": "string"},
-                            "version": {"type": "integer", "minimum": 0},
+                            "version": {"type": "integer", "minimum": 1},
                         },
                         "required": ["kind", "from_template", "alias"],
                         "additionalProperties": False,
@@ -408,10 +508,15 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
                     "description": {"type": "string"},
                     # Registry lineage for a skill pinned from a template.
                     # Present on a draft spec; freeze resolves `from_template`,
-                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path.
+                    # assembles `skills/<alias>/SKILL.md`, and stamps id/path +
+                    # `source_version_id`. Allowed here so a forked frozen spec
+                    # (which carries the stamped provenance) round-trips through
+                    # the write path — authors can't set skills[] regardless, the
+                    # serializer pins it to the server value.
                     "from_template": {"type": "string"},
                     "alias": {"type": "string"},
-                    "version": {"type": "integer", "minimum": 0},
+                    "version": {"type": "integer", "minimum": 1},
+                    "source_version_id": {"type": "string"},
                 },
                 "required": ["id", "path"],
                 "additionalProperties": False,
@@ -533,7 +638,6 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "required": ["max_turns", "max_tool_calls", "max_wall_seconds", "max_memory_mb", "max_cpu_cores"],
             "additionalProperties": False,
         },
-        "entrypoint": {"default": "agent.md", "type": "string"},
         "reasoning": {"type": "string", "enum": ["minimal", "low", "medium", "high", "xhigh"]},
         "framework_prompt": {
             "type": "object",
@@ -572,15 +676,21 @@ _AGENT_SPEC_JSON_SCHEMA_RAW: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
+    # Structural required list (the RAW schema). Every entry here has a
+    # `default`, so `_relax_required_for_defaults` drops all of them from
+    # `AGENT_SPEC_JSON_SCHEMA_FOR_WRITE` — the schema authoring/validation
+    # actually runs against (serializers.validate_spec). So a spec may omit
+    # any of these, incl. `models`: the runner falls back to auto/medium.
+    # The old top-level `model` field is gone entirely; `models` replaces it.
+    # Mirror `AgentSpecSchema` in services/agent-shared/src/spec/spec.ts.
     "required": [
-        "model",
+        "models",
         "triggers",
         "tools",
         "mcps",
         "skills",
         "secrets",
         "limits",
-        "entrypoint",
     ],
     "additionalProperties": False,
 }

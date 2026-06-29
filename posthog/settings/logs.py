@@ -150,7 +150,7 @@ LOGGING = {
         },
         "posthog.auth.mfa": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "posthog.security.command_exec_audit": {"level": "INFO", "handlers": ["console"], "propagate": False},
-        "posthog.temporal.data_imports.pipelines.pipeline_v3.load": {
+        "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
             "propagate": False,

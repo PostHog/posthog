@@ -363,8 +363,7 @@ class TestWarehouseTableAccessControl(BaseTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -524,8 +523,7 @@ class TestWarehouseTableAccessControlFlagOff(BaseTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -570,8 +568,7 @@ class TestWarehouseAccessControlEndToEnd(BaseTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -667,7 +664,7 @@ class TestWarehouseViewAccessControl(BaseTest):
         super().setUp()
         from posthog.constants import AvailableFeature
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
@@ -756,8 +753,7 @@ class TestWarehouseViewAccessControl(BaseTest):
 
     def _materialize(self, view):
         """Attach a same-named backing DataWarehouseTable to a saved query, mirroring materialization."""
-        from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
         credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=self.team)
         backing_table = DataWarehouseTable.objects.create(

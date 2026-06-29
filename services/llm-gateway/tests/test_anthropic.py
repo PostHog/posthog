@@ -1,14 +1,17 @@
 import asyncio
 import os
 from collections.abc import AsyncIterator
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.datastructures import Headers
 
+from llm_gateway.api.anthropic import _is_anthropic_billing_block
+from llm_gateway.api.handler import ProviderError
 from llm_gateway.request_context import (
     extract_posthog_flags_from_headers,
     extract_posthog_properties_from_headers,
@@ -502,6 +505,160 @@ class TestAnthropicMessagesEndpoint:
         assert "provider" not in call_kwargs
         assert "use_bedrock_fallback" not in call_kwargs
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_routes_to_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch(
+            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_llm_call = AsyncMock(return_value=mock_response)
+            mock_make_call.return_value = mock_llm_call
+
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+            assert response.status_code == 200
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cf_model_routes_to_cloudflare_without_provider_header(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        provider_mock_response: dict,
+    ) -> None:
+        # Real scout case: the harness derives the provider header from the runtime (claude->anthropic)
+        # and never sends "cloudflare", so a claude-runtime scout on GLM arrives as provider="anthropic".
+        # Without id-based routing it would hit the real Anthropic API with a @cf/... model and 404.
+        # Tools are forwarded — the Anthropic->chat/completions adapter translates them (unlike Responses).
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=provider_mock_response)
+
+        with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=mock_response)
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/zai-org/glm-5.2",
+                        "messages": [{"role": "user", "content": "find issues"}],
+                        "tools": [
+                            {
+                                "name": "emit_signal",
+                                "description": "emit a finding",
+                                "input_schema": {"type": "object", "properties": {"title": {"type": "string"}}},
+                            }
+                        ],
+                    },
+                    # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                    headers={"Authorization": "Bearer phx_test_key"},
+                )
+
+        assert response.status_code == 200
+        mock_make_call.assert_called_once()
+        # Must never reach the real Anthropic path with a `@cf/` model.
+        mock_anthropic.assert_not_called()
+        forwarded = mock_make_call.return_value.call_args.kwargs
+        assert forwarded["model"] == "@cf/zai-org/glm-5.2"
+        assert forwarded["tools"][0]["name"] == "emit_signal"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_cloudflare_provider_streams_through_cloudflare(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+    ) -> None:
+        """Exercises the streaming branch of the Cloudflare Anthropic route end to end:
+        the routed llm_call returns an async iterator of Anthropic-shaped events,
+        format_sse_stream forwards them, and the gateway emits SSE chunks to the client.
+        """
+
+        async def fake_stream():
+            yield b'event: message_start\ndata: {"type":"message_start"}\n\n'
+            yield b'event: content_block_delta\ndata: {"type":"content_block_delta","delta":{"text":"hi"}}\n\n'
+            yield b'event: message_stop\ndata: {"type":"message_stop"}\n\n'
+
+        with patch(
+            "llm_gateway.api.anthropic.make_cloudflare_anthropic_call",
+        ) as mock_make_call:
+            mock_make_call.return_value = AsyncMock(return_value=fake_stream())
+
+            with patch(
+                "llm_gateway.api.anthropic.ensure_cloudflare_configured",
+                return_value=("https://api.cloudflare.com/ai/v1", "test-key"),
+            ):
+                with authenticated_client.stream(
+                    "POST",
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/moonshotai/kimi-k2.6",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                        "stream": True,
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                ) as response:
+                    assert response.status_code == 200
+                    body = "".join(response.iter_text())
+
+            assert "message_start" in body
+            assert "content_block_delta" in body
+            assert "message_stop" in body
+            mock_make_call.assert_called_once()
+            mock_anthropic.assert_not_called()
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        with patch("llm_gateway.api.anthropic.ensure_cloudflare_configured") as mock_ensure_configured:
+            with patch("llm_gateway.api.anthropic.make_cloudflare_anthropic_call") as mock_make_call:
+                response = authenticated_client.post(
+                    "/v1/messages",
+                    json={
+                        "model": "@cf/meta/llama-3.3-70b-instruct",
+                        "messages": [{"role": "user", "content": "Hello"}],
+                    },
+                    headers={
+                        "Authorization": "Bearer phx_test_key",
+                        "X-PostHog-Provider": "cloudflare",
+                    },
+                )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
+        # Rejection must happen before we hand the model off to CF, otherwise the
+        # gateway eats the real CF bill while billing the user $0.01 fallback.
+        mock_ensure_configured.assert_not_called()
+        mock_make_call.assert_not_called()
+
     def test_invalid_provider_header_returns_400(
         self,
         authenticated_client: TestClient,
@@ -515,7 +672,7 @@ class TestAnthropicMessagesEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -1037,7 +1194,66 @@ class TestAnthropicCountTokensEndpoint:
 
         assert response.status_code == 400
         assert response.json()["error"]["type"] == "invalid_request_error"
-        assert "Expected one of: anthropic, bedrock" in response.json()["error"]["message"]
+        assert "Expected one of: anthropic, bedrock, cloudflare" in response.json()["error"]["message"]
+
+    def test_cloudflare_provider_approximates_count(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/moonshotai/kimi-k2.6",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 200
+        # Don't lock the exact value — litellm's tokenizer is the source of truth.
+        # Just assert it's a positive integer so the Claude Agent SDK gets a usable budget.
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+
+    def test_cf_model_approximates_count_without_provider_header(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        # The claude-runtime scout calls count_tokens with provider="anthropic"; CF has no
+        # count_tokens endpoint, so route a @cf/ model by id and approximate rather than POST a
+        # @cf/... id to the real Anthropic count_tokens API (which would 404).
+        with patch("llm_gateway.api.anthropic._anthropic_count_tokens_impl") as mock_real_count:
+            response = authenticated_client.post(
+                "/v1/messages/count_tokens",
+                json={
+                    "model": "@cf/zai-org/glm-5.2",
+                    "messages": [{"role": "user", "content": "Hello"}],
+                },
+                # No X-PostHog-Provider header -> defaults to anthropic, as a claude-runtime scout sends.
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
+
+        assert response.status_code == 200
+        assert isinstance(response.json()["input_tokens"], int)
+        assert response.json()["input_tokens"] > 0
+        mock_real_count.assert_not_called()
+
+    def test_cloudflare_provider_rejects_unpriced_model(
+        self,
+        authenticated_client: TestClient,
+    ) -> None:
+        response = authenticated_client.post(
+            "/v1/messages/count_tokens",
+            json={
+                "model": "@cf/meta/llama-3.3-70b-instruct",
+                "messages": [{"role": "user", "content": "Hello"}],
+            },
+            headers={"Authorization": "Bearer phx_test_key", "X-PostHog-Provider": "cloudflare"},
+        )
+
+        assert response.status_code == 400
+        assert response.json()["error"]["type"] == "invalid_request_error"
+        assert "@cf/meta/llama-3.3-70b-instruct" in response.json()["error"]["message"]
 
     def test_invalid_fallback_header_returns_400(
         self,
@@ -1340,6 +1556,127 @@ class TestAnthropicCircuitBreakerIntegration:
         assert "context_management" in anthropic_kwargs
         assert "context_management" not in bedrock_kwargs
 
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_billing_block_with_fallback_routes_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        mock_response_dict: dict,
+    ) -> None:
+        """A workspace usage-limit / out-of-funds block arrives as HTTP 400 invalid_request_error,
+        not 5xx/429 — it must still fail over to Bedrock instead of being passed back to the caller."""
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=False)
+        error = Exception("billing")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-07-01 at 00:00 UTC."}}'  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+
+        bedrock_response = MagicMock()
+        bedrock_response.model_dump = MagicMock(return_value=mock_response_dict)
+        mock_anthropic.side_effect = [error, bedrock_response]
+
+        with patch(
+            "llm_gateway.api.anthropic.get_settings",
+            return_value=MagicMock(bedrock_region_name="us-east-1", request_timeout=300.0),
+        ):
+            response = authenticated_client.post(
+                "/v1/messages",
+                json=request_body,
+                headers={
+                    "Authorization": "Bearer phx_test_key",
+                    "X-PostHog-Use-Bedrock-Fallback": "true",
+                },
+            )
+
+        assert response.status_code == 200
+        breaker.record_outcome.assert_awaited_with(success=False)
+        assert mock_anthropic.call_count == 2
+        assert mock_anthropic.call_args_list[1].kwargs["model"] == "bedrock/us.anthropic.claude-opus-4-8"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_anthropic_billing_block_recorded_as_failure(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+        request_body: dict,
+    ) -> None:
+        """Even without the fallback header, a billing block is provider-attributable, so the breaker
+        must record it as a failure (so it can open) rather than as a caller-side success."""
+        breaker = install_breaker(bypass=False)
+        error = Exception("billing")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 400
+        breaker.record_outcome.assert_awaited_with(success=False)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_gateway_validation_400_does_not_poison_breaker(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """A gateway-generated unsupported-model 400 echoes the caller's model name. A crafted name
+        containing a billing phrase must NOT be recorded as an Anthropic provider failure — otherwise
+        an authenticated caller could open the shared circuit breaker (breaker poisoning)."""
+        breaker = install_breaker(bypass=False)
+        request_body = {"model": "gemini/credit balance is too low", "messages": [{"role": "user", "content": "Hi"}]}
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 400
+        assert mock_anthropic.call_count == 0  # rejected before any provider call
+        breaker.record_outcome.assert_awaited_with(success=True)
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_generic_400_not_routed_to_bedrock(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        install_breaker,
+    ) -> None:
+        """A genuinely malformed request (also HTTP 400 invalid_request_error) must NOT fail over —
+        Bedrock would reject it identically, so it stays a caller error and a breaker success."""
+        request_body = {"model": "claude-opus-4-8", "messages": [{"role": "user", "content": "Hi"}]}
+        breaker = install_breaker(bypass=False)
+        error = Exception("bad request")
+        error.status_code = 400  # type: ignore[attr-defined]
+        error.message = "prompt is too long: 1010381 tokens > 1000000 maximum"  # type: ignore[attr-defined]
+        error.type = "invalid_request_error"  # type: ignore[attr-defined]
+        mock_anthropic.side_effect = error
+
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=request_body,
+            headers={
+                "Authorization": "Bearer phx_test_key",
+                "X-PostHog-Use-Bedrock-Fallback": "true",
+            },
+        )
+
+        assert response.status_code == 400
+        assert mock_anthropic.call_count == 1
+        breaker.record_outcome.assert_awaited_with(success=True)
+
     def test_streaming_success_records_after_stream_completes(
         self,
         authenticated_client: TestClient,
@@ -1358,7 +1695,7 @@ class TestAnthropicCircuitBreakerIntegration:
         wrapped = _wrap_stream_with_breaker(StreamingResponse(ok_iter()), breaker)
 
         async def consume() -> list[bytes]:
-            return [chunk async for chunk in wrapped.body_iterator]
+            return cast(list[bytes], [chunk async for chunk in wrapped.body_iterator])
 
         chunks = asyncio.run(consume())
         assert len(chunks) == 2
@@ -1392,3 +1729,67 @@ class TestAnthropicCircuitBreakerIntegration:
 
         asyncio.run(consume())
         breaker.record_outcome.assert_awaited_with(success=False)
+
+
+class TestAnthropicBillingBlockDetection:
+    """`_is_anthropic_billing_block` must separate Anthropic's financial blocks (fail over to Bedrock)
+    from genuinely malformed requests (don't) — both arrive as HTTP 400 invalid_request_error, so the
+    only signal is the upstream message. Fixtures are real messages captured in production. Detection
+    is gated on ProviderError so a gateway-local 400 that echoes caller input can't be misread."""
+
+    @pytest.mark.parametrize(
+        "case,status_code,message,expected",
+        [
+            (
+                "workspace_usage_limit",
+                400,
+                '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified workspace API usage limits. You will regain access on 2026-07-01 at 00:00 UTC."}}',
+                True,
+            ),
+            (
+                "credit_balance_too_low",
+                400,
+                "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits.",
+                True,
+            ),
+            ("prompt_too_long", 400, "prompt is too long: 1010381 tokens > 1000000 maximum", False),
+            (
+                "image_dimensions",
+                400,
+                "messages.77.content.7.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 2000 pixels",
+                False,
+            ),
+            (
+                "bad_role_order",
+                400,
+                "messages.2: role 'system' must follow a 'user' message or an 'assistant' message ending in a server tool result",
+                False,
+            ),
+            ("could_not_process_image", 400, "Could not process image", False),
+            ("billing_text_but_5xx", 500, "Your credit balance is too low to access the Anthropic API.", False),
+        ],
+    )
+    def test_billing_block_detection(self, case: str, status_code: int, message: str, expected: bool) -> None:
+        exc = ProviderError(
+            status_code=status_code, detail={"error": {"message": message, "type": "invalid_request_error"}}
+        )
+        assert _is_anthropic_billing_block(exc) is expected
+
+    def test_non_dict_detail_is_not_billing(self) -> None:
+        assert _is_anthropic_billing_block(ProviderError(status_code=400, detail="opaque string")) is False
+
+    def test_gateway_origin_billing_text_is_not_billing(self) -> None:
+        """A gateway-local 400 (plain HTTPException, not ProviderError) that echoes a caller model
+        name containing a billing phrase must not be treated as a provider billing block — otherwise
+        a crafted model name could poison the shared circuit breaker."""
+        exc = HTTPException(
+            status_code=400,
+            detail={
+                "error": {
+                    "message": "Model 'gemini/credit balance is too low' is not supported by this gateway",
+                    "type": "invalid_request_error",
+                    "code": "model_not_supported",
+                }
+            },
+        )
+        assert _is_anthropic_billing_block(exc) is False

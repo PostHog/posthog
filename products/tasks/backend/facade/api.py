@@ -18,11 +18,11 @@ Functions that bridge to those heavy surfaces import them lazily inside the func
 import logging
 from collections.abc import Iterable, Sequence
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Any, Literal
 from uuid import UUID, uuid4
 
 from django.db import transaction
-from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, Subquery
+from django.db.models import CharField, Count, Exists, F, Min, OuterRef, Q, QuerySet, Subquery
 from django.db.models.fields.json import KeyTextTransform
 from django.utils import timezone as django_timezone
 
@@ -32,6 +32,7 @@ from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration
 
+from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.models import (
@@ -168,9 +169,9 @@ __all__ = [
     "start_task_run",
     "task_accessible_for_run_view",
     "task_exists",
+    "task_ids_with_pr_url_subquery",
     "task_run_has_slack_mapping",
     "task_run_is_terminal",
-    "task_run_pr_url_exists_subquery",
     "task_visible",
     "update_sandbox_environment",
     "update_task",
@@ -331,21 +332,29 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
     )
 
 
-def _task_detail_to_dto(task: Task, *, include_latest_run: bool = True) -> contracts.TaskDetailDTO:
-    """Map a ``Task`` to its HTTP detail DTO.
+class _LatestRunUnset:
+    pass
 
-    Mirrors ``TaskSerializer`` output exactly. ``latest_run`` is the task's most-recent run
-    (by ``created_at``) mapped to a ``TaskRunDetailDTO``; pass a queryset that has
-    ``prefetch_related("runs")`` and ``select_related("created_by")`` to avoid N+1s.
-    Set ``include_latest_run=False`` for consumers that render the task envelope without
-    nested run details.
-    """
-    latest_run = task.latest_run if include_latest_run else None
-    # Prefer a cheap `_latest_run_id` subquery annotation (conversation envelope); otherwise derive
-    # it from a populated nested run so the id is always consistent with `latest_run`.
+
+_LATEST_RUN_UNSET = _LatestRunUnset()
+
+
+def _task_detail_to_dto(
+    task: Task,
+    *,
+    include_latest_run: bool = True,
+    latest_run: TaskRun | None | _LatestRunUnset = _LATEST_RUN_UNSET,
+) -> contracts.TaskDetailDTO:
+    """Map a ``Task`` to its HTTP detail DTO."""
+    if not include_latest_run:
+        resolved_latest_run = None
+    elif isinstance(latest_run, _LatestRunUnset):
+        resolved_latest_run = task.latest_run
+    else:
+        resolved_latest_run = latest_run
     latest_run_id = getattr(task, "_latest_run_id", None)
-    if latest_run_id is None and latest_run is not None:
-        latest_run_id = latest_run.id
+    if latest_run_id is None and resolved_latest_run is not None:
+        latest_run_id = resolved_latest_run.id
     return contracts.TaskDetailDTO(
         id=task.id,
         task_number=task.task_number,
@@ -363,7 +372,7 @@ def _task_detail_to_dto(task: Task, *, include_latest_run: bool = True) -> contr
         archived=task.archived,
         archived_at=task.archived_at,
         ci_prompt=task.ci_prompt,
-        latest_run=_task_run_detail_to_dto(latest_run) if latest_run is not None else None,
+        latest_run=_task_run_detail_to_dto(resolved_latest_run) if resolved_latest_run is not None else None,
         created_at=task.created_at,
         updated_at=task.updated_at,
         created_by=_user_basic_info(task.created_by if task.created_by_id else None),
@@ -458,23 +467,29 @@ def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     return {str(row["task_id"]): row["output_pr_url_text"] for row in rows if row["output_pr_url_text"]}
 
 
-def task_run_pr_url_exists_subquery(*conditions: Q, **task_run_filter) -> Exists:
-    """``Exists`` over runs matching the supplied correlation that produced a non-empty output.pr_url.
+def task_ids_with_pr_url_subquery(team_id: int) -> QuerySet[TaskRun, Any]:
+    """A ``values('task_id')`` queryset of ``team_id``'s tasks that produced a non-empty ``output.pr_url``.
 
-    The caller supplies the report→run correlation as keyword lookups (e.g.
-    ``task__signal_report_tasks__report_id=OuterRef("id")``) and/or positional ``Q`` objects (e.g.
-    an ``OR`` of two ``task_id__in`` subqueries the caller builds). Returns a query expression to
-    embed in the caller's queryset — no ORM instances cross the boundary, and the tasks facade
-    stays free of the caller's domain.
+    For embedding in a caller's ``task_id__in=...`` lookup so the report→PR correlation can be
+    *decorrelated*: instead of a per-report ``Exists`` over runs, the caller drives off this small,
+    index-backed set (served by the partial ``task_run_output_pr_url_idx``) and joins outward to its
+    own report-association tables. Returns a query expression — no ORM instances cross the boundary.
+
+    Scoped to ``team_id`` so the set stays bounded to the request's tenant rather than scanning every
+    team's PR-bearing runs — associated runs are always same-team, so this drops no valid matches.
     """
-    return Exists(
-        TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter).exclude(output__pr_url="")
+    return (
+        TaskRun.objects.filter(team_id=team_id, output__pr_url__isnull=False)
+        .exclude(output__pr_url="")
+        .values("task_id")
     )
 
 
 def latest_task_run_pr_url_subquery(*conditions: Q, **task_run_filter) -> Subquery:
     """``Subquery`` of the latest non-empty output.pr_url for runs matching the supplied correlation
-    (keyword lookups and/or positional ``Q`` objects — see ``task_run_pr_url_exists_subquery``)."""
+    (keyword lookups and/or positional ``Q`` objects). Returns a query expression to embed in the
+    caller's queryset — no ORM instances cross the boundary, and the tasks facade stays free of the
+    caller's domain."""
     return Subquery(
         TaskRun.objects.filter(*conditions, output__pr_url__isnull=False, **task_run_filter)
         .exclude(output__pr_url="")
@@ -499,16 +514,24 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
-    """Ids of runs stuck in QUEUED with ``updated_at`` older than the cutoff.
+def get_stale_queued_task_run_ids(
+    older_than: timedelta,
+    limit: int,
+    *,
+    created_hard_cap: timedelta | None = None,
+    hard_cap_min_queued: timedelta = timedelta(hours=1),
+) -> list[UUID]:
+    """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
-    cutoff = django_timezone.now() - older_than
+    now = django_timezone.now()
+    stale = Q(updated_at__lt=now - older_than)
+    if created_hard_cap is not None:
+        stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     return list(
-        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
-        )
+        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+        .filter(stale)
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
     )
@@ -813,6 +836,22 @@ def is_valid_sandbox_env_var_key(key: str) -> bool:
     return SandboxEnvironment.is_valid_env_var_key(key)
 
 
+def is_blocked_sandbox_env_var_key(key: str) -> bool:
+    return is_blocked_sandbox_env_key(key)
+
+
+def is_reserved_sandbox_env_var_key(key: str) -> bool:
+    return key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS
+
+
+def _validate_user_sandbox_env_vars(environment_variables: dict | None) -> None:
+    for key in environment_variables or {}:
+        if not SandboxEnvironment.is_valid_env_var_key(key):
+            raise ValueError(f"Invalid environment variable key: {key!r}")
+        if is_blocked_sandbox_env_key(key) or key in RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS:
+            raise ValueError(f"Environment variable key {key!r} is not allowed")
+
+
 def _accessible_sandbox_envs(team_id: int, user_id: int):
     return (
         SandboxEnvironment.objects.filter(team_id=team_id)
@@ -845,6 +884,7 @@ def create_sandbox_environment(
     private: bool,
 ) -> contracts.SandboxEnvironmentDTO:
     """Create a team environment owned by the user and return it as a DTO."""
+    _validate_user_sandbox_env_vars(environment_variables)
     env = SandboxEnvironment.objects.create(
         team_id=team_id,
         created_by_id=user_id,
@@ -866,6 +906,8 @@ def update_sandbox_environment(
     env = _accessible_sandbox_envs(team_id, user_id).filter(pk=env_id).first()
     if env is None:
         return None
+    if "environment_variables" in fields:
+        _validate_user_sandbox_env_vars(fields["environment_variables"])
     for key, value in fields.items():
         setattr(env, key, value)
     env.save()
@@ -1214,6 +1256,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_agent_turn_failed,
+    )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -1281,6 +1326,8 @@ def update_task_run(
     update_automation_run_result(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if new_status == TaskRun.Status.FAILED:
+            observe_agent_turn_failed(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -1399,8 +1446,9 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
-) -> dict[str, str | int]:
-    return {
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
         "id": artifact_id,
         "name": name,
         "type": artifact_type,
@@ -1410,6 +1458,9 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
 
 
 def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storage_path: str) -> dict | None:
@@ -1460,6 +1511,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                metadata=artifact.get("metadata"),
             )
         )
         logger.info(
@@ -1516,19 +1568,20 @@ def prepare_task_run_artifact_uploads(
         if not presigned_post:
             return None, False
 
-        prepared.append(
-            {
-                "id": artifact_id,
-                "name": safe_name,
-                "type": artifact["type"],
-                "source": artifact.get("source") or "",
-                "size": artifact["size"],
-                "content_type": content_type,
-                "storage_path": storage_path,
-                "expires_in": upload_expiration_seconds,
-                "presigned_post": presigned_post,
-            }
-        )
+        prepared_artifact = {
+            "id": artifact_id,
+            "name": safe_name,
+            "type": artifact["type"],
+            "source": artifact.get("source") or "",
+            "size": artifact["size"],
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "expires_in": upload_expiration_seconds,
+            "presigned_post": presigned_post,
+        }
+        if metadata := artifact.get("metadata"):
+            prepared_artifact["metadata"] = metadata
+        prepared.append(prepared_artifact)
     return prepared, True
 
 
@@ -1594,6 +1647,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
         finalized_entries.append(entry)
@@ -2380,7 +2434,9 @@ def get_conversation_task_dtos(task_ids: Sequence[str | UUID], team_id: int) -> 
     if not task_ids:
         return {}
 
-    latest_run_id_sq = TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("id")[:1]
+    latest_run_id_sq = (
+        TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id").values("id")[:1]
+    )
     tasks = (
         Task.objects.filter(team_id=team_id, id__in=task_ids)
         .select_related("created_by", "team")
@@ -2414,16 +2470,11 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def list_tasks(
+def _list_tasks_queryset(
     team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
-) -> list[contracts.TaskDetailDTO]:
-    """All visible tasks for the team, mirroring ``TaskViewSet.safely_get_queryset`` for ``list``.
-
-    ``filters`` carries the request query params (origin_product, stage, organization, repository,
-    created_by, search, status, internal, archived). ``is_debug_or_staff`` gates the ``internal``
-    filter exactly as the original view did (``settings.DEBUG or request.user.is_staff``).
-    """
-    qs = _visible_task_qs(team_id, user_id).order_by("-created_at")
+) -> QuerySet[Task]:
+    latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
+    qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
 
     origin_product = filters.get("origin_product")
     if origin_product:
@@ -2431,7 +2482,8 @@ def list_tasks(
 
     stage = filters.get("stage")
     if stage:
-        qs = qs.filter(runs__stage=stage)
+        stage_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id, stage=stage)
+        qs = qs.filter(Exists(stage_run))
 
     organization = filters.get("organization")
     repository = filters.get("repository")
@@ -2463,9 +2515,7 @@ def list_tasks(
             qs = qs.filter(search_q)
 
     if status_filter:
-        latest_run_status = (
-            TaskRun.objects.filter(task=OuterRef("pk")).order_by("-created_at", "-id").values("status")[:1]
-        )
+        latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
     internal_param = filters.get("internal")
@@ -2482,14 +2532,45 @@ def list_tasks(
     else:
         qs = qs.filter(archived=False)
 
-    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").prefetch_related(
-        "runs"
+    qs = qs.select_related("created_by", "team", "github_integration", "github_user_integration").annotate(
+        _latest_run_id=Subquery(latest_run.values("id")[:1])
     )
 
-    if stage:
-        qs = qs.distinct()
+    return qs
 
-    return [_task_detail_to_dto(task) for task in qs]
+
+def _latest_runs_by_id(run_ids: Iterable[UUID], team_id: int) -> dict[UUID, TaskRun]:
+    unique_run_ids = list(dict.fromkeys(run_ids))
+    if not unique_run_ids:
+        return {}
+
+    return {run.id: run for run in TaskRun.objects.filter(id__in=unique_run_ids, team_id=team_id)}
+
+
+def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDetailDTO]:
+    task_list = list(tasks)
+    latest_run_ids_by_task_id = {
+        task.id: latest_run_id
+        for task in task_list
+        if (latest_run_id := getattr(task, "_latest_run_id", None)) is not None
+    }
+    latest_runs_by_id = _latest_runs_by_id(latest_run_ids_by_task_id.values(), team_id)
+
+    dtos = []
+    for task in task_list:
+        latest_run_id = latest_run_ids_by_task_id.get(task.id)
+        latest_run = latest_runs_by_id.get(latest_run_id) if latest_run_id is not None else None
+        dtos.append(_task_detail_to_dto(task, latest_run=latest_run))
+    return dtos
+
+
+def list_tasks(
+    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
+) -> list[contracts.TaskDetailDTO]:
+    """All visible tasks for the team as DTOs, mirroring the task list view filters."""
+    return _tasks_to_dtos(
+        _list_tasks_queryset(team_id, user_id, filters=filters, is_debug_or_staff=is_debug_or_staff), team_id
+    )
 
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
@@ -2511,7 +2592,7 @@ def get_task_summaries(team_id: int, user_id: int | None, *, ids: list) -> list[
     from django.db.models.functions import JSONObject  # noqa: PLC0415
 
     latest_run = (
-        TaskRun.objects.filter(task=OuterRef("pk"))
+        TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id)
         .order_by("-created_at", "-id")
         .annotate(_data=JSONObject(status="status", environment="environment"))
     )
@@ -2578,6 +2659,9 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
     validated_data.setdefault("origin_product", Task.OriginProduct.USER_CREATED)
     warm_branch_provided = "branch" in validated_data
     warm_branch = validated_data.pop("branch", None)
+    warm_runtime_adapter = validated_data.pop("runtime_adapter", None)
+    warm_model = validated_data.pop("model", None)
+    warm_reasoning_effort = validated_data.pop("reasoning_effort", None)
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
@@ -2588,7 +2672,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
         and validated_data.get("repository")
         and user_id is not None
     ):
-        warm_run = _find_idling_warm_run(team_id, user_id, repository=validated_data["repository"], branch=warm_branch)
+        warm_run = _find_idling_warm_run(
+            team_id,
+            user_id,
+            repository=validated_data["repository"],
+            branch=warm_branch,
+            runtime_adapter=warm_runtime_adapter,
+            model=warm_model,
+            reasoning_effort=warm_reasoning_effort,
+        )
         if warm_run is not None:
             warm_task = warm_run.task
             message = (validated_data.get("description") or "").strip()
@@ -2736,6 +2828,7 @@ def prepare_task_staged_artifacts(
                 storage_path=storage_path,
                 expires_in=upload_expiration_seconds,
                 presigned_post=presigned_post,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -2803,6 +2896,7 @@ def finalize_task_staged_artifacts(
                 size=content_length,
                 content_type=content_type,
                 storage_path=storage_path,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -2825,7 +2919,14 @@ def resolve_team_github_integration_id(team_id: int, github_integration_id: int)
 
 
 def _find_idling_warm_run(
-    team_id: int, user_id: int | None, *, repository: str | None, branch: str | None
+    team_id: int,
+    user_id: int | None,
+    *,
+    repository: str | None,
+    branch: str | None,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> TaskRun | None:
     """Most-recent idling pre-warmed Run matching this user's cloud composing selection, or ``None``.
 
@@ -2835,13 +2936,14 @@ def _find_idling_warm_run(
     live Run instead of spawning a second) and lets the normal create+run path transparently reuse a
     warm Run on submit. Team + user scoped; branch compared as ``None``-normalized exact match.
 
-    Runs on a hot path (warm fires on every typing debounce), so every predicate is pushed into the
-    query — ``await_user_message`` is JSON-queryable (see ``SandboxWarmer.at_capacity``) — and only the
-    single most-recent match is fetched.
+    Reuse also requires the warm Run's ``runtime_adapter``/``model``/``reasoning_effort`` to match the
+    requested selection (each ``None``-normalized); a mismatch returns ``None`` so the caller cold-creates
+    on the correct runtime. The repo/branch/``await_user_message`` predicates stay in the query; the
+    runtime selection is matched in Python over the small candidate set.
     """
     if user_id is None or not repository:
         return None
-    return (
+    candidates = (
         TaskRun.objects.filter(  # nosemgrep: idor-lookup-without-team — team_id filter applied via the task FK below
             task__team_id=team_id,
             task__created_by_id=user_id,
@@ -2853,9 +2955,15 @@ def _find_idling_warm_run(
         )
         .exclude(status__in=_TERMINAL_TASK_RUN_STATUSES)
         .select_related("task")
-        .order_by("-created_at")
-        .first()
+        .order_by("-created_at")[:20]
     )
+    wanted = (runtime_adapter or None, model or None, reasoning_effort or None)
+    for run in candidates:
+        state = run.state or {}
+        have = (state.get("runtime_adapter") or None, state.get("model") or None, state.get("reasoning_effort") or None)
+        if have == wanted:
+            return run
+    return None
 
 
 def _idling_warm_run_for_task(task: Task) -> TaskRun | None:
@@ -2896,11 +3004,16 @@ def warm_task_sandbox(
     repository: str,
     github_integration_id: int,
     branch: str | None,
+    runtime_adapter: str | None = None,
+    model: str | None = None,
+    reasoning_effort: str | None = None,
 ) -> contracts.WarmTaskDTO | None:
     """Warm a full idling Run for a Code-app cloud task while the user composes.
 
     Births a draft Task (``USER_CREATED``), then ``SandboxWarmer.warm()`` provisions an interactive
-    Run that boots + clones + checks out ``branch`` + starts the agent, then idles awaiting the first
+    Run that boots + clones + checks out ``branch`` + starts the agent on the selected
+    ``runtime_adapter``/``model``/``reasoning_effort`` (carried on the Run state and read by the
+    agent-server at launch, so the sandbox boots on the right runtime), then idles awaiting the first
     ``user_message``. The Run is dispatched with ``create_pr=True`` so that, once activated on submit,
     it completes autonomously and opens a PR like a normal Code-app cloud task.
 
@@ -2922,8 +3035,20 @@ def warm_task_sandbox(
     from products.tasks.backend.logic.services.warm import (
         SandboxWarmer,  # noqa: PLC0415 — keep warming deps off the api import path
     )
+    from products.tasks.backend.temporal.process_task.utils import (  # noqa: PLC0415 — keep temporalio off the api import path
+        RuntimeAdapter,
+        get_provider_for_runtime_adapter,
+    )
 
-    existing = _find_idling_warm_run(team_id, user_id, repository=repository, branch=branch)
+    existing = _find_idling_warm_run(
+        team_id,
+        user_id,
+        repository=repository,
+        branch=branch,
+        runtime_adapter=runtime_adapter,
+        model=model,
+        reasoning_effort=reasoning_effort,
+    )
     if existing is not None:
         return contracts.WarmTaskDTO(task_id=existing.task_id, run_id=existing.id)
 
@@ -2942,14 +3067,26 @@ def warm_task_sandbox(
     )
     assert task.created_by is not None  # create_without_run always sets created_by from user_id
 
+    provider = get_provider_for_runtime_adapter(runtime_adapter)
+    initial_permission_mode = "auto" if runtime_adapter == RuntimeAdapter.CODEX.value else "default"
+    extra_state: dict = {
+        "branch": branch,
+        "initial_permission_mode": initial_permission_mode,
+        "use_modal_network_allowlist": False,
+    }
+    for key, value in {
+        "runtime_adapter": runtime_adapter,
+        "provider": provider.value if provider is not None else None,
+        "model": model,
+        "reasoning_effort": reasoning_effort,
+    }.items():
+        if value is not None:
+            extra_state[key] = value
+
     try:
         result = SandboxWarmer(task, user=task.created_by).warm(
             mode="interactive",
-            extra_state={
-                "branch": branch,
-                "initial_permission_mode": "default",
-                "use_modal_network_allowlist": False,
-            },
+            extra_state=extra_state,
             create_pr=True,
         )
     except (Throttled, PermissionDenied, QuotaLimitExceeded):
@@ -2998,18 +3135,26 @@ def run_task(
 
     if not resume_from_run_id:
         warm_run = _idling_warm_run_for_task(task)
-        # Only activate when the requested branch matches the branch the warm Run was provisioned on —
-        # otherwise the run would work the wrong branch in the warm sandbox. On mismatch, fall through
-        # to the cold path so a fresh run is created for the requested branch.
         if warm_run is not None and (branch or None) == (warm_run.branch or None):
-            _activate_warm_run(
-                warm_run,
-                task,
-                team_id,
-                message=pending_user_message or (task.description or None),
-                artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+            warm_state = warm_run.state or {}
+            warm_runtime_matches = (
+                warm_state.get("runtime_adapter") or None,
+                warm_state.get("model") or None,
+                warm_state.get("reasoning_effort") or None,
+            ) == (
+                validated_data.get("runtime_adapter") or None,
+                validated_data.get("model") or None,
+                validated_data.get("reasoning_effort") or None,
             )
-            return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
+            if warm_runtime_matches:
+                _activate_warm_run(
+                    warm_run,
+                    task,
+                    team_id,
+                    message=pending_user_message or (task.description or None),
+                    artifact_ids=validated_data.get("pending_user_artifact_ids") or [],
+                )
+                return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
     pending_user_artifact_ids = validated_data.get("pending_user_artifact_ids") or []
     sandbox_environment_id = validated_data.get("sandbox_environment_id")
     sandbox_environment_id_supplied_by_user = sandbox_environment_id is not None

@@ -242,7 +242,7 @@ export function Nav(): JSX.Element {
                         >
                             <DropdownMenuTrigger asChild>
                                 <LemonButton
-                                    type="primary"
+                                    type="secondary"
                                     size="small"
                                     icon={<IconPlusSmall />}
                                     fullWidth={!isLayoutNavCollapsed}

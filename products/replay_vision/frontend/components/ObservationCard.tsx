@@ -66,7 +66,9 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-type Segment = { kind: 'text'; value: string } | { kind: 'chip'; uuid: string; timestamp_ms: number }
+// `uuid` is legacy: timestamp citations only carry `timestamp_ms`, but observations stored under the
+// old event-uuid citations still have it, so it's optional and otherwise ignored.
+type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
 
 function isSegment(value: unknown): value is Segment {
     if (!value || typeof value !== 'object') {
@@ -78,7 +80,7 @@ function isSegment(value: unknown): value is Segment {
     }
     if (candidate.kind === 'chip') {
         const chip = candidate as Partial<Extract<Segment, { kind: 'chip' }>>
-        return typeof chip.uuid === 'string' && typeof chip.timestamp_ms === 'number'
+        return typeof chip.timestamp_ms === 'number'
     }
     return false
 }
@@ -157,9 +159,10 @@ export function ObservationPrimaryOutput({
 
     if (scannerType === 'monitor') {
         const verdict = result.verdict
+        // Neutral accent, not success-green: a "yes" verdict isn't inherently good.
         const tagType =
             verdict === 'yes'
-                ? 'success'
+                ? 'highlight'
                 : verdict === 'no'
                   ? 'default'
                   : verdict === 'inconclusive'

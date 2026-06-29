@@ -16,7 +16,6 @@ from django.db import transaction
 from django.db.models import Count, Prefetch, Q, QuerySet, deletion
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema_field
 from rest_framework import exceptions, request, serializers, status, viewsets
@@ -37,8 +36,6 @@ from posthog.api.services.flags_service import get_flags_from_service
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, ErrorResponseSerializer, action
-from posthog.approvals.decorators import approval_gate
-from posthog.approvals.mixins import ApprovalHandlingMixin
 from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
@@ -51,16 +48,18 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
 from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
+from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -69,10 +68,12 @@ from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex
 from posthog.views import format_bytes
 
+from products.approvals.backend.decorators import approval_gate
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.dashboards.backend.api.dashboard import Dashboard
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, flag_has_live_experiment
 from products.feature_flags.backend.api.remote_config_shadow import shadow_compare_remote_config
 from products.feature_flags.backend.encrypted_flag_payloads import (
     REDACTED_PAYLOAD_VALUE,
@@ -187,7 +188,7 @@ def _is_enforce_feature_flag_write_scope_enabled(request, *, team_id: int | None
         return False
     try:
         organization_id = str(Team.objects.values_list("organization_id", flat=True).get(pk=team_id))
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             ENFORCE_FEATURE_FLAG_WRITE_SCOPE_FLAG,
             user.distinct_id,
             groups={"organization": organization_id},
@@ -265,7 +266,7 @@ def _is_realtime_cohort_flag_targeting_enabled(request) -> bool:
         user = getattr(request, "user", None)
         if user is None or user.is_anonymous:
             return False
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             REALTIME_COHORT_FLAG_TARGETING_FLAG,
             user.distinct_id,
             groups={"organization": str(user.organization.id)},
@@ -585,7 +586,7 @@ class EvaluationTagsChecker:
 
         # Check FLAG_EVALUATION_TAGS feature flag
         try:
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 "flag-evaluation-tags",
                 request.user.distinct_id,
                 groups={"organization": str(request.user.organization.id)},
@@ -684,12 +685,11 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 capture_exception(e)
 
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
-        from loginas.utils import is_impersonated_session
 
         from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
-        was_impersonated = is_impersonated_session(request) if request else False
+        was_impersonated = is_impersonated(request)
 
         log_activity(
             organization_id=obj.team.organization_id,
@@ -1341,9 +1341,26 @@ class FeatureFlagSerializer(
                         initial_cohort: Cohort = Cohort.objects.get(
                             pk=cast(str | int, prop.value), team__project_id=self.context["project_id"]
                         )
-                        dependency_cohorts = get_all_cohort_dependencies(initial_cohort)
+                        # Static cohorts (including one-time snapshots) hold a
+                        # materialised person list.  The populating criteria may
+                        # still be stored on the record, but they are inert – the
+                        # cohort no longer re-evaluates them, and the Rust engine's
+                        # extract_dependencies returns an empty set for them.  Skip
+                        # both the behavioural property check and the dependency walk
+                        # so snapshot cohorts can be used in flags without an extra
+                        # export step, even when their inert criteria reference
+                        # another cohort.  See #65270.
+                        dependency_cohorts = (
+                            []
+                            if initial_cohort.is_static
+                            else get_all_cohort_dependencies(initial_cohort, stop_traversal_at_static=True)
+                        )
                         for cohort in [initial_cohort, *dependency_cohorts]:
-                            if [prop for prop in cohort.properties.flat if prop.type == "behavioral"]:
+                            # Static cohorts have materialized membership, any preserved behavioral
+                            # filters are display-only and never evaluated, so skip them.
+                            if cohort.is_static:
+                                continue
+                            if any(cohort_prop.type == "behavioral" for cohort_prop in cohort.properties.flat):
                                 _validate_behavioral_cohort_for_feature_flag(
                                     cohort, allow_realtime_backfilled=self._allow_realtime_backfilled
                                 )
@@ -1563,7 +1580,7 @@ class FeatureFlagSerializer(
             user = getattr(request, "user", None)
             if user is None or user.is_anonymous:
                 return False
-            return posthoganalytics.feature_enabled(
+            return feature_enabled_or_false(
                 EARLY_EXIT_FLAG,
                 user.distinct_id,
                 groups={"organization": str(user.organization.id)},
@@ -2481,7 +2498,7 @@ class EvaluationFeatureFlagSerializer(MinimalFeatureFlagSerializer):
         cached = getattr(feature_flag, "_has_experiment", None)
         if cached is not None:
             return cached
-        return feature_flag.experiment_set.filter(deleted=False).exists()
+        return flag_has_live_experiment(feature_flag.pk)
 
 
 class MyFlagsResponseSerializer(serializers.Serializer):
@@ -3336,7 +3353,7 @@ class FeatureFlagViewSet(
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
-        was_impersonated = is_impersonated_session(request)
+        was_impersonated = is_impersonated(request)
 
         for flag in flags_list:
             flag_id = flag.id

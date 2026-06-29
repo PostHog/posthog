@@ -13,6 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { codeEditorLogic } from 'lib/monaco/codeEditorLogic'
 import { codeEditorLogicType } from 'lib/monaco/codeEditorLogicType'
 import { findNextFocusableElement, findPreviousFocusableElement } from 'lib/monaco/domUtils'
+import { initCodeownersLanguage } from 'lib/monaco/languages/codeowners'
 import { initHogLanguage } from 'lib/monaco/languages/hog'
 import { initHogJsonLanguage } from 'lib/monaco/languages/hogJson'
 import { initHogQLLanguage } from 'lib/monaco/languages/hogQL'
@@ -52,6 +53,17 @@ export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> 
 }
 let codeEditorIndex = 0
 
+// Monaco measures glyph dimensions when an editor is created. If a web font is still
+// loading at that moment it can latch onto stale (oversized) metrics and never relayout,
+// surfacing as a giant-font editor (notably in visual snapshots). Remeasure once fonts
+// settle so first paint — and the captured snapshot — is deterministic.
+function remeasureFontsWhenReady(monaco: Monaco): void {
+    if (typeof document === 'undefined' || !document.fonts) {
+        return
+    }
+    void document.fonts.ready.then(() => monaco.editor.remeasureFonts())
+}
+
 function initEditor(
     monaco: Monaco,
     editor: importedEditor.IStandaloneCodeEditor,
@@ -79,6 +91,9 @@ function initEditor(
     }
     if (editorProps?.language === 'liquid') {
         initLiquidLanguage(monaco)
+    }
+    if (editorProps?.language === 'codeowners') {
+        initCodeownersLanguage(monaco)
     }
 
     editor.onKeyDown((evt) => {
@@ -400,6 +415,7 @@ export function CodeEditor({
         trackEditorModels(editor, monaco)
         setMonacoAndEditor([monaco, editor])
         initEditor(monaco, editor, editorProps, options ?? {}, builtCodeEditorLogic)
+        remeasureFontsWhenReady(monaco)
 
         // Override Monaco's suggestion widget styling to prevent truncation
         const styleId = 'monaco-suggestion-widget-fix'
@@ -514,6 +530,7 @@ export function CodeEditor({
                 editorModelsRef.current.add(original)
             }
             setMonacoAndEditor([monaco, modifiedEditor])
+            remeasureFontsWhenReady(monaco)
 
             if (editorProps.onChange) {
                 const disposable = modifiedEditor.onDidChangeModelContent((event: editor.IModelContentChangedEvent) => {
