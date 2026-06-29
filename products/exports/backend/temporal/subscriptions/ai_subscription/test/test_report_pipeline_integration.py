@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 from posthog.test.base import (
     ClickhouseTestMixin,
     NonAtomicBaseTest,
@@ -13,8 +15,14 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     QueryPlan,
     QueryPlanStep,
 )
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import ReportWindow
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
+
+
+def _window() -> ReportWindow:
+    end = datetime.now(tz=UTC)
+    return ReportWindow(start=end - timedelta(days=7), end=end)
 
 
 class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
@@ -63,7 +71,7 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_bep.return_value = self._spec("SELECT event, count() AS c FROM events GROUP BY event ORDER BY c DESC")
         captured = self._capture_synthesis(mock_chat, "# Report")
 
-        report = await generate_ai_report(team=self.team, user=self.user, prompt="how many events", window_days=7)
+        report = await generate_ai_report(team=self.team, user=self.user, prompt="how many events", window=_window())
 
         assert report.markdown == "# Report"
         assert "$pageview" in captured["human"]
@@ -75,7 +83,7 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
         mock_bep.return_value = self._spec("SELECT count() FROM a_table_that_does_not_exist")
         captured = self._capture_synthesis(mock_chat, "# Degraded report")
 
-        report = await generate_ai_report(team=self.team, user=self.user, prompt="x", window_days=7)
+        report = await generate_ai_report(team=self.team, user=self.user, prompt="x", window=_window())
 
         assert "Query failed to run" in captured["human"]
         # Every query failed, so the delivered report leads with the deterministic failure notice

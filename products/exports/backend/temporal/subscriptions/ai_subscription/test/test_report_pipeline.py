@@ -1,3 +1,5 @@
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -18,11 +20,20 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     QueryPlan,
     QueryPlanStep,
 )
-from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import PromptRejectedError
+from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    PromptRejectedError,
+    ReportWindow,
+)
 
 _RP = "products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
+
+_WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+
+def _test_window() -> ReportWindow:
+    return ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
 
 
 def _spec(steps: int = 1) -> EnrichedPromptSpec:
@@ -45,20 +56,20 @@ def _slo_completed(capture_mock: MagicMock) -> dict:
 
 async def test_user_none_raises_prompt_rejected() -> None:
     with pytest.raises(PromptRejectedError):
-        await generate_ai_report(team=MagicMock(), user=None, prompt="x", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=None, prompt="x", window=_test_window())
 
 
 @patch(f"{_RP}.build_enriched_prompt", side_effect=PromptRejectedError("empty"))
 async def test_prompt_rejected_propagates_unwrapped(_mock_bep: object) -> None:
     # PromptRejectedError must NOT be wrapped as AiReportStageError — callers catch it by type.
     with pytest.raises(PromptRejectedError):
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window=_test_window())
 
 
 @patch(f"{_RP}.build_enriched_prompt", side_effect=RuntimeError("planner boom"))
 async def test_planner_failure_wrapped_with_stage(_mock_bep: object) -> None:
     with pytest.raises(AiReportStageError) as exc_info:
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
     assert exc_info.value.stage == "planner"
 
 
@@ -80,7 +91,7 @@ async def test_successful_report_emits_slo_success(
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.markdown == "# Report"
     props = _slo_completed(mock_capture)
@@ -107,7 +118,7 @@ async def test_degraded_report_still_synthesizes(
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     # Every query failed, so the delivered report leads with the deterministic failure notice
     # prepended to the synthesis output, not a bare confident-looking report.
@@ -140,7 +151,7 @@ async def test_synthesis_failure_wrapped_with_stage(
     mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
 
     with pytest.raises(AiReportStageError) as exc_info:
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
     assert exc_info.value.stage == "synthesis"
     # A raised stage error burns the SLO error budget.
     assert _slo_completed(mock_capture)["outcome"] == "failure"
@@ -151,7 +162,7 @@ async def test_synthesis_failure_wrapped_with_stage(
 async def test_prompt_rejected_marks_slo_success_not_failure(_mock_bep: MagicMock, mock_capture: MagicMock) -> None:
     # A rejected prompt is the input guard working — it must not count against the error budget.
     with pytest.raises(PromptRejectedError):
-        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window_days=7)
+        await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="", window=_test_window())
     props = _slo_completed(mock_capture)
     assert props["outcome"] == "success"
     assert props["rejected"] is True
@@ -188,9 +199,23 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
 
 
 @patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_anchors_executor_to_window_end(mock_executor_cls: MagicMock) -> None:
+    # Generation must run queries against the computed window, not wall-clock time: the executor's
+    # `now()` anchor (2nd positional arg) is window.end, so any residual now()-relative date math
+    # resolves consistently with the injected [start, end) bounds rather than drifting between runs.
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(return_value=("formatted", None))
+    window = _test_window()
+
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), window, None)
+
+    (_team, anchor), _kwargs = mock_executor_cls.call_args
+    assert anchor == window.end
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_executor_cls: MagicMock) -> None:
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=RuntimeError("boom"))
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     assert diagnostics[0].ok is False
@@ -209,7 +234,7 @@ async def test_run_steps_forwards_resolution_error_message_to_fix(
         side_effect=[ResolutionError("Unable to resolve field 'operaton'"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert mock_fix.await_args is not None
     assert mock_fix.await_args.kwargs["error_message"] == "Unable to resolve field 'operaton'"
 
@@ -231,7 +256,7 @@ async def test_synthesis_prompt_carries_the_failure_marker(
     )
     mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
 
-    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window_days=7)
+    await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     (messages,) = mock_chat.return_value.invoke.call_args[0]
     system_message = messages[0][1]
@@ -247,7 +272,7 @@ async def test_run_steps_retries_then_succeeds(mock_executor_cls: MagicMock, moc
         side_effect=[ExposedHogQLError("bad query"), ("formatted table", None)]
     )
     mock_fix.return_value = "SELECT fixed"
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 0
     assert "formatted table" in rendered[0]
     mock_fix.assert_awaited_once()
@@ -265,7 +290,7 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # degrade rather than burn the retry budget on an identical query.
     mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=ExposedHogQLError("bad query"))
     mock_fix.return_value = "SELECT 1"  # identical to QueryPlanStep.hogql in _spec()
-    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), None)
+    rendered, failed, diagnostics = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
     assert failed == 1
     assert "Query failed to run" in rendered[0]
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
