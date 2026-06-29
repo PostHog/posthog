@@ -34,6 +34,7 @@ pub fn new_histogram() -> Histogram<u64> {
 /// Prints a throughput line once per second until `stop` is notified.
 pub async fn report_loop(counters: Arc<Counters>, stop: Arc<Notify>) {
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
+    ticker.tick().await; // consume the immediate first tick so we don't print 0 req/s
     let mut prev_ok = 0u64;
     let mut prev_err = 0u64;
     let mut prev_events = 0u64;

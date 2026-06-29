@@ -207,7 +207,8 @@ async fn run_worker(shared: Shared, mode: Mode) -> Histogram<u64> {
         let events = shared.factory.batch(take as usize, &mut rng);
         let body = match shared.client.encode(&events) {
             Ok(body) => body,
-            Err(_) => {
+            Err(e) => {
+                tracing::warn!("encode error: {e:#}");
                 shared.counters.record(false, 0);
                 continue;
             }

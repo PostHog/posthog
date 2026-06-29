@@ -68,7 +68,13 @@ impl CaptureClient {
         }
 
         let ok = match req.send().await {
-            Ok(resp) => resp.status().is_success(),
+            Ok(resp) => {
+                let ok = resp.status().is_success();
+                // Drain the body so hyper can return the connection to the pool
+                // rather than closing it — matters most at high error rates.
+                resp.bytes().await.ok();
+                ok
+            }
             Err(_) => false,
         };
 
