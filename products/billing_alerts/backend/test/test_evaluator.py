@@ -44,7 +44,7 @@ class TestBillingAlertEvaluator(BaseTest):
             "evaluation_delay_hours": 6,
         }
         defaults.update(overrides)
-        return BillingAlertConfiguration.objects.unscoped().create(**defaults)
+        return BillingAlertConfiguration.objects.create(**defaults)
 
     def test_relative_increase_breaches_expected_billing_day(self) -> None:
         alert = self._alert()
@@ -146,7 +146,7 @@ class TestBillingAlertEvaluator(BaseTest):
 
     def test_billing_service_error_uses_latest_failure_count(self) -> None:
         alert = self._alert()
-        BillingAlertConfiguration.objects.unscoped().filter(pk=alert.pk).update(
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(
             consecutive_failures=MAX_FAILURES_BEFORE_BROKEN - 1
         )
 
@@ -192,8 +192,8 @@ class TestBillingAlertEvaluator(BaseTest):
         alert = self._alert()
 
         firing = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
-        BillingAlertEvent.objects.unscoped().filter(pk=firing.pk).update(notification_sent_at=NOW)
-        BillingAlertConfiguration.objects.unscoped().filter(pk=alert.pk).update(last_notified_at=NOW)
+        BillingAlertEvent.objects.filter(pk=firing.pk).update(notification_sent_at=NOW)
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(last_notified_at=NOW)
         alert.refresh_from_db()
 
         resolved_at = NOW.replace(hour=13)
@@ -202,8 +202,8 @@ class TestBillingAlertEvaluator(BaseTest):
             now=resolved_at,
             billing_response=_billing_response([60, 60, 70]),
         )
-        BillingAlertEvent.objects.unscoped().filter(pk=resolved.pk).update(notification_sent_at=resolved_at)
-        BillingAlertConfiguration.objects.unscoped().filter(pk=alert.pk).update(last_notified_at=resolved_at)
+        BillingAlertEvent.objects.filter(pk=resolved.pk).update(notification_sent_at=resolved_at)
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(last_notified_at=resolved_at)
         alert.refresh_from_db()
 
         refiring = evaluate_and_record_billing_alert(
@@ -219,13 +219,11 @@ class TestBillingAlertEvaluator(BaseTest):
         assert event_should_dispatch(refiring) is True
         assert alert.state == BillingAlertConfiguration.State.FIRING
         assert (
-            BillingAlertEvent.objects.unscoped()
-            .filter(
+            BillingAlertEvent.objects.filter(
                 alert=alert,
                 kind=BillingAlertEvent.Kind.FIRING,
                 evaluation_date=firing.evaluation_date,
-            )
-            .count()
+            ).count()
             == 2
         )
 
@@ -247,13 +245,11 @@ class TestBillingAlertEvaluator(BaseTest):
         assert second_check.kind == BillingAlertEvent.Kind.CHECK
         assert second_check.id == first_check.id
         assert (
-            BillingAlertEvent.objects.unscoped()
-            .filter(
+            BillingAlertEvent.objects.filter(
                 alert=alert,
                 kind=BillingAlertEvent.Kind.CHECK,
                 evaluation_date=first_check.evaluation_date,
-            )
-            .count()
+            ).count()
             == 1
         )
 
@@ -294,11 +290,11 @@ class TestBillingAlertEvaluator(BaseTest):
 
     def test_state_machine_uses_locked_current_state_for_repeated_firing(self) -> None:
         alert = self._alert(state=BillingAlertConfiguration.State.NOT_FIRING, cooldown_hours=24)
-        stale_alert = BillingAlertConfiguration.objects.unscoped().get(pk=alert.pk)
+        stale_alert = BillingAlertConfiguration.objects.get(pk=alert.pk)
 
         firing = evaluate_and_record_billing_alert(alert, now=NOW, billing_response=_billing_response([60, 60, 100]))
-        BillingAlertEvent.objects.unscoped().filter(pk=firing.pk).update(notification_sent_at=NOW)
-        BillingAlertConfiguration.objects.unscoped().filter(pk=alert.pk).update(last_notified_at=NOW)
+        BillingAlertEvent.objects.filter(pk=firing.pk).update(notification_sent_at=NOW)
+        BillingAlertConfiguration.objects.filter(pk=alert.pk).update(last_notified_at=NOW)
 
         repeated = evaluate_and_record_billing_alert(
             stale_alert,
@@ -310,8 +306,8 @@ class TestBillingAlertEvaluator(BaseTest):
         assert repeated.state_before == BillingAlertConfiguration.State.FIRING
         assert repeated.state_after == BillingAlertConfiguration.State.FIRING
         assert (
-            BillingAlertEvent.objects.unscoped()
-            .filter(alert_id=alert.pk, kind=BillingAlertEvent.Kind.FIRING, evaluation_date=firing.evaluation_date)
-            .count()
+            BillingAlertEvent.objects.filter(
+                alert_id=alert.pk, kind=BillingAlertEvent.Kind.FIRING, evaluation_date=firing.evaluation_date
+            ).count()
             == 1
         )

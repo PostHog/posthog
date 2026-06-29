@@ -17,7 +17,9 @@ import { BillingSpendView } from './BillingSpendView'
 import { BillingUsage } from './BillingUsage'
 import { BillingSectionId } from './types'
 
-const BillingAlerts = lazy(() => import('./BillingAlerts').then((m) => ({ default: m.BillingAlerts })))
+const BillingAlerts = lazy(() =>
+    import('@posthog/products-billing-alerts/frontend/BillingAlerts').then((m) => ({ default: m.BillingAlerts }))
+)
 
 export const scene: SceneExport = {
     component: BillingSection,

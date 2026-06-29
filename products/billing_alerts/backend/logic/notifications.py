@@ -16,7 +16,7 @@ from products.billing_alerts.backend.alert_destinations import (
     EVENT_KIND_CONFIG,
     EventKind,
 )
-from products.billing_alerts.backend.models import BillingAlertEvent
+from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 logger = structlog.get_logger(__name__)
@@ -78,10 +78,46 @@ def _destination_hog_functions(event: BillingAlertEvent) -> list[HogFunction]:
     )
 
 
+def _produce_billing_alert_internal_event(
+    *,
+    event_id: str,
+    alert_id: str,
+    event_name: str,
+    team_id: int,
+    properties: dict,
+    notification_sent_at: datetime,
+) -> None:
+    try:
+        produce_internal_event(
+            team_id=team_id,
+            event=InternalEventEvent(
+                event=event_name,
+                distinct_id=f"team_{team_id}",
+                properties=properties,
+                uuid=event_id,
+            ),
+        )
+    except Exception as e:
+        BillingAlertEvent.objects.filter(id=event_id, notification_sent_at=notification_sent_at).update(
+            notification_sent_at=None,
+            targets_notified={},
+        )
+        BillingAlertConfiguration.objects.filter(id=alert_id, last_notified_at=notification_sent_at).update(
+            last_notified_at=None
+        )
+        capture_exception(e, {"event_id": event_id, "feature": "billing_alerts"})
+        logger.exception(
+            "Failed to emit billing alert internal event",
+            event_id=event_id,
+            event_name=event_name,
+        )
+        raise
+
+
 def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None = None) -> int:
     now = now or timezone.now()
     with transaction.atomic():
-        locked_event = BillingAlertEvent.objects.unscoped().select_for_update().select_related("alert").get(id=event.id)
+        locked_event = BillingAlertEvent.objects.select_for_update().select_related("alert").get(id=event.id)
         if locked_event.targets_notified or locked_event.notification_sent_at is not None:
             return 0
 
@@ -95,30 +131,26 @@ def dispatch_billing_alert_event(event: BillingAlertEvent, now: datetime | None 
             return 0
 
         destination_ids = [str(destination.id) for destination in destinations]
-
-        try:
-            produce_internal_event(
-                team_id=locked_event.alert.execution_team_id,
-                event=InternalEventEvent(
-                    event=event_name,
-                    distinct_id=f"team_{locked_event.alert.execution_team_id}",
-                    properties=_properties(locked_event, now, destination_ids),
-                    uuid=str(locked_event.id),
-                ),
-            )
-        except Exception as e:
-            capture_exception(e, {"event_id": str(locked_event.id), "feature": "billing_alerts"})
-            logger.exception(
-                "Failed to emit billing alert internal event",
-                event_id=str(locked_event.id),
-                event_name=event_name,
-            )
-            raise
+        event_id = str(locked_event.id)
+        alert_id = str(locked_event.alert_id)
+        team_id = locked_event.alert.execution_team_id
+        properties = _properties(locked_event, now, destination_ids)
 
         locked_event.notification_sent_at = now
         locked_event.targets_notified = {"hog_functions": destination_ids}
         locked_event.save(update_fields=["notification_sent_at", "targets_notified"])
         locked_event.alert.last_notified_at = now
         locked_event.alert.save(update_fields=["last_notified_at", "updated_at"])
+
+        transaction.on_commit(
+            lambda: _produce_billing_alert_internal_event(
+                event_id=event_id,
+                alert_id=alert_id,
+                event_name=event_name,
+                team_id=team_id,
+                properties=properties,
+                notification_sent_at=now,
+            )
+        )
 
     return len(destinations)

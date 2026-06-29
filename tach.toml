@@ -799,7 +799,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(billing_alerts|customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -823,6 +823,16 @@ expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_ACTIVITIES",
     "backend\\.temporal\\.EXPERIMENT_CANARY_WORKFLOWS",
+    "backend\\.temporal\\.WORKFLOWS",
+    "backend\\.temporal\\.schedule\\.create_billing_alerts_schedule",
+]
+from = [
+    "products.billing_alerts",
+]
+
+[[interfaces]]
+expose = [
+    "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.WORKFLOWS",
     "backend\\.temporal\\.recalculation_metrics.*",
     "backend\\.temporal\\.schedule\\.create_experiment_precompute_canary_schedule",

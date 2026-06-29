@@ -1,0 +1,41 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Billing alerts
+feature: billing_alerts
+url_prefix: /organization/billing/alerts
+ui_apps: {}
+tools:
+    billing-alerts-check-now-create:
+        operation: billing_alerts_check_now_create
+        enabled: false
+    billing-alerts-create:
+        operation: billing_alerts_create
+        enabled: false
+    billing-alerts-destinations-create:
+        operation: billing_alerts_destinations_create
+        enabled: false
+    billing-alerts-destinations-delete-create:
+        operation: billing_alerts_destinations_delete_create
+        enabled: false
+    billing-alerts-destroy:
+        operation: billing_alerts_destroy
+        enabled: false
+    billing-alerts-events-list:
+        operation: billing_alerts_events_list
+        enabled: false
+    billing-alerts-list:
+        operation: billing_alerts_list
+        enabled: false
+    billing-alerts-partial-update:
+        operation: billing_alerts_partial_update
+        enabled: false
+    billing-alerts-retrieve:
+        operation: billing_alerts_retrieve
+        enabled: false
+    billing-alerts-update:
+        operation: billing_alerts_update
+        enabled: false

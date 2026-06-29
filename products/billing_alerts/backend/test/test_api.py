@@ -3,11 +3,14 @@ from decimal import Decimal
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.exceptions import ValidationError
+
 from rest_framework import status
 
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.billing_alerts.backend.facade.contracts import BillingAlertDispatchResult
 from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
 from products.billing_alerts.backend.presentation.serializers import (
     BillingAlertConfigurationSerializer,
@@ -48,7 +51,7 @@ class TestBillingAlertAPI(APIBaseTest):
             "threshold_percentage": Decimal("50"),
         }
         defaults.update(overrides)
-        return BillingAlertConfiguration.objects.unscoped().create(**defaults)
+        return BillingAlertConfiguration.objects.create(**defaults)
 
     def _destination(self, alert: BillingAlertConfiguration, template_id: str) -> HogFunction:
         return HogFunction.objects.create(
@@ -81,13 +84,28 @@ class TestBillingAlertAPI(APIBaseTest):
         assert data["created_by_id"] == self.user.id
         assert data["state"] == BillingAlertConfiguration.State.NOT_FIRING
 
-        alert = BillingAlertConfiguration.objects.unscoped().get(id=data["id"])
+        alert = BillingAlertConfiguration.objects.get(id=data["id"])
         assert alert.threshold_percentage == Decimal("50.00")
+
+    def test_model_rejects_execution_team_from_different_organization(self) -> None:
+        other_org = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_org, name="Other project")
+        alert = BillingAlertConfiguration(
+            organization_id=self.organization.id,
+            team_id=other_team.id,
+            name="Daily spend spike",
+            metric=BillingAlertConfiguration.Metric.SPEND,
+            threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
+            threshold_percentage=Decimal("50"),
+        )
+
+        with self.assertRaises(ValidationError):
+            alert.full_clean()
 
     def test_list_is_scoped_to_organization(self) -> None:
         other_org = Organization.objects.create(name="Other")
         other_team = Team.objects.create(organization=other_org, name="Other project")
-        BillingAlertConfiguration.objects.unscoped().create(
+        BillingAlertConfiguration.objects.create(
             organization_id=other_org.id,
             team_id=other_team.id,
             name="Other alert",
@@ -130,7 +148,7 @@ class TestBillingAlertAPI(APIBaseTest):
         response = self.client.post(self.url, self._payload(), format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
-        assert not BillingAlertConfiguration.objects.unscoped().exists()
+        assert not BillingAlertConfiguration.objects.exists()
 
     def test_webhook_destinations_require_https(self) -> None:
         alert = self._alert()
@@ -159,7 +177,7 @@ class TestBillingAlertAPI(APIBaseTest):
         assert serializer.is_valid(), serializer.errors
 
     def test_check_now_uses_shared_organization_object_permissions(self) -> None:
-        alert = BillingAlertConfiguration.objects.unscoped().create(
+        alert = BillingAlertConfiguration.objects.create(
             organization_id=self.organization.id,
             team_id=self.team.id,
             name="Daily spend spike",
@@ -167,7 +185,7 @@ class TestBillingAlertAPI(APIBaseTest):
             threshold_type=BillingAlertConfiguration.ThresholdType.RELATIVE_INCREASE,
             threshold_percentage=Decimal("50"),
         )
-        event = BillingAlertEvent.objects.unscoped().create(
+        event = BillingAlertEvent.objects.create(
             alert=alert,
             team_id=alert.team_id,
             kind=BillingAlertEvent.Kind.CHECK,
@@ -177,12 +195,9 @@ class TestBillingAlertAPI(APIBaseTest):
             reason="Manual check",
         )
 
-        with (
-            patch(
-                "products.billing_alerts.backend.presentation.views.evaluate_and_record_billing_alert",
-                return_value=event,
-            ),
-            patch("products.billing_alerts.backend.presentation.views.event_should_dispatch", return_value=False),
+        with patch(
+            "products.billing_alerts.backend.presentation.views.billing_alerts_api.evaluate_and_dispatch_alert",
+            return_value=BillingAlertDispatchResult(event=event, dispatched_destinations=0),
         ):
             response = self.client.post(f"{self.url}{alert.id}/check_now/", format="json")
 
