@@ -112,9 +112,12 @@ def _last_successful_delivery_finished_at(subscription: Subscription) -> datetim
     )
 
 
-def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, User | None, ReportWindow]:
+def _resolve_subscription_context(
+    subscription: Subscription,
+) -> tuple[Team, User | None, ReportWindow, dict | None]:
     # team/created_by are FK relations and the last-delivery lookup hits the DB; resolving the window
-    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop.
+    # here keeps all ORM access (and the timezone math) off the event loop in one sync hop. The frozen
+    # plan (if any) is read here too so the generation path stays free of ORM access.
     team = subscription.team
     window = compute_report_window(
         team=team,
@@ -122,24 +125,41 @@ def _resolve_subscription_context(subscription: Subscription) -> tuple[Team, Use
         now=datetime.now(tz=UTC),
         window_days=subscription.ai_report_window_days,
     )
-    return team, subscription.created_by, window
+    return team, subscription.created_by, window, subscription.query_plan
+
+
+def _persist_query_plan(subscription_id: int, team_id: int, plan: dict) -> None:
+    # Freeze the freshly-generated plan so the next delivery reuses it deterministically. Targeted
+    # single-column update scoped to (id, team_id) for tenant isolation; never a full save (which would
+    # re-emit the activity-log / analytics signals via the model's save()/post_save).
+    Subscription.objects.filter(id=subscription_id, team_id=team_id).update(query_plan=plan)
 
 
 async def build_ai_subscription_report(subscription: Subscription) -> AiReportResult:
-    team, user, window = await database_sync_to_async(_resolve_subscription_context, thread_sensitive=False)(
-        subscription
-    )
+    team, user, window, query_plan = await database_sync_to_async(
+        _resolve_subscription_context, thread_sensitive=False
+    )(subscription)
     # created_by is FK SET_NULL; the pipeline requires a non-None user
     if user is None:
         raise PromptRejectedError("AI subscription has no creator (created_by deleted); cannot deliver.")
 
-    return await generate_ai_report(
+    result = await generate_ai_report(
         team=team,
         user=user,
         prompt=subscription.prompt,
         window=window,
+        query_plan=query_plan,
         trace_correlation_id=subscription.id,
     )
+
+    # First delivery (no frozen plan yet): persist the plan just generated so subsequent deliveries
+    # reuse it deterministically. Reused runs return plan_to_persist=None and skip the write.
+    if result.plan_to_persist is not None:
+        await database_sync_to_async(_persist_query_plan, thread_sensitive=False)(
+            subscription.id, subscription.team_id, result.plan_to_persist
+        )
+
+    return result
 
 
 def _build_feedback_url(subscription_url: str, delivery_id: uuid.UUID, feedback: str, source: str) -> str:

@@ -37,6 +37,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     PromptRejectedError,
     ReportWindow,
     build_enriched_prompt,
+    build_frozen_prompt,
 )
 
 from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
@@ -112,6 +113,10 @@ class QueryStepDiagnostic:
 class AiReportResult:
     markdown: str
     diagnostics: tuple[QueryStepDiagnostic, ...]
+    # The freshly-generated plan to FREEZE, set only when the run planned from scratch (no frozen plan
+    # was passed in). None when a frozen plan was reused — the caller then has nothing new to persist.
+    # Shape is `QueryPlan.model_dump()`; the caller writes it to `Subscription.query_plan`.
+    plan_to_persist: Optional[dict] = None
 
 
 async def generate_ai_report(
@@ -120,6 +125,7 @@ async def generate_ai_report(
     user: Optional[User],
     prompt: Optional[str],
     window: ReportWindow,
+    query_plan: Optional[dict] = None,
     trace_correlation_id: Optional[Union[int, str]] = None,
 ) -> AiReportResult:
     if user is None:
@@ -136,7 +142,15 @@ async def generate_ai_report(
         properties={"window_start": window.start_literal, "window_end": window.end_literal},
     ) as slo:
         try:
-            spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
+            # Frozen path: a persisted plan is reused deterministically — both the planner and the
+            # event-selection LLM are skipped. Live path: plan from scratch, then flag the result for
+            # freezing so the next delivery is deterministic.
+            if query_plan is not None:
+                spec = await _build_frozen(team=team, prompt=prompt, window=window, query_plan=query_plan)
+                plan_to_persist: Optional[dict] = None
+            else:
+                spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
+                plan_to_persist = spec.plan.model_dump()
             rendered_results, failed_count, diagnostics = await _execute_plan(
                 spec, team, user, window, trace_correlation_id
             )
@@ -168,7 +182,7 @@ async def generate_ai_report(
             # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
             # instead of a confident-looking but empty report.
             report = _all_queries_failed_notice(total_steps) + report
-        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
+        return AiReportResult(markdown=report, diagnostics=tuple(diagnostics), plan_to_persist=plan_to_persist)
 
 
 async def _plan(
@@ -181,6 +195,24 @@ async def _plan(
             prompt=prompt,
             window=window,
             trace_correlation_id=trace_id,
+        )
+    except PromptRejectedError:
+        raise
+    except Exception as exc:
+        raise AiReportStageError(ReportStage.PLANNER, exc) from exc
+
+
+async def _build_frozen(
+    *, team: Team, prompt: Optional[str], window: ReportWindow, query_plan: dict
+) -> EnrichedPromptSpec:
+    # Reconstruct the spec from the persisted plan: no planner, no event-selection LLM. Only deterministic
+    # work (prompt sanitization, plan validation, a window-aware context blob from DB taxonomy reads).
+    try:
+        return await database_sync_to_async(build_frozen_prompt, thread_sensitive=False)(
+            team=team,
+            prompt=prompt,
+            window=window,
+            query_plan=query_plan,
         )
     except PromptRejectedError:
         raise

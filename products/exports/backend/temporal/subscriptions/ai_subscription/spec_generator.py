@@ -7,6 +7,7 @@ from typing import Optional, Union
 from django.db.models import F, Q
 
 import structlog
+from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
@@ -516,4 +517,31 @@ def build_enriched_prompt(
         user=user,
         trace_correlation_id=trace_correlation_id,
     )
+    return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
+
+
+def build_frozen_prompt(
+    *,
+    team: Team,
+    prompt: Optional[str],
+    window: ReportWindow,
+    query_plan: dict,
+) -> EnrichedPromptSpec:
+    """Reconstruct the spec from a persisted plan — the deterministic reuse path.
+
+    Skips BOTH LLM passes the live path runs (the planner and the event-selection model): the frozen
+    `QueryPlan` already encodes the steps, so the same window-agnostic HogQL runs every delivery (same
+    numbers, modulo real data). The context blob is rebuilt fresh for THIS run's window (no LLM — only
+    DB taxonomy reads) so synthesis sees the current schema; the plan's HogQL keeps its `{{date_range}}`
+    placeholder and the executor substitutes the fresh window. A structurally-invalid stored plan is a
+    permanent failure (same handling as a malformed live plan), surfaced as `PromptRejectedError`.
+    """
+    cleaned = sanitize_prompt(prompt)
+    try:
+        plan = QueryPlan.model_validate(query_plan)
+    except ValidationError as exc:
+        raise PromptRejectedError("Stored query plan is malformed.") from exc
+    # No relevant_events: the event-selection LLM ran at plan time, and the frozen HogQL already names the
+    # events it needs. The blob still carries window bounds + taxonomy context for synthesis.
+    context_blob = build_context_blob(team, window)
     return EnrichedPromptSpec(cleaned_prompt=cleaned, context_blob=context_blob, plan=plan)
