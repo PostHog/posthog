@@ -46,6 +46,8 @@ export interface FunnelDefinitionProps {
     stepLabels: string[]
     /** Conversion rate(s) the alert would evaluate now; null until the result loads. */
     preview: FunnelAlertPreview | null
+    /** A trends funnel alerts on the overall rate over time, so it skips the step picker. */
+    isTrendsFunnel: boolean
 }
 
 export interface HogQLDefinitionProps {
@@ -134,6 +136,7 @@ export function AlertDefinitionSection({
                     alertForm={alertForm}
                     stepLabels={funnel.stepLabels}
                     funnelPreview={funnel.preview}
+                    isTrendsFunnel={funnel.isTrendsFunnel}
                     onSetAlertFormValue={onSetAlertFormValue}
                 />
             ) : isHogQLAlertConfig(alertForm.config) ? (

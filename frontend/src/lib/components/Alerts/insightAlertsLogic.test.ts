@@ -227,6 +227,18 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
     })
 
+    it('supports steps and trends funnels but not time-to-convert or flow', () => {
+        const withViz = (funnelVizType?: string): Record<string, any> => ({
+            ...FUNNEL_QUERY,
+            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+        })
+        const opts = { funnelAlertsEnabled: true }
+        expect(areAlertsSupportedForInsight(withViz('steps'), opts)).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('trends'), opts)).toBe(true)
+        expect(areAlertsSupportedForInsight(withViz('time_to_convert'), opts)).toBe(false)
+        expect(areAlertsSupportedForInsight(withViz('flow'), opts)).toBe(false)
+    })
+
     it('returns false when trendsFilter is null', () => {
         const query = {
             ...API_QUERY,

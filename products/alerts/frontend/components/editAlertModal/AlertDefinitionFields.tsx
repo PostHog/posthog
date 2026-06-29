@@ -135,19 +135,31 @@ function FunnelAlertPreviewBanner({ preview }: { preview: FunnelAlertPreview | n
     )
 }
 
-/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions. */
+/** Funnels: a single valid-conversion picker over the `{metric, funnel_step}` config — see funnelAlertOptions.
+ * A trends funnel charts the overall (whole-funnel) conversion rate over time, so there's no per-step
+ * choice to make — it shows just the preview of the latest period's rate. */
 export function FunnelsDefinitionFields({
     alertForm,
     stepLabels,
     funnelPreview,
+    isTrendsFunnel,
     onSetAlertFormValue,
 }: {
     alertForm: AlertFormType
     stepLabels: string[]
     funnelPreview: FunnelAlertPreview | null
+    isTrendsFunnel: boolean
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
 }): JSX.Element {
     const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
+    if (isTrendsFunnel) {
+        return (
+            <div className="flex flex-wrap gap-3 items-center">
+                <div>Alert on the overall conversion rate</div>
+                <FunnelAlertPreviewBanner preview={funnelPreview} />
+            </div>
+        )
+    }
     return (
         <div className="flex flex-wrap gap-3 items-center">
             <div>Alert on</div>

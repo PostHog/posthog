@@ -15,7 +15,7 @@ import {
     isInsightVizNode,
     isTrendsQuery,
 } from '~/queries/utils'
-import { InsightLogicProps } from '~/types'
+import { FunnelVizType, InsightLogicProps } from '~/types'
 
 import type { insightAlertsLogicType } from './insightAlertsLogicType'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from './types'
@@ -42,7 +42,10 @@ export const areAlertsSupportedForInsight = (
         return true
     }
     if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
-        return true
+        // Steps and trends both alert on a conversion-rate percentage. Time-to-convert (a duration)
+        // and flow (a sankey with no single metric) have no threshold UI yet, so they stay hidden.
+        const vizType = query.source.funnelsFilter?.funnelVizType
+        return vizType !== FunnelVizType.TimeToConvert && vizType !== FunnelVizType.Flow
     }
     return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
 }

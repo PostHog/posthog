@@ -9,8 +9,8 @@ export interface FunnelAlertPreviewValue {
     breaching: boolean
 }
 
-/** Advisory preview, mirroring the backend `_conversion_rate`/`_steps_per_breakdown`
- * (products/alerts/backend/evaluation/funnels.py) — keep in sync if you change the backend math. */
+/** Advisory preview, mirroring the backend funnel strategies
+ * (products/alerts/backend/evaluation/funnel_strategies.py) — keep in sync if you change the backend math. */
 export type FunnelAlertPreview =
     | { status: 'no-data' }
     | { status: 'ok'; values: FunnelAlertPreviewValue[]; isBreakdown: boolean; hasBounds: boolean }
@@ -18,6 +18,26 @@ export type FunnelAlertPreview =
 interface FunnelStep {
     count: number
     breakdown_value?: unknown
+}
+
+// A trends funnel series is a conversion-rate time series, not a step list: `data` holds the 0–100
+// rate per period. The alert evaluates the latest period, so the preview reads the last point. A gap
+// period can be null, so coerce non-numbers to 0 (the runner already fills 0) to match the backend.
+interface FunnelTrendsSeries {
+    data?: (number | null)[]
+    breakdown_value?: unknown
+}
+
+function _deriveTrendsPreview(
+    series: FunnelTrendsSeries[],
+    bounds: InsightsThresholdBounds | null | undefined
+): FunnelAlertPreview {
+    const values: FunnelAlertPreviewValue[] = series.map((s) => {
+        const last = s.data?.[s.data.length - 1]
+        const rate = typeof last === 'number' ? last : 0
+        return { label: _breakdownLabel(s.breakdown_value), rate, breaching: valueBreachesBounds(rate, bounds) }
+    })
+    return { status: 'ok', values, isBreakdown: series.length > 1, hasBounds: hasThresholdBounds(bounds) }
 }
 
 const _conversionRate = (steps: FunnelStep[], stepIndex: number, fromPrevious: boolean): number | null => {
@@ -33,8 +53,7 @@ const _conversionRate = (steps: FunnelStep[], stepIndex: number, fromPrevious: b
     return base === 0 ? 0 : (target / base) * 100
 }
 
-const _breakdownLabel = (steps: FunnelStep[]): string | null => {
-    const breakdown = steps[0]?.breakdown_value
+const _breakdownLabel = (breakdown: unknown): string | null => {
     if (breakdown == null) {
         return null
     }
@@ -62,7 +81,8 @@ function _currentPeriodOnly(result: any[]): any[] {
 export function deriveFunnelAlertPreview(
     insightData: Record<string, any> | null,
     config: AlertConfig | null | undefined,
-    bounds: InsightsThresholdBounds | null | undefined
+    bounds: InsightsThresholdBounds | null | undefined,
+    isTrendsFunnel: boolean
 ): FunnelAlertPreview | null {
     if (!isFunnelsAlertConfig(config)) {
         return null
@@ -79,6 +99,10 @@ export function deriveFunnelAlertPreview(
         // the "not loaded yet" hint.
         return { status: 'no-data' }
     }
+    // A trends funnel returns conversion-rate time series rather than step lists; read the latest period.
+    if (isTrendsFunnel) {
+        return _deriveTrendsPreview(result, bounds)
+    }
     // A non-breakdown funnel returns list[step]; a breakdown funnel returns list[list[step]].
     const isBreakdown = Array.isArray(result[0])
     const breakdowns: FunnelStep[][] = isBreakdown ? result : [result]
@@ -94,7 +118,11 @@ export function deriveFunnelAlertPreview(
         if (rate === null) {
             return null // out-of-range / undefined config — the picker and validation prevent this
         }
-        values.push({ label: _breakdownLabel(steps), rate, breaching: valueBreachesBounds(rate, bounds) })
+        values.push({
+            label: _breakdownLabel(steps[0]?.breakdown_value),
+            rate,
+            breaching: valueBreachesBounds(rate, bounds),
+        })
     }
     return { status: 'ok', values, isBreakdown, hasBounds: hasThresholdBounds(bounds) }
 }

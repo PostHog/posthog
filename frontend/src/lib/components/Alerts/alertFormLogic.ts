@@ -91,6 +91,9 @@ export interface AlertFormLogicProps {
     insightInterval?: IntervalType
     /** Selects the default config type for new alerts based on the insight's query kind. */
     insightAlertKind?: InsightAlertKind
+    /** For funnel insights: whether it's a trends (historical) funnel, which alerts on the overall
+     * conversion rate over time rather than a single step snapshot. Drives the preview shape. */
+    insightIsTrendsFunnel?: boolean
 }
 
 const defaultConfigForInsight = (kind: AlertFormLogicProps['insightAlertKind']): AlertConfig => {
@@ -428,7 +431,9 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 config: AlertConfig | null | undefined,
                 bounds: InsightsThresholdBounds | null | undefined
             ): FunnelAlertPreview | null =>
-                props.insightAlertKind === 'funnels' ? deriveFunnelAlertPreview(insightData, config, bounds) : null,
+                props.insightAlertKind === 'funnels'
+                    ? deriveFunnelAlertPreview(insightData, config, bounds, !!props.insightIsTrendsFunnel)
+                    : null,
         ],
         /** Result column names of the SQL insight, for the column pickers. */
         hogqlResultColumns: [

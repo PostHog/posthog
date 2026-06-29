@@ -77,10 +77,9 @@ def test_result_is_unframed_single_series():
             AlertConditionType.ABSOLUTE_VALUE,
             "undefined at the first step",
         ),
-        (_steps(100, 40), None, "time_to_convert", AlertConditionType.ABSOLUTE_VALUE, "steps funnel"),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_INCREASE, "absolute value conditions"),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_DECREASE, "absolute value conditions"),
-        ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no steps"),
+        ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no data"),
         ([{"order": 0}, {"order": 1}], None, None, AlertConditionType.ABSOLUTE_VALUE, "non-numeric count"),
         ([{"order": 0, "count": 100}, "broken"], None, None, AlertConditionType.ABSOLUTE_VALUE, "malformed"),
     ],
@@ -95,6 +94,82 @@ def test_none_result_raises_runtime_error():
     # AlertExtractionError) so it routes to the harder failure path, matching the other extractors.
     with pytest.raises(RuntimeError, match="No results found"):
         _extract(None)
+
+
+# --- Trends funnel (historical conversion-rate time series) ---
+
+
+def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
+    days = [f"2024-01-0{i + 1}" for i in range(len(data))]
+    series: dict = {"count": len(data), "data": data, "days": days, "labels": days}
+    if breakdown_value is not None:
+        series["breakdown_value"] = breakdown_value
+    return series
+
+
+def test_trends_funnel_evaluates_latest_period():
+    # A trends funnel is a time series of conversion rates; the alert evaluates the most recent period.
+    result = _extract([_trends_series([10.0, 25.0, 40.0])], viz="trends")
+    assert result.subject == "The funnel conversion rate"
+    assert result.unit == "%"
+    assert result.is_breakdown is False
+    assert result.series[0].points[result.series[0].current_index].value == 40.0
+
+
+def test_trends_funnel_breakdown_yields_one_series_per_value():
+    result = _extract(
+        [
+            _trends_series([10.0, 40.0], breakdown_value=["Chrome"]),
+            _trends_series([5.0, 20.0], breakdown_value=["Safari"]),
+        ],
+        viz="trends",
+    )
+    assert result.is_breakdown is True
+    assert {s.label: s.points[s.current_index].value for s in result.series} == {"Chrome": 40.0, "Safari": 20.0}
+
+
+def test_trends_funnel_compare_evaluates_current_period_only():
+    current = {**_trends_series([10.0, 40.0]), "compare_label": "current"}
+    previous = {**_trends_series([8.0, 30.0]), "compare_label": "previous"}
+    result = _extract([current, previous], viz="trends")
+    assert len(result.series) == 1
+    assert result.series[0].points[result.series[0].current_index].value == 40.0
+
+
+def test_trends_funnel_empty_result_raises_extraction_error():
+    with pytest.raises(AlertExtractionError, match="no data"):
+        _extract([], viz="trends")
+
+
+# --- Time-to-convert funnel (average conversion time) ---
+
+
+def test_time_to_convert_funnel_evaluates_average_seconds():
+    result = _extract(
+        {"bins": [[600, 3], [1200, 1]], "average_conversion_time": 840.0, "median_conversion_time": 600.0},
+        viz="time_to_convert",
+    )
+    assert result.subject == "The funnel average time to convert"
+    assert result.unit == "s"
+    assert result.is_breakdown is False
+    assert result.series[0].points[0].value == 840.0
+
+
+def test_time_to_convert_funnel_no_conversions_yields_no_data_point():
+    # No conversions → average is None; the comparator treats a None anchor as "no data this interval".
+    result = _extract({"bins": [], "average_conversion_time": None}, viz="time_to_convert")
+    assert result.series[0].points[0].value is None
+
+
+def test_time_to_convert_funnel_compare_evaluates_current_period_only():
+    result = _extract(
+        [
+            {"bins": [[600, 1]], "average_conversion_time": 600.0, "compare_label": "current"},
+            {"bins": [[1200, 1]], "average_conversion_time": 1200.0, "compare_label": "previous"},
+        ],
+        viz="time_to_convert",
+    )
+    assert result.series[0].points[0].value == 600.0
 
 
 def test_breakdown_yields_one_series_per_value():
