@@ -11,21 +11,10 @@ from posthog.kafka_client.topics import KAFKA_MESSAGE_ASSETS
 
 MESSAGE_ASSETS_TTL_DAYS = 30
 
-# Layout mirrors `hog_invocation_results` — the AUX-resident, non-sharded table
-# family produced by the CDP cyclotron path:
-#   * `message_assets_data` — local replicated table on AUX. Writes flow in via
-#     the Kafka MV; reads happen against the distributed alias.
-#   * `kafka_message_assets` — single Kafka engine table on AUX backed by the
-#     warpstream-cyclotron named collection (same producer cluster as
-#     hog_invocation_results).
-#   * `message_assets_mv` — MV on AUX, kafka → data table.
-#   * `message_assets` — distributed read alias on AUX + DATA. This is the name
-#     HogQL emits and the name the assets API queries.
-#
-# One row per successfully sent email, keyed by (invocation_id, action_id) — a
-# single workflow invocation can fan out to multiple email steps. The rendered
-# HTML body lives inline in the `html` column (ZSTD-compressed); columnar
-# storage means the listing query never reads it.
+# AUX-resident table family modelled on `hog_invocation_results`. One row per
+# successfully sent email, keyed by (invocation_id, action_id) — a single
+# workflow invocation can fan out to multiple email steps. Rendered HTML lives
+# inline in the `html` column; columnar storage means listing queries don't read it.
 MESSAGE_ASSETS_TABLE = "message_assets"
 MESSAGE_ASSETS_DATA_TABLE = f"{MESSAGE_ASSETS_TABLE}_data"
 KAFKA_MESSAGE_ASSETS_TABLE = f"kafka_{MESSAGE_ASSETS_TABLE}"
@@ -41,9 +30,8 @@ def DROP_KAFKA_MESSAGE_ASSETS_TABLE_SQL() -> str:
 
 
 def MESSAGE_ASSETS_ENGINE() -> ReplacingMergeTree:
-    # ReplicatedReplacingMergeTree on the AUX cluster — single shard, two
-    # replicas. `version` tie-breaks so a duplicate produce (e.g. a retried
-    # Kafka send for the same asset) collapses to the latest row at merge time.
+    # `version` tie-breaks so a retried Kafka produce for the same asset
+    # collapses to the latest row at merge time.
     return ReplacingMergeTree(
         MESSAGE_ASSETS_DATA_TABLE,
         ver="version",
@@ -51,9 +39,8 @@ def MESSAGE_ASSETS_ENGINE() -> ReplacingMergeTree:
     )
 
 
-# Kafka payload column list — reused between the Kafka engine table, the MV
-# projection, and the distributed read alias. `html` is last because it dominates
-# row size; column-oriented reads mean listing queries never touch it.
+# `html` is last because it dominates row size; column-oriented reads mean
+# listing queries never touch it.
 MESSAGE_ASSETS_KAFKA_COLUMNS = """
     team_id Int64,
     function_kind LowCardinality(String),
@@ -74,9 +61,8 @@ MESSAGE_ASSETS_KAFKA_COLUMNS = """
 """.strip()
 
 
-# The data lives on AUX. Skipping indexes match the listing query shape: filter
-# by function_id (workflow) + optional parent_run_id (batch run), and search by
-# recipient / distinct_id / person.
+# Skip indexes match the listing query shape: filter by function_id +
+# parent_run_id, search by recipient / distinct_id / person.
 MESSAGE_ASSETS_DATA_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {MESSAGE_ASSETS_DATA_TABLE}
@@ -112,8 +98,8 @@ SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1
 )
 
 
-# Distributed read alias. Created on both AUX (so AUX-local queries work) and
-# DATA (so HogQL queries from the main cluster reach the data).
+# Created on both AUX (so AUX-local queries work) and DATA (so HogQL queries
+# from the main cluster reach the data).
 DISTRIBUTED_MESSAGE_ASSETS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {MESSAGE_ASSETS_TABLE}
@@ -126,9 +112,8 @@ ENGINE = {Distributed(data_table=MESSAGE_ASSETS_DATA_TABLE, cluster=settings.CLI
 )
 
 
-# Single Kafka pair, backed by the warpstream-cyclotron named collection — the
-# CDP producer writes asset rows to the cyclotron Warpstream cluster, the same
-# cluster hog_invocation_results uses.
+# Backed by the warpstream-cyclotron named collection — same cluster the CDP
+# producer writes to and the same one hog_invocation_results consumes from.
 KAFKA_MESSAGE_ASSETS_TABLE_SQL = lambda: (
     f"""
 CREATE TABLE IF NOT EXISTS {KAFKA_MESSAGE_ASSETS_TABLE}
@@ -147,7 +132,6 @@ SETTINGS kafka_skip_broken_messages = 100
 )
 
 
-# MV runs on AUX, writes straight into the local data table.
 MESSAGE_ASSETS_MV_SQL = lambda target_table=MESSAGE_ASSETS_DATA_TABLE: (
     f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {MESSAGE_ASSETS_MV_TABLE}
@@ -180,8 +164,7 @@ FROM {KAFKA_MESSAGE_ASSETS_TABLE}
 TRUNCATE_MESSAGE_ASSETS_TABLE_SQL = f"TRUNCATE TABLE IF EXISTS {MESSAGE_ASSETS_DATA_TABLE}"
 
 
-# Direct insert used by tests / any bypass-Kafka producer. Writes go to the
-# local data table (the distributed read alias isn't writable).
+# Writes go to the local data table — the distributed read alias isn't writable.
 INSERT_MESSAGE_ASSET_SQL = f"""
 INSERT INTO {MESSAGE_ASSETS_DATA_TABLE} (
     team_id,

@@ -7,10 +7,6 @@ from posthog.models.message_assets.sql import (
     MESSAGE_ASSETS_MV_SQL,
 )
 
-# Per-email metadata table for the workflow Assets tab. Mirrors the
-# hog_invocation_results AUX layout: local replicated data table + Kafka engine
-# table + MV on AUX, distributed read alias on AUX + DATA so HogQL resolves it
-# from the main cluster.
 operations = [
     run_sql_with_exceptions(
         MESSAGE_ASSETS_DATA_TABLE_SQL(),
