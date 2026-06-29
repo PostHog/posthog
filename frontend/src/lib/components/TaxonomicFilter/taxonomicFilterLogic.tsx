@@ -1389,6 +1389,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                                 name: getFilterLabel('comment_text', TaxonomicFilterGroupType.Replay),
                                 propertyFilterType: PropertyFilterType.Recording,
                             },
+                            {
+                                key: 'click_count',
+                                name: getFilterLabel('click_count', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'keypress_count',
+                                name: getFilterLabel('keypress_count', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
+                            {
+                                key: 'mouse_activity_count',
+                                name: getFilterLabel('mouse_activity_count', TaxonomicFilterGroupType.Replay),
+                                propertyFilterType: PropertyFilterType.Recording,
+                            },
                         ],
                         getName: (option: Record<string, any>) => option.name,
                         getValue: (option: Record<string, any>) => option.key,
