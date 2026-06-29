@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { type ReactNode, useState } from 'react'
 
-import { IconArrowLeft, IconArrowRight, IconPullRequest, IconTerminal } from '@posthog/icons'
+import { IconArrowLeft, IconArrowRight, IconInfo, IconPullRequest, IconTerminal } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { AuthorizedUrlList } from 'lib/components/AuthorizedUrlList/AuthorizedUrlList'
@@ -150,6 +150,8 @@ interface ToolSource {
     toggles: ToolToggle[]
     /** Extra config rendered under the toggles (e.g. web analytics authorized domains). */
     extra?: ReactNode
+    /** Spans both grid columns — for the card that carries extra config (web analytics domains). */
+    wide?: boolean
 }
 
 // Tint a `rgb(r g b)` color string into a faint background fill for the icon chip.
@@ -157,12 +159,31 @@ function tint(color: string): string {
     return color.replace(/\)$/, ' / 0.12)')
 }
 
-function ToolCard({ source }: { source: ToolSource }): JSX.Element {
+// Card status reflects both config and the SDK: turned-on sources can't actually collect until the
+// posthog-js SDK is installed, so they read as "Needs install" rather than "Active" until then.
+function statusFor(
+    active: boolean,
+    sdkInstalled: boolean
+): { type: 'muted' | 'success' | 'warning'; label: string } {
+    if (!active) {
+        return { type: 'muted', label: 'Off' }
+    }
+    return sdkInstalled ? { type: 'success', label: 'Active' } : { type: 'warning', label: 'Needs install' }
+}
+
+function ToolCard({ source, sdkInstalled }: { source: ToolSource; sdkInstalled: boolean }): JSX.Element {
     const product = availableOnboardingProducts[source.productKey as keyof typeof availableOnboardingProducts]
     const color = product?.iconColor ?? 'var(--color-text-secondary)'
+    const status = statusFor(source.active, sdkInstalled)
 
     return (
-        <div className="flex flex-col gap-3 p-4 border border-primary rounded-lg">
+        <div
+            className={cn(
+                'flex flex-col gap-3 p-4 rounded-lg border transition-colors',
+                source.active ? 'border-accent' : 'border-primary',
+                source.wide && 'sm:col-span-2'
+            )}
+        >
             <div className="flex items-center gap-3">
                 <div
                     className="size-9 rounded-md flex items-center justify-center shrink-0"
@@ -175,13 +196,13 @@ function ToolCard({ source }: { source: ToolSource }): JSX.Element {
                     <p className="m-0 text-sm font-semibold">{toSentenceCase(product?.name ?? source.productKey)}</p>
                     {source.note && <p className="m-0 text-xs text-muted">{source.note}</p>}
                 </div>
-                <LemonTag type={source.active ? 'success' : 'muted'}>{source.active ? 'Active' : 'Off'}</LemonTag>
+                <LemonTag type={status.type}>{status.label}</LemonTag>
             </div>
-            <div className="flex flex-col gap-2 pl-12">
+            <div className="flex flex-col gap-2">
                 {source.toggles.map((toggle) => (
                     <div key={toggle.label} className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                            <p className={`m-0 text-sm ${toggle.disabled ? 'text-muted' : ''}`}>{toggle.label}</p>
+                            <p className={cn('m-0 text-sm', toggle.disabled && 'text-muted')}>{toggle.label}</p>
                             {toggle.description && <p className="m-0 text-xs text-muted">{toggle.description}</p>}
                         </div>
                         <LemonSwitch
@@ -193,7 +214,7 @@ function ToolCard({ source }: { source: ToolSource }): JSX.Element {
                     </div>
                 ))}
             </div>
-            {source.extra && <div className="pl-12">{source.extra}</div>}
+            {source.extra && <div>{source.extra}</div>}
         </div>
     )
 }
@@ -206,6 +227,9 @@ function SourcesStep(): JSX.Element {
     const replayOn = !!currentTeam?.session_recording_opt_in
     // Web analytics scopes to the team's authorized domains (app_urls); without one it has nothing to track.
     const hasAuthorizedDomain = (currentTeam?.app_urls?.length ?? 0) > 0
+    // Every source here collects through the posthog-js SDK; ingested_event is our proxy for it being
+    // installed and sending. Until then, turned-on sources read as "Needs install".
+    const sdkInstalled = !!currentTeam?.ingested_event
 
     const sources: ToolSource[] = [
         {
@@ -225,32 +249,6 @@ function SourcesStep(): JSX.Element {
                     onChange: (checked) => updateCurrentTeam({ heatmaps_opt_in: checked }),
                 },
             ],
-        },
-        {
-            productKey: ProductKey.WEB_ANALYTICS,
-            active: autocaptureOn && hasAuthorizedDomain,
-            toggles: [
-                {
-                    label: 'Web vitals',
-                    description: 'Load times and layout shifts from real users.',
-                    checked: !!currentTeam?.autocapture_web_vitals_opt_in,
-                    onChange: (checked) => updateCurrentTeam({ autocapture_web_vitals_opt_in: checked }),
-                },
-            ],
-            extra: (
-                <div className="flex flex-col gap-1.5">
-                    <p className="m-0 text-sm">Authorized domains</p>
-                    <p className="m-0 text-xs text-muted">Add the domains you want web analytics to track.</p>
-                    <AuthorizedUrlList
-                        type={AuthorizedUrlListType.WEB_ANALYTICS}
-                        allowWildCards={false}
-                        showLaunch={false}
-                        displaySuggestions={false}
-                        hideEmptyState
-                        addText="Add a domain"
-                    />
-                </div>
-            ),
         },
         {
             productKey: ProductKey.SESSION_REPLAY,
@@ -299,16 +297,54 @@ function SourcesStep(): JSX.Element {
                 },
             ],
         },
+        {
+            productKey: ProductKey.WEB_ANALYTICS,
+            active: autocaptureOn && hasAuthorizedDomain,
+            wide: true,
+            toggles: [
+                {
+                    label: 'Web vitals',
+                    description: 'Load times and layout shifts from real users.',
+                    checked: !!currentTeam?.autocapture_web_vitals_opt_in,
+                    onChange: (checked) => updateCurrentTeam({ autocapture_web_vitals_opt_in: checked }),
+                },
+            ],
+            extra: (
+                <div className="flex flex-col gap-1.5">
+                    <p className="m-0 text-sm">Authorized domains</p>
+                    <p className="m-0 text-xs text-muted">Add the domains you want web analytics to track.</p>
+                    <AuthorizedUrlList
+                        type={AuthorizedUrlListType.WEB_ANALYTICS}
+                        allowWildCards={false}
+                        showLaunch={false}
+                        displaySuggestions={false}
+                        hideEmptyState
+                        addText="Add a domain"
+                    />
+                </div>
+            ),
+        },
     ]
 
     return (
-        <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-4">
             <p className="text-sm text-muted m-0">
-                Active sources feed context to PostHog. Turn on what's relevant. You can change these any time.
+                Active sources feed context to PostHog. Turn on what's relevant — you can change these any time.
             </p>
-            {sources.map((source) => (
-                <ToolCard key={source.productKey} source={source} />
-            ))}
+            {!sdkInstalled && (
+                <div className="flex items-start gap-2 rounded-md border border-dashed border-primary p-3 text-xs text-muted">
+                    <IconInfo className="shrink-0 mt-0.5 text-sm" />
+                    <span>
+                        These collect data through the PostHog SDK. Turn on what you want now — they'll start the moment
+                        it's installed.
+                    </span>
+                </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-start">
+                {sources.map((source) => (
+                    <ToolCard key={source.productKey} source={source} sdkInstalled={sdkInstalled} />
+                ))}
+            </div>
         </div>
     )
 }
@@ -330,7 +366,7 @@ interface StepDef {
 const STEPS: StepDef[] = [
     { id: 'welcome', title: '', Content: WelcomeStep },
     { id: 'install', title: 'Install PostHog', Content: InstallStep },
-    { id: 'sources', title: 'Turn on your sources', Content: SourcesStep, skippable: true },
+    { id: 'sources', title: 'Turn on your sources', Content: SourcesStep, skippable: true, maxWidth: 'max-w-3xl' },
     { id: 'warehouse', title: 'Connect your data', Content: ContextWarehouseStep, skippable: true },
     {
         id: 'billing',
