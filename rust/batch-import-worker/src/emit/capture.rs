@@ -798,6 +798,9 @@ mod tests {
         snap.iter()
             .find(|(n, got, _)| {
                 n == name
+                    // Exact label-set match (not subset): a future stray label on a
+                    // counter must not silently satisfy a narrower query.
+                    && got.len() == labels.len()
                     && labels
                         .iter()
                         .all(|(k, v)| got.get(*k).map(String::as_str) == Some(*v))
@@ -864,6 +867,24 @@ mod tests {
         // The alerting-critical case: 402 must surface as reason="quota" so it
         // can be excluded from actionable-failure alerts.
         let snap = commit_against_status(402, "billing limit exceeded").await;
+        // capture_batch_events_total is the primary per-event-loss metric, so the
+        // quota split has to hold there too — not just on the request counter.
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "quota")]
+            ),
+            Some(1)
+        );
+        assert_eq!(
+            counter_value(
+                &snap,
+                "capture_batch_events_total",
+                &[("outcome", "failure"), ("reason", "bad_request")]
+            ),
+            None
+        );
         assert_eq!(
             counter_value(
                 &snap,
