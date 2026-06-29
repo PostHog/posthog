@@ -62,10 +62,11 @@ from products.review_hog.backend.reviewer.tools.issue_validation import (
 )
 from products.review_hog.backend.reviewer.tools.issues_review import REVIEW_SYSTEM_PROMPT, build_review_prompt
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import build_review_body
-from products.review_hog.backend.reviewer.tools.publish_review import publish_review
+from products.review_hog.backend.reviewer.tools.publish_review import publish_persisted_review
 from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
     CHUNKING_SYSTEM_PROMPT,
     generate_chunking_prompt,
+    plan_deterministic_chunks,
 )
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 
@@ -444,6 +445,16 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
     if snapshot is None:
         raise ApplicationError("PR snapshot missing for chunking", non_retryable=True)
 
+    # Small PRs are one coherent review unit: skip the chunking LLM turn (and the per-chunk fan-out it
+    # would multiply) and use a single deterministic chunk. Only larger PRs reach the semantic chunker.
+    planned = plan_deterministic_chunks(snapshot.pr_files)
+    if planned is not None:
+        logger.info("PR within the single-chunk size; one deterministic chunk, skipping the chunking LLM turn")
+        await database_sync_to_async(persist_chunk_set, thread_sensitive=False)(
+            team_id=input.team_id, report_id=input.report_id, head_sha=input.head_sha, chunks=planned
+        )
+        return [chunk.chunk_id for chunk in planned.chunks]
+
     prompt = generate_chunking_prompt(snapshot.pr_metadata, snapshot.pr_comments, snapshot.pr_files)
     async with Heartbeater():
         chunks = await run_sandbox_review(
@@ -756,34 +767,17 @@ async def build_body_activity(input: BuildBodyInput) -> None:
 def _publish(
     team_id: int, report_id: str, head_sha: str, run_index: int, owner: str, repo: str, pr_number: int
 ) -> None:
-    report = ReviewReport.objects.for_team(team_id).get(id=report_id)
-    # Idempotency: publishing isn't naturally idempotent (it posts a review + a one-time promo
-    # comment), but it runs under at-least-once activity + parent retries. Skip if we already
-    # published this exact head, so a retry / re-trigger can't double-post.
-    if report.published_head_sha == head_sha:
-        logger.info(f"Review for {owner}/{repo}#{pr_number} already published at {head_sha}; skipping")
-        return
-    snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
-    pr_files = snapshot.pr_files if snapshot is not None else []
     token = _installation_token(team_id, f"{owner}/{repo}")
-    posted = publish_review(
+    publish_persisted_review(
+        team_id=team_id,
+        report_id=report_id,
+        head_sha=head_sha,
+        run_index=run_index,
         owner=owner,
         repo=repo,
         pr_number=pr_number,
-        team_id=team_id,
-        report_id=report_id,
-        run_index=run_index,
-        pr_files=pr_files,
         token=token,
-        head_sha=head_sha,
-        # The alpha promo comment is posted once per report (first real publish), not every turn.
-        post_promo=report.published_head_sha is None,
     )
-    # Record the watermark only on an actual post: a no-op turn (no publishable findings) must not
-    # block a later turn from publishing at the same head, nor consume the one-time promo.
-    if posted:
-        report.published_head_sha = head_sha
-        report.save(update_fields=["published_head_sha", "updated_at"])
 
 
 @activity.defn
