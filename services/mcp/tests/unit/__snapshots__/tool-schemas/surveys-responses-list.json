@@ -23,6 +23,12 @@
             "minimum": 0,
             "type": "number"
         },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
         "question_id": {
             "description": "If set, only return rows where this question has a non-empty answer, and only include that question's answer in each row. Required when using score_lte or score_gte.",
             "minLength": 1,

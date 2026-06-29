@@ -33,6 +33,12 @@
             "description": "The PostHog product or area this is about, in free text (e.g. \"session replay\", \"insights\", \"data warehouse\", \"feature flags\", \"docs\"). Most useful for product feedback; for MCP feedback the tool name belongs in `details`/`friction_points` instead.",
             "type": "string"
         },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
         "sentiment": {
             "description": "The overall tone. Use \"negative\" for something broken or blocking, \"mixed\" for mostly-fine-but-with-a-concrete-problem, \"neutral\" for a suggestion or feature request with no strong sentiment, and \"positive\" for praise or something that worked well. All sentiments are welcome — positive feedback is encouraged, not just problems.",
             "enum": ["positive", "neutral", "negative", "mixed"],

@@ -7,6 +7,7 @@ import { ToolInputValidationError } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 
+import { isProjectIdOverrideEligible, popProjectIdOverride } from './project-id-override'
 import { TOKEN_CHAR_LIMIT, listAvailablePaths, resolveSchemaPath, summarizeSchema } from './schema-utils'
 import type { ScopeGatedTool } from './toolDefinitions'
 import {
@@ -400,6 +401,18 @@ export function createExecTool(
                     }
                     input = validation.data as Record<string, unknown>
 
+                    // Optional per-call project override, stripped from the args so
+                    // the handler never sees it. Cleared in `finally` so consecutive
+                    // inner calls in one exec command don't inherit it. Gated on
+                    // eligibility so an excluded tool's own `projectId` arg is never
+                    // consumed as an override. See project-id-override.ts.
+                    const overrideProjectId = isProjectIdOverrideEligible(tool.name)
+                        ? popProjectIdOverride(input)
+                        : undefined
+                    if (overrideProjectId !== undefined) {
+                        context.stateManager.setProjectIdOverride(overrideProjectId)
+                    }
+
                     const startedAt = Date.now()
                     let result: unknown
                     try {
@@ -412,6 +425,10 @@ export function createExecTool(
                             error_message: err instanceof Error ? err.message : String(err),
                         })
                         throw err
+                    } finally {
+                        if (overrideProjectId !== undefined) {
+                            context.stateManager.setProjectIdOverride(undefined)
+                        }
                     }
                     const durationMs = Date.now() - startedAt
 

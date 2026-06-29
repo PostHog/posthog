@@ -5,6 +5,12 @@
             "description": "A UUID string identifying this review queue item.",
             "type": "string"
         },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
         "queue_id": {
             "description": "Review queue ID that should own this pending trace.",
             "type": "string"

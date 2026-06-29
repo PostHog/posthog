@@ -78,6 +78,12 @@
             ],
             "description": "Tab descriptor for the user's chosen home page — the destination opened when they click the PostHog logo or hit `/`. Set to a tab descriptor to pick a homepage, send `null` or `{}` to clear it and fall back to the project default."
         },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
         "tabs": {
             "description": "Ordered list of pinned navigation tabs shown in the sidebar for the authenticated user within the current team. Send the full list to replace the existing pins; omit to leave them unchanged.",
             "items": {

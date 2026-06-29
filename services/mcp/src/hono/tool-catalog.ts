@@ -61,22 +61,18 @@ export class ToolCatalog {
 
         const start = performance.now()
 
-        const [{ TOOL_MAP }, { GENERATED_TOOL_MAP }] = await Promise.all([
-            import('@/tools'),
-            import('@/tools/generated'),
-        ])
-
-        const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = {
-            ...TOOL_MAP,
-            ...GENERATED_TOOL_MAP,
-        }
+        // getAllToolFactories() merges TOOL_MAP + GENERATED_TOOL_MAP and wraps each
+        // factory with the optional `projectId` per-call override — the single source
+        // shared with the CLI and getToolsFromContext. Dynamic import keeps the heavy
+        // tool tree off the warmup-free path.
+        const { getAllToolFactories } = await import('@/tools')
+        const allFactories = getAllToolFactories()
 
         const defs = getToolDefinitions()
 
         for (const [name, factory] of Object.entries(allFactories)) {
-            const base = factory()
             this._preBuilt.set(name, {
-                base,
+                base: factory(),
                 definition: defs[name],
             })
         }

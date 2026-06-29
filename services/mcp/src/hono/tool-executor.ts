@@ -19,6 +19,7 @@ import {
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
+import { isProjectIdOverrideEligible, popProjectIdOverride } from '@/tools/project-id-override'
 import { createRenderUiTool } from '@/tools/render-ui'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
@@ -175,6 +176,17 @@ export class ToolExecutor {
             }
         }
 
+        // Apply an optional per-call project override (stripped from the args so
+        // the handler never sees it). Cleared in `finally` so it can't leak past
+        // this single call. Gated on eligibility so an excluded tool's own
+        // `projectId` arg is never consumed as an override. See project-id-override.ts.
+        const overrideProjectId = isProjectIdOverrideEligible(tool.name)
+            ? popProjectIdOverride(validation.data as Record<string, unknown>)
+            : undefined
+        if (overrideProjectId !== undefined) {
+            state.context.stateManager.setProjectIdOverride(overrideProjectId)
+        }
+
         const stop = toolCallDurationSeconds.startTimer({ tool: tool.name })
         const startMs = Date.now()
 
@@ -235,6 +247,10 @@ export class ToolExecutor {
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             return handleToolError(error, tool.name, state.distinctId, sessionUuid)
+        } finally {
+            if (overrideProjectId !== undefined) {
+                state.context.stateManager.setProjectIdOverride(undefined)
+            }
         }
     }
 

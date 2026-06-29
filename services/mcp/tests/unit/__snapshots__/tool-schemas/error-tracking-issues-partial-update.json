@@ -26,6 +26,12 @@
             ],
             "description": "Optional issue display name."
         },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
         "status": {
             "description": "Issue status to set. Deprecated archived and pending_release values are rejected.\n\n* `active` - active\n* `resolved` - resolved\n* `suppressed` - suppressed",
             "enum": ["active", "resolved", "suppressed"],

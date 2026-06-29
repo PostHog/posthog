@@ -1,6 +1,5 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
-    "description": "Create serializer — accepts bundled files as write-only input on POST.",
     "properties": {
         "allowed_tools": {
             "description": "List of pre-approved tools the skill may use. Tool names cannot contain whitespace.",
@@ -65,6 +64,12 @@
             "description": "Unique skill name. Lowercase letters, numbers, and hyphens only. Max 64 characters.",
             "maxLength": 64,
             "type": "string"
+        },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
         }
     },
     "required": ["name", "description", "body"],

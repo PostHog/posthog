@@ -31,13 +31,14 @@ import {
     readDataSchema,
     readDataWarehouseSchema,
 } from './posthogAiTools'
+// Skills (deprecation aliases for the llma-skill-* → skill-* rename)
+import { withProjectIdOverride } from './project-id-override'
 // Projects
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
 // Replay
 import sessionRecordingSummarize from './replay/sessionRecordingSummarize'
-// Skills (deprecation aliases for the llma-skill-* → skill-* rename)
 import { SKILL_DEPRECATED_ALIASES } from './skills/deprecatedAliases'
 // Misc
 import {
@@ -118,6 +119,19 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     ...SKILL_DEPRECATED_ALIASES,
 }
 
+// Single source for the full factory map across every tool-building path (Hono
+// catalog warmup, the CLI, and getToolsFromContext). Each factory is wrapped so
+// project-scoped tools advertise the optional `projectId` per-call override —
+// inject it here and no call site can drift. See project-id-override.ts.
+export const getAllToolFactories = (): Record<string, () => ToolBase<ZodObjectAny>> => {
+    const raw = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    const wrapped: Record<string, () => ToolBase<ZodObjectAny>> = {}
+    for (const [name, factory] of Object.entries(raw)) {
+        wrapped[name] = () => withProjectIdOverride(name, factory())
+    }
+    return wrapped
+}
+
 export const getToolsFromContext = async (
     context: Context,
     options?: ToolFilterOptions
@@ -125,7 +139,7 @@ export const getToolsFromContext = async (
     // Check org AI consent to gate tools that use LLMs internally (cached in StateManager)
     const aiConsentGiven = await context.stateManager.getAiConsentGiven()
     const effectiveOptions = aiConsentGiven !== undefined ? { ...options, aiConsentGiven } : options
-    const effectiveMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+    const effectiveMap = getAllToolFactories()
     const excludeTools = options?.excludeTools ?? []
     const allowedToolNames = getFilteredToolNames(effectiveOptions).filter((name) => !excludeTools.includes(name))
     const toolBases: ToolBase<ZodObjectAny>[] = []

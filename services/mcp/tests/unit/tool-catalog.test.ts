@@ -48,6 +48,12 @@ vi.mock('@/tools', () => ({
         'tool-a': () => makeToolBase('tool-a'),
         'tool-b': () => makeToolBase('tool-b'),
     },
+    // warmup() consumes the merged+wrapped factory map; mirror the real shape.
+    getAllToolFactories: () => ({
+        'tool-a': () => makeToolBase('tool-a'),
+        'tool-b': () => makeToolBase('tool-b'),
+        'gen-tool-c': () => makeToolBase('gen-tool-c'),
+    }),
 }))
 
 vi.mock('@/tools/generated', () => ({

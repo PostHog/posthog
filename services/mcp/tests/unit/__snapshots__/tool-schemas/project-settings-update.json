@@ -528,6 +528,12 @@
             ],
             "description": "Short description of what the project is about. This is helpful to give our AI agents context about your project."
         },
+        "projectId": {
+            "description": "Override the active project for this single call only. Does not change the active project — use switch-project for a persistent change. Defaults to the active project when omitted. Must be a project the API key can access, or the call returns a permission error.",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
         "receive_org_level_activity_logs": {
             "anyOf": [
                 {

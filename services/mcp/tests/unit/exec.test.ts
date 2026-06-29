@@ -10,6 +10,7 @@ import { InstructionsFormatter } from '@/lib/instructions-formatter'
 import { SessionManager } from '@/lib/SessionManager'
 import { getToolsFromContext } from '@/tools'
 import { createExecTool, type ExecInnerCallProperties, parseExecCallInnerToolName } from '@/tools/exec'
+import { withProjectIdOverride } from '@/tools/project-id-override'
 import { getToolDefinition } from '@/tools/toolDefinitions'
 import {
     POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY,
@@ -930,6 +931,87 @@ describe('exec tool', () => {
             expect(domainsBlock).toContain('query')
             expect(commandDescription).toContain(domainsBlock)
             expect(commandDescription).toContain(queryToolsBlock)
+        })
+    })
+
+    describe('per-call project override', () => {
+        // A tool whose handler reports the project StateManager resolves, so the
+        // test can observe which project the inner call actually ran against.
+        const projToolBase = withProjectIdOverride('proj-tool', {
+            name: 'proj-tool',
+            schema: z.object({ foo: z.string().optional() }),
+            handler: async (ctx: Context) => ({ project: await ctx.stateManager.getProjectId() }),
+        })
+        const projTool: Tool<ZodObjectAny> = {
+            ...projToolBase,
+            title: 'Proj tool',
+            description: 'returns the resolved project',
+            scopes: [],
+            annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true },
+        }
+
+        function setup(): { exec: Tool<any>; ctx: Context; overrideHistory: (string | undefined)[] } {
+            let activeOverride: string | undefined
+            const overrideHistory: (string | undefined)[] = []
+            const ctx = {
+                getDistinctId: async () => 'd',
+                stateManager: {
+                    setProjectIdOverride: (id: string | undefined) => {
+                        activeOverride = id
+                        overrideHistory.push(id)
+                    },
+                    getProjectId: async () => activeOverride ?? 'active-project',
+                },
+            } as unknown as Context
+            return { exec: createExecTool([projTool], ctx, 'desc', 'ref', undefined), ctx, overrideHistory }
+        }
+
+        it('routes the inner call to the projectId override, then clears it', async () => {
+            const { exec, ctx, overrideHistory } = setup()
+
+            const result = await exec.handler(ctx, { command: 'call --json proj-tool {"projectId": 555}' })
+
+            expect((JSON.parse(result as string) as { project: string }).project).toBe('555')
+            // Set before the handler, cleared after it — so it can't bleed into the
+            // next inner call dispatched within the same exec command.
+            expect(overrideHistory).toEqual(['555', undefined])
+        })
+
+        it('uses the active project when no override is passed', async () => {
+            const { exec, ctx, overrideHistory } = setup()
+
+            const result = await exec.handler(ctx, { command: 'call --json proj-tool {}' })
+
+            expect((JSON.parse(result as string) as { project: string }).project).toBe('active-project')
+            expect(overrideHistory).toEqual([])
+        })
+
+        it("never consumes an excluded tool's own projectId as an override", async () => {
+            // switch-project is excluded; its `projectId` is a real handler arg.
+            const overrideHistory: (string | undefined)[] = []
+            const ctx = {
+                getDistinctId: async () => 'd',
+                stateManager: {
+                    setProjectIdOverride: (id: string | undefined) => overrideHistory.push(id),
+                    getProjectId: async () => 'active-project',
+                },
+            } as unknown as Context
+            const switchTool: Tool<ZodObjectAny> = {
+                name: 'switch-project',
+                title: 'Switch project',
+                description: 'sets the active project',
+                schema: z.object({ projectId: z.number() }),
+                scopes: [],
+                annotations: { destructiveHint: false, idempotentHint: true, openWorldHint: false, readOnlyHint: true },
+                handler: async (_ctx, params) => ({ received: (params as { projectId: number }).projectId }),
+            }
+            const exec = createExecTool([switchTool], ctx, 'desc', 'ref', undefined)
+
+            const result = await exec.handler(ctx, { command: 'call --json switch-project {"projectId": 777}' })
+
+            // The arg reaches the handler intact, and no override is set.
+            expect((JSON.parse(result as string) as { received: number }).received).toBe(777)
+            expect(overrideHistory).toEqual([])
         })
     })
 })

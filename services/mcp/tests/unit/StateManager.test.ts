@@ -665,6 +665,26 @@ describe('StateManager', () => {
                 message: expect.stringContaining('switch-project'),
             })
         })
+
+        it('returns the per-call override ahead of the cached project, without resolving a default', async () => {
+            await cache.set('projectId', 'cached-project-id')
+            const spy = vi.spyOn(stateManager, 'setDefaultOrganizationAndProject')
+            stateManager.setProjectIdOverride('99')
+
+            expect(await stateManager.getProjectId()).toBe('99')
+            // The override short-circuits before the cache and the default resolver.
+            expect(spy).not.toHaveBeenCalled()
+        })
+
+        it('falls back to the cached project once the override is cleared', async () => {
+            await cache.set('projectId', 'cached-project-id')
+            stateManager.setProjectIdOverride('99')
+            stateManager.setProjectIdOverride(undefined)
+
+            // Guards the dispatcher's `finally` reset: an override must not leak
+            // into the next call (e.g. consecutive inner calls in one exec command).
+            expect(await stateManager.getProjectId()).toBe('cached-project-id')
+        })
     })
 
     describe('getOrFetchCached (via getOrFetchGroupTypes)', () => {

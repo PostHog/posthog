@@ -1,5 +1,4 @@
-import { TOOL_MAP } from '@/tools'
-import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { getAllToolFactories } from '@/tools'
 import { type ToolDefinition, getToolDefinition, getToolsForFeatures } from '@/tools/toolDefinitions'
 import type { Tool, ToolBase, ZodObjectAny } from '@/tools/types'
 
@@ -7,11 +6,7 @@ interface CliToolOptions {
     aiConsentGiven?: boolean | undefined
 }
 
-function materializeTool(
-    name: string,
-    factory: () => ToolBase<ZodObjectAny>,
-    definition: ToolDefinition
-): Tool<ZodObjectAny> {
+function materializeTool(factory: () => ToolBase<ZodObjectAny>, definition: ToolDefinition): Tool<ZodObjectAny> {
     return {
         ...factory(),
         title: definition.title,
@@ -22,10 +17,7 @@ function materializeTool(
 }
 
 export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] {
-    const factories: Record<string, () => ToolBase<ZodObjectAny>> = {
-        ...TOOL_MAP,
-        ...GENERATED_TOOL_MAP,
-    }
+    const factories = getAllToolFactories()
     const names = getToolsForFeatures({
         aiConsentGiven: options.aiConsentGiven,
     })
@@ -39,7 +31,7 @@ export function getCliTools(options: CliToolOptions = {}): Tool<ZodObjectAny>[] 
 
         try {
             const definition = getToolDefinition(name)
-            tools.push(materializeTool(name, () => factory(), definition))
+            tools.push(materializeTool(() => factory(), definition))
         } catch {
             continue
         }

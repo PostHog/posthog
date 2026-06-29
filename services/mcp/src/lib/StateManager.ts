@@ -20,9 +20,20 @@ export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
+    // Transient per-request project override set by the tool dispatcher from a
+    // call's `projectId` arg. Takes precedence over the cached active project in
+    // `getProjectId()` and is intentionally never written to the cache, so a
+    // one-off cross-project call cannot drift the sticky active project. Scoped to
+    // a single handler invocation — the dispatcher sets it before the handler and
+    // clears it after (see `callTool` in tool-executor and exec's inner dispatch).
+    private _projectIdOverride?: string
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
+    }
+
+    setProjectIdOverride(projectId: string | undefined): void {
+        this._projectIdOverride = projectId
     }
 
     private async _fetchUser(): Promise<ApiUser> {
@@ -259,6 +270,10 @@ export class StateManager {
     }
 
     async getProjectId(): Promise<string> {
+        if (this._projectIdOverride) {
+            return this._projectIdOverride
+        }
+
         const projectId = await this._cache.get('projectId')
 
         if (!projectId) {
