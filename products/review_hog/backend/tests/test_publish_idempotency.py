@@ -12,8 +12,10 @@ from products.review_hog.backend.reviewer.persistence import upsert_review_repor
 from products.review_hog.backend.reviewer.tools.publish_review import _review_already_posted, _review_marker
 from products.review_hog.backend.temporal.activities import _publish
 
-_PUBLISH = "products.review_hog.backend.temporal.activities.publish_review"
-_SNAPSHOT = "products.review_hog.backend.temporal.activities.load_pr_snapshot"
+# `_publish` now delegates to `publish_persisted_review` in the tool, so the GitHub-post seam and the
+# snapshot load are patched there; the installation token is still resolved in the activity wrapper.
+_PUBLISH = "products.review_hog.backend.reviewer.tools.publish_review.publish_review"
+_SNAPSHOT = "products.review_hog.backend.reviewer.tools.publish_review.load_pr_snapshot"
 _TOKEN = "products.review_hog.backend.temporal.activities._installation_token"
 
 

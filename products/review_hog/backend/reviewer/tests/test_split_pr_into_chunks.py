@@ -5,8 +5,16 @@ from pytest import MonkeyPatch
 
 from jinja2 import Environment
 
+from products.review_hog.backend.reviewer.constants import CHUNK_SOFT_MAX_ADDITIONS, CHUNK_TARGET_ADDITIONS
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
-from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import generate_chunking_prompt
+from products.review_hog.backend.reviewer.tools.split_pr_into_chunks import (
+    generate_chunking_prompt,
+    plan_deterministic_chunks,
+)
+
+
+def _file(filename: str, additions: int, deletions: int = 0) -> PRFile:
+    return PRFile(filename=filename, status="modified", additions=additions, deletions=deletions)
 
 
 class TestGenerateChunkingPrompt:
@@ -16,8 +24,8 @@ class TestGenerateChunkingPrompt:
         pr_comments: list[PRComment],
         pr_files: list[PRFile],
     ) -> None:
-        # The prompt carries the PR's intent (title + description) and the output schema the sandbox
-        # parses against — not the full metadata dump, which the prompt deliberately omits.
+        # The prompt carries the PR's intent (title + description), the size budget the chunker uses,
+        # and the output schema the sandbox parses — not the full metadata dump it omits.
         prompt = generate_chunking_prompt(
             pr_metadata=pr_metadata,
             pr_comments=pr_comments,
@@ -27,9 +35,59 @@ class TestGenerateChunkingPrompt:
         assert isinstance(prompt, str)
         assert pr_metadata.title in prompt
         assert pr_metadata.model_dump_json() not in prompt
+        assert str(CHUNK_TARGET_ADDITIONS) in prompt
+        assert str(CHUNK_SOFT_MAX_ADDITIONS) in prompt
         assert "<output_schema>" in prompt
         assert '"ChunksList"' in prompt
         assert '"Chunk"' in prompt
+
+
+class TestPlanDeterministicChunks:
+    @pytest.mark.parametrize(
+        "additions,defers_to_llm",
+        [
+            (CHUNK_TARGET_ADDITIONS - 1, False),
+            (CHUNK_TARGET_ADDITIONS, False),
+            (CHUNK_TARGET_ADDITIONS + 1, True),
+        ],
+    )
+    def test_threshold_decides_single_chunk_vs_llm(self, additions: int, defers_to_llm: bool) -> None:
+        # The cost fix: a PR within the target stays one chunk (LLM skipped); only a larger PR defers
+        # to the semantic chunker. The boundary is inclusive.
+        planned = plan_deterministic_chunks([_file("a.py", additions)])
+
+        if defers_to_llm:
+            assert planned is None
+        else:
+            assert planned is not None
+            assert len(planned.chunks) == 1
+
+    def test_counts_additions_only_not_deletions(self) -> None:
+        # Sizing is additions-only — a delete-heavy PR (few additions) is still one chunk, not split.
+        planned = plan_deterministic_chunks([_file("a.py", additions=50, deletions=9999)])
+
+        assert planned is not None
+        assert len(planned.chunks) == 1
+
+    def test_single_chunk_holds_all_files_with_neutral_metadata(self) -> None:
+        # The deterministic chunk gathers every reviewable file under chunk_id 1 with no LLM-derived
+        # type/key_changes, so the downstream body renderer falls back to its generic heading.
+        planned = plan_deterministic_chunks([_file("a.py", 10), _file("b.py", 20)])
+
+        assert planned is not None
+        chunk = planned.chunks[0]
+        assert chunk.chunk_id == 1
+        assert [f.filename for f in chunk.files] == ["a.py", "b.py"]
+        assert chunk.chunk_type is None
+        assert chunk.key_changes == []
+
+    def test_no_reviewable_files_yields_no_chunks(self) -> None:
+        # A PR left with nothing reviewable (everything filtered upstream) produces zero chunks so the
+        # run no-ops, rather than calling the LLM with an empty file set.
+        planned = plan_deterministic_chunks([])
+
+        assert planned is not None
+        assert planned.chunks == []
 
     def test_generate_chunking_prompt_missing_schema(
         self,
