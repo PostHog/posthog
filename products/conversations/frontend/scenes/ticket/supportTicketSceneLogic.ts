@@ -238,7 +238,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()), {
                             ticket_id: ticket.id,
                         })
-                        return (response.results ?? []) as unknown as KnowledgeGapSuggestion[]
+                        const data = Array.isArray(response) ? response : (response.results ?? [])
+                        return data as unknown as KnowledgeGapSuggestion[]
                     } catch {
                         return []
                     }

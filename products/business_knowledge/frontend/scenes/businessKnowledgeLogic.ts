@@ -194,7 +194,9 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 loadGapSuggestions: async (): Promise<AggregatedGap[]> => {
                     try {
                         const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()))
-                        return (response.results ?? []) as unknown as AggregatedGap[]
+                        // Aggregated endpoint returns a plain array; per-ticket returns paginated
+                        const data = Array.isArray(response) ? response : (response.results ?? [])
+                        return data as unknown as AggregatedGap[]
                     } catch {
                         return []
                     }
