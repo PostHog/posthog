@@ -23,6 +23,11 @@ class FinnhubEndpointConfig:
     # Per-symbol fan-out: the endpoint needs a `symbol` query param and is queried once per
     # configured ticker, with the requested symbol injected into each emitted row.
     requires_symbol: bool = False
+    # Static query params merged into every request for this endpoint (e.g. `metric=all`,
+    # `category=general`). Keeps an endpoint's full request shape in this one config.
+    fixed_params: dict[str, str] = field(default_factory=dict)
+    # The endpoint accepts the source-level `exchange` query param (defaulting to US).
+    exchange_param: bool = False
     # Windowed endpoints accept `from`/`to` (YYYY-MM-DD) range params. `lookback_days`
     # bounds how far back the initial/full window reaches; `forward_days` extends it into
     # the future for forward-looking calendars (scheduled IPOs / earnings).
@@ -43,12 +48,14 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
         name="stock_symbols",
         path="/stock/symbol",
         primary_keys=["symbol"],
+        exchange_param=True,
         description="All tradable symbols for the configured exchange (default US). Full refresh.",
     ),
     "market_news": FinnhubEndpointConfig(
         name="market_news",
         path="/news",
         primary_keys=["id"],
+        fixed_params={"category": "general"},
         # Market news only supports a `minId` cursor, not a server-side date filter, so it's
         # full refresh — the API returns the most recent general-market headlines each sync.
         description="Latest general market news. Full refresh.",
@@ -128,6 +135,7 @@ FINNHUB_ENDPOINTS: dict[str, FinnhubEndpointConfig] = {
         single_object=True,
         requires_symbol=True,
         primary_keys=["symbol"],
+        fixed_params={"metric": "all"},
         should_sync_default=False,
         description="Basic financial metrics (valuation, margins, growth) per configured symbol. Full refresh.",
     ),

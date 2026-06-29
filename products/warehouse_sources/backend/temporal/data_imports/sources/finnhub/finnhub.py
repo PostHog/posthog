@@ -1,6 +1,7 @@
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -15,7 +16,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.se
 
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 DEFAULT_EXCHANGE = "US"
-MARKET_NEWS_CATEGORY = "general"
 REQUEST_TIMEOUT_SECONDS = 60
 
 
@@ -74,7 +74,17 @@ def _fetch(session: requests.Session, path: str, params: dict[str, Any], logger:
 
     if not response.ok:
         logger.error(f"Finnhub API error: status={response.status_code}, body={response.text}, path={path}")
-        response.raise_for_status()
+        # raise_for_status() would embed the full request URL in the exception, which is
+        # surfaced as the schema's latest_error. Finnhub authenticates via the X-Finnhub-Token
+        # header today, but rebuild the error from scheme/host/path only so a redirect or future
+        # query-param auth can never leak the api_key into stored error state. The "<status>
+        # Client Error: <reason> for url: https://finnhub.io" prefix stays stable for
+        # get_non_retryable_errors() matching.
+        safe = urlsplit(response.url)
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe.scheme}://{safe.netloc}{safe.path}",
+            response=response,
+        )
 
     return response.json()
 
@@ -104,19 +114,16 @@ def _window(config: FinnhubEndpointConfig, last_value: Any) -> tuple[str, str]:
 def _request_params(
     config: FinnhubEndpointConfig,
     symbol: str | None,
-    exchange: str,
+    exchange: str | None,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> dict[str, Any]:
     params: dict[str, Any] = {}
     if symbol is not None:
         params["symbol"] = symbol
-    if config.name == "stock_symbols":
+    params.update(config.fixed_params)
+    if config.exchange_param:
         params["exchange"] = exchange or DEFAULT_EXCHANGE
-    if config.name == "market_news":
-        params["category"] = MARKET_NEWS_CATEGORY
-    if config.name == "basic_financials":
-        params["metric"] = "all"
     if config.windowed:
         # Incremental endpoints advance `from` to the saved watermark; windowed full-refresh
         # endpoints (calendars) always sweep the full rolling window.
@@ -131,10 +138,13 @@ def _emit(rows: list[dict[str, Any]], symbol: str | None, config: FinnhubEndpoin
         # and it's part of those tables' primary keys.
         for row in rows:
             row["symbol"] = symbol
-    if config.name == "company_news":
+    if config.incremental_fields:
         # Guarantee ascending order so the declared `sort_mode="asc"` matches the data the
         # incremental watermark is checkpointed against, regardless of the API's response order.
-        rows.sort(key=lambda r: r.get("datetime") or 0)
+        # The watermark field is required, so a row missing it is a hard error rather than a
+        # silent epoch-0 sort that would corrupt the checkpoint.
+        watermark = config.incremental_fields[0]["field"]
+        rows.sort(key=lambda r: r[watermark])
     return rows
 
 
@@ -142,7 +152,7 @@ def get_rows(
     api_key: str,
     endpoint: str,
     symbols: str | None,
-    exchange: str,
+    exchange: str | None,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
@@ -177,7 +187,7 @@ def finnhub_source(
     api_key: str,
     endpoint: str,
     symbols: str | None,
-    exchange: str,
+    exchange: str | None,
     logger: FilteringBoundLogger,
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
@@ -201,7 +211,9 @@ def finnhub_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # Only the incremental endpoints get a sorted data contract — full-refresh endpoints
+        # emit in whatever order the API returns, so don't promise ascending order there.
+        sort_mode="asc" if config.incremental_fields else None,
     )
 
 

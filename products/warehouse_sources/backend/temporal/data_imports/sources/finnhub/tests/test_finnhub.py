@@ -5,12 +5,14 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub import finnhub
 from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.finnhub import (
     FINNHUB_BASE_URL,
     _extract_rows,
+    _fetch,
     _parse_symbols,
     _request_params,
     _to_date,
@@ -184,6 +186,13 @@ class TestGetRows:
             ]
         ]
 
+    def test_company_news_missing_datetime_raises(self, monkeypatch: Any) -> None:
+        # `datetime` is the incremental watermark — a row missing it must fail loudly rather
+        # than silently sorting to epoch 0 and corrupting the checkpoint.
+        self._patch_fetch(monkeypatch, {"AAPL": [{"id": 1, "datetime": 100}, {"id": 2}]})
+        with pytest.raises(KeyError):
+            list(get_rows(api_key="k", endpoint="company_news", symbols="AAPL", exchange="US", logger=MagicMock()))
+
     def test_calendar_unwraps_data_key(self, monkeypatch: Any) -> None:
         self._patch_fetch(
             monkeypatch,
@@ -198,30 +207,64 @@ class TestGetRows:
 class TestFinnhubSource:
     @parameterized.expand(
         [
-            ("stock_symbols", ["symbol"], None),
-            ("market_news", ["id"], None),
-            ("ipo_calendar", ["symbol", "date"], "date"),
-            ("earnings_calendar", ["symbol", "date"], "date"),
-            ("country", ["code2"], None),
-            ("company_profile", ["symbol"], None),
-            ("quote", ["symbol"], None),
-            ("company_news", ["id", "symbol"], None),
-            ("recommendation_trends", ["symbol", "period"], "period"),
-            ("earnings_surprises", ["symbol", "period"], "period"),
+            ("stock_symbols", ["symbol"], None, None),
+            ("market_news", ["id"], None, None),
+            ("ipo_calendar", ["symbol", "date"], "date", None),
+            ("earnings_calendar", ["symbol", "date"], "date", None),
+            ("country", ["code2"], None, None),
+            ("company_profile", ["symbol"], None, None),
+            ("quote", ["symbol"], None, None),
+            # Only the incremental endpoint advertises a sorted data contract.
+            ("company_news", ["id", "symbol"], None, "asc"),
+            ("recommendation_trends", ["symbol", "period"], "period", None),
+            ("earnings_surprises", ["symbol", "period"], "period", None),
         ]
     )
     def test_source_response_keys_and_partitioning(
-        self, endpoint: str, expected_keys: list[str], partition_key: str | None
+        self, endpoint: str, expected_keys: list[str], partition_key: str | None, sort_mode: str | None
     ) -> None:
         response = finnhub_source(api_key="k", endpoint=endpoint, symbols="AAPL", exchange="US", logger=MagicMock())
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == sort_mode
         if partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [partition_key]
         else:
             assert response.partition_keys is None
+
+
+class TestFetch:
+    @staticmethod
+    def _response(status_code: int, url: str, reason: str) -> MagicMock:
+        response = MagicMock()
+        response.status_code = status_code
+        response.ok = status_code < 400
+        response.reason = reason
+        response.url = url
+        response.text = "error body"
+        return response
+
+    def test_4xx_error_does_not_leak_api_key(self) -> None:
+        # Even if the key ever lands in the request URL (redirect / future query-param auth),
+        # the rebuilt HTTPError must contain only scheme/host/path — never the query string.
+        session = MagicMock()
+        session.get.return_value = self._response(
+            401, "https://finnhub.io/api/v1/quote?token=SECRETKEY&symbol=AAPL", "Unauthorized"
+        )
+        with pytest.raises(requests.HTTPError) as exc:
+            _fetch(session, "/quote", {"symbol": "AAPL"}, MagicMock())
+        message = str(exc.value)
+        assert "SECRETKEY" not in message
+        assert message == "401 Client Error: Unauthorized for url: https://finnhub.io/api/v1/quote"
+
+    def test_4xx_error_keeps_non_retryable_prefix(self) -> None:
+        # get_non_retryable_errors() keys off this stable status/host prefix.
+        session = MagicMock()
+        session.get.return_value = self._response(403, "https://finnhub.io/api/v1/stock/metric", "Forbidden")
+        with pytest.raises(requests.HTTPError) as exc:
+            _fetch(session, "/stock/metric", {}, MagicMock())
+        assert str(exc.value).startswith("403 Client Error: Forbidden for url: https://finnhub.io")
 
 
 class TestValidateCredentials:
