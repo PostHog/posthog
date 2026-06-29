@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from typing import ClassVar, Final
 
-from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS
+from llm_gateway.cloudflare import CLOUDFLARE_ALLOWED_MODELS, is_cloudflare_configured
 from llm_gateway.config import get_settings
 from llm_gateway.products.config import get_product_config
 from llm_gateway.rate_limiting.model_cost_service import ModelCost, ModelCostService
@@ -60,8 +60,7 @@ def _cloudflare_configured() -> bool:
     `CLOUDFLARE_ALLOWED_MODELS` — never the broader set of `cloudflare/...` ids litellm happens to
     price but the gateway won't route.
     """
-    settings = get_settings()
-    return bool(getattr(settings, "cloudflare_api_key", None) and getattr(settings, "cloudflare_account_id", None))
+    return is_cloudflare_configured(get_settings())
 
 
 def _is_text_generation_model(cost_data: ModelCost) -> bool:
@@ -119,8 +118,8 @@ class ModelRegistryService:
             if model is not None:
                 models.append(model)
 
-        # Cloudflare-served models aren't in litellm's cost map, so the loop above never reaches
-        # them — append them here (filtered by the product allowlist) so /v1/models advertises them.
+        # Append CF models, filtered by the product allowlist (module header explains why they're
+        # not reachable through the litellm loop above).
         if _cloudflare_configured():
             for model_id in CLOUDFLARE_ALLOWED_MODELS:
                 if allowed_models is not None and not _model_matches_allowlist(model_id, allowed_models):

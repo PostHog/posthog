@@ -398,6 +398,26 @@ class TestIsModelAvailable:
     def test_model_availability(self, model_id: str, product: str, expected: bool):
         assert is_model_available(model_id, product) == expected
 
+    @pytest.mark.parametrize(
+        "model_id,product,cloudflare,expected",
+        [
+            # CF creds present + model priced/allowed -> available.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", True, True),
+            # Same model, but CF creds absent -> the runtime gate refuses it.
+            ("@cf/zai-org/glm-5.2", "llm_gateway", False, False),
+            # CF configured but the product allowlist excludes this CF model -> unavailable.
+            ("@cf/moonshotai/kimi-k2.6", "posthog_code", True, False),
+            # CF configured and the product allowlist includes it -> available.
+            ("@cf/zai-org/glm-5.2", "posthog_code", True, True),
+        ],
+    )
+    def test_cf_model_availability_gated_on_creds(self, model_id: str, product: str, cloudflare: bool, expected: bool):
+        with patch(
+            "llm_gateway.services.model_registry.get_settings",
+            return_value=create_mock_settings(cloudflare=cloudflare),
+        ):
+            assert is_model_available(model_id, product) is expected
+
     def test_model_not_available_when_provider_not_configured(self):
         with patch.dict(os.environ, {}, clear=False):
             for var in PROVIDER_ENV_VARS:

@@ -10,41 +10,30 @@ repo .env (Workers AI token needs the "Workers AI: Read + Run" scope).
 """
 
 import asyncio
-import os
 import sys
-from pathlib import Path
+
+from dotenv import load_dotenv
+from fastapi import HTTPException
 
 from llm_gateway.cloudflare import (
     CLOUDFLARE_ALLOWED_MODELS,
-    cloudflare_api_base,
+    ensure_cloudflare_configured,
     make_cloudflare_anthropic_call,
 )
+from llm_gateway.config import Settings
 
 GLM_MODEL = "@cf/zai-org/glm-5.2"
 
 
-def load_env() -> tuple[str, str]:
-    """Pull the two CF vars from the repo .env (or the environment)."""
-    env_path = Path(__file__).resolve().parents[3] / ".env"
-    api_key = os.environ.get("LLM_GATEWAY_CLOUDFLARE_API_KEY")
-    account_id = os.environ.get("LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID")
-    if (not api_key or not account_id) and env_path.exists():
-        for line in env_path.read_text().splitlines():
-            line = line.strip()
-            if line.startswith("LLM_GATEWAY_CLOUDFLARE_API_KEY=") and not api_key:
-                api_key = line.split("=", 1)[1].strip().strip("'\"")
-            elif line.startswith("LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID=") and not account_id:
-                account_id = line.split("=", 1)[1].strip().strip("'\"")
-    if not api_key or not account_id:
-        sys.exit("Missing LLM_GATEWAY_CLOUDFLARE_API_KEY / LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID")
-    return api_key, account_id
-
-
 async def main() -> None:
     assert GLM_MODEL in CLOUDFLARE_ALLOWED_MODELS, f"{GLM_MODEL} not in allowlist"
-    api_key, account_id = load_env()
-    api_base = cloudflare_api_base(account_id)
-    print(f"account id: {account_id[:6]}…  api_base: {api_base}")
+    # Settings has no env_file, so load the repo .env into the environment first (as benchmark.py does).
+    load_dotenv()
+    try:
+        api_base, api_key = ensure_cloudflare_configured(Settings())
+    except HTTPException:
+        sys.exit("Missing LLM_GATEWAY_CLOUDFLARE_API_KEY / LLM_GATEWAY_CLOUDFLARE_ACCOUNT_ID")
+    print(f"api_base: {api_base}")
 
     llm_call = make_cloudflare_anthropic_call(api_base, api_key)
 
