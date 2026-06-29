@@ -1139,6 +1139,33 @@ class TestCohortCalculationTasks(APIBaseTest):
             self.assertFalse(cohort.is_calculating, "Cohort should not be in calculating state")
             self.assertGreater(cohort.errors_calculating, 0, "Should have recorded the processing error")
 
+    def test_insert_cohort_from_query_validation_error_not_captured(self) -> None:
+        from rest_framework.exceptions import ValidationError
+
+        from posthog.tasks.calculate_cohort import insert_cohort_from_query
+
+        cohort = Cohort.objects.create(
+            team_id=self.team.pk,
+            name="test_invalid_query_cohort",
+            is_static=True,
+            count=0,
+            query={"kind": "HogQLQuery", "query": "SELECT person_id FROM (SELECT 1 AS x)"},
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.insert_cohort_query_actors_into_ch") as mock_insert_ch,
+            patch("posthog.tasks.calculate_cohort.capture_exception") as mock_capture,
+        ):
+            mock_insert_ch.side_effect = ValidationError("The cohort query is invalid.")
+
+            insert_cohort_from_query(cohort.id, self.team.pk)
+
+            # User-input errors are surfaced on the cohort but must not pollute exception tracking.
+            mock_capture.assert_not_called()
+            cohort.refresh_from_db()
+            self.assertFalse(cohort.is_calculating)
+            self.assertGreater(cohort.errors_calculating, 0)
+
     def test_insert_cohort_from_filters_count_updated_on_exception(self) -> None:
         cohort = Cohort.objects.create(
             team_id=self.team.pk,

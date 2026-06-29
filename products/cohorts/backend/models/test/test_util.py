@@ -668,6 +668,38 @@ class TestCohortUtils(BaseTest):
 
         self.assertIn("Could not find a person_id, actor_id, id, or distinct_id column", str(cm.exception))
 
+    def test_print_cohort_hogql_query_unresolvable_id_column_raises_validation_error(self):
+        """A person_id column that does not resolve against the FROM source should surface as a
+        user-facing ValidationError rather than an opaque HogQL QueryError."""
+        from posthog.hogql import ast
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Unresolvable person_id Cohort",
+            query={"kind": "HogQLQuery", "query": "SELECT person_id FROM (SELECT 1 AS x)"},
+        )
+
+        context = HogQLContext(team_id=self.team.id, enable_select_queries=True)
+
+        # The column is named person_id, so it passes id-column detection, but it does not
+        # resolve against the subquery (which only exposes `x`).
+        def mock_get_query_runner(query, team, limit_context=None):
+            mock_runner = MagicMock()
+            select_query = ast.SelectQuery(
+                select=[ast.Field(chain=["person_id"])],
+                select_from=ast.JoinExpr(
+                    table=ast.SelectQuery(select=[ast.Alias(expr=ast.Constant(value=1), alias="x")])
+                ),
+            )
+            mock_runner.to_query.return_value = select_query
+            return mock_runner
+
+        with patch("posthog.hogql_queries.query_runner.get_query_runner", mock_get_query_runner):
+            with self.assertRaises(DRFValidationError) as cm:
+                print_cohort_hogql_query(cohort, context, team=self.team)
+
+        self.assertIn("person_id, actor_id, id, or distinct_id", str(cm.exception))
+
 
 class TestGetNestedCohortIds(BaseTest):
     def test_no_cohort_references(self):

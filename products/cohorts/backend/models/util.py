@@ -18,6 +18,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -322,6 +323,28 @@ def _sanitize_query_for_cohort(query_dict: dict) -> dict:
     return query_dict
 
 
+def _print_cohort_ast(
+    query: ast.SelectQuery | ast.SelectSetQuery,
+    hogql_context: HogQLContext,
+    *,
+    settings: HogQLGlobalSettings | None = None,
+) -> str:
+    """Print a cohort's HogQL AST to ClickHouse SQL, translating field-resolution failures
+    into actionable validation errors instead of opaque internal exceptions.
+
+    Resolution only fails here when the cohort query references a person/actor id column that
+    doesn't actually resolve against its FROM source (a malformed or mismatched query), so we
+    surface that as user-facing feedback rather than letting it pollute error tracking.
+    """
+    try:
+        return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+    except ExposedHogQLError as e:
+        raise ValidationError(
+            "The cohort query is invalid. It must return a column that resolves to a valid "
+            f"person_id, actor_id, id, or distinct_id. ({e})"
+        ) from e
+
+
 def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, team: Team) -> str:
     from posthog.hogql_queries.query_runner import get_query_runner
 
@@ -387,7 +410,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
     # If we're using distinct_id, wrap the query to resolve to person_id
     if uses_distinct_id:
         # Print the inner query without settings - we'll add them to the wrapper
-        base_query = prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse")[0]
+        base_query = _print_cohort_ast(query, hogql_context)
 
         # Format settings as key=value pairs
         settings_pairs = {k: str(v) for k, v in settings.model_dump().items() if v is not None}
@@ -409,7 +432,7 @@ def print_cohort_hogql_query(cohort: Cohort, hogql_context: HogQLContext, *, tea
 
         return f"{wrapped_query}{settings_clause}"
 
-    return prepare_and_print_ast(query, context=hogql_context, dialect="clickhouse", settings=settings)[0]
+    return _print_cohort_ast(query, hogql_context, settings=settings)
 
 
 def format_static_cohort_query(cohort: Cohort, index: int, prepend: str) -> tuple[str, dict[str, Any]]:

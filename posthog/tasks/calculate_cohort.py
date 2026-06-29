@@ -11,6 +11,7 @@ import posthoganalytics
 from celery import chain, current_task, shared_task
 from dateutil.relativedelta import relativedelta
 from prometheus_client import Counter, Gauge, Histogram
+from rest_framework.exceptions import ValidationError
 
 from posthog.api.monitoring import Feature
 from posthog.clickhouse import query_tagging
@@ -565,7 +566,11 @@ def insert_cohort_from_query(cohort_id: int, team_id: Optional[int] = None) -> N
             team_id=team_id,
             error=str(err),
         )
-        capture_exception()
+        # A ValidationError here means the user's cohort query is malformed (e.g. no resolvable
+        # person_id column). That's user input, not a system fault, so surface it on the cohort
+        # via _safe_save_cohort_state but don't pollute exception tracking with it.
+        if not isinstance(err, ValidationError):
+            capture_exception()
         if settings.DEBUG:
             raise
     finally:
