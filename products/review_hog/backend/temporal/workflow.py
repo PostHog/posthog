@@ -36,6 +36,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
     LoadPerspectivesInput,
+    LoadValidationInput,
     PublishInput,
     ResolveActingUserInput,
     ReviewChunkInput,
@@ -99,6 +100,8 @@ class ReviewPerspectivesInputs(SandboxStageInput):
 @dataclass
 class ValidateIssuesInputs(SandboxStageInput):
     issues_json: list[str]
+    # The user whose selected validator validates this review (the PR author, or the CLI override).
+    acting_user_id: int
 
 
 @temporalio.workflow.defn(name="review-analyze-chunks")
@@ -207,7 +210,7 @@ class ValidateIssuesWorkflow:
             return {}
         skill: LoadedValidationSkillDTO = await workflow.execute_activity(
             load_validation_skill_activity,
-            ValidateIntegrationInput(team_id=inputs.team_id),
+            LoadValidationInput(team_id=inputs.team_id, acting_user_id=inputs.acting_user_id),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
         )
@@ -426,6 +429,7 @@ class ReviewPRWorkflow:
                 branch=stage.branch,
                 run_index=stage.run_index,
                 issues_json=dedup.issues_json,
+                acting_user_id=acting_user_id,
             ),
             id=f"{parent_id}/validate",
             retry_policy=_RETRY,

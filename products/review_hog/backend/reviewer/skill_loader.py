@@ -77,9 +77,10 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
     setup error — the caller cold-start-syncs the canonicals first).
     """
     register_missing_perspective_configs(team_id, acting_user_id)
+    # Prefix-scope: perspectives and validators share this table — read only perspective rows here.
     enabled_names = sorted(
         ReviewSkillConfig.objects.for_team(team_id)
-        .filter(user_id=acting_user_id, enabled=True)
+        .filter(user_id=acting_user_id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
         .values_list("skill_name", flat=True)
     )
     if not enabled_names:
@@ -111,14 +112,18 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
 REVIEW_HOG_VALIDATION_PREFIX = "review-hog-validation-"
 REVIEW_HOG_VALIDATION_SKILL_NAME = f"{REVIEW_HOG_VALIDATION_PREFIX}criteria"
 
+# Canonical validator names `register_missing_validation_config` auto-enables — one today, kept a
+# tuple to mirror the multi-name perspective seed.
+CANONICAL_VALIDATION_SKILL_NAMES: tuple[str, ...] = (REVIEW_HOG_VALIDATION_SKILL_NAME,)
+
 
 class ValidationSkillNotFoundError(LookupError):
-    """A team has no live `LLMSkill` row for the canonical review-validation-criteria skill."""
+    """The acting user's selected validator has no live `LLMSkill` row (a real setup/archival error)."""
 
 
 @dataclass(frozen=True)
 class LoadedValidationSkill:
-    """The validation-criteria skill resolved for one run: its skill name and pinned version."""
+    """The validator resolved for one run: its skill name and pinned version."""
 
     skill_name: str
     # Snapshotted so the sandbox agent's `skill-get` pulls the exact version this run was planned
@@ -126,25 +131,43 @@ class LoadedValidationSkill:
     version: int
 
 
-def load_validation_skill_for_run(team_id: int) -> LoadedValidationSkill:
-    """Resolve the team's live validation-criteria skill and pin its current latest version.
+def register_missing_validation_config(team_id: int, user_id: int) -> None:
+    """Seed an enabled `ReviewSkillConfig` for the canonical validator this user lacks.
 
-    Mirrors `load_perspectives_for_run`: reads the team's live `LLMSkill` row directly (latest,
-    non-deleted) and pins the version. Raises `ValidationSkillNotFoundError` if missing — the caller
-    runs the cold-start sync first, so a missing row is a real setup error, not a soft miss.
+    Mirrors `register_missing_perspective_configs`: the canonical validator auto-enables on a user's
+    first run; custom validators are picked explicitly via the config API. Idempotent on the
+    `(team, user, skill_name)` unique key, and a row the user changed is left untouched. Single-active
+    is enforced in app code (the select endpoint), so this only ever seeds the one canonical.
     """
+    configs = ReviewSkillConfig.objects.for_team(team_id)
+    for skill_name in CANONICAL_VALIDATION_SKILL_NAMES:
+        configs.get_or_create(team_id=team_id, user_id=user_id, skill_name=skill_name, defaults={"enabled": True})
+
+
+def load_validation_skill_for_run(team_id: int, acting_user_id: int) -> LoadedValidationSkill:
+    """Resolve the acting user's selected validator, pinned to its current latest version.
+
+    Mirrors `load_perspectives_for_run` but single-active: seeds the canonical config (so a cold user
+    has the canonical selected), reads the user's one enabled `review-hog-validation-*` row, and pins
+    its latest non-deleted version. Falls back to the canonical validator when no validation row is
+    enabled — there is always a default, so no min-1 floor. Raises `ValidationSkillNotFoundError` if
+    the selected skill's row is missing (surfaced loudly like perspectives). The enabled set is
+    single-active in app code; `sorted(...)[0]` is only a deterministic tiebreak.
+    """
+    register_missing_validation_config(team_id, acting_user_id)
+    enabled_names = sorted(
+        ReviewSkillConfig.objects.for_team(team_id)
+        .filter(user_id=acting_user_id, enabled=True, skill_name__startswith=REVIEW_HOG_VALIDATION_PREFIX)
+        .values_list("skill_name", flat=True)
+    )
+    skill_name = enabled_names[0] if enabled_names else REVIEW_HOG_VALIDATION_SKILL_NAME
     version = (
-        LLMSkill.objects.filter(
-            team_id=team_id,
-            name=REVIEW_HOG_VALIDATION_SKILL_NAME,
-            deleted=False,
-            is_latest=True,
-        )
+        LLMSkill.objects.filter(team_id=team_id, name=skill_name, deleted=False, is_latest=True)
         .values_list("version", flat=True)
         .first()
     )
     if version is None:
         raise ValidationSkillNotFoundError(
-            f"No live skill '{REVIEW_HOG_VALIDATION_SKILL_NAME}' on team {team_id} — run sync_review_hog_skills first"
+            f"No live skill '{skill_name}' on team {team_id} — run sync_review_hog_skills first"
         )
-    return LoadedValidationSkill(skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME, version=version)
+    return LoadedValidationSkill(skill_name=skill_name, version=version)

@@ -137,6 +137,12 @@ class LoadPerspectivesInput:
 
 
 @dataclass
+class LoadValidationInput:
+    team_id: int
+    acting_user_id: int
+
+
+@dataclass
 class SyncReviewSkillsInput:
     team_id: int
 
@@ -648,17 +654,19 @@ async def dedup_activity(input: DedupInput) -> DedupResult:
 # --- Validate (per-issue fan-out) ------------------------------------------------------------------
 
 
-def _load_validation_skill(team_id: int) -> LoadedValidationSkillDTO:
-    skill = load_validation_skill_for_run(team_id)
+def _load_validation_skill(team_id: int, acting_user_id: int) -> LoadedValidationSkillDTO:
+    skill = load_validation_skill_for_run(team_id, acting_user_id)
     return LoadedValidationSkillDTO(skill_name=skill.skill_name, version=skill.version)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
-async def load_validation_skill_activity(input: ValidateIntegrationInput) -> LoadedValidationSkillDTO:
-    """Resolve the team's validation-criteria skill, pinned to its current version, for this run."""
-    return await database_sync_to_async(_load_validation_skill, thread_sensitive=False)(input.team_id)
+async def load_validation_skill_activity(input: LoadValidationInput) -> LoadedValidationSkillDTO:
+    """Resolve the acting user's selected validator, pinned to its current version, for this run."""
+    return await database_sync_to_async(_load_validation_skill, thread_sensitive=False)(
+        input.team_id, input.acting_user_id
+    )
 
 
 def _prepare_validation_prompt(
