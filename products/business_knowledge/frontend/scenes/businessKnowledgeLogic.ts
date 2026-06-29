@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import {
     createFileSource,
@@ -15,8 +16,19 @@ import {
     updateSource,
 } from '../api'
 import type { CreateUrlSourcePayload, RefreshIntervalValue, UpdateSourcePayload } from '../api'
+import {
+    businessKnowledgeGapSuggestionsAcceptTopicCreate,
+    businessKnowledgeGapSuggestionsDismissTopicCreate,
+    businessKnowledgeGapSuggestionsList,
+} from '../generated/api'
 import type { KnowledgeSourceApi } from '../generated/api.schemas'
 import type { businessKnowledgeLogicType } from './businessKnowledgeLogicType'
+
+export interface AggregatedGap {
+    normalized_topic: string
+    topic: string
+    ticket_count: number
+}
 
 export type KnowledgeSource = KnowledgeSourceApi
 export type CrawlMode = 'single' | 'sitemap' | 'same_origin' | 'github_repo'
@@ -101,7 +113,7 @@ function splitGlobs(raw: string): string[] {
 export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     path(['products', 'business_knowledge', 'businessKnowledgeLogic']),
     actions({
-        openCreateModal: true,
+        openCreateModal: (prefillName?: string) => ({ prefillName }),
         closeCreateModal: true,
         setCreateTab: (tab: CreateTab) => ({ tab }),
         openEditModal: (source: KnowledgeSource) => ({ source }),
@@ -109,6 +121,11 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
         deleteSource: (id: string) => ({ id }),
         refreshSource: (id: string) => ({ id }),
         refreshSourceDone: (id: string) => ({ id }),
+        // Gap suggestions
+        loadGapSuggestions: true,
+        acceptGapSuggestion: (normalizedTopic: string, topic: string) => ({ normalizedTopic, topic }),
+        confirmGapAccept: (normalizedTopic: string, sourceId: string) => ({ normalizedTopic, sourceId }),
+        dismissGapSuggestion: (normalizedTopic: string) => ({ normalizedTopic }),
     }),
     reducers({
         isCreateModalOpen: [
@@ -139,6 +156,15 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 refreshSourceDone: (state, { id }) => state.filter((x) => x !== id),
             },
         ],
+        // Set when the create modal was opened by accepting a gap; the cluster is only
+        // marked accepted once the human actually creates a source (or stays pending on cancel).
+        acceptingGapTopic: [
+            null as string | null,
+            {
+                acceptGapSuggestion: (_, { normalizedTopic }) => normalizedTopic,
+                closeCreateModal: () => null,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         sources: [
@@ -161,15 +187,34 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 resetEditingSourceText: () => ({ id: '', text: '' }),
             },
         ],
+        gapSuggestions: [
+            [] as AggregatedGap[],
+            {
+                loadGapSuggestions: async (): Promise<AggregatedGap[]> => {
+                    try {
+                        const response = await businessKnowledgeGapSuggestionsList(String(getCurrentTeamId()))
+                        // Aggregated endpoint returns a plain array; per-ticket returns paginated
+                        const data = Array.isArray(response) ? response : (response.results ?? [])
+                        return data as unknown as AggregatedGap[]
+                    } catch {
+                        return []
+                    }
+                },
+            },
+        ],
     })),
     forms(({ actions, values }) => ({
         textSource: {
             defaults: { name: '', text: '', always_include: false } as TextSourceFormValues,
             errors: validateText,
             submit: async ({ name, text, always_include }: TextSourceFormValues) => {
+                const acceptTopic = values.acceptingGapTopic
                 try {
                     const created = await createTextSource(name, text, always_include)
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
+                    if (acceptTopic) {
+                        actions.confirmGapAccept(acceptTopic, created.id)
+                    }
                     actions.closeCreateModal()
                     actions.resetTextSource()
                     actions.loadSources()
@@ -196,22 +241,23 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 always_include: false,
             } as UrlSourceFormValues,
             errors: validateUrl,
-            submit: async (values: UrlSourceFormValues) => {
-                const includeGlobs = splitGlobs(values.include_globs)
+            submit: async (formValues: UrlSourceFormValues) => {
+                const acceptTopic = values.acceptingGapTopic
+                const includeGlobs = splitGlobs(formValues.include_globs)
                 const payload: CreateUrlSourcePayload = {
-                    name: values.name,
-                    url: values.url,
+                    name: formValues.name,
+                    url: formValues.url,
                     source_type: 'url',
-                    crawl_mode: values.crawl_mode,
-                    refresh_interval: values.refresh_interval,
-                    always_include: values.always_include,
-                    ...(values.crawl_mode !== 'single' && {
+                    crawl_mode: formValues.crawl_mode,
+                    refresh_interval: formValues.refresh_interval,
+                    always_include: formValues.always_include,
+                    ...(formValues.crawl_mode !== 'single' && {
                         // Only send include_globs when the user explicitly set them;
                         // otherwise the backend auto-derives scope from the entry URL path.
                         ...(includeGlobs.length > 0 && { include_globs: includeGlobs }),
-                        exclude_globs: splitGlobs(values.exclude_globs),
-                        max_pages: values.max_pages,
-                        max_depth: values.max_depth,
+                        exclude_globs: splitGlobs(formValues.exclude_globs),
+                        max_pages: formValues.max_pages,
+                        max_depth: formValues.max_depth,
                     }),
                 }
                 try {
@@ -219,6 +265,9 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                     // Ingestion runs in the background; the source starts PROCESSING
                     // and the list polls until it flips to ready.
                     lemonToast.success(`"${created.name}" added — fetching and indexing in the background`)
+                    if (acceptTopic) {
+                        actions.confirmGapAccept(acceptTopic, created.id)
+                    }
                     actions.closeCreateModal()
                     actions.resetUrlSource()
                     actions.loadSources()
@@ -247,6 +296,7 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 if (!file) {
                     return
                 }
+                const acceptTopic = values.acceptingGapTopic
                 const formData = new FormData()
                 formData.append('name', name)
                 formData.append('file', file)
@@ -255,6 +305,9 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
                 try {
                     const created = await createFileSource(formData)
                     lemonToast.success(`"${created.name}" indexed into ${created.chunk_count} chunks`)
+                    if (acceptTopic) {
+                        actions.confirmGapAccept(acceptTopic, created.id)
+                    }
                     actions.closeCreateModal()
                     actions.resetFileSource()
                     actions.loadSources()
@@ -444,6 +497,38 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
             actions.resetEditUrlSource()
             actions.resetEditingSourceText()
         },
+        acceptGapSuggestion: ({ topic }) => {
+            // Don't mark the cluster accepted yet — only once the human actually creates a
+            // source (handled in confirmGapAccept). The acceptingGapTopic reducer holds the
+            // pending topic so a cancel leaves the suggestion in place.
+            actions.openCreateModal(topic)
+        },
+        confirmGapAccept: async ({ normalizedTopic, sourceId }) => {
+            try {
+                await businessKnowledgeGapSuggestionsAcceptTopicCreate(String(getCurrentTeamId()), {
+                    normalized_topic: normalizedTopic,
+                    resolved_source_id: sourceId,
+                })
+                actions.loadGapSuggestions()
+            } catch {
+                // Best-effort — the source was already created successfully.
+            }
+        },
+        dismissGapSuggestion: async ({ normalizedTopic }) => {
+            try {
+                await businessKnowledgeGapSuggestionsDismissTopicCreate(String(getCurrentTeamId()), {
+                    normalized_topic: normalizedTopic,
+                })
+                actions.loadGapSuggestions()
+            } catch {
+                lemonToast.error('Failed to dismiss suggestion')
+            }
+        },
+        openCreateModal: ({ prefillName }) => {
+            if (prefillName) {
+                actions.setTextSourceValue('name', prefillName)
+            }
+        },
     })),
     selectors({
         readyCount: [
@@ -458,5 +543,6 @@ export const businessKnowledgeLogic = kea<businessKnowledgeLogicType>([
     }),
     afterMount(({ actions }) => {
         actions.loadSources()
+        actions.loadGapSuggestions()
     }),
 ])

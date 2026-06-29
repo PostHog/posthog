@@ -73,14 +73,12 @@ class TestCollectEligible:
             ("no_ready_sources", {"has_ready_sources": False}),
             ("has_ai_note", {"has_ai_note": True}),
             ("has_team_reply", {"has_team_reply": True}),
-            ("rollout_off", {"rollout": False}),
             ("channel_not_allowed", {"ai_resolution_channels": ["email"], "channel_source": "widget"}),
         ]
     )
     # Force the BK-readiness gate on (production default MIN_READY_BK_SOURCES=0 skips it) so the
     # no_ready_sources case actually exercises the check. A literal patch value injects no arg.
     @patch(f"{COORD_MODULE}.MIN_READY_BK_SOURCES", 1)
-    @patch(f"{COORD_MODULE}._is_rollout_enabled")
     @patch(f"{COORD_MODULE}.has_ready_sources")
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -93,7 +91,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         master_flag = overrides.get("master_flag", True)
         ai_suggestions_enabled = overrides.get("ai_suggestions_enabled", True)
@@ -101,7 +98,6 @@ class TestCollectEligible:
         has_ready = overrides.get("has_ready_sources", True)
         has_ai = overrides.get("has_ai_note", False)
         has_team_reply = overrides.get("has_team_reply", False)
-        rollout = overrides.get("rollout", True)
 
         ticket, ticket_id, team = _make_ticket(
             ai_suggestions_enabled=ai_suggestions_enabled,
@@ -124,12 +120,9 @@ class TestCollectEligible:
             rows.append((ticket_id, "support", now))
         mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
-        mock_rollout.return_value = rollout
-
         result = _collect_eligible()
         assert result == []
 
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -140,7 +133,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         ticket, ticket_id, team = _make_ticket()
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
@@ -159,7 +151,6 @@ class TestCollectEligible:
             ("null_allows_all", None, "slack"),
         ]
     )
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -173,7 +164,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         ticket, ticket_id, team = _make_ticket(
             channel_source=channel_source,
@@ -185,7 +175,6 @@ class TestCollectEligible:
         result = _collect_eligible()
         assert len(result) == 1
 
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -196,7 +185,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         ticket, ticket_id, team = _make_ticket()
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
@@ -216,7 +204,6 @@ class TestCollectEligible:
             ("old_customer_followup_settled", 30, 30, True),
         ]
     )
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -231,7 +218,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         # Guards the debounce: a ticket whose customer just sent a message (or was just created)
         # must not be drafted until they've gone quiet for TICKET_SETTLE_MINUTES, so follow-up
@@ -260,7 +246,6 @@ class TestCollectEligibleScanWindow:
         ]
     )
     @pytest.mark.django_db
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
     def test_scan_keys_on_last_message_not_created_at(
         self,
@@ -268,7 +253,6 @@ class TestCollectEligibleScanWindow:
         last_msg_min_ago,
         expected_collected,
         mock_master_flag,
-        mock_rollout,
     ):
         # Models imported lazily: this module defines a @workflow.defn stub, so Temporal's sandbox
         # re-imports the whole file during validation and top-level Django ORM imports break it.

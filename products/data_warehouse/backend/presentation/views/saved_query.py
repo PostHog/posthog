@@ -48,8 +48,7 @@ from posthog.temporal.common.client import sync_connect
 
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
-from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
-from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.data_tools.backend.facade.models import DataWarehouseJoin, DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
