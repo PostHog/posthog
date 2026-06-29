@@ -37,13 +37,17 @@ def test_raises_on_unexpected_error(requests_mock):
         fetch_job_log("PostHog/posthog", 123, "tok")
 
 
-def test_caps_oversized_log(requests_mock):
+def test_caps_log_but_keeps_failure_tail(requests_mock):
     # A connected repo's job can print an arbitrarily large log; the fetch must bound the bytes
-    # pulled into memory rather than decode the whole response.
-    requests_mock.get(_URL, status_code=200, text="x" * 500)
-    result = fetch_job_log("PostHog/posthog", 123, "tok", max_bytes=50)
+    # pulled into memory AND keep the tail, where the failure surfaces — a job padding the start
+    # with noise must not push its real error past the cap and out of the emitted text.
+    body = ("noise line\n" * 2000) + "##[error]the real failure\n"
+    requests_mock.get(_URL, status_code=200, text=body)
+    result = fetch_job_log("PostHog/posthog", 123, "tok", max_bytes=400)
     assert result is not None
-    assert len(result) == 50
+    assert "##[error]the real failure" in result
+    assert "log truncated" in result
+    assert len(result.encode()) < len(body.encode())
 
 
 @pytest.mark.parametrize(

@@ -74,7 +74,10 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
     job_inputs is team-writable, so guard its shape: a non-dict ``auth_method`` or a repo that isn't a
     plain ``owner/repo`` (which would steer the authenticated fetch elsewhere) yields None, not a crash.
     """
-    job_inputs = job_inputs or {}
+    # job_inputs is an EncryptedJSONField and can hold any JSON value; a non-dict (list/str/None)
+    # would crash the .get below, outside the per-source try — skip it instead.
+    if not isinstance(job_inputs, dict):
+        return None
     auth_method = job_inputs.get("auth_method")
     auth = auth_method if isinstance(auth_method, dict) else {}
     # Accept both source-config shapes: nested ({"auth_method": {"github_integration_id": ...}}) and

@@ -22,6 +22,8 @@ class TestGithubSourceParams:
                 {"auth_method": {"github_integration_id": "42"}, "repository": "PostHog/posthog/contents/x?ref=y"},
             ),
             ("none_job_inputs", None),
+            ("string_job_inputs", "not a dict"),
+            ("list_job_inputs", ["not", "a", "dict"]),
         ]
     )
     def test_returns_none_for_unusable_source(self, _name, job_inputs):
