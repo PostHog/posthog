@@ -589,15 +589,17 @@ export class RerunPaginatorService {
             // the latest config/secrets rather than a stored snapshot.
             const persistedGlobals = parsedGlobals as HogFunctionInvocationGlobalsWithInputs
 
-            // For source-webhook functions the stored `request.headers` carry
-            // the inbound sender's credentials (Authorization, x-api-key,
-            // signing secrets). Rerunning feeds those back into the live
-            // function, so a write-access user could reconfigure the function
-            // to forward them to an attacker endpoint and replay history to
-            // exfiltrate past senders' secrets. Drop them on rehydration;
-            // non-webhook globals never carry `request` so they're untouched.
+            // For source-webhook functions the stored `request.headers` AND
+            // `request.query` carry the inbound sender's credentials
+            // (Authorization / x-api-key / signing secrets in headers; URL
+            // tokens like `?token=` in query). Rerunning feeds those back into
+            // the live function, so a write-access user could reconfigure the
+            // function to forward them to an attacker endpoint and replay
+            // history to exfiltrate past senders' secrets. Drop both on
+            // rehydration; non-webhook globals never carry `request` so they're
+            // untouched.
             if (WEBHOOK_SOURCE_TYPES.has(hogFunction.type) && persistedGlobals.request) {
-                persistedGlobals.request = { ...persistedGlobals.request, headers: {} }
+                persistedGlobals.request = { ...persistedGlobals.request, headers: {}, query: {} }
             }
             const invocation: CyclotronJobInvocationHogFunction = {
                 // Preserve invocation_id so lifecycle rows collapse under the
