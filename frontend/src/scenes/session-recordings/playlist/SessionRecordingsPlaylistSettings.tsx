@@ -64,17 +64,19 @@ function SortedBy({
     const inRelevanceSortExperiment = useFeatureFlag('REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT', 'test')
     const showRelevanceSort = surfacingScoreEnabled || inRelevanceSortExperiment
 
-    // Capture every sort change so the relevance-sort experiment can measure how many users switch away from relevance
+    // Track sort changes for the relevance-sort experiment
     const changeSort = (
         order: NonNullable<RecordingUniversalFilters['order']>,
         order_direction: 'ASC' | 'DESC'
     ): void => {
-        posthog.capture('session recording list sort changed', {
-            sort_key: order,
-            sort_direction: order_direction,
-            previous_sort_key: filters.order ?? 'start_time',
-            previous_sort_direction: filters.order_direction ?? 'DESC',
-        })
+        if (order !== filters.order || order_direction !== filters.order_direction) {
+            posthog.capture('session recording list sort changed', {
+                sort_key: order,
+                sort_direction: order_direction,
+                previous_sort_key: filters.order ?? 'start_time',
+                previous_sort_direction: filters.order_direction ?? 'DESC',
+            })
+        }
         setFilters({ order, order_direction })
     }
 

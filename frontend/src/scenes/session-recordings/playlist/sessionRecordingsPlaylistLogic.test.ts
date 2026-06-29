@@ -1305,24 +1305,28 @@ describe('sessionRecordingsPlaylistLogic', () => {
             jest.spyOn(posthog, 'getFeatureFlag').mockImplementation((key) => flags[key as string] as any)
         }
 
-        it('defaults the sort order to relevance for the test arm', () => {
-            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' })
-            expect(getDefaultFilters().order).toBe('surfacing_score')
-        })
+        const cases: [string, Record<string, string | boolean>, string][] = [
+            [
+                'test arm defaults to relevance',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' },
+                'surfacing_score',
+            ],
+            [
+                'control arm keeps recency',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'control' },
+                DEFAULT_RECORDING_FILTERS_ORDER_BY,
+            ],
+            ['not enrolled keeps recency', {}, DEFAULT_RECORDING_FILTERS_ORDER_BY],
+            [
+                'surfacing-score rollout flag forces relevance',
+                { [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true },
+                'surfacing_score',
+            ],
+        ]
 
-        it('keeps the recency sort order for the control arm', () => {
-            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'control' })
-            expect(getDefaultFilters().order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
-        })
-
-        it('keeps the recency sort order when not enrolled in the experiment', () => {
-            mockFlags({})
-            expect(getDefaultFilters().order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
-        })
-
-        it('still defaults to relevance when the surfacing-score rollout flag is enabled', () => {
-            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
-            expect(getDefaultFilters().order).toBe('surfacing_score')
+        it.each(cases)('%s', (_name, flags, expectedOrder) => {
+            mockFlags(flags)
+            expect(getDefaultFilters().order).toBe(expectedOrder)
         })
     })
 
