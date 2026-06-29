@@ -358,7 +358,7 @@ def migrate_google_service_account_key_file_to_integration(
 ) -> dict[str, Any]:
     """Migrates a per-source Google Service Account key file to a team-wide reusable integration.
 
-    Read the service account key file and copies them over to the integration.
+    Reads the service account key file and copies its fields over to the integration.
     """
     integration_id = job_inputs.get("google_cloud_service_account_integration_id")
     if integration_id is not None and integration_id != "" and integration_id != 0:
@@ -407,7 +407,7 @@ def migrate_google_service_account_key_file_to_integration(
 
 
 def normalize_bigquery_job_inputs_for_storage(job_inputs: dict[str, Any]) -> dict[str, Any]:
-    """Ensures the only either the integration_id or the legacy key_file is set.
+    """Ensures only one of the integration_id or the legacy key_file is set.
 
     When an integration_id is set removes the legacy key_file. This helps to migrate to
     the new integrations. It's used in both the explicit migration from key_file to integration id
