@@ -78,7 +78,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 
 logger = structlog.get_logger(__name__)
 
-MAX_CONCURRENT_BACKFILLS_PER_ORG = 1  # best-effort across pods (see _plan_pending)
+MAX_CONCURRENT_BACKFILLS_PER_ORG = 3  # best-effort across pods (see _plan_pending)
 # Global ceiling on backfills in flight across ALL orgs. Backfill chunks and live
 # batches share the consumer's group-concurrency pool (BatchConsumerConfig.max_concurrency),
 # so this bounds how much of the duckgres worker budget backfills may consume and
