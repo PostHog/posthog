@@ -107,32 +107,45 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        if (state.pendingTerminal) {
-            try {
-                await this.processTerminalWrite(job, state)
-            } catch (err) {
-                counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
-                logger.error('🔴', `${this.name} - unexpected error in processTerminalWrite`, {
-                    batchJobId: state.batchJobId,
-                    pendingTerminal: state.pendingTerminal,
+        try {
+            if (state.pendingTerminal) {
+                try {
+                    await this.processTerminalWrite(job, state)
+                } catch (err) {
+                    counterBatchHogFlowResolverPagesProcessed.labels({ outcome: 'terminal_write_failure' }).inc()
+                    logger.error('🔴', `${this.name} - unexpected error in processTerminalWrite`, {
+                        batchJobId: state.batchJobId,
+                        pendingTerminal: state.pendingTerminal,
+                        error: serializeError(err),
+                    })
+                    captureException(err, {
+                        tags: { resolver_error: 'terminal_write_unhandled', batchJobId: state.batchJobId },
+                    })
+                    // Don't ack — leave the job parked so cyclotron's stall recovery
+                    // picks it up and another worker can retry.
+                    await job.reschedule({ scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS) })
+                }
+                return
+            }
+
+            if (state.totalEnqueued >= state.maxAudienceSize) {
+                await this.transitionToTruncatedTerminal(job, state)
+                return
+            }
+
+            await this.processOnePage(job, state)
+        } finally {
+            // Flush monitoring every dequeue, not just on terminal-write. Non-terminal
+            // paths (truncation log queued in processOnePage, failure log in
+            // transitionToFailedTerminal) would otherwise wait for a later terminal
+            // dequeue — under multi-replica that's a different worker, and under a
+            // restart it's gone entirely.
+            await this.hogFunctionMonitoringService.flush().catch((err) => {
+                logger.warn('⚠️', `${this.name} - failed to flush monitoring after resolver dequeue`, {
                     error: serializeError(err),
                 })
-                captureException(err, {
-                    tags: { resolver_error: 'terminal_write_unhandled', batchJobId: state.batchJobId },
-                })
-                // Don't ack — leave the job parked so cyclotron's stall recovery
-                // picks it up and another worker can retry.
-                await job.reschedule({ scheduledAt: new Date(Date.now() + RETRY_BACKOFF_MS) })
-            }
-            return
+            })
         }
-
-        if (state.totalEnqueued >= state.maxAudienceSize) {
-            await this.transitionToTruncatedTerminal(job, state)
-            return
-        }
-
-        await this.processOnePage(job, state)
     }
 
     /**
@@ -353,12 +366,8 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
             return
         }
 
-        // Flush any queued logs/metrics before acking.
-        await this.hogFunctionMonitoringService.flush().catch((err) => {
-            // Don't block ack on log flush — the resolver work itself succeeded.
-            logger.warn('⚠️', 'Failed to flush monitoring after resolver ack', { error: serializeError(err) })
-        })
-
+        // Monitoring flush happens in processResolverJob's finally block so every
+        // dequeue clears its own queued logs/metrics, not just terminal writes.
         await job.ack()
         logger.info('✅', `${this.name} - batch ${state.batchJobId} → ${state.pendingTerminal}`, {
             totalEnqueued: state.totalEnqueued,
