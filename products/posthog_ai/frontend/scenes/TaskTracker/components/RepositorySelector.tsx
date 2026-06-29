@@ -1,8 +1,9 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { IconGithub } from '@posthog/icons'
+import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { IntegrationChoice } from 'lib/components/CyclotronJob/integrations/IntegrationChoice'
+import api from 'lib/api'
 import { GitHubBranchCombobox } from 'lib/integrations/GitHubBranchCombobox'
 import { GitHubRepositoryCombobox } from 'lib/integrations/GitHubRepositoryCombobox'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
@@ -15,11 +16,18 @@ export interface RepositorySelectorProps {
     onChange: (config: RepositoryConfig) => void
 }
 
-export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
-    const { integrationsLoading } = useValues(integrationsLogic)
+const githubAuthorizeUrl = api.integrations.authorizeUrl({ kind: 'github', next: urls.taskTracker() })
 
-    // The picker selects on `owner/repo`, which is exactly the format the Task API expects. Switching repos
-    // clears the branch so the new repo's default branch is picked up.
+/**
+ * Compact repo/branch picker rendered as chips inside the composer footer. With no GitHub integration it
+ * shows a single "Connect GitHub" chip; with one or more it shows [repo ▾] then (once a repo is picked)
+ * [branch ▾], plus a leading integration switcher when several GitHub orgs are connected.
+ */
+export function RepositorySelector({ value, onChange }: RepositorySelectorProps): JSX.Element {
+    const { getIntegrationsByKind, integrationsLoading } = useValues(integrationsLogic)
+    const githubIntegrations = getIntegrationsByKind(['github'])
+
+    // Selecting a repo clears the branch so GitHubBranchCombobox auto-picks the new repo's default branch.
     const handleRepositoryChange = (repository: string | null): void => {
         onChange({ ...value, repository: repository ?? undefined, branch: undefined })
     }
@@ -28,50 +36,85 @@ export function RepositorySelector({ value, onChange }: RepositorySelectorProps)
         onChange({ ...value, branch: branch ?? undefined })
     }
 
+    const handleIntegrationChange = (integrationId: number): void => {
+        onChange({ ...value, integrationId, repository: undefined, branch: undefined })
+    }
+
     if (integrationsLoading) {
-        return <LemonSkeleton className="h-24" />
+        // Inert placeholder so we never flash "Connect GitHub" before the integration list resolves.
+        return (
+            <div className="flex items-center gap-1 flex-wrap pl-2">
+                <LemonButton size="small" type="secondary" icon={<IconGithub />} disabledReason="Loading…">
+                    GitHub
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (githubIntegrations.length === 0) {
+        return (
+            <div className="flex items-center gap-1 flex-wrap pl-2">
+                <LemonButton
+                    size="small"
+                    type="secondary"
+                    icon={<IconGithub />}
+                    to={githubAuthorizeUrl}
+                    disableClientSideRouting
+                >
+                    Connect GitHub
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
-        <div className="space-y-4">
-            <div>
-                <label className="block text-sm font-medium mb-2">GitHub integration</label>
-                <IntegrationChoice
-                    integration="github"
-                    value={value.integrationId}
-                    onChange={(integrationId) =>
-                        onChange({
-                            ...value,
-                            integrationId: integrationId ?? undefined,
-                            repository: undefined,
-                            branch: undefined,
-                        })
-                    }
-                    redirectUrl={urls.taskTracker()}
-                />
-            </div>
+        <div className="flex items-center gap-1 flex-wrap pl-2">
+            {githubIntegrations.length > 1 && (
+                <LemonMenu
+                    items={[
+                        {
+                            items: githubIntegrations.map((integration) => ({
+                                icon: (
+                                    <img
+                                        src={integration.icon_url}
+                                        alt={`${integration.display_name} icon`}
+                                        className="w-5 h-5 rounded"
+                                    />
+                                ),
+                                label: integration.display_name,
+                                active: integration.id === value.integrationId,
+                                onClick: () => handleIntegrationChange(integration.id),
+                            })),
+                        },
+                        {
+                            items: [
+                                { to: githubAuthorizeUrl, disableClientSideRouting: true, label: 'Connect another' },
+                                { to: urls.settings('project-integrations'), label: 'Manage integrations' },
+                            ],
+                        },
+                    ]}
+                >
+                    <LemonButton size="small" type="secondary" icon={<IconGithub />}>
+                        {githubIntegrations.find((i) => i.id === value.integrationId)?.display_name ?? 'GitHub'}
+                    </LemonButton>
+                </LemonMenu>
+            )}
 
             {value.integrationId ? (
-                <div>
-                    <label className="block text-sm font-medium mb-2">Repository</label>
-                    <GitHubRepositoryCombobox
-                        integrationId={value.integrationId}
-                        value={value.repository ?? ''}
-                        onChange={handleRepositoryChange}
-                    />
-                </div>
+                <GitHubRepositoryCombobox
+                    integrationId={value.integrationId}
+                    value={value.repository ?? ''}
+                    onChange={handleRepositoryChange}
+                />
             ) : null}
 
             {value.integrationId && value.repository ? (
-                <div>
-                    <label className="block text-sm font-medium mb-2">Branch</label>
-                    <GitHubBranchCombobox
-                        integrationId={value.integrationId}
-                        repo={value.repository}
-                        value={value.branch ?? ''}
-                        onChange={handleBranchChange}
-                    />
-                </div>
+                <GitHubBranchCombobox
+                    integrationId={value.integrationId}
+                    repo={value.repository}
+                    value={value.branch ?? ''}
+                    onChange={handleBranchChange}
+                />
             ) : null}
         </div>
     )

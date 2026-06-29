@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig } from '../../types/taskTypes'
@@ -27,8 +28,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [tasksLogic, ['tasks', 'repositories']],
-        actions: [tasksLogic, ['loadTasks', 'loadRepositories', 'deleteTask']],
+        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
+        actions: [
+            tasksLogic,
+            ['loadTasks', 'loadRepositories', 'deleteTask'],
+            integrationsLogic,
+            ['loadIntegrationsSuccess'],
+        ],
     })),
 
     actions({
@@ -37,6 +43,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
+        maybeAutoSelectIntegration: true,
     }),
 
     reducers({
@@ -58,6 +65,22 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        // IntegrationChoice used to auto-select the first integration of the kind; we no longer render it, so
+        // the selection lives here. Picks the first connected GitHub integration when none is chosen yet.
+        maybeAutoSelectIntegration: () => {
+            if (values.newTaskData.repositoryConfig.integrationId) {
+                return
+            }
+            const firstGithub = values.integrations?.find((integration) => integration.kind === 'github')
+            if (firstGithub) {
+                actions.setNewTaskData({
+                    repositoryConfig: { ...values.newTaskData.repositoryConfig, integrationId: firstGithub.id },
+                })
+            }
+        },
+        loadIntegrationsSuccess: () => {
+            actions.maybeAutoSelectIntegration()
+        },
         submitNewTask: async () => {
             const { description, repositoryConfig } = values.newTaskData
 
@@ -104,6 +127,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         afterMount: () => {
             actions.loadTasks()
             actions.loadRepositories()
+            // integrationsLogic loads on its own mount (triggered by the connect above), so we don't call
+            // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
+            // integrations already cached by an earlier mount.
+            actions.maybeAutoSelectIntegration()
         },
     })),
 ])
