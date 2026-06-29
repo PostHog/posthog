@@ -124,18 +124,17 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
 
         for batch in batches {
             let batch_count = batch.len();
-            match self.client.capture_batch(batch, true).await {
-                Ok(()) => {
-                    counter!("capture_batch_events_total", "outcome" => "success")
-                        .increment(batch_count as u64);
-                }
-                Err(e) => {
-                    counter!("capture_batch_events_total", "outcome" => "failure")
-                        .increment(batch_count as u64);
-                    return Err(Error::msg(format!("capture batch failed: {e}")));
-                }
+            if let Err(e) = self.client.capture_batch(batch, true).await {
+                counter!("capture_batch_events_total", "outcome" => "failure")
+                    .increment(batch_count as u64);
+                return Err(Error::msg(format!("capture batch failed: {e}")));
             }
         }
+
+        // Count success once per fully-committed chunk. A mid-chunk failure rolls the offset
+        // back and re-sends the whole chunk on retry, so counting per sub-batch would inflate
+        // the success total across retries.
+        counter!("capture_batch_events_total", "outcome" => "success").increment(count as u64);
 
         info!(count, "successfully sent batch to capture");
         Ok(to_sleep)
@@ -170,10 +169,7 @@ fn split_into_byte_limited_batches(events: Vec<Event>) -> Result<Vec<Vec<Event>>
     let mut current_bytes: usize = 0;
 
     for event in events {
-        let event_bytes = serde_json::to_vec(&event)
-            .map_err(|e| Error::msg(format!("failed to size event for batching: {e}")))?
-            .len()
-            .saturating_add(PER_EVENT_OVERHEAD_BYTES);
+        let event_bytes = serialized_len(&event)?.saturating_add(PER_EVENT_OVERHEAD_BYTES);
 
         if !current.is_empty()
             && current_bytes.saturating_add(event_bytes) > MAX_BATCH_PAYLOAD_BYTES
@@ -199,6 +195,29 @@ fn split_into_byte_limited_batches(events: Vec<Event>) -> Result<Vec<Vec<Event>>
     }
 
     Ok(batches)
+}
+
+/// Serialized JSON byte length of `event`, measured without retaining the bytes:
+/// `serde_json::to_writer` into a counting sink, so sizing a multi-MB event doesn't
+/// allocate a multi-MB buffer just to read its length.
+fn serialized_len(event: &Event) -> Result<usize, Error> {
+    let mut counter = ByteCountWriter(0);
+    serde_json::to_writer(&mut counter, event)
+        .map_err(|e| Error::msg(format!("failed to size event for batching: {e}")))?;
+    Ok(counter.0)
+}
+
+struct ByteCountWriter(usize);
+
+impl std::io::Write for ByteCountWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0 += buf.len();
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
 }
 
 #[cfg(test)]
