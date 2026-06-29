@@ -98,6 +98,13 @@ class ReviewMeta:
     branch: str
     repository: str
     snapshotted: bool
+    # Already reviewed AND posted this exact head (published_head_sha == head_sha): the parent's
+    # early-exit gate skips a dead re-trigger turn. Distinct from `snapshotted` (head moved) because a
+    # head can be unchanged yet not-yet-published (a prior no-publish turn) and must still publish.
+    already_published: bool
+    # New inline comments since the last turn's watermark — logged only for now (they don't force a
+    # turn yet; see ARCHITECTURE.md). Will gate the early-exit once ReviewHog reacts to comments.
+    new_comment_count: int
 
 
 @dataclass
@@ -256,6 +263,25 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     report_id = upsert_review_report(
         team_id=input.team_id, repository=input.repository, pr_url=input.pr_url, pr_metadata=pr_metadata
     )
+    # Read the report's watermark BEFORE persist_commit_snapshot advances it, so the parent can decide
+    # whether this turn has anything to do. `published_head_sha == head_sha` means we already reviewed
+    # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
+    report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
+    already_published = bool(head_sha) and report.published_head_sha == head_sha
+    max_comment_id = max((c.id for c in pr_comments if c.id is not None), default=None)
+    new_comment_count = sum(
+        1
+        for c in pr_comments
+        if c.id is not None and (report.last_seen_comment_id is None or c.id > report.last_seen_comment_id)
+    )
+    if new_comment_count:
+        logger.info(
+            "PR #%s: %s new inline comment(s) since the last turn (watermark %s, latest %s)",
+            pr_metadata.number,
+            new_comment_count,
+            report.last_seen_comment_id,
+            max_comment_id,
+        )
     snapshotted = persist_commit_snapshot(
         team_id=input.team_id,
         report_id=report_id,
@@ -278,6 +304,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         branch=pr_metadata.head_branch,
         repository=input.repository,
         snapshotted=snapshotted,
+        already_published=already_published,
+        new_comment_count=new_comment_count,
     )
 
 

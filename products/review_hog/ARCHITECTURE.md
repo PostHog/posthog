@@ -1106,8 +1106,9 @@ finding identity** the watermark plumbing was shaped for, and the **action plane
   turn starts once the prior finished; a concurrent trigger on the same PR collapses by id. **The loop has no live
   workflow** — the durable `ReviewReport` is the only long-lived state, exactly the "a PR review is a living
   document, not a job" framing the store was built for. "Loop if justified" is the **router + watermarks** deciding
-  whether a triggered turn does real work or no-ops (head unchanged + no new comments → `persist_commit_snapshot`
-  already skips, `persistence.py:104-132`). "Ask the user and wait" is a posted question whose **reply is the next
+  whether a triggered turn does real work or no-ops — a first turn-level no-op already ships: `ReviewPRWorkflow`
+  early-exits when `already_published` (this head reviewed + posted), see Stage 5b → _Early-exit gate_; the router
+  generalizes it (comment-aware, pass-through tiers). "Ask the user and wait" is a posted question whose **reply is the next
   webhook** — no live wait. Time-based re-checks (no webhook arrived) are a per-PR **Temporal Schedule** or a
   `workflow.sleep` follow-up. _Pros:_ reuses today's idempotent, resumable, `ALLOW_DUPLICATE` workflow as-is; zero
   history bloat; none of the `continue_as_new` traps; every turn is a clean, inspectable execution; restart-robust.
@@ -1455,6 +1456,35 @@ already accounted for** — it consumes prior context instead of duplicating, an
 already posted ReviewHog's own inline comments there, so a **no-publish** re-trigger exercises the
 "consume-our-own-comments" dedup _without_ posting anything new — strictly safe.
 
+**✅ Early-exit gate — a stale re-trigger is now a no-op (BUILT 2026-06-29).** Before this, a re-trigger at an
+**unchanged** head still ran the whole pipeline: it reused the turn-stable sandbox stages (`chunk_set` /
+`chunk_analysis` / `perspective_result` via the head-scoped resume) but **re-ran dedup + per-issue validation**
+(fresh sandbox cost) and bumped `run_count`, only for publish to self-skip (`published_head_sha == head_sha`) and
+post nothing. Now `ReviewPRWorkflow` short-circuits right after the fetch stage: the fetch activity returns
+`ReviewMeta.already_published` (`bool(head_sha) and report.published_head_sha == head_sha`) and the parent
+**returns the report id immediately** when it's set — no sync-skills / schema-gen / chunk / analyze / review /
+dedup / validate / publish, no `run_count` bump. `published_head_sha == head_sha` is the deliberately precise
+gate key: it means this exact head was already reviewed **and** posted, so it can't skip an incomplete review
+(publish only runs at the very end), can't skip a turn that still needs to publish (a prior _no-publish_ turn
+leaves `published_head_sha` unset → gate doesn't fire → the cheap resumed pipeline runs and publishes), and can't
+skip a moved head (different sha). A **no-publish eval run is never gated** (no published head), so the frozen-PR
+eval loop still recomputes to measure reviewer changes. New inline comments are **counted + logged** at fetch
+(`ReviewMeta.new_comment_count`) but **do not** force a turn — see the comment-reaction decision below.
+(`temporal/activities.py` `_fetch_and_persist` + `ReviewMeta`; `temporal/workflow.py` gate after STAGE 1; test
+`test_review_pr_workflow_early_exits_when_already_published`.)
+
+**📌 New comments at an unchanged head → nothing, for now (decision 2026-06-29).** When important new human/bot
+review comments appear but the SHA hasn't moved, ReviewHog currently does **nothing**: there's no comment-event
+trigger (the Action fires only on `[labeled, ready_for_review, synchronize]`), and a manual same-head re-trigger
+hits the early-exit gate above (or, pre-publish, only re-feeds dedup). This is the right scope **while ReviewHog
+only _reviews_**. It changes once the **Action plane** ("not just find issues — fix them", see Stage 4 →
+_Action plane_) lands: a human reply ("this is wrong" / "please fix this" / answering a finding) should then
+**advance a turn** — to respond, re-evaluate, or implement. That needs the three deferred pieces already on the
+roadmap: a `pull_request_review_comment` / `issue_comment` → trigger branch, the **decoupled comment watermark**
+(`last_seen_comment_id` advanced independently of `head_sha` — _Cross-turn finding identity_ #3), and cross-turn
+finding identity. The early-exit gate is structured for this flip: it already surfaces `new_comment_count`, so the
+condition becomes "skip unless the head moved **or** new comments arrived" the moment comment-reaction is in scope.
+
 **What it exercises (already coded):**
 
 - **Cross-turn positional dedup (step 14).** `deduplicate_issues` drops any finding that collides (same file +
@@ -1464,9 +1494,10 @@ already posted ReviewHog's own inline comments there, so a **no-publish** re-tri
   surviving findings, and (publish off) nothing posted.
 - **Deterministic per-PR workflow id + reuse/conflict policy** (`review_pr_workflow_id`, `client.py`): a
   re-trigger at the same head **joins** the in-flight run (`USE_EXISTING`) or, once closed, starts a fresh turn
-  (`ALLOW_DUPLICATE`). NOTE: a same-head re-trigger after a successful publish now **skips publishing** (the
-  `published_head_sha` watermark) — for a no-publish run that's moot.
-- **`head_sha`-scoped resume**: a re-run at the **same** head reuses `chunk_set` / `chunk_analysis` /
+  (`ALLOW_DUPLICATE`). NOTE: a same-head re-trigger after a successful publish now **skips the whole turn** via the
+  early-exit gate above (`already_published`) — strictly more than the old publish-only skip.
+- **`head_sha`-scoped resume**: for a re-run at the **same** head that the gate does _not_ short-circuit (a
+  no-publish run, or a not-yet-published head), the pipeline reuses `chunk_set` / `chunk_analysis` /
   `perspective_result` and only re-derives dedup + validation; a **new** head re-snapshots and re-reviews.
 
 **⚠️ The sub-`should_fix` / invalid re-propose gap (raised 2026-06-26 — the key thing to fix for the loop).**

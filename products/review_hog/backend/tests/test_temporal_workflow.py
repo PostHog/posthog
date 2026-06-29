@@ -47,8 +47,13 @@ def _stage_kwargs() -> dict:
     }
 
 
-async def _run_full_review_pr_workflow(*, publish: bool) -> dict:
-    """Run `ReviewPRWorkflow` end-to-end with activity stand-ins; record what fanned out + published."""
+async def _run_full_review_pr_workflow(*, publish: bool, already_published: bool = False) -> dict:
+    """Run `ReviewPRWorkflow` end-to-end with activity stand-ins; record what fanned out + published.
+
+    `already_published` drives the fetch stand-in's `ReviewMeta.already_published` to exercise the
+    parent's early-exit gate (a re-trigger at an already-published head).
+    """
+    split_calls: list[int] = []
     analyze_calls: list[int] = []
     review_calls: list[tuple[int, int]] = []
     validate_calls: list[str] = []
@@ -60,7 +65,15 @@ async def _run_full_review_pr_workflow(*, publish: bool) -> dict:
 
     @activity.defn(name="fetch_pr_data_activity")
     async def fetch(input) -> ReviewMeta:
-        return ReviewMeta(report_id="rep-1", head_sha="sha1", branch="feat", repository="o/r", snapshotted=True)
+        return ReviewMeta(
+            report_id="rep-1",
+            head_sha="sha1",
+            branch="feat",
+            repository="o/r",
+            snapshotted=not already_published,
+            already_published=already_published,
+            new_comment_count=0,
+        )
 
     @activity.defn(name="sync_review_skills_activity")
     async def sync_skills(input) -> None:
@@ -72,6 +85,7 @@ async def _run_full_review_pr_workflow(*, publish: bool) -> dict:
 
     @activity.defn(name="split_chunks_activity")
     async def split(input) -> list[int]:
+        split_calls.append(1)
         return [1, 2]
 
     @activity.defn(name="load_perspectives_activity")
@@ -158,6 +172,7 @@ async def _run_full_review_pr_workflow(*, publish: bool) -> dict:
 
     return {
         "result": result,
+        "split": split_calls,
         "analyze": analyze_calls,
         "review": review_calls,
         "validate": validate_calls,
@@ -180,6 +195,19 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
 async def test_review_pr_workflow_publishes_only_when_publish_true():
     recorded = await _run_full_review_pr_workflow(publish=True)
     assert recorded["publish"] == [7]  # publish=True → posts the review back to the PR
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_early_exits_when_already_published():
+    # A re-trigger at an already-published head: the gate returns the report id without running any
+    # downstream stage — no re-chunk/analyze/review/dedup/validate and no re-publish.
+    recorded = await _run_full_review_pr_workflow(publish=True, already_published=True)
+    assert recorded["result"] == "rep-1"
+    assert recorded["split"] == []
+    assert recorded["analyze"] == []
+    assert recorded["review"] == []
+    assert recorded["validate"] == []
+    assert recorded["publish"] == []
 
 
 @pytest.mark.asyncio

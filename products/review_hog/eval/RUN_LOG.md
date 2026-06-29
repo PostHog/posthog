@@ -22,6 +22,28 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-29 · #66456 same-SHA re-trigger — early-exit gate validated (true no-op)
+
+- **Change under test:** new early-exit gate in `ReviewPRWorkflow` — return the report id right after fetch when
+  `ReviewMeta.already_published` (`published_head_sha == head_sha`: this exact head already reviewed **and**
+  posted). Skips sync-skills / schema-gen / chunk / analyze / review / dedup / validate / build / publish.
+- **Run:** `run_review --pr-url …/66456 --team-id 1 --user-id 1 --publish`, exit 0, report `019f0581-646e-…`
+  (same living report as the 2026-06-26 publish). Head unchanged since Friday (`9575669d…`, confirmed live via
+  `gh pr view`); `published_head_sha == head_sha` in the DB.
+- **Result — true no-op, proven 3 ways:** (1) **Temporal history** for `review-pr:1:PostHog/posthog:66456` shows
+  only `validate_github_integration_activity` + `fetch_pr_data_activity` scheduled, then
+  `WorkflowExecutionCompleted` — no downstream stage ran. (2) `run_count` stayed **1** (finalize never ran),
+  `updated_at` unchanged. (3) PR comment counts unchanged (5 inline / 3 issue) — nothing posted; no sandbox cost.
+- **Why this is the realistic prod case:** the production label trigger is always `publish=True`, so after the
+  first successful publish a re-trigger at the same head (a re-label, `ready_for_review`, or a no-op
+  `synchronize`) is gated here. A **no-publish** eval run is never gated (no published head) — the frozen-PR eval
+  loop still recomputes to measure reviewer changes.
+- **New comments at an unchanged head:** counted + logged at fetch (`new_comment_count`) but do **not** force a
+  turn yet (decision 2026-06-29 — revisit with the "fix the issues" action plane; see ARCHITECTURE.md Stage 5b).
+- **NEXT — Scenario 2 (SHA changed):** push a tiny change to #66456 to move the head, re-run `--publish` → expect
+  a full re-review (re-chunk/analyze/review at the new head) + a **fresh** published review pinned to the new head,
+  **no** promo re-post, deduped against our own prior inline comments.
+
 ## 2026-06-26 · #66456 publish — surfaced two publish-path gaps
 
 - **Run:** `run_review --pr-url …/66456 --team-id 1 --user-id 1 --publish`, exit 0, report `019f0581-646e-…`.

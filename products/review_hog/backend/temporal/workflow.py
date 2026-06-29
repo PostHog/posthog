@@ -279,6 +279,19 @@ class ReviewPRWorkflow:
             "Captured point-in-time diff snapshot" if meta.snapshotted else "No new diff snapshot this turn"
         )
 
+        # Early-exit: nothing to do this turn. `already_published` means this exact head was already
+        # reviewed AND posted, so re-running the pipeline would recompute the same review and publish
+        # would self-skip — burning sandbox cost for no output. New inline comments do NOT force a turn
+        # yet (logged in fetch); reacting to comments lands with the "fix the issues" capability — see
+        # ARCHITECTURE.md (Stage 5b / Action plane). A no-publish eval run is never gated here (it has
+        # no published head), so the frozen-PR eval loop still recomputes to measure reviewer changes.
+        if meta.already_published:
+            workflow.logger.info(
+                f"Review already published for {repository}#{inputs.pr_number} at {head_sha[:12]}; "
+                f"nothing changed this turn ({meta.new_comment_count} new comment(s), not yet acted on) — skipping"
+            )
+            return report_id
+
         await workflow.execute_activity(
             sync_review_skills_activity,
             SyncReviewSkillsInput(team_id=inputs.team_id),
