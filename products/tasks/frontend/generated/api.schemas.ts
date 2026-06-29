@@ -642,12 +642,14 @@ export const PrAuthorshipModeEnumApi = {
 /**
  * * `manual` - manual
  * * `signal_report` - signal_report
+ * * `home_auto` - home_auto
  */
 export type RunSourceEnumApi = (typeof RunSourceEnumApi)[keyof typeof RunSourceEnumApi]
 
 export const RunSourceEnumApi = {
     Manual: 'manual',
     SignalReport: 'signal_report',
+    HomeAuto: 'home_auto',
 } as const
 
 /**
@@ -711,7 +713,8 @@ export interface ClaudeTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `home_auto` - home_auto */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -798,7 +801,8 @@ export interface CodexTaskRunCreateSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `home_auto` - home_auto */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -852,7 +856,8 @@ export interface TaskRunResumeRequestSchemaApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `home_auto` - home_auto */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string
@@ -1179,7 +1184,8 @@ export interface TaskRunBootstrapCreateRequestApi {
     /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
      *
      * * `manual` - manual
-     * * `signal_report` - signal_report */
+     * * `signal_report` - signal_report
+     * * `home_auto` - home_auto */
     run_source?: RunSourceEnumApi
     /** Optional signal report identifier when this run was started from Inbox. */
     signal_report_id?: string

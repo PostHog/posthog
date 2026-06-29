@@ -12631,6 +12631,7 @@ export namespace Schemas {
     /**
      * * `manual` - manual
      * * `signal_report` - signal_report
+     * * `home_auto` - home_auto
      */
     export type RunSourceEnum = typeof RunSourceEnum[keyof typeof RunSourceEnum];
 
@@ -12638,6 +12639,7 @@ export namespace Schemas {
     export const RunSourceEnum = {
       Manual: 'manual',
       SignalReport: 'signal_report',
+      HomeAuto: 'home_auto',
     } as const;
 
     /**
@@ -12710,7 +12712,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `home_auto` - home_auto */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -13057,7 +13060,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `home_auto` - home_auto */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -51530,7 +51534,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `home_auto` - home_auto */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;
@@ -51645,7 +51650,8 @@ export namespace Schemas {
       /** High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.
        *
        * * `manual` - manual
-       * * `signal_report` - signal_report */
+       * * `signal_report` - signal_report
+       * * `home_auto` - home_auto */
       run_source?: RunSourceEnum;
       /** Optional signal report identifier when this run was started from Inbox. */
       signal_report_id?: string;

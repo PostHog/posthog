@@ -615,11 +615,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
                 ),
             run_source: zod
-                .enum(['manual', 'signal_report'])
-                .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+                .enum(['manual', 'signal_report', 'home_auto'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto')
                 .optional()
                 .describe(
-                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto'
                 ),
             signal_report_id: zod
                 .string()
@@ -694,11 +694,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                     'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
                 ),
             run_source: zod
-                .enum(['manual', 'signal_report'])
-                .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+                .enum(['manual', 'signal_report', 'home_auto'])
+                .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto')
                 .optional()
                 .describe(
-                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                    'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto'
                 ),
             signal_report_id: zod
                 .string()
@@ -766,11 +766,11 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
             ),
         run_source: zod
-            .enum(['manual', 'signal_report'])
-            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .enum(['manual', 'signal_report', 'home_auto'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto')
             .optional()
             .describe(
-                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto'
             ),
         signal_report_id: zod
             .string()
@@ -926,11 +926,11 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
                 'Whether pull requests for this run should be authored by the user or the bot.\n\n\* `user` - user\n\* `bot` - bot'
             ),
         run_source: zod
-            .enum(['manual', 'signal_report'])
-            .describe('\* `manual` - manual\n\* `signal_report` - signal_report')
+            .enum(['manual', 'signal_report', 'home_auto'])
+            .describe('\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto')
             .optional()
             .describe(
-                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report'
+                'High-level source that triggered this run, used to distinguish manual and signal-based cloud runs.\n\n\* `manual` - manual\n\* `signal_report` - signal_report\n\* `home_auto` - home_auto'
             ),
         signal_report_id: zod
             .string()
