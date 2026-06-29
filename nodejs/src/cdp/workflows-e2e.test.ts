@@ -1008,6 +1008,62 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             // Exited on conversion — the after-delay step never ran.
             expect(mockFetch).not.toHaveBeenCalled()
         })
+
+        it('counts an event-based conversion exactly once per run even when the event fires repeatedly', async () => {
+            // Regression guard for conversion over-counting on measurement-only flows. The run stays
+            // parked in the delay (exit_only_at_end), and the conversion event fires across three
+            // separate matcher batches. The matcher must record exactly ONE `conversion` metric for
+            // the run (deduped via conversionCounted), and must never wake the job.
+            await createWorkflowFlow(
+                {
+                    actions: {
+                        trigger: trigger(),
+                        delay: { type: 'delay', config: { delay_duration: '5m' } },
+                        after_delay: fetchAction('https://example.com/after-delay'),
+                        exit: exitAction(),
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'delay', type: 'continue' },
+                        { from: 'delay', to: 'after_delay', type: 'continue' },
+                        { from: 'after_delay', to: 'exit', type: 'continue' },
+                    ],
+                },
+                {
+                    exitCondition: 'exit_only_at_end',
+                    conversion: {
+                        window_minutes: 60,
+                        filters: [],
+                        bytecode: [],
+                        events: [eventNameFilter('conversion_event')],
+                    } as any,
+                }
+            )
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            const conversionCount = (): number =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter((m: any) => m.value.metric_name === 'conversion')
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            // First match counts the conversion once.
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await waitForExpect(() => {
+                expect(conversionCount()).toBe(1)
+            }, 5000)
+
+            // The same conversion event firing again must NOT increment the count — the run already converted.
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
+            await new Promise((resolve) => setTimeout(resolve, 500))
+            expect(conversionCount()).toBe(1)
+
+            // Measurement-only: the run stays parked and the after-delay step never runs early.
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
+            expect(mockFetch).not.toHaveBeenCalled()
+        })
     })
 
     describe('wait_until_time_window: window in the future', () => {

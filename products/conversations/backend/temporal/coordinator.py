@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 with workflow.unsafe.imports_passed_through():
     from django.db.models import Q
@@ -47,7 +51,6 @@ MAX_TICKETS_PER_TEAM_PER_RUN = 10
 MAX_TICKETS_PER_RUN = 50
 
 MASTER_FLAG = "product-support-ai-suggestion"
-ROLLOUT_FLAG = "product-support-ai-suggestion-rollout"
 
 # Minimum number of READY BK sources required before the coordinator will draft replies.
 # Set to 0 locally to skip the BK readiness check entirely.
@@ -77,20 +80,18 @@ class CollectEligibleTicketsOutput:
     tickets: list[EligibleTicket]
 
 
-def _is_master_flag_enabled(team_id: int) -> bool:
+def _is_master_flag_enabled(team: Team) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             MASTER_FLAG,
-            str(team_id),
-        )
-    )
-
-
-def _is_rollout_enabled(ticket_id: str) -> bool:
-    return bool(
-        posthoganalytics.feature_enabled(
-            ROLLOUT_FLAG,
-            ticket_id,
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
     )
 
@@ -112,7 +113,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     for ticket in recent_tickets:
         team = ticket.team
 
-        if not _is_master_flag_enabled(team.id):
+        if not _is_master_flag_enabled(team):
             continue
 
         settings_dict = team.conversations_settings or {}
@@ -159,10 +160,9 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
             if prev is None or comment_created_at > prev:
                 latest_customer_msg[item_id] = comment_created_at
 
-    # Rollout is sampled last (after the cheap gates, dedupe, and settle window) so we don't burn
-    # the bucket on tickets that were never going to run this tick. Per-team and global caps bound
-    # how many child workflows a single tick can fan out so externally-created ticket volume can't
-    # directly translate into unbounded LLM work; overflow rolls to the next tick (still in lookback).
+    # Per-team and global caps bound how many child workflows a single tick can fan out so
+    # externally-created ticket volume can't directly translate into unbounded LLM work; overflow
+    # rolls to the next tick (still in lookback).
     settle_cutoff = now - timedelta(minutes=TICKET_SETTLE_MINUTES)
     eligible: list[EligibleTicket] = []
     per_team_counts: dict[int, int] = {}
@@ -178,8 +178,6 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
         if last_activity > settle_cutoff:
             continue
         if per_team_counts.get(team_id, 0) >= MAX_TICKETS_PER_TEAM_PER_RUN:
-            continue
-        if not _is_rollout_enabled(ticket_id_str):
             continue
         per_team_counts[team_id] = per_team_counts.get(team_id, 0) + 1
         eligible.append(EligibleTicket(team_id=team_id, ticket_id=ticket_id_str))
