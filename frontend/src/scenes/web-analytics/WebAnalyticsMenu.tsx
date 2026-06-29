@@ -76,11 +76,11 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                     </ButtonPrimitive>
                 )}
             </ScenePanelActionsSection>
-            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE] && (
+            {featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_DEFAULT_ON] && (
                 <>
                     <ScenePanelDivider />
                     <ScenePanelActionsSection>
-                        <Tooltip title="When on, eligible web analytics tiles load from a pre-computed result instead of running a live query. Results are faster but may be a few minutes behind the latest events. Other tiles run live as usual.">
+                        <Tooltip title="On by default for eligible web analytics tiles: they load from precomputed results instead of running a live query, so they're faster — but recent data can lag the latest events by a few minutes (up to ~2 hours for today). Other tiles always run live. Turn this off to force live queries everywhere.">
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => {
@@ -89,7 +89,7 @@ export const WebAnalyticsMenu = (): JSX.Element => {
                                 }}
                             >
                                 <LemonSwitch checked={useWebAnalyticsPrecompute ?? true} size="xsmall" />
-                                Allow precompute
+                                Use precomputed results
                             </ButtonPrimitive>
                         </Tooltip>
                     </ScenePanelActionsSection>
