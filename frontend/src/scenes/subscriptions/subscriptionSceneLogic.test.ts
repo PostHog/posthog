@@ -69,6 +69,18 @@ const MOCK_AI_SUBSCRIPTION: SubscriptionApi = {
     deleted: false,
 }
 
+const MOCK_AI_SUBSCRIPTION_WITH_PLAN: SubscriptionApi = {
+    ...MOCK_AI_SUBSCRIPTION,
+    id: 3,
+    query_plan: {
+        overall_intent: 'Weekly signups',
+        steps: [
+            { description: 'Daily signups', query_type: 'hogql', hogql: 'SELECT 1' },
+            { description: 'Anomalies', query_type: 'hogql', hogql: 'SELECT 2' },
+        ],
+    },
+}
+
 describe('subscriptionSceneLogic', () => {
     let deliveriesRequestUrls: string[]
 
@@ -293,5 +305,132 @@ describe('subscriptionSceneLogic', () => {
 
         logic.unmount()
         captureSpy.mockRestore()
+    })
+
+    it('runs a preview and clears it without touching delivery', async () => {
+        const previewBody = {
+            report: '# Weekly report',
+            diagnostics: [{ description: 'Daily signups', hogql: 'SELECT 1', ok: true, error_type: null }],
+        }
+        let previewCalls = 0
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/preview/`]: () => {
+                    previewCalls += 1
+                    return [200, previewBody]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '3' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.previewSubscription()
+        }).toFinishAllListeners()
+        expect(previewCalls).toEqual(1)
+        expect(logic.values.preview?.report).toEqual('# Weekly report')
+
+        await expectLogic(logic, () => {
+            logic.actions.clearPreview()
+        }).toFinishAllListeners()
+        expect(logic.values.preview).toBeNull()
+
+        logic.unmount()
+    })
+
+    it('applies pending query-plan edits and saves them, resetting the editor', async () => {
+        let savedBody: any = null
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [200, MOCK_AI_SUBSCRIPTION_WITH_PLAN],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+            },
+            patch: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: async (req) => {
+                    savedBody = await req.request.json()
+                    return [200, { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: savedBody.query_plan }]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '3' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        // No edits yet → nothing to save.
+        expect(logic.values.hasQueryPlanEdits).toBe(false)
+        expect(logic.values.editedQueryPlan).toBeNull()
+
+        await expectLogic(logic, () => {
+            logic.actions.setQueryPlanStepHogql(1, 'SELECT 99')
+        }).toFinishAllListeners()
+        expect(logic.values.hasQueryPlanEdits).toBe(true)
+        // Only the edited step changes; the other keeps its original HogQL.
+        expect(logic.values.editedQueryPlan?.steps.map((s) => s.hogql)).toEqual(['SELECT 1', 'SELECT 99'])
+
+        await expectLogic(logic, () => {
+            logic.actions.saveQueryPlan()
+        }).toFinishAllListeners()
+        expect(savedBody.query_plan.steps[1].hogql).toEqual('SELECT 99')
+        // Save success replaces the subscription and clears the pending edits.
+        expect(logic.values.queryPlanEdits).toEqual({})
+        expect(logic.values.hasQueryPlanEdits).toBe(false)
+
+        logic.unmount()
+    })
+
+    it('re-plan clears the frozen plan and reloads', async () => {
+        let replanCalls = 0
+        let returnPlan = true
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/`]: () => [
+                    200,
+                    returnPlan
+                        ? MOCK_AI_SUBSCRIPTION_WITH_PLAN
+                        : { ...MOCK_AI_SUBSCRIPTION_WITH_PLAN, query_plan: null },
+                ],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/deliveries/`]: () => [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/3/re-plan/`]: () => {
+                    replanCalls += 1
+                    returnPlan = false // the next reload sees a cleared plan
+                    return [202, {}]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '3' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.subscription?.query_plan).toBeTruthy()
+
+        await expectLogic(logic, () => {
+            logic.actions.replanSubscription()
+        }).toFinishAllListeners()
+        expect(replanCalls).toEqual(1)
+        expect(logic.values.replanning).toBe(false)
+        expect(logic.values.subscription?.query_plan).toBeNull()
+
+        logic.unmount()
     })
 })
