@@ -195,19 +195,43 @@ def replan_backfill(schema_id: str) -> None:
 def _bootstrap_state_rows(team_ids: list[int] | None) -> None:
     """Create state rows for enabled teams' schemas that have none.
 
+    Only schemas whose source is on warehouse-pipelines-v3 get a row: the sink
+    follows v3 sources only, so priming a non-v3 source would create state the
+    consumer never advances (and never primes).
+
     Straight to PRIMED when no priming is needed:
     - full_refresh: every run's batch 0 replaces the table completely.
     - no Delta table yet: the first sync creates everything.
     - cdc: the sink rejects CDC batches outright; do not block the queue on it.
     """
-    schemas = ExternalDataSchema.objects.exclude(deleted=True).select_related("team")
+    # Lazy import: create_job_model pulls in temporalio.activity + the data_warehouse
+    # facade, which we don't want on the planner module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+        is_pipeline_v3_enabled,
+    )
+
+    schemas = ExternalDataSchema.objects.exclude(deleted=True).select_related("team", "source")
     if team_ids is not None:
         schemas = schemas.filter(team_id__in=team_ids)
     existing = {str(s) for s in DuckgresSinkSchemaState.objects.all().values_list("schema_id", flat=True)}
 
+    # The sink only follows v3 sources (warehouse-pipelines-v3 is evaluated per
+    # team+source_type), so only prime schemas the consumer will actually mirror.
+    # Memoized per (team_id, source_type) — the flag does a network eval, and a
+    # team has only a handful of source types, so this stays cheap even with many schemas.
+    v3_enabled: dict[tuple[int, str], bool] = {}
+
+    def _source_is_v3(team_id: int, source_type: str) -> bool:
+        key = (team_id, source_type)
+        if key not in v3_enabled:
+            v3_enabled[key] = is_pipeline_v3_enabled(team_id, source_type)
+        return v3_enabled[key]
+
     to_create: list[DuckgresSinkSchemaState] = []
     for schema in schemas:
         if str(schema.id) in existing:
+            continue
+        if not _source_is_v3(schema.team_id, schema.source.source_type):
             continue
         needs_backfill = schema.sync_type not in ("full_refresh", "cdc", None) and schema.table_id is not None
         to_create.append(
