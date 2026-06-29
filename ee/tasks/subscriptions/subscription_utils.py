@@ -56,7 +56,14 @@ def get_max_asset_count_for_organization(organization: "Organization") -> int:
 
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
-    return (not asset.content and not asset.content_location) or asset.exception is not None
+    # Prefer the `_db_content_present` annotation when a caller deferred the heavy `content`
+    # BYTEA (delivery does, to avoid materialising every asset's bytes); fall back to reading
+    # `content` directly when it wasn't deferred.
+    content_present = getattr(asset, "_db_content_present", None)
+    if content_present is None:
+        content_present = asset.content is not None
+    has_content = bool(content_present) or bool(asset.content_location)
+    return not has_content or asset.exception is not None
 
 
 def generate_assets(

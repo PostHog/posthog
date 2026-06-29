@@ -58,6 +58,10 @@ from products.exports.backend.temporal.subscriptions.types import (
     UpdateDeliveryRecordInputs,
 )
 
+# Cap concurrent insight renders per subscription so a large dashboard doesn't fan out every
+# export at once and spike worker memory/CPU. Renders run in chunks of this size, in order.
+SUBSCRIPTION_EXPORT_CHUNK_SIZE = 5
+
 
 def _to_recipient_dicts(recipient_results: list[RecipientResult]) -> list[dict]:
     return [
@@ -269,29 +273,29 @@ class ProcessSubscriptionWorkflow(PostHogWorkflow):
 
             delivery_exported_asset_ids = prepare_result.exported_asset_ids
 
-            # Phase 2: Fan-out export — one activity per insight, independent retry
-            export_tasks = []
-            for asset_id in prepare_result.exported_asset_ids:
-                task = temporalio.workflow.execute_activity(
-                    export_asset_activity,
-                    ExportAssetActivityInputs(
-                        exported_asset_id=asset_id,
-                        source=EventSource.SUBSCRIPTION,
-                    ),
-                    start_to_close_timeout=dt.timedelta(hours=1),
-                    heartbeat_timeout=dt.timedelta(minutes=2),
-                    retry_policy=EXPORT_RETRY_POLICY,
-                )
-                export_tasks.append((asset_id, task))
-
-            # Gather results — continue on failure (partial success OK)
-            export_results: list[ExportAssetResult | BaseException] = await asyncio.gather(
-                *[task for _, task in export_tasks],
-                return_exceptions=True,
-            )
+            # Phase 2: Fan-out export — one activity per insight, independent retry.
+            # Chunk the fan-out so a large dashboard (up to DEFAULT_MAX_ASSET_COUNT insights)
+            # doesn't schedule every render at once — bounds peak concurrent renders and the
+            # worker memory/CPU they consume. Continue on failure (partial success OK).
+            asset_ids = list(prepare_result.exported_asset_ids)
+            export_results: list[ExportAssetResult | BaseException] = []
+            for chunk_start in range(0, len(asset_ids), SUBSCRIPTION_EXPORT_CHUNK_SIZE):
+                chunk_tasks = [
+                    temporalio.workflow.execute_activity(
+                        export_asset_activity,
+                        ExportAssetActivityInputs(
+                            exported_asset_id=asset_id,
+                            source=EventSource.SUBSCRIPTION,
+                        ),
+                        start_to_close_timeout=dt.timedelta(hours=1),
+                        heartbeat_timeout=dt.timedelta(minutes=2),
+                        retry_policy=EXPORT_RETRY_POLICY,
+                    )
+                    for asset_id in asset_ids[chunk_start : chunk_start + SUBSCRIPTION_EXPORT_CHUNK_SIZE]
+                ]
+                export_results.extend(await asyncio.gather(*chunk_tasks, return_exceptions=True))
 
             # Classify export results
-            asset_ids = [aid for aid, _ in export_tasks]
             outcome_assets, successful_asset_ids = _build_outcome_assets(asset_ids, export_results)
             assets_with_content = len(successful_asset_ids)
             total_assets = len(outcome_assets)

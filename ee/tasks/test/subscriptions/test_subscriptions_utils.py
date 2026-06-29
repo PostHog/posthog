@@ -11,8 +11,27 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.tasks.subscriptions.subscription_utils import FREE_TIER_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.subscriptions.subscription_utils import FREE_TIER_MAX_ASSET_COUNT, _has_asset_failed, generate_assets
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
+
+
+@parameterized.expand(
+    [
+        # (content, content_location, db_content_present annotation, exception) -> failed?
+        ("has_db_content", b"png", None, None, None, False),
+        ("has_location", None, "s3://bucket/key", None, None, False),
+        ("no_content_no_location", None, None, None, None, True),
+        ("has_exception", b"png", None, None, "boom", True),
+        # Delivery defers `content`; the annotation stands in for its presence without loading bytes.
+        ("annotated_present", None, None, True, None, False),
+        ("annotated_absent", None, None, False, None, True),
+    ]
+)
+def test_has_asset_failed(_name, content, content_location, db_content_present, exception, expected_failed):
+    asset = ExportedAsset(content=content, content_location=content_location, exception=exception)
+    if db_content_present is not None:
+        asset._db_content_present = db_content_present  # type: ignore[attr-defined]
+    assert _has_asset_failed(asset) is expected_failed
 
 
 @patch("ee.tasks.subscriptions.subscription_utils.chain")

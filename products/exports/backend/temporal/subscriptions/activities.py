@@ -4,7 +4,7 @@ import typing
 import datetime as dt
 from datetime import datetime
 
-from django.db.models import Q
+from django.db.models import BooleanField, ExpressionWrapper, Q
 from django.utils import timezone as tz
 
 import temporalio.activity
@@ -342,12 +342,16 @@ async def _deliver_insight_dashboard_subscription(
         )
         return await auto_disable_and_return(subscription, UNSUPPORTED_TARGET_DISABLE_REASON, recipient_results)
 
+    # Defer the heavy `content` BYTEA: delivery only needs the signed asset URL, never the raw
+    # bytes. `_db_content_present` lets the failure check know whether DB-fallback content exists
+    # without materialising it — so a large subscription can't load every asset's bytes at once.
     assets_by_id = await database_sync_to_async(
         lambda: {
             a.id: a
-            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight", "dashboard").filter(
-                pk__in=inputs.exported_asset_ids
-            )
+            for a in ExportedAsset.objects_including_ttl_deleted.select_related("insight", "dashboard")
+            .defer("content")
+            .annotate(_db_content_present=ExpressionWrapper(Q(content__isnull=False), output_field=BooleanField()))
+            .filter(pk__in=inputs.exported_asset_ids)
         },
         thread_sensitive=False,
     )()
