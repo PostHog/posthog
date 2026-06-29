@@ -1,8 +1,10 @@
 import { useActions, useValues } from 'kea'
 
 import { Composer } from 'products/posthog_ai/frontend/api/primitives'
+import { resolveEffortForModel } from 'products/posthog_ai/frontend/utils/composerModels'
 
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
+import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 import { RepositorySelector } from './RepositorySelector'
 
 export function TaskComposer(): JSX.Element {
@@ -38,6 +40,19 @@ export function TaskComposer(): JSX.Element {
                             <Composer.Placeholder>Describe the task in detail…</Composer.Placeholder>
                             <Composer.Textarea submitShortcut="cmd-enter" autoFocus data-attr="task-composer-input" />
                         </Composer.Field>
+                        <Composer.Footer>
+                            <ComposerModelEffortPickers
+                                selectedModel={newTaskData.model}
+                                selectedEffort={newTaskData.reasoningEffort}
+                                onModelChange={(model) =>
+                                    setNewTaskData({
+                                        model,
+                                        reasoningEffort: resolveEffortForModel(newTaskData.reasoningEffort, model),
+                                    })
+                                }
+                                onEffortChange={(reasoningEffort) => setNewTaskData({ reasoningEffort })}
+                            />
+                        </Composer.Footer>
                     </Composer.Frame>
                     <Composer.Submit data-attr="task-composer-send" />
                 </Composer.Root>

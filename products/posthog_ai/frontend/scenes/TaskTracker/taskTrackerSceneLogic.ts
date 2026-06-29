@@ -6,14 +6,19 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
+import { ClaudeRuntimeAdapterEnumApi, ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
 import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
+import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
 export type TaskCreateForm = {
     description: string
     repositoryConfig: RepositoryConfig
+    model: string
+    reasoningEffort: ReasoningEffortEnumApi
 }
 
 const EMPTY_TASK_FORM: TaskCreateForm = {
@@ -22,6 +27,8 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
         integrationId: undefined,
         repository: undefined,
     },
+    model: DEFAULT_COMPOSER_MODEL,
+    reasoningEffort: DEFAULT_COMPOSER_EFFORT,
 }
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
@@ -82,7 +89,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             actions.maybeAutoSelectIntegration()
         },
         submitNewTask: async () => {
-            const { description, repositoryConfig } = values.newTaskData
+            const { description, repositoryConfig, model, reasoningEffort } = values.newTaskData
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')
@@ -108,8 +115,14 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 lemonToast.success('Task created successfully')
 
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
-                // run checks out the chosen branch (server falls back to the repo's default branch if unset).
-                await api.tasks.run(newTask.id, { branch: repositoryConfig.branch ?? null })
+                // run checks out the chosen branch (server falls back to the repo's default branch if unset)
+                // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                await api.tasks.run(newTask.id, {
+                    branch: repositoryConfig.branch ?? null,
+                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+                    model,
+                    reasoning_effort: resolveEffortForModel(reasoningEffort, model),
+                })
                 router.actions.push(`/tasks/${newTask.id}`)
 
                 actions.submitNewTaskSuccess()

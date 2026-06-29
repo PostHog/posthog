@@ -1,5 +1,3 @@
-import { useActions, useValues } from 'kea'
-
 import { IconBrain, IconChevronDown } from '@posthog/icons'
 import {
     Button,
@@ -11,25 +9,33 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
-import { runInteractionLogic } from 'products/posthog_ai/frontend/api/logics'
 import {
     COMPOSER_MODELS,
     getEffortLabel,
     getEffortsForModel,
     getModelLabel,
 } from 'products/posthog_ai/frontend/utils/composerModels'
+import { ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+
+export interface ComposerModelEffortPickersProps {
+    selectedModel: string
+    selectedEffort: ReasoningEffortEnumApi
+    onModelChange: (model: string) => void
+    onEffortChange: (effort: ReasoningEffortEnumApi) => void
+}
 
 /**
- * Model + reasoning-effort pickers for the run composer. The selection is owned by `runInteractionLogic`
- * (`selectedModel` / `selectedEffort`, resolving override → run's stored value → default). On a live run,
- * changing either live-switches the agent via the `set_config_option` command (Claude harness only); on a
- * finished run, the selection seeds the next run a send starts. Always active — there's no live agent to talk
- * to when terminal, but the picks still configure the new run.
+ * Controlled, logic-free model + reasoning-effort pickers for a composer footer. The caller owns the selection
+ * and the side effects of changing it — the run composer wires it to `runInteractionLogic` (live `set_config_option`
+ * switch while running, seeds the next run when terminal), the new-task composer wires it to the form that seeds
+ * the first run. This component only renders the dropdowns and reports changes up.
  */
-export function ComposerModelEffortPickers(): JSX.Element {
-    const { selectedModel, selectedEffort } = useValues(runInteractionLogic)
-    const { setModel, setEffort } = useActions(runInteractionLogic)
-
+export function ComposerModelEffortPickers({
+    selectedModel,
+    selectedEffort,
+    onModelChange,
+    onEffortChange,
+}: ComposerModelEffortPickersProps): JSX.Element {
     const effortOptions = getEffortsForModel(selectedModel)
 
     return (
@@ -44,7 +50,7 @@ export function ComposerModelEffortPickers(): JSX.Element {
                     }
                 />
                 <DropdownMenuContent className="w-auto min-w-(--anchor-width)">
-                    <DropdownMenuRadioGroup value={selectedModel} onValueChange={setModel}>
+                    <DropdownMenuRadioGroup value={selectedModel} onValueChange={onModelChange}>
                         <DropdownMenuLabel>Model</DropdownMenuLabel>
                         {COMPOSER_MODELS.map((option) => (
                             <DropdownMenuRadioItem key={option.value} value={option.value}>
@@ -66,7 +72,10 @@ export function ComposerModelEffortPickers(): JSX.Element {
                     }
                 />
                 <DropdownMenuContent className="w-auto min-w-(--anchor-width)">
-                    <DropdownMenuRadioGroup value={selectedEffort} onValueChange={setEffort}>
+                    <DropdownMenuRadioGroup
+                        value={selectedEffort}
+                        onValueChange={(value: string) => onEffortChange(value as ReasoningEffortEnumApi)}
+                    >
                         <DropdownMenuLabel>Effort</DropdownMenuLabel>
                         {effortOptions.map((option) => (
                             <DropdownMenuRadioItem key={option.value} value={option.value}>

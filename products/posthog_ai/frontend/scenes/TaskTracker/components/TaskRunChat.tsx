@@ -45,8 +45,12 @@ export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
 }
 
 function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { draft, isSubmitting, queuedMessages, isTerminal } = useValues(runInteractionLogic(logicProps))
-    const { setDraft, submit, updateQueuedMessage, removeQueuedMessage } = useActions(runInteractionLogic(logicProps))
+    const { draft, isSubmitting, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
+        runInteractionLogic(logicProps)
+    )
+    const { setDraft, submit, updateQueuedMessage, removeQueuedMessage, setModel, setEffort } = useActions(
+        runInteractionLogic(logicProps)
+    )
 
     return (
         // `RunSurface.Root` binds `runStreamLogic` keyed by `runId`; `runInteractionLogic` connects to the same
@@ -78,8 +82,13 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                             <Composer.Footer>
                                 {/* Model/effort picker: a live config switch while the run is in progress, and
                                 the config for the next run once it's terminal. Selection lives in the bound
-                                runInteractionLogic, so no props. */}
-                                <ComposerModelEffortPickers />
+                                runInteractionLogic. */}
+                                <ComposerModelEffortPickers
+                                    selectedModel={selectedModel}
+                                    selectedEffort={selectedEffort}
+                                    onModelChange={setModel}
+                                    onEffortChange={setEffort}
+                                />
                             </Composer.Footer>
                         </Composer.Frame>
                         <Composer.Submit data-attr="sandbox-composer-send" />
