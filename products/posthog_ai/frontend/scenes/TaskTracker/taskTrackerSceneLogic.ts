@@ -43,7 +43,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [tasksLogic, ['tasks', 'repositories'], integrationsLogic, ['integrations']],
+        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
         actions: [
             tasksLogic,
             ['loadTasks', 'loadRepositories', 'deleteTask'],
@@ -194,7 +194,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
-                tasksLogic.actions.loadTasks()
+                actions.loadTasks(values.taskListParams)
+                actions.loadRepositories()
             } catch (error) {
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
@@ -202,10 +203,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values }) => ({
         afterMount: () => {
-            tasksLogic.actions.loadTasks()
-            tasksLogic.actions.loadRepositories()
+            actions.loadTasks(values.taskListParams)
+            actions.loadRepositories()
             // Roll a headline once per mount (pickHeadline forces index 0 under Storybook for stable snapshots).
             actions.setHeadline(pickHeadline())
             // integrationsLogic loads on its own mount (triggered by the connect above), so we don't call
