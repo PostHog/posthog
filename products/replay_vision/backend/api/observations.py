@@ -20,6 +20,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.api.streaming import sse_streaming_response
 from posthog.renderers import ServerSentEventRenderer
 
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
@@ -599,10 +600,4 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
             raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        response = StreamingHttpResponse(
-            stream_observation_progress(observation),
-            content_type=ServerSentEventRenderer.media_type,
-        )
-        response["Cache-Control"] = "no-cache"
-        response["X-Accel-Buffering"] = "no"
-        return response
+        return sse_streaming_response(stream_observation_progress(observation))

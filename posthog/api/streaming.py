@@ -33,6 +33,32 @@ def _release_request_connections() -> None:
             conn.close()
 
 
+def streaming_response(
+    stream: Iterator[bytes] | AsyncIterator[bytes],
+    *,
+    content_type: str,
+    status: int = HTTPStatus.OK,
+    headers: dict[str, str] | None = None,
+) -> StreamingHttpResponse:
+    """Build a ``StreamingHttpResponse``, releasing request-thread DB connections first.
+
+    Use this (or ``sse_streaming_response`` for SSE) instead of constructing
+    ``StreamingHttpResponse`` directly — a semgrep rule enforces it. See
+    ``sse_streaming_response`` for why releasing connections matters.
+
+    The stream body must not rely on the request-thread connection: do any
+    in-stream DB work through ``posthog.sync.database_sync_to_async`` so it
+    acquires and releases its own connection.
+    """
+    _release_request_connections()
+    return StreamingHttpResponse(
+        stream,
+        status=status,
+        content_type=content_type,
+        headers=headers or {},
+    )
+
+
 def sse_streaming_response(
     stream: Iterator[bytes] | AsyncIterator[bytes],
     *,
@@ -65,10 +91,9 @@ def sse_streaming_response(
     then stays pinned for the whole stream. Keep response middleware DB-free on
     SSE paths.
     """
-    _release_request_connections()
-    return StreamingHttpResponse(
+    return streaming_response(
         stream,
-        status=status,
         content_type="text/event-stream",
+        status=status,
         headers={**_SSE_DEFAULT_HEADERS, **(headers or {})},
     )
