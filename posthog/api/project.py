@@ -26,6 +26,7 @@ from posthog.api.shared import ProjectBackwardCompatBasicSerializer
 # project.py must NOT depend on team.py at that point. The parity *logic* (config writes, retention check,
 # and the team-config actions) is defined locally below rather than imported, so it survives that removal.
 from posthog.api.team import (
+    TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS,
     TEAM_CONFIG_FIELDS,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
     EvaluationContextSuggestionRequestSerializer,
@@ -1354,14 +1355,15 @@ class ProjectViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets
         if mixin_result is not None:
             return mixin_result
 
-        # See TeamViewSet.dangerously_get_required_scopes for the rationale. Only downgrade
-        # to project:read when every field is a member-safe team config field; anything else
-        # falls through to project:write so admin-only settings require admin object access.
+        # See TeamViewSet.dangerously_get_required_scopes for the rationale. Only downgrade to
+        # project:read when every field is member-safe or carries its own field-level access control;
+        # anything else falls through to project:write so admin-only settings require admin object access.
         if self.action == "partial_update":
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
+                downgradable_fields = TEAM_CONFIG_MEMBER_FIELDS_SET | TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS
+                if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.

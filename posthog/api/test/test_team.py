@@ -3178,10 +3178,18 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
-    def test_web_analytics_editor_can_write_app_urls_with_access_control(self):
-        # A web analytics editor (org member, no project-admin) must be able to manage the toolbar /
+    @parameterized.expand(
+        [
+            ("default_admin_access", False),
+            ("restricted_project_member_access", True),
+        ]
+    )
+    def test_web_analytics_editor_can_write_app_urls_with_access_control(self, _name, restrict_project_to_member):
+        # A web analytics editor (org member, not project admin) must be able to manage the toolbar /
         # web analytics authorized URLs. `app_urls` carries a web-analytics-editor field access control,
-        # and web analytics defaults to editor, so a plain member passes without any explicit grant.
+        # and web analytics defaults to editor, so an editor passes the field-level check. This must hold
+        # even on a restricted project where the editor's effective project access is only `member` — the
+        # request gate must not demand project admin for `app_urls`, or the field-level check never runs.
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -3192,6 +3200,16 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
             },
         ]
         self.organization.save()
+
+        if restrict_project_to_member:
+            # Lower the project's baseline from the implicit admin default to member, so the acting
+            # user is a project member but not an admin.
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=self.team.id,
+                access_level="member",
+            )
 
         response = self.client.patch(
             "/api/environments/@current/",

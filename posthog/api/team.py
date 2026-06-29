@@ -428,6 +428,11 @@ TEAM_CONFIG_ADMIN_FIELDS_SET: set[str] = (TEAM_CONFIG_FIELDS_SET - TEAM_CONFIG_M
     "access_control",
 }
 
+# Fields that are not member-safe but carry their own `field_access_control` (enforced in
+# UserAccessControlSerializerMixin.validate). The request-level scope can be downgraded for these so
+# the field-level check is the real authority — e.g. `app_urls` is governed by web_analytics:editor.
+TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS: set[str] = {"app_urls"}
+
 
 class TeamRevenueAnalyticsConfigSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     events = serializers.JSONField(required=False)
@@ -1843,7 +1848,12 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             is_session_auth = isinstance(request.successful_authenticator, SessionAuthentication)
             if is_session_auth:
                 request_fields = set(request.data.keys())
-                if request_fields and request_fields.issubset(TEAM_CONFIG_MEMBER_FIELDS_SET):
+                # Member-safe fields, plus fields whose write is governed by their own field-level
+                # access control — keep the request gate from demanding project:write (admin) for the
+                # latter, otherwise e.g. a web analytics editor on a restricted project is blocked
+                # before UserAccessControlSerializerMixin.validate can authorize the field.
+                downgradable_fields = TEAM_CONFIG_MEMBER_FIELDS_SET | TEAM_CONFIG_FIELD_ACCESS_CONTROLLED_FIELDS
+                if request_fields and request_fields.issubset(downgradable_fields):
                     return ["project:read"]
 
         # Team-level config actions that any member should be able to edit via the UI.
