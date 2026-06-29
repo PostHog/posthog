@@ -28,9 +28,9 @@ name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
 # CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
-# master switch and the pull_request sample rate: when >0, every push (master — which
-# warms the shared schema cache), workflow_dispatch, and merge_group run, while
-# pull_request runs are sampled at that percent. The `sample` job rolls a deterministic
+# master switch and the pull_request sample rate: when >0, pull_request runs are sampled at
+# that percent; master (push) runs only check-migrations to prime the schema cache (test
+# matrices are skipped there); workflow_dispatch and merge_group always run. The `sample` job rolls a deterministic
 # per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the
 # whole workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
@@ -122,11 +122,8 @@ jobs:
                   EVENT: ${{ github.event_name }}
               run: |
                   set -euo pipefail
-                  # Only pull_request runs are sampled. push (master — warms the shared schema
-                  # cache), workflow_dispatch (on-demand; exists to exercise the
-                  # clickhouseServerVersion input), and merge_group always run when enabled:
-                  # sampling them would skip cache priming or silently no-op a manual dispatch
-                  # with no way to force it through (run_id is stable across reruns).
+                  # Only pull_request is sampled; push/workflow_dispatch/merge_group always run
+                  # when enabled (sampling them would skip cache priming or no-op a dispatch).
                   if [ "$EVENT" != "pull_request" ]; then
                       echo "sampled=true" >> "$GITHUB_OUTPUT"
                       echo "::notice::Optional Backend CI: $EVENT always runs when enabled."
@@ -149,7 +146,7 @@ jobs:
         # at percent 0/unset), which cascades the whole workflow off.
         needs: sample
         if: needs.sample.outputs.sampled == 'true'
-        runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
@@ -161,6 +158,11 @@ jobs:
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            schema: ${{ steps.filter.outputs.schema || 'true' }}
+            # True only when every backend-relevant changed file is a data
+            # warehouse import source — lets build_django_matrix drop the
+            # Core/CorePOE/compat segments. Defaults false (full matrix).
+            data_import_sources_only: ${{ steps.sources.outputs.data_import_sources_only || 'false' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -227,10 +229,20 @@ jobs:
                         - rust/feature-flags/src/properties/property_models.rs
                         - frontend/src/products.json # Loaded at runtime by posthog/products.py
                         - 'products/*/manifest.tsx' # Generates products.json
-                        # hogli db commands used for test database setup
-                        - 'tools/hogli-commands/hogli_commands/**'
+                        # hogli setup commands this workflow runs: db:restore-test-db
+                        # and product:bootstrap/lint. Scoped to the modules those
+                        # commands actually import — framework, manifest, boot
+                        # modules, db_schema, product — so unrelated hogli commands
+                        # (doctor, devbox, ...) don't trigger this suite.
                         - 'tools/hogli/**'
                         - hogli.yaml
+                        - 'tools/hogli-commands/hogli_commands/db_schema.py'
+                        - 'tools/hogli-commands/hogli_commands/prechecks.py'
+                        - 'tools/hogli-commands/hogli_commands/telemetry_props.py'
+                        - 'tools/hogli-commands/hogli_commands/hint_hook.py'
+                        - 'tools/hogli-commands/hogli_commands/hints.py'
+                        - 'tools/hogli-commands/hogli_commands/product/**'
+                        - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -271,7 +283,6 @@ jobs:
                         - conftest.py
                         - .test_durations
                         - .test_quarantine.json
-                        - frontend/src/queries/schema.json
                         - frontend/src/products.json
                         - 'products/*/manifest.tsx'
                         - rust/feature-flags/src/properties/property_models.rs
@@ -284,6 +295,11 @@ jobs:
                         - bin/ci-wait-for-docker
                         - frontend/public/email/*
                         - 'docker/clickhouse/**'
+                      schema:
+                        # Tracked separately from `legacy` so turbo-discover can
+                        # diff schema.json and narrow the product matrix to
+                        # products that import the changed types.
+                        - frontend/src/queries/schema.json
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -298,6 +314,7 @@ jobs:
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
+                        - 'frontend/src/lib/agentScopes.generated.ts'
                         - 'products/*/frontend/generated/**/*'
                         - 'services/mcp/src/generated/**/*'
                         - 'services/mcp/src/api/generated.ts'
@@ -317,12 +334,57 @@ jobs:
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
                         - 'services/mcp/schema/tool-definitions-all.json'
+
+            # Detect PRs whose backend changes are confined to data warehouse
+            # import sources that NO Django Core/CorePOE-collected code imports.
+            # Such a PR is exercised only by the Temporal segment (Core/CorePOE
+            # --ignore=posthog/temporal), so those segments add no coverage.
+            # The `coupled` sources are reverse-imported at runtime by Core tests
+            # (e.g. posthog/hogql/test/test_direct_postgres_query.py imports
+            # postgres) — a PR touching them must run the full matrix or it would
+            # silently skip those tests. `coupled` is kept complete by the guard
+            # test products/warehouse_sources/backend/temporal/data_imports/sources/tests/test_ci_core_coupled_sources.py.
+            # Fails OPEN: empty/non-source/coupled file list → false → full matrix.
+            # PR events only; push and merge_group always run everything.
+            # continue-on-error keeps the fail-open promise even when the runner can't
+            # start the step at all: a very large PR (e.g. a big rename) makes
+            # BACKEND_FILES exceed the process env limit ("Argument list too long"),
+            # which would otherwise hard-fail this job and skip every dependent test job.
+            # On that failure the job output below defaults to false → full matrix.
+            - name: Determine if only data warehouse sources changed
+              id: sources
+              continue-on-error: true
+              if: github.event_name == 'pull_request'
+              env:
+                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
+              run: |
+                  prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
+                  # Space-separated, double-quoted, single line — parsed by the guard test.
+                  coupled="common google_search_console mysql postgres salesforce stripe"
+                  only_sources=false
+                  if [ -n "$BACKEND_FILES" ]; then
+                      only_sources=true
+                      for f in $BACKEND_FILES; do
+                          case "$f" in
+                              "$prefix"*) ;;
+                              *) only_sources=false; break ;;
+                          esac
+                          rest=${f#"$prefix"}    # path within sources/
+                          top=${rest%%/*}        # vendor dir (or top-level filename)
+                          case " $coupled " in
+                              *" $top "*) only_sources=false; break ;;
+                          esac
+                      done
+                  fi
+                  echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
+                  echo "Only data warehouse import sources changed: $only_sources"
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
     # Runs on depot for turbo remote cache access (cache status drives Django gating)
     turbo-discover:
         needs: changes
-        if: needs.changes.outputs.backend == 'true'
+        # Not on master push: master only primes the schema cache; this cascades the matrices off.
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-latest
         timeout-minutes: 20
         name: Discover product tests
@@ -396,8 +458,11 @@ jobs:
                   # On pushes to master, always run everything.
                   # On PRs, use the path filter to detect legacy changes.
                   LEGACY_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.legacy }}
+                  SCHEMA_CHANGED: ${{ github.event_name != 'pull_request' || needs.changes.outputs.schema }}
                   TURBO_SCM_BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.event.pull_request.base.ref) || '' }}
                   TURBO_SCM_HEAD: ${{ github.sha }}
+                  # Kill switch — drop comma-separated products from the matrix; empty = run all.
+                  SKIP_PRODUCT_TESTS: ${{ vars.SKIP_PRODUCT_TESTS || '' }}
               run: |
                   # turbo-discover.js uses Turbo's Git affectedness to detect
                   # changed products. Non-isolated product changes trigger the
@@ -605,7 +670,7 @@ jobs:
                   # nohup detaches the launch so it survives Depot's step-shell teardown
                   # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
                   nohup bin/ci-wait-for-docker launch --background --down \
-                    db redis7 clickhouse zookeeper kafka objectstorage feature-flags \
+                    db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
             - name: Setup pnpm
@@ -641,12 +706,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             - name: Install Python dependencies
@@ -692,7 +751,9 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
@@ -709,7 +770,7 @@ jobs:
     # Consolidates checks that previously each spun up their own runner.
     repo-checks:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         timeout-minutes: 10
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
@@ -795,12 +856,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             # First running migrations from master, to simulate the real-world scenario
@@ -960,6 +1015,7 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  DATA_IMPORT_SOURCES_ONLY: ${{ needs.changes.outputs.data_import_sources_only }}
                   IS_DRAFT: ${{ github.event.pull_request.draft }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
               run: |
@@ -1099,12 +1155,19 @@ jobs:
                       ')
                   fi
 
-                  include=$(jq -cn \
-                    --argjson core "$core" \
-                    --argjson core_persons_on_events "$core_persons_on_events" \
-                    --argjson temporal "$temporal" \
-                    --argjson compat "$compat" \
-                    '$core + $core_persons_on_events + $temporal + $compat')
+                  if [ "$DATA_IMPORT_SOURCES_ONLY" = "true" ]; then
+                    # Only data warehouse import sources changed — the Temporal
+                    # segment already covers posthog/temporal, so skip Core/CorePOE/compat.
+                    echo "Only data warehouse import sources changed — running Temporal segment only"
+                    include="$temporal"
+                  else
+                    include=$(jq -cn \
+                      --argjson core "$core" \
+                      --argjson core_persons_on_events "$core_persons_on_events" \
+                      --argjson temporal "$temporal" \
+                      --argjson compat "$compat" \
+                      '$core + $core_persons_on_events + $temporal + $compat')
+                  fi
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
@@ -1207,13 +1270,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-            - name: Cache Rust dependencies
-              if: needs.changes.outputs.backend == 'true'
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
               uses: ./.depot/actions/setup-sqlx-cli
@@ -1313,7 +1369,9 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
             # Tests
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
@@ -1512,7 +1570,7 @@ jobs:
     get_clickhouse_versions:
         name: Get ClickHouse versions
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true'
+        if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
         outputs:
@@ -1637,6 +1695,7 @@ jobs:
         # Run if legacy code changed, product changes affect legacy, or turbo-discover failed
         if: |
             always() &&
+            github.event_name != 'push' &&
             needs.changes.outputs.backend == 'true' &&
             (needs.changes.outputs.legacy == 'true' ||
              needs.turbo-discover.outputs.run_legacy == 'true' ||
@@ -1692,12 +1751,6 @@ jobs:
               with:
                   toolchain: 1.91.1
                   components: cargo
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             - name: Install python dependencies
@@ -1740,7 +1793,9 @@ jobs:
                   fi
                   mkdir -p .postgres-backups
                   mv schema.sql.gz .postgres-backups/schema-latest.sql.gz
-                  ./bin/hogli db:restore-test-db
+                  if ! ./bin/hogli db:restore-test-db; then
+                      echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
+                  fi
             - name: Run async migrations tests
               run: |
                   # Scope async migration tests directly and reuse the primed test database.
