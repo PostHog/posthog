@@ -1,1 +1,1 @@
-0005_reviewreport_published_head_sha
+0006_reviewskillconfig
