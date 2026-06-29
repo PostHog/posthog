@@ -14,6 +14,8 @@ from posthog.test.base import (
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError
+
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
 from posthog.hogql_queries.insights.retention.test.utils import pad, pluck
@@ -209,6 +211,44 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 ]
             ),
         )
+
+    @parameterized.expand(
+        [
+            ("aggregation_target_field",),
+            ("timestamp_field",),
+            ("table_name",),
+        ]
+    )
+    def test_dwh_retention_missing_config_field_raises_query_error(self, omitted_field: str) -> None:
+        def entity() -> dict[str, Any]:
+            full = {
+                "id": "warehouse_activity",
+                "name": "warehouse_activity",
+                "type": "data_warehouse",
+                "table_name": "warehouse_activity",
+                "aggregation_target_field": "person_id",
+                "timestamp_field": "occurred_at",
+            }
+            del full[omitted_field]
+            return full
+
+        runner = RetentionQueryRunner(
+            team=self.team,
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": entity(),
+                    "returningEntity": entity(),
+                },
+            },
+        )
+
+        with self.assertRaises(QueryError) as context:
+            runner.to_query()
+
+        self.assertIn(omitted_field, str(context.exception))
 
     def _activity_breakdown_table(self) -> tuple[str, dict[str, str]]:
         person_ids = self._create_people()

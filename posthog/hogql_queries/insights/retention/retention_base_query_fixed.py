@@ -1,10 +1,11 @@
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, NoReturn
 
 import posthoganalytics
 
 from posthog.schema import EntityType, RetentionEntity
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 
@@ -428,6 +429,20 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             ),
         )
 
+    @staticmethod
+    def _raise_missing_dwh_field(
+        field_name: str,
+        query_kind: Literal["start", "return"],
+        entity_is_dwh: bool,
+    ) -> NoReturn:
+        side = "start" if query_kind == "start" else "returning"
+        if entity_is_dwh:
+            raise QueryError(
+                f"The data warehouse {side} event is missing its '{field_name}'. "
+                f"Configure this field on the retention series to run the query."
+            )
+        raise QueryError(f"Retention {side} event is missing a required '{field_name}'.")
+
     def _build_dwh_retention_event_query(
         self,
         entity: RetentionEntity,
@@ -437,11 +452,13 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
         entity_is_dwh = entity.type == EntityType.DATA_WAREHOUSE
 
         actor_column_name = entity.aggregation_target_field if entity_is_dwh else self.aggregation_target_events_column
-        assert actor_column_name
+        if not actor_column_name:
+            self._raise_missing_dwh_field("aggregation_target_field", query_kind, entity_is_dwh)
         actor_field = ast.Field(chain=[actor_column_name])
 
         timestamp_column_name = entity.timestamp_field if entity_is_dwh else "timestamp"
-        assert timestamp_column_name
+        if not timestamp_column_name:
+            self._raise_missing_dwh_field("timestamp_field", query_kind, entity_is_dwh)
         timestamp_field = ast.Field(chain=[timestamp_column_name])
 
         start_of_interval_sql = self.query_date_range.get_start_of_interval_hogql(source=timestamp_field)
@@ -496,7 +513,8 @@ class RetentionFixedIntervalBaseQueryBuilder(RetentionBaseQueryBuilder):
             start_event_timestamps_expr = self._first_time_start_event_timestamps_expr(entity)
 
         table_name = entity.table_name if entity_is_dwh else "events"
-        assert table_name
+        if not table_name:
+            self._raise_missing_dwh_field("table_name", query_kind, entity_is_dwh)
         where_expr = None if entity_is_dwh else ast.And(exprs=self._event_filters())
 
         select_fields: list[ast.Expr] = [
