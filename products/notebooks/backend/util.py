@@ -73,10 +73,16 @@ def filter_notebook_content_for_sharing(content: Any) -> Any:
     filtered: dict[str, Any] = {k: v for k, v in content.items() if k != "content"}
     children = content.get("content")
     if isinstance(children, list):
-        filtered["content"] = [filter_notebook_content_for_sharing(child) for child in children]
+        filtered["content"] = [_filter_notebook_child_content_for_sharing(child) for child in children]
     elif "content" in content:
         filtered["content"] = children
     return filtered
+
+
+def _filter_notebook_child_content_for_sharing(child: Any) -> Any:
+    if isinstance(child, dict) and child.get("type") == MARKDOWN_NOTEBOOK_NODE_TYPE:
+        return _filter_markdown_notebook_content_for_sharing(child)
+    return filter_notebook_content_for_sharing(child)
 
 
 def _filter_markdown_notebook_content_for_sharing(content: TipTapNode) -> TipTapNode:

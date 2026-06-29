@@ -274,7 +274,7 @@ class TestExtractInlineQueryNodes(TestCase):
         )
 
 
-class TestFilterNotebookContentForSharing(APIBaseTest):
+class TestFilterNotebookContentForSharing(TestCase):
     @parameterized.expand(
         [
             ("none", None, None),
@@ -477,6 +477,66 @@ class TestNotebookSharingConfiguration(APIBaseTest):
         self.assertNotIn("stripe.customers", raw)
         self.assertNotIn("alice@acme.com", raw)
         self.assertNotIn("01893f8c-some-recording", raw)
+        self.assertIsNone(body["notebook"]["text_content"])
+
+    def test_shared_notebook_strips_unsupported_markdown_component_props(self) -> None:
+        markdown = "\n\n".join(
+            [
+                "hello",
+                '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+                '<Python code="SECRET = true" />',
+                '<Chat messages={{["SECRET_CHAT"]}} />',
+            ]
+        )
+        self.notebook.content = _doc(
+            {"type": "paragraph", "content": [{"type": "text", "text": "hi"}]},
+            {
+                "type": "blockquote",
+                "content": [
+                    {
+                        "type": "ph-markdown-notebook",
+                        "attrs": {
+                            "nodeId": "markdown-notebook-v2",
+                            "markdown": markdown,
+                            "runtimeState": {"secret": "SECRET_RUNTIME"},
+                        },
+                    }
+                ],
+            },
+        )
+        self.notebook.text_content = "hi SECRET = true SECRET_CHAT SECRET_RUNTIME"
+        self.notebook.save()
+        self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
+        config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+
+        markdown_node = body["notebook"]["content"]["content"][1]["content"][0]
+        self.assertEqual(
+            markdown_node,
+            {
+                "type": "ph-markdown-notebook",
+                "attrs": {
+                    "nodeId": "markdown-notebook-v2",
+                    "markdown": "\n\n".join(
+                        [
+                            "hello",
+                            '<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />',
+                            "<Python />",
+                            "<Chat />",
+                        ]
+                    ),
+                },
+            },
+        )
+
+        raw = response.content.decode()
+        self.assertNotIn("SECRET", raw)
+        self.assertNotIn("SECRET_CHAT", raw)
+        self.assertNotIn("SECRET_RUNTIME", raw)
         self.assertIsNone(body["notebook"]["text_content"])
 
     def test_deleted_notebook_404s_on_shared_endpoint(self) -> None:
