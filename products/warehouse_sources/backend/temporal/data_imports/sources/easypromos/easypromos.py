@@ -70,7 +70,10 @@ def _fetch_page(
         raise EasypromosRetryableError(f"Easypromos API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Easypromos API error: status={response.status_code}, body={response.text}, url={url}")
+        # Fan-out error bodies can echo PII from the API, so log only a short, truncated prefix
+        # rather than the full body.
+        body_prefix = response.text[:200]
+        logger.error(f"Easypromos API error: status={response.status_code}, body_prefix={body_prefix!r}, url={url}")
         response.raise_for_status()
 
     data = response.json()
@@ -119,11 +122,12 @@ def _iter_list_pages(
 def validate_credentials(access_token: str) -> tuple[bool, str | None]:
     """One cheap probe of the account-wide Bearer token against `/promotions`."""
     try:
-        response = make_tracked_session().get(
-            f"{EASYPROMOS_BASE_URL}/promotions",
-            headers=_get_headers(access_token),
-            timeout=10,
-        )
+        with make_tracked_session() as session:
+            response = session.get(
+                f"{EASYPROMOS_BASE_URL}/promotions",
+                headers=_get_headers(access_token),
+                timeout=10,
+            )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -230,16 +234,16 @@ def get_rows(
     headers = _get_headers(access_token)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and, for fan-out, every promotion) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. The context manager tears down the
+    # connection pool even when a request raises mid-stream.
+    with make_tracked_session() as session:
+        if endpoint_config.fan_out_over_promotions:
+            yield from _get_fan_out_rows(session, endpoint_config, headers, logger, batcher, resumable_source_manager)
+        else:
+            yield from _get_top_level_rows(session, endpoint_config, headers, logger, batcher, resumable_source_manager)
 
-    if endpoint_config.fan_out_over_promotions:
-        yield from _get_fan_out_rows(session, endpoint_config, headers, logger, batcher, resumable_source_manager)
-    else:
-        yield from _get_top_level_rows(session, endpoint_config, headers, logger, batcher, resumable_source_manager)
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+        if batcher.should_yield(include_incomplete_chunk=True):
+            yield batcher.get_table()
 
 
 def easypromos_source(

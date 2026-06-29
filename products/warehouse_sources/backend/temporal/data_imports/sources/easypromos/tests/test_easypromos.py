@@ -88,6 +88,7 @@ class TestValidateCredentials:
         response = MagicMock()
         response.status_code = status_code
         session = MagicMock()
+        session.__enter__.return_value = session
         session.get.return_value = response
         with patch.object(easypromos, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("tok")
@@ -96,6 +97,7 @@ class TestValidateCredentials:
 
     def test_request_exception_is_invalid(self) -> None:
         session = MagicMock()
+        session.__enter__.return_value = session
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(easypromos, "make_tracked_session", return_value=session):
             ok, error = validate_credentials("tok")
@@ -116,7 +118,7 @@ class TestTopLevelPagination:
 
     def test_does_not_inject_promotion_id_for_top_level(self, monkeypatch: Any) -> None:
         url = f"{EASYPROMOS_BASE_URL}/organizing_brands"
-        pages = {(url, None): _page([{"id": 7, "name": "Acme"}], None)}
+        pages: dict[tuple[str, int | None], dict] = {(url, None): _page([{"id": 7, "name": "Acme"}], None)}
         _install_fake_fetch(monkeypatch, pages)
         rows = _collect("organizing_brands", _FakeResumableManager(), monkeypatch)
         assert rows == [{"id": 7, "name": "Acme"}]
@@ -125,7 +127,7 @@ class TestTopLevelPagination:
     def test_resumes_from_saved_cursor(self, monkeypatch: Any) -> None:
         url = f"{EASYPROMOS_BASE_URL}/promotions"
         # Only the resumed page is served; if the loop started at the first page this would KeyError.
-        pages = {(url, 100): _page([{"id": 3}], None)}
+        pages: dict[tuple[str, int | None], dict] = {(url, 100): _page([{"id": 3}], None)}
         fetched = _install_fake_fetch(monkeypatch, pages)
         rows = _collect("promotions", _FakeResumableManager(EasypromosResumeConfig(cursor=100)), monkeypatch)
         assert rows == [{"id": 3}]
@@ -156,7 +158,7 @@ class TestFanOut:
 
     def test_fans_out_over_promotions_and_injects_promotion_id(self, monkeypatch: Any) -> None:
         promos_url = self._promotions_url()
-        pages = {
+        pages: dict[tuple[str, int | None], dict] = {
             (promos_url, None): _page([{"id": 10}, {"id": 20}], None),
             (f"{EASYPROMOS_BASE_URL}/users/10", None): _page([{"id": 1}, {"id": 2}], None),
             (f"{EASYPROMOS_BASE_URL}/users/20", None): _page([{"id": 1}], None),
@@ -201,7 +203,7 @@ class TestFanOut:
             lambda **kw: Batcher(logger=kw["logger"], chunk_size=1, chunk_size_bytes=kw["chunk_size_bytes"]),
         )
         promos_url = self._promotions_url()
-        pages = {
+        pages: dict[tuple[str, int | None], dict] = {
             (promos_url, None): _page([{"id": 10}], None),
             (f"{EASYPROMOS_BASE_URL}/prizes/10", None): _page([{"id": 1}], None),
         }
