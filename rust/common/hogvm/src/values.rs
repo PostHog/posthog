@@ -739,7 +739,9 @@ impl Num {
             (Num::Float(a), Num::Float(b)) => a.total_cmp(b),
             (Num::Integer(a), Num::Integer(b)) => a.cmp(b),
             (Num::Float(a), Num::Integer(b)) => a.total_cmp(&(*b as f64)),
-            (Num::Integer(a), Num::Float(b)) => (*a as f64).partial_cmp(b).unwrap(),
+            // total_cmp (like the other arms) so a NaN operand yields a deterministic ordering
+            // instead of panicking — reachable from min2/max2/arraySort via Hog-produced NaN.
+            (Num::Integer(a), Num::Float(b)) => (*a as f64).total_cmp(b),
         }
     }
 
@@ -840,6 +842,34 @@ pub fn construct_free_standing(current: JsonValue, depth: usize) -> Result<HogVa
                 map.insert(key, construct_free_standing(value, depth + 1)?);
             }
             Ok(HogLiteral::Object(map).into())
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Num;
+    use std::cmp::Ordering;
+
+    #[test]
+    fn compare_with_nan_does_not_panic() {
+        // A NaN operand must yield a deterministic ordering rather than panicking. This path is
+        // reachable from min2/max2/arraySort with a Hog-produced NaN, so a panic here is a
+        // process-crash DoS. Every arm must return some Ordering.
+        let nan = Num::Float(f64::NAN);
+        let int = Num::Integer(1);
+        let float = Num::Float(1.0);
+        for (a, b) in [
+            (&int, &nan),
+            (&nan, &int),
+            (&float, &nan),
+            (&nan, &float),
+            (&nan, &nan),
+        ] {
+            assert!(matches!(
+                a.compare(b),
+                Ordering::Less | Ordering::Equal | Ordering::Greater
+            ));
         }
     }
 }

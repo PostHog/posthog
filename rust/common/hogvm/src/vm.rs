@@ -537,11 +537,12 @@ impl<'a> HogVM<'a> {
                 }
 
                 // This doesn't assert the allocation is possible - the next one will fail, which is good enough
-                self.heap.current_bytes = self
+                let new_bytes = self
                     .heap
                     .current_bytes
                     .saturating_sub(freed_bytes)
                     .saturating_add(allocated_bytes);
+                self.heap.set_current_bytes(new_bytes);
             }
             Operation::Try => {
                 // i32 to permit setting a catch offset lower than the IP
@@ -1198,7 +1199,7 @@ impl<'a> HogVM<'a> {
             ops: self.ops,
             async_steps: self.async_steps,
             sync_duration: 0,
-            max_mem_used: self.heap.current_bytes,
+            max_mem_used: self.heap.peak_bytes,
             telemetry: self
                 .context
                 .collect_telemetry
@@ -1336,6 +1337,9 @@ impl<'a> HogVM<'a> {
         vm.open_upvalues = open_upvalues;
         vm.async_steps = snapshot.async_steps;
         vm.ops = snapshot.ops;
+        // Carry the recorded high-water mark across resume — rebuilding the heap only accounts for
+        // live values, so without this a restore→snapshot round-trip would lose the original peak.
+        vm.heap.peak_bytes = vm.heap.peak_bytes.max(snapshot.max_mem_used);
         // Carry the trace across resume so a multi-suspension run accumulates one continuous trace.
         vm.telemetry = snapshot.telemetry.clone().unwrap_or_default();
         Ok(vm)

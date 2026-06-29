@@ -123,9 +123,9 @@ impl ExecutionContext {
 
     /// Register the global function names that suspend the VM (the reference `asyncFunctions`). Pair
     /// with [`Self::with_max_async_steps`] to allow at least one suspension, otherwise the VM errors
-    /// the moment it calls one.
+    /// the moment it calls one. Accumulates across calls, like [`Self::with_ext_fns`].
     pub fn with_async_functions(mut self, names: HashSet<String>) -> Self {
-        self.async_fns = names;
+        self.async_fns.extend(names);
         self
     }
 
