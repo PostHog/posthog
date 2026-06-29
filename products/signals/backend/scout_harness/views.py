@@ -76,6 +76,7 @@ from products.signals.backend.scout_harness.serializers import (
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMetadataSerializer,
+    ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -111,6 +112,11 @@ logger = structlog.get_logger(__name__)
 # handful of findings), so it never truncates in practice — it just bounds a pathological
 # retry-heavy run rather than leaving the payload unbounded.
 MAX_EMISSIONS_PER_RUN = 1000
+
+# Upper bound on rows returned by the batched emissions endpoints. A scout emits a handful of findings
+# per run, so even the 120-run findings window stays in the low hundreds; this only bounds a pathological
+# payload, mirroring `MAX_EMISSIONS_PER_RUN` for the single-run path.
+MAX_EMISSIONS_PER_BATCH = 5000
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -180,6 +186,53 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+def _resolve_emission_report_links(
+    team_id: int, canonical_team: Team, emissions: list[SignalScoutEmission], *, log_context: dict
+) -> list[dict]:
+    """Map each emitted finding to the inbox report (if any) its signal grouped into.
+
+    One ClickHouse round-trip for the whole set: resolve every finding's `source_id` to the
+    `report_id` its signal grouped into (best effort — unmatched/deleted findings drop out). Query
+    with the canonical team so the injected `document_embeddings.team_id` guard matches where signals
+    persist (child-environment requests would otherwise find none). CH/HogQL failures degrade to "no
+    links" rather than 500-ing the whole page.
+
+    Hydrate the resolved report ids into minimal projections. Exclude DELETED and SUPPRESSED reports —
+    ClickHouse soft-delete and Postgres status can drift, and `SignalReportViewSet` hides both from its
+    default retrieve/list flow, so a chip linking to either would deep-link to a page that can't load
+    it. Treat that as "no link" rather than a dangling chip.
+
+    Shared by the per-run and batched report endpoints so the link shape stays identical.
+    """
+    source_ids = [e.source_id for e in emissions if e.source_id]
+    source_id_to_report_id: dict[str, str] = {}
+    if source_ids:
+        try:
+            source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
+        except Exception:
+            logger.exception("scout_emission_reports_lookup_failed", team_id=team_id, **log_context)
+
+    report_ids = {rid for rid in source_id_to_report_id.values() if rid}
+    reports_by_id = {
+        str(row["id"]): row
+        for row in SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
+        .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
+        .values("id", "title", "status")
+    }
+
+    links = []
+    for emission in emissions:
+        report_id = source_id_to_report_id.get(emission.source_id)
+        links.append(
+            {
+                "finding_id": emission.finding_id,
+                "source_id": emission.source_id,
+                "report": reports_by_id.get(report_id) if report_id else None,
+            }
+        )
+    return links
 
 
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -349,42 +402,86 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 :MAX_EMISSIONS_PER_RUN
             ]
         )
-        # One ClickHouse round-trip for the whole run: map every finding's source_id to the
-        # report_id its signal grouped into (best effort — unmatched/deleted findings drop out).
-        # Query with the canonical team so the injected `document_embeddings.team_id` guard
-        # matches where signals persist (child-environment requests would otherwise find none).
-        # CH/HogQL failures degrade to "no links" rather than 500-ing the whole page.
         canonical_team = self.team.parent_team or self.team
-        source_ids = [e.source_id for e in emissions if e.source_id]
-        source_id_to_report_id: dict[str, str] = {}
-        if source_ids:
-            try:
-                source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
-            except Exception:
-                logger.exception("scout_emission_reports_lookup_failed", run_id=str(run_id), team_id=team_id)
+        links = _resolve_emission_report_links(team_id, canonical_team, emissions, log_context={"run_id": str(run_id)})
+        return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
-        # Hydrate the resolved report ids into minimal projections. Exclude DELETED and SUPPRESSED
-        # reports — ClickHouse soft-delete and Postgres status can drift, and `SignalReportViewSet`
-        # hides both from its default retrieve/list flow, so a chip linking to either would deep-link
-        # to a page that can't load it. Treat that as "no link" rather than a dangling chip.
-        report_ids = {rid for rid in source_id_to_report_id.values() if rid}
-        reports_by_id = {
-            str(row["id"]): row
-            for row in SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
-            .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
-            .values("id", "title", "status")
-        }
+    @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutEmissionSerializer(many=True),
+                description="Findings emitted across all requested runs, newest first.",
+            ),
+        },
+        summary="List emitted findings for many runs at once",
+        description=(
+            "Batched form of the per-run emissions endpoint: return the findings every requested "
+            "`SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its "
+            "`run_id`, so the caller can regroup by run. The findings UI uses this to load the whole "
+            "recent window in one round-trip instead of one request per run. Strictly team-scoped — run "
+            "ids belonging to another team contribute no rows (no per-run 404; one stale id never fails "
+            "the batch)."
+        ),
+        operation_id="signals_scout_runs_emissions_batch",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="emissions/batch",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def emissions_batch(self, request: Request, **kwargs) -> Response:
+        run_ids = request.validated_data["run_ids"]
+        team_id = _canonical_team_id(self)
+        # `team_id` is the tenant guard, so a foreign run id simply matches no rows — no per-run
+        # existence check. One global cap bounds the payload (realistic fleets stay well under it).
+        emissions = SignalScoutEmission.objects.filter(scout_run_id__in=run_ids, team_id=team_id).order_by(
+            "-emitted_at", "-id"
+        )[:MAX_EMISSIONS_PER_BATCH]
+        return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
-        links = []
-        for emission in emissions:
-            report_id = source_id_to_report_id.get(emission.source_id)
-            links.append(
-                {
-                    "finding_id": emission.finding_id,
-                    "source_id": emission.source_id,
-                    "report": reports_by_id.get(report_id) if report_id else None,
-                }
-            )
+    @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutEmissionReportLinkSerializer(many=True),
+                description="Per-finding inbox report links across all requested runs, newest finding first.",
+            ),
+        },
+        summary="List the inbox reports many runs' findings linked to",
+        description=(
+            "Batched form of the per-run emission-reports endpoint. For every finding the requested runs "
+            "emitted, resolve the inbox `SignalReport` (if any) its signal grouped into — all in a single "
+            "ClickHouse round-trip rather than one query per run, which is what made the findings page "
+            "slow to open. `report` is null when a finding hasn't grouped yet, was de-duplicated, or its "
+            "signal was deleted. Strictly team-scoped — run ids belonging to another team contribute no "
+            "rows."
+        ),
+        operation_id="signals_scout_runs_emission_reports_batch",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="emissions/reports/batch",
+        # Returns report titles, so it requires `task:read` on top of `signal_scout:read` — same as the
+        # per-run `emission_reports` action; a scout-only token must not read titles it can't reach.
+        required_scopes=["signal_scout:read", "task:read"],
+        pagination_class=None,
+    )
+    def emission_reports_batch(self, request: Request, **kwargs) -> Response:
+        run_ids = request.validated_data["run_ids"]
+        team_id = _canonical_team_id(self)
+        emissions = list(
+            SignalScoutEmission.objects.filter(scout_run_id__in=run_ids, team_id=team_id).order_by(
+                "-emitted_at", "-id"
+            )[:MAX_EMISSIONS_PER_BATCH]
+        )
+        canonical_team = self.team.parent_team or self.team
+        links = _resolve_emission_report_links(
+            team_id, canonical_team, emissions, log_context={"run_count": len(run_ids)}
+        )
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
     @validated_request(
