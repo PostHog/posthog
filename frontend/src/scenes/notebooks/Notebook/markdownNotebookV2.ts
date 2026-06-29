@@ -271,6 +271,7 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
                 type: 'component',
                 tagName: 'Query',
                 props: {
+                    hideFilters: true,
                     query,
                     ...getOptionalTitleProp(block.title),
                 },
