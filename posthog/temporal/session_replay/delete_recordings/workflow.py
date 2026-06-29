@@ -36,6 +36,21 @@ from posthog.temporal.session_replay.delete_recordings.types import (
     RecordingsWithTeamInput,
 )
 
+# The load activities query the shared offline ClickHouse read replicas as the
+# ``default`` user, which is capped at a low number of concurrent queries per node.
+# Under a deletion burst these queries get rejected with Code 202
+# (TOO_MANY_SIMULTANEOUS_QUERIES). Retry with jittered exponential backoff so they
+# drain into the per-user cap instead of failing the workflow outright. A
+# ``LoadRecordingError`` is a deterministic parse failure, not transient overload —
+# fail fast rather than burning the whole backoff budget on it.
+_LOAD_RECORDINGS_RETRY_POLICY = common.RetryPolicy(
+    maximum_attempts=8,
+    initial_interval=timedelta(seconds=2),
+    backoff_coefficient=2.0,
+    maximum_interval=timedelta(seconds=30),
+    non_retryable_error_types=["LoadRecordingError"],
+)
+
 
 async def _delete_page(
     page: LoadRecordingsPage,
@@ -122,7 +137,7 @@ class DeleteRecordingsWithPersonWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 schedule_to_close_timeout=timedelta(minutes=30),
-                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                retry_policy=_LOAD_RECORDINGS_RETRY_POLICY,
             )
 
             await _delete_page(page, input.team_id, input.config, progress)
@@ -168,7 +183,7 @@ class DeleteRecordingsWithTeamWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=timedelta(minutes=2),
                 schedule_to_close_timeout=timedelta(minutes=30),
-                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=1)),
+                retry_policy=_LOAD_RECORDINGS_RETRY_POLICY,
             )
 
             await _delete_page(page, input.team_id, input.config, progress)
@@ -213,7 +228,7 @@ class DeleteRecordingsWithQueryWorkflow(PostHogWorkflow):
                 ),
                 start_to_close_timeout=timedelta(minutes=15),
                 schedule_to_close_timeout=timedelta(hours=1),
-                retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(minutes=2)),
+                retry_policy=_LOAD_RECORDINGS_RETRY_POLICY,
             )
 
             await _delete_page(page, input.team_id, input.config, progress)

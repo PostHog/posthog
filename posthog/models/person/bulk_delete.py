@@ -3,6 +3,7 @@ import asyncio
 import builtins
 from dataclasses import dataclass, field
 from datetime import timedelta
+from itertools import batched
 from typing import cast
 
 from django.conf import settings
@@ -127,30 +128,41 @@ def queue_person_recording_deletion(
     _start_recording_workflows(team_id, persons, actor, reason)
 
 
+# A bulk deletion can resolve tens of thousands of persons. Starting one workflow
+# per person fanned out enough concurrent ``load-recordings-with-person`` queries to
+# blow past the offline ClickHouse per-user concurrent-query cap (Code 202). Batch
+# persons into a single workflow per chunk — the load query filters distinct IDs with
+# an ``IN`` clause, so one query covers the whole chunk — and bound how many start
+# at once so the fan-out can't saturate the read replicas again.
+_RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
+_MAX_CONCURRENT_WORKFLOW_STARTS = 20
+
+
 def _start_recording_workflows(
     team_id: int,
     persons: builtins.list[Person],
     actor: User | None,
     reason: str,
 ) -> None:
-    """Kick off one ``delete-recordings-with-person`` workflow per person.
+    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run.
 
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
     temporal = sync_connect()
+    config = DeletionConfig(deleted_by=getattr(actor, "email", None), reason=reason)
 
     async def start_all_workflows():
-        tasks = []
-        for person in persons:
-            workflow_input = RecordingsWithPersonInput(
-                distinct_ids=person.distinct_ids,
-                team_id=team_id,
-                config=DeletionConfig(deleted_by=getattr(actor, "email", None), reason=reason),
-            )
-            workflow_id = f"delete-recordings-{team_id}-person-{person.uuid}-{uuid_lib.uuid4()}"
-            tasks.append(
-                temporal.start_workflow(
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
+
+        async def start_batch(batch: tuple[Person, ...]) -> None:
+            distinct_ids = sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})
+            if not distinct_ids:
+                return
+            workflow_input = RecordingsWithPersonInput(distinct_ids=distinct_ids, team_id=team_id, config=config)
+            workflow_id = f"delete-recordings-{team_id}-persons-{uuid_lib.uuid4()}"
+            async with semaphore:
+                await temporal.start_workflow(
                     "delete-recordings-with-person",
                     workflow_input,
                     id=workflow_id,
@@ -160,7 +172,9 @@ def _start_recording_workflows(
                         initial_interval=timedelta(minutes=1),
                     ),
                 )
-            )
-        await asyncio.gather(*tasks)
+
+        await asyncio.gather(
+            *(start_batch(batch) for batch in batched(persons, _RECORDING_DELETION_PERSONS_PER_WORKFLOW, strict=False))
+        )
 
     asyncio.run(start_all_workflows())
