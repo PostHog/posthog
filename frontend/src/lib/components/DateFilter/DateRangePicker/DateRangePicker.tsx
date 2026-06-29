@@ -1,3 +1,5 @@
+import './DateRangePicker.scss'
+
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 

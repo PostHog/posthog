@@ -66,7 +66,7 @@ export function TracingFilterBar(): JSX.Element {
                         </div>
                     </div>
                     <div className="flex shrink-0 gap-1.5">
-                        <div className="flex">
+                        <div className="DateRangePickerButtonGroup">
                             <LemonButton
                                 size="small"
                                 icon={<IconMinusSquare />}
