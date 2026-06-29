@@ -396,6 +396,20 @@ export const SubscriptionDeliveryStatusEnumApi = {
     Skipped: 'skipped',
 } as const
 
+export interface AIReportQueryDiagnosticApi {
+    /** What this query step was meant to compute. */
+    description: string
+    /** The HogQL the assistant generated for this step. */
+    hogql: string
+    /** Whether the query ran successfully. */
+    ok: boolean
+    /**
+     * Exception class name when the query failed; null on success.
+     * @nullable
+     */
+    error_type: string | null
+}
+
 export interface SubscriptionDeliveryApi {
     /** Primary key for this delivery row. */
     readonly id: string
@@ -449,6 +463,21 @@ export interface SubscriptionDeliveryApi {
      * @nullable
      */
     readonly change_summary: string | null
+    /**
+     * AI-generated report markdown delivered by this run. Null for non-AI deliveries or runs without a persisted report.
+     * @nullable
+     */
+    readonly ai_report: string | null
+    /**
+     * Per-step query diagnostics (generated HogQL + failure type) for this report. Null for non-AI deliveries or runs without persisted diagnostics.
+     * @nullable
+     */
+    readonly ai_report_diagnostics: readonly AIReportQueryDiagnosticApi[] | null
+    /**
+     * The subscription's prompt as it was when this report was generated. Null for older deliveries and non-AI deliveries.
+     * @nullable
+     */
+    readonly ai_report_prompt: string | null
 }
 
 export interface PaginatedSubscriptionDeliveryListApi {
