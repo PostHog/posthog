@@ -47,6 +47,8 @@ from posthog.schema import (
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailuresQuery,
+    MCPToolNeighborsQuery,
+    MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
     NodeKind,
@@ -120,6 +122,7 @@ from posthog.hogql_queries.validation.validation import (
 )
 from posthog.models import Team, User
 from posthog.models.team import WeekStartDay
+from posthog.models.team.event_retention import events_retention_months_for_team
 from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
@@ -321,6 +324,8 @@ RunnableQueryNode = Union[
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolNeighborsQuery,
 ]
 
 
@@ -1010,6 +1015,28 @@ def get_query_runner(
 
         return MCPToolDescriptionsQueryRunner(
             query=cast(MCPToolDescriptionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolSampleIntentsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolSampleIntentsQueryRunner
+
+        return MCPToolSampleIntentsQueryRunner(
+            query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolNeighborsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolNeighborsQueryRunner
+
+        return MCPToolNeighborsQueryRunner(
+            query=cast(MCPToolNeighborsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
@@ -1957,6 +1984,13 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # cluster. Remove with the transform.
         if geoip_dict_fallback_team_in_env(self.team.pk):
             payload["geoip_dict_fallback"] = True
+
+        # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
+        # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
+        # retention. Only set when enforced, so non-cohort teams' keys are unchanged.
+        retention_months = events_retention_months_for_team(self.team, self.team.pk)
+        if retention_months is not None:
+            payload["events_retention_floor_months"] = retention_months
 
         return payload
 

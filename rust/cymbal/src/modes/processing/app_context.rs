@@ -32,6 +32,10 @@ pub struct AppContext {
     // Dedicated producer for `cdp_internal_events`. Points at warpstream-cyclotron when
     // `CYMBAL_CYCLOTRON_KAFKA_HOSTS` is set; otherwise falls back to `immediate_producer`.
     pub cyclotron_producer: FutureProducer<KafkaContext>,
+    // Dedicated producer for `clickhouse_app_metrics2`. Points at warpstream-ingestion when
+    // `CYMBAL_APP_METRICS_KAFKA_HOSTS` is set; otherwise falls back to `immediate_producer`.
+    // The primary producer's cluster (warpstream-shared) does not carry that topic.
+    pub app_metrics_producer: FutureProducer<KafkaContext>,
     pub posthog_pool: PgPool,
     pub catalog: Arc<Catalog>,
     pub symbol_resolver: Arc<dyn SymbolResolver>,
@@ -134,6 +138,24 @@ impl AppContext {
             _ => immediate_producer.clone(),
         };
 
+        // Build the app-metrics producer if a separate broker list is configured; otherwise
+        // reuse the primary producer (so local dev, where one cluster carries every topic,
+        // works without extra config).
+        let app_metrics_producer = match config.app_metrics_kafka_hosts.as_deref() {
+            Some(hosts) if !hosts.is_empty() => {
+                let mut app_metrics_config = config.kafka.clone();
+                app_metrics_config.kafka_hosts = hosts.to_string();
+                if let Some(tls) = config.app_metrics_kafka_tls {
+                    app_metrics_config.kafka_tls = tls;
+                }
+                let kafka_app_metrics_liveness = health_registry
+                    .register("app_metrics_kafka".to_string(), Duration::from_secs(30))
+                    .await;
+                create_kafka_producer(&app_metrics_config, kafka_app_metrics_liveness).await?
+            }
+            _ => immediate_producer.clone(),
+        };
+
         s3_client
             .ping_bucket(&config.resolver.object_storage_bucket)
             .await?;
@@ -180,6 +202,7 @@ impl AppContext {
             health_registry,
             immediate_producer,
             cyclotron_producer,
+            app_metrics_producer,
             posthog_pool,
             catalog,
             config: config.clone(),

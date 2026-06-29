@@ -1,11 +1,17 @@
-import { actions, connect, kea, path, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, path, props, reducers, selectors } from 'kea'
 
 import { tagsModel } from '~/models/tagsModel'
 
 import type { tagSelectLogicType } from './tagSelectLogicType'
 
+export interface TagSelectLogicProps {
+    logicKey: string
+}
+
 export const tagSelectLogic = kea<tagSelectLogicType>([
-    path(['lib', 'components', 'tagSelectLogic']),
+    props({} as TagSelectLogicProps),
+    key((props) => props.logicKey),
+    path((logicKey) => ['lib', 'components', 'tagSelectLogic', logicKey]),
     connect(() => ({
         values: [tagsModel, ['tags']],
     })),

@@ -176,7 +176,15 @@ async def _run_mission(
     cached run that fails for a non-validation reason is retried inline once before giving up.
     """
     api_key = gemini_api_key()
-    client = genai.AsyncClient(api_key=api_key)
+    # Attribute every scanner generation to Replay Vision in LLM analytics so costs and traces roll up to the product.
+    client = genai.AsyncClient(
+        api_key=api_key,
+        posthog_properties={
+            "ai_product": "replay_vision",
+            "feature": "scanner",
+            "scanner_type": snapshot.scanner_type.value,
+        },
+    )
     cache_client = GoogleGenAIClient(api_key=api_key)
     model = f"models/{snapshot.model.value}"
     metric_labels = {

@@ -30,7 +30,11 @@
     svg {
         display: block;
         width: auto;
-        height: 40px;
+        height: 28px;
+
+        @media (min-width: 576px) {
+            height: 40px;
+        }
     }
 }
 

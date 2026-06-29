@@ -120,11 +120,17 @@ export function createExecInnerToolCallResolver(
     }
 }
 
-// Tools that were removed from the MCP server. When the model attempts to call
-// one, surface a targeted redirect to the replacement instead of dumping the
-// full tool catalog. Keep the redirect text editorial — schemas don't carry
-// "use X instead" guidance.
+// Tools that were removed from the MCP server — or flag-gated out of the active
+// catalog. When the model attempts to call one that isn't present, surface a
+// targeted redirect to the replacement instead of dumping the full tool catalog.
+// Keep the redirect text editorial — schemas don't carry "use X instead"
+// guidance. A redirect only fires when the tool is absent, so an entry for a
+// conditionally-gated tool is inert whenever that tool is registered.
 const DEPRECATED_TOOL_REDIRECTS: Record<string, (allTools: Tool<ZodObjectAny>[]) => string> = {
+    // Disabled while `mcp-sql-schema-discovery` is on; the SQL information_schema
+    // path replaces it. See readDataWarehouseSchema.ts for the flag/TODO.
+    'read-data-warehouse-schema': () =>
+        'Tool "read-data-warehouse-schema" was removed in favor of SQL-based schema discovery. Use "execute-sql" against `system.information_schema.*` (`tables`, `columns`, `relationships`, `data_types`) — it scales to large catalogs and supports filtering/search (e.g. `WHERE description ILIKE \'%...%\'`). Consult the `querying-posthog-data` skill for patterns.',
     'entity-search': () =>
         'Tool "entity-search" was removed. Use "execute-sql" to search PostHog data via HogQL. Consult the `querying-posthog-data` skill for system-table patterns (system.insights, system.dashboards, system.cohorts, ...).',
     'event-definitions-list': () =>

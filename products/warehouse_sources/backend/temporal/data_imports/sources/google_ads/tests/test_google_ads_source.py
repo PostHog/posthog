@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import grpc
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
@@ -21,12 +23,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
+    _get_integration,
     _is_invalid_page_token_error,
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
@@ -682,3 +687,80 @@ class TestSearchTransientRetry:
         # First call raises and propagates immediately — no retry, no backoff.
         assert service.calls == 1
         assert sleep.call_count == 0
+
+
+_INTEGRATION_GET_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get"
+)
+_CLOSE_CONNECTIONS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
+)
+
+
+class TestGetIntegrationDbResilience:
+    def test_retries_once_on_dropped_connection_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 2
+        # Evicted up front, then again after the failed query marked the connection unusable.
+        assert close.call_count == 2
+
+    def test_reraises_when_retry_also_fails(self):
+        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(OperationalError):
+                _get_integration(integration_id=1, team_id=2)
+
+        # One retry only — the second failure propagates so Temporal still retries the activity.
+        assert get.call_count == 2
+
+    def test_missing_integration_is_not_retried(self):
+        get = mock.Mock(side_effect=Integration.DoesNotExist())
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(Integration.DoesNotExist):
+                _get_integration(integration_id=1, team_id=2)
+
+        # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
+        assert get.call_count == 1
+
+    def test_no_retry_on_success(self):
+        integration = object()
+        get = mock.Mock(return_value=integration)
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 1
+        assert close.call_count == 1
+
+
+class TestOverviewStatsSchemas:
+    # Overview stats tables exist to recover cost that click-type segmentation drops: requesting
+    # segments.click_type makes Google omit cost not yet attributed to a click type, so summed cost
+    # reads low for recent days. Each overview must equal its *_stats counterpart minus that one
+    # segment, while staying incremental on segments.date.
+    @pytest.mark.parametrize(
+        "overview_alias, stats_alias",
+        [
+            ("ad_overview_stats", "ad_stats"),
+            ("ad_group_overview_stats", "ad_group_stats"),
+        ],
+    )
+    def test_overview_equals_stats_table_without_click_type(self, overview_alias, stats_alias):
+        overview = RESOURCE_SCHEMAS[overview_alias]
+        stats = RESOURCE_SCHEMAS[stats_alias]
+
+        assert "segments.click_type" not in overview["field_names"]
+        assert "segments.click_type" not in overview["primary_key"]
+        assert overview["resource_name"] == stats["resource_name"]
+        assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
+        assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
+        assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]
