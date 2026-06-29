@@ -23,7 +23,7 @@ import { createTestTeam } from '~/tests/helpers/team'
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'
 
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 
