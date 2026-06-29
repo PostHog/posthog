@@ -8,6 +8,11 @@ worktree or just its dependencies/build artifacts (keeping the code).
 
 The discovery roots and dependency patterns are PostHog-specific, but the age
 logic and deletion modes are generic.
+
+Safety: age is a staleness heuristic, not a "no unsaved work" guarantee — edits
+made without any git operation may not move the activity signal. So `--mode full`
+additionally refuses to delete a worktree with uncommitted/untracked changes or
+unpushed/detached commits unless `--include-dirty` is given.
 """
 
 from __future__ import annotations
@@ -77,7 +82,16 @@ DEPS_EXPLICIT_PATHS = (
     "products/*/storybook-static",
 )
 
+# Leaf names of the explicit artifact paths above — pruned from os.walk so the
+# walk doesn't descend their interiors before the explicit-glob pass deletes
+# them wholesale.
+DEPS_WALK_PRUNE_LEAVES = frozenset({"dist", ".cache", "tmp", "storybook-static", "playwright-report", "test-results"})
+
 _INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+
+# du can hang on a stale network mount; bound it so one bad path can't stall the
+# whole sizing pool (doctor.py times out its subprocesses the same way).
+_DU_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass
@@ -92,17 +106,26 @@ class Worktree:
     last_activity: float
     size: float = 0.0
     deps_items: list[Path] = field(default_factory=list)
+    deps_sizes: dict[str, float] = field(default_factory=dict)
+    dirty: bool = False
+    unpushed: int = 0
+    detached: bool = False
+
+    @property
+    def unsafe(self) -> bool:
+        """Holds work that a full removal would destroy irrecoverably."""
+        return self.dirty or self.unpushed > 0
 
 
 @click.command(
     name="worktrees:clean",
-    help="Clear out unused Claude Code / Codex / PostHog Code worktrees",
+    help="Clear out unused Claude Code / Codex / PostHog Code worktrees by age",
 )
 @click.option(
     "--before",
     default=None,
     metavar="DATE|INTERVAL|all",
-    help="Cutoff: a date (2026-06-01), an interval older-than (3h, 7d, 2w), or 'all' for everything.",
+    help="Cutoff: a date (2026-06-01), a relative age older than 3h/7d/2w, or 'all' for everything.",
 )
 @click.option(
     "--mode",
@@ -124,6 +147,11 @@ class Worktree:
     help="Repository whose worktrees to clean. Defaults to the current repo. "
     "Lets you reuse this on repos that don't ship hogli.",
 )
+@click.option(
+    "--include-dirty",
+    is_flag=True,
+    help="In --mode full, also remove worktrees with uncommitted or unpushed work (default: skip them).",
+)
 @click.option("--dry-run", is_flag=True, help="Show what would be removed without deleting.")
 @click.option("--yes", "-y", is_flag=True, help="Skip the confirmation prompt.")
 def worktrees_clean(
@@ -131,6 +159,7 @@ def worktrees_clean(
     mode: str | None,
     sources: tuple[str, ...],
     repo: str | None,
+    include_dirty: bool,
     dry_run: bool,
     yes: bool,
 ) -> None:
@@ -138,24 +167,33 @@ def worktrees_clean(
 
     # Both selectors are mandatory — without an explicit age cutoff and mode we
     # do nothing, so an accidental bare invocation can never delete anything.
+    # UsageError (exit 2) so a scripted caller can detect the misuse.
     if before is None or mode is None:
-        click.echo("Both --before and --mode are required; nothing to do.\n")
-        click.echo("Examples:")
-        click.echo("  hogli worktrees:clean --before 7d --mode deps     # free deps in worktrees idle >7 days")
-        click.echo("  hogli worktrees:clean --before 2026-06-01 --mode full")
-        click.echo("  hogli worktrees:clean --before all --mode full --dry-run")
-        click.echo("  hogli worktrees:clean --before 30d --mode full --repo ~/Projects/other-repo")
-        return
+        raise click.UsageError(
+            "Both --before and --mode are required.\n\n"
+            "Examples:\n"
+            "  hogli worktrees:clean --before 7d --mode deps     # free deps in worktrees idle >7 days\n"
+            "  hogli worktrees:clean --before 2026-06-01 --mode full\n"
+            "  hogli worktrees:clean --before all --mode full --dry-run\n"
+            "  hogli worktrees:clean --before 30d --mode full --repo ~/Projects/other-repo"
+        )
 
     mode = mode.lower()
     repo_root = _resolve_repo(repo)
+    repo_common = _git_common_dir(repo_root)
     cutoff, cutoff_label = _parse_cutoff(before)
 
     selected_sources = {s.lower() for s in sources} if sources else None
     protected = _protected_paths(repo_root)
 
-    candidates: list[Worktree] = []
     registry = _registered_worktrees(repo_root)
+    if registry is None:
+        # We couldn't read git's worktree list, so we can't tell which worktrees
+        # are locked. Refuse rather than risk deleting a locked worktree.
+        click.echo("Could not read `git worktree list` for this repo; aborting to stay safe.")
+        return
+
+    candidates: list[Worktree] = []
     for source, root in _worktree_roots(repo_root):
         if selected_sources is not None and source not in selected_sources:
             continue
@@ -165,7 +203,7 @@ def worktrees_clean(
                 continue
             # PostHog Code worktrees live outside the repo and the home root is
             # shared across repos, so only act on worktrees owned by this repo.
-            if not _belongs_to_repo(resolved, repo_root):
+            if not _belongs_to_repo(resolved, repo_root, repo_common):
                 continue
             meta = registry.get(resolved)
             if meta and meta["locked"]:
@@ -186,21 +224,41 @@ def worktrees_clean(
         return
 
     stale = [wt for wt in candidates if wt.last_activity < cutoff]
-    click.echo(f"Found {len(candidates)} worktree(s); {len(stale)} match {cutoff_label}.\n")
+    click.echo(f"Found {len(candidates)} worktree(s); {len(stale)} match the filter ({cutoff_label}).\n")
     if not stale:
         return
 
-    # Size only the worktrees we're actually going to act on.
+    # Full mode is destructive of working-tree state, so refuse worktrees with
+    # unsaved work unless the user explicitly opts in. (deps mode only removes
+    # recreatable artifacts, so it doesn't need this gate.)
+    if mode == "full":
+        _populate_git_state(stale)
+        unsafe = [wt for wt in stale if wt.unsafe]
+        if unsafe and not include_dirty:
+            click.echo(f"Skipping {len(unsafe)} worktree(s) with uncommitted or unpushed work:")
+            for wt in sorted(unsafe, key=lambda w: w.last_activity):
+                click.echo(f"  {wt.source}  {_display_path(wt.path)}  ({_state_markers(wt)})")
+            click.echo("  Re-run with --include-dirty to remove them anyway.\n")
+            stale = [wt for wt in stale if not wt.unsafe]
+        if not stale:
+            click.echo("Nothing left to remove.")
+            return
+
+    click.echo(f"Measuring {len(stale)} worktree(s)…")
     _populate_sizes(stale, mode)
 
     for wt in sorted(stale, key=lambda w: w.last_activity):
-        age = _ago(wt.last_activity)
-        flags = "" if wt.registered else " [orphaned]"
-        click.echo(f"  {_format_size(wt.size):>10}  {age:>12} ago  {wt.source}{flags}  {_display_path(wt.path)}")
+        markers = _listing_markers(wt, mode)
+        click.echo(
+            f"  {_format_size(wt.size):>10}  {_ago(wt.last_activity):>12} ago  {markers}  {_display_path(wt.path)}"
+        )
 
     total = sum(wt.size for wt in stale)
     action = "remove entirely" if mode == "full" else "strip deps/build artifacts from"
-    click.echo(f"\nWould {action} {len(stale)} worktree(s), reclaiming ~{_format_size(total)}.")
+    click.echo(
+        f"\nWould {action} {len(stale)} worktree(s), reclaiming up to ~{_format_size(total)} "
+        "(cloned/hardlinked deps may free less)."
+    )
 
     if dry_run:
         click.echo("[DRY-RUN] Nothing deleted.")
@@ -210,18 +268,36 @@ def worktrees_clean(
         click.echo("Aborted.")
         return
 
-    freed = _execute(stale, mode, repo_root)
-    click.echo(f"\n✓ Done. Reclaimed ~{_format_size(freed)}.")
+    freed, removed, failed = _execute(stale, mode, repo_root)
+    summary = f"\n✓ Done. Freed up to ~{_format_size(freed)} across {removed}/{len(stale)} worktree(s)."
+    if failed:
+        summary += f" {failed} could not be fully removed (see warnings above)."
+    click.echo(summary)
 
 
 def _resolve_repo(repo: str | None) -> Path:
-    """Resolve --repo (or the current dir) to its git top-level directory."""
+    """Resolve --repo (or the current dir) to its repo's *main* worktree root.
+
+    Using the main worktree root (derived from the common git dir) means the
+    command works the same whether invoked from the main checkout or from inside
+    a linked worktree.
+    """
 
     if repo is None:
-        return _resolve(REPO_ROOT)
-    base = Path(repo).expanduser()
-    if not base.exists():
-        raise click.BadParameter(f"{repo!r} does not exist.")
+        base = _resolve(REPO_ROOT)
+    else:
+        base = Path(repo).expanduser()
+        if not base.exists():
+            raise click.BadParameter(f"{repo!r} does not exist.")
+
+    common = _git_common_dir(base)
+    if common is None:
+        raise click.BadParameter(f"{repo or base!r} is not inside a git repository.")
+    # The common dir of any worktree is `<main>/.git`; its parent is the main root.
+    if common.name == ".git":
+        return common.parent
+
+    # Bare or unusual layout — fall back to the working-tree top level.
     try:
         top = subprocess.check_output(
             ["git", "rev-parse", "--show-toplevel"],
@@ -230,8 +306,28 @@ def _resolve_repo(repo: str | None) -> Path:
             stderr=subprocess.DEVNULL,
         ).strip()
     except (subprocess.CalledProcessError, FileNotFoundError):
-        raise click.BadParameter(f"{repo!r} is not inside a git repository.") from None
-    return _resolve(Path(top))
+        top = ""
+    return _resolve(Path(top)) if top else _resolve(base)
+
+
+def _git_common_dir(start: Path) -> Path | None:
+    """Absolute shared git dir for the repo containing *start*, or None."""
+
+    try:
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--git-common-dir"],
+            cwd=start,
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return None
+    if not out:
+        return None
+    common = Path(out)
+    if not common.is_absolute():
+        common = start / common
+    return _resolve(common)
 
 
 def _parse_cutoff(value: str) -> tuple[float, str]:
@@ -240,11 +336,13 @@ def _parse_cutoff(value: str) -> tuple[float, str]:
     raw = value.strip()
     lowered = raw.lower()
     if lowered == "all":
-        return float("inf"), "all worktrees (all time)"
+        return float("inf"), "all ages"
 
     interval = re.fullmatch(r"(\d+)([smhdw])", lowered)
     if interval:
         amount = int(interval.group(1))
+        if amount == 0:
+            raise click.BadParameter("a zero interval selects everything; use 'all' if that's intended.")
         seconds = amount * _INTERVAL_UNITS[interval.group(2)]
         return time.time() - seconds, f"idle older than {amount}{interval.group(2)}"
 
@@ -252,7 +350,10 @@ def _parse_cutoff(value: str) -> tuple[float, str]:
         parsed = datetime.fromisoformat(raw)
     except ValueError as err:
         raise click.BadParameter(f"{value!r} is not a date (YYYY-MM-DD), an interval (3h, 7d, 2w), or 'all'.") from err
-    return parsed.timestamp(), f"last active before {parsed.date()}"
+    cutoff = parsed.timestamp()
+    if cutoff > time.time():
+        raise click.BadParameter(f"{value!r} is in the future, which would match everything; use 'all' if intended.")
+    return cutoff, f"last active before {parsed.date()}"
 
 
 def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
@@ -283,8 +384,12 @@ def _discover_worktrees(root: Path, max_depth: int = 2) -> list[Path]:
     return found
 
 
-def _registered_worktrees(repo_root: Path) -> dict[Path, dict]:
-    """Map resolved worktree path -> {locked, branch} from `git worktree list`."""
+def _registered_worktrees(repo_root: Path) -> dict[Path, dict] | None:
+    """Map resolved worktree path -> {locked, branch} from `git worktree list`.
+
+    Returns None if git could not be queried (so callers can refuse rather than
+    treat every worktree as unlocked).
+    """
 
     try:
         out = subprocess.check_output(
@@ -294,7 +399,7 @@ def _registered_worktrees(repo_root: Path) -> dict[Path, dict]:
             stderr=subprocess.DEVNULL,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
-        return {}
+        return None
 
     registry: dict[Path, dict] = {}
     current: dict | None = None
@@ -309,7 +414,7 @@ def _registered_worktrees(repo_root: Path) -> dict[Path, dict]:
             current["branch"] = line[len("branch ") :].replace("refs/heads/", "")
         elif line == "detached":
             current["branch"] = "(detached)"
-        elif line.startswith("locked") or line == "locked":
+        elif line.startswith("locked"):
             current["locked"] = True
     return registry
 
@@ -347,7 +452,7 @@ def _is_under(child: Path, parent: Path) -> bool:
         return False
 
 
-def _belongs_to_repo(resolved_path: Path, repo_root: Path) -> bool:
+def _belongs_to_repo(resolved_path: Path, repo_root: Path, repo_common: Path | None) -> bool:
     """Whether a worktree is owned by *repo_root*.
 
     Worktrees physically inside the repo always belong to it. For out-of-repo
@@ -359,11 +464,13 @@ def _belongs_to_repo(resolved_path: Path, repo_root: Path) -> bool:
 
     if _is_under(resolved_path, repo_root):
         return True
+    if repo_common is None:
+        return False
     gitdir = _gitdir_for(resolved_path)
     if gitdir is None:
         return False
     common = _common_git_dir(gitdir)
-    return common is not None and common == _resolve(repo_root / ".git")
+    return common is not None and common == repo_common
 
 
 def _common_git_dir(gitdir: Path) -> Path | None:
@@ -371,7 +478,7 @@ def _common_git_dir(gitdir: Path) -> Path | None:
 
     try:
         rel = (gitdir / "commondir").read_text().strip()
-    except OSError:
+    except (OSError, ValueError):
         return None
     return _resolve(gitdir / rel)
 
@@ -381,7 +488,9 @@ def _last_activity(path: Path) -> float:
 
     Combines git activity (mtimes inside the per-worktree gitdir: HEAD, index,
     logs/HEAD, FETCH_HEAD, ...), the Claude Code session transcript mtime if one
-    exists for this path, and the worktree directory mtime as a fallback.
+    exists for this path, and the worktree directory mtime as a fallback. When no
+    signal is readable we return +inf (never stale) so an unreadable worktree
+    fails toward keeping rather than deletion.
     """
 
     times: list[float] = []
@@ -408,7 +517,7 @@ def _last_activity(path: Path) -> float:
     except OSError:
         pass
 
-    return max(times) if times else 0.0
+    return max(times) if times else float("inf")
 
 
 def _gitdir_for(path: Path) -> Path | None:
@@ -419,7 +528,7 @@ def _gitdir_for(path: Path) -> Path | None:
         if dot_git.is_dir():
             return dot_git
         content = dot_git.read_text().strip()
-    except OSError:
+    except (OSError, ValueError):
         return None
     if content.startswith("gitdir:"):
         target = Path(content[len("gitdir:") :].strip())
@@ -434,26 +543,104 @@ def _claude_transcript_mtime(path: Path) -> float | None:
 
     Claude stores transcripts under ~/.claude/projects/<encoded>/, where the
     encoding replaces every non-alphanumeric character in the absolute path with
-    a dash. exists() is case-insensitive on macOS, so the cased path is fine.
+    a dash. We match the encoded directory case-insensitively so the signal still
+    works on case-sensitive filesystems (Linux) and when the recorded path case
+    differs from the resolved one.
     """
 
     encoded = re.sub(r"[^a-zA-Z0-9]", "-", str(_resolve(path)))
-    project_dir = Path.home() / ".claude" / "projects" / encoded
+    projects = Path.home() / ".claude" / "projects"
+    project_dir = projects / encoded
     if not project_dir.is_dir():
-        return None
+        project_dir = _find_dir_case_insensitive(projects, encoded)
+        if project_dir is None:
+            return None
     mtimes = [t.stat().st_mtime for t in project_dir.glob("*.jsonl") if t.is_file()]
     return max(mtimes) if mtimes else None
 
 
+def _find_dir_case_insensitive(parent: Path, name: str) -> Path | None:
+    folded = name.casefold()
+    try:
+        for child in parent.iterdir():
+            if child.name.casefold() == folded and child.is_dir():
+                return child
+    except (OSError, PermissionError):
+        return None
+    return None
+
+
+def _populate_git_state(worktrees: list[Worktree]) -> None:
+    """Fill in dirty / unpushed / detached for each worktree, in parallel."""
+
+    if not worktrees:
+        return
+    with ThreadPoolExecutor(max_workers=min(8, len(worktrees))) as pool:
+        list(pool.map(_compute_git_state, worktrees))
+
+
+def _compute_git_state(wt: Worktree) -> None:
+    status = _git(wt.path, ["status", "--porcelain"])
+    if status is not None and status.returncode == 0:
+        wt.dirty = bool(status.stdout.strip())
+
+    # symbolic-ref returns 1 for a genuine detached HEAD, but 128 when git can't
+    # read the worktree at all (orphaned: admin entry pruned). Only 1 is detached.
+    symref = _git(wt.path, ["symbolic-ref", "-q", "HEAD"])
+    wt.detached = symref is not None and symref.returncode == 1
+
+    # Commits reachable from HEAD but not on any remote — unpushed work that a
+    # forced removal would orphan (especially on a detached HEAD).
+    ahead = _git(wt.path, ["rev-list", "--count", "HEAD", "--not", "--remotes"])
+    if ahead is not None and ahead.returncode == 0:
+        count = ahead.stdout.strip()
+        wt.unpushed = int(count) if count.isdigit() else 0
+
+
+def _git(cwd: Path, args: Sequence[str], timeout: float = 30.0) -> subprocess.CompletedProcess[str] | None:
+    try:
+        return subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, timeout=timeout)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _state_markers(wt: Worktree) -> str:
+    parts: list[str] = []
+    if wt.dirty:
+        parts.append("uncommitted changes")
+    if wt.unpushed:
+        parts.append(f"{wt.unpushed} unpushed commit(s)")
+    if wt.detached:
+        parts.append("detached HEAD")
+    return ", ".join(parts) if parts else "clean"
+
+
+def _listing_markers(wt: Worktree, mode: str) -> str:
+    parts = [wt.source]
+    if not wt.registered:
+        parts.append("orphaned")
+    if wt.branch and wt.branch != "(detached)":
+        parts.append(wt.branch)
+    if mode == "full":
+        if wt.dirty:
+            parts.append("dirty")
+        if wt.unpushed:
+            parts.append(f"{wt.unpushed} unpushed")
+        if wt.detached:
+            parts.append("detached")
+    return " · ".join(parts)
+
+
 def _populate_sizes(worktrees: list[Worktree], mode: str) -> None:
-    """Fill in .size (and .deps_items for deps mode) using a thread pool."""
+    """Fill in .size (and deps items/sizes for deps mode) using a thread pool."""
 
     def work(wt: Worktree) -> None:
         if mode == "full":
-            wt.size = _du_bytes([wt.path])
+            wt.deps_sizes = _du_sizes([wt.path])
         else:
             wt.deps_items = _collect_deps_items(wt.path)
-            wt.size = _du_bytes(wt.deps_items) if wt.deps_items else 0.0
+            wt.deps_sizes = _du_sizes(wt.deps_items)
+        wt.size = sum(wt.deps_sizes.values())
 
     if not worktrees:
         return
@@ -462,16 +649,24 @@ def _populate_sizes(worktrees: list[Worktree], mode: str) -> None:
 
 
 def _collect_deps_items(worktree: Path) -> list[Path]:
-    """Find dependency/build-artifact directories inside a worktree."""
+    """Find dependency/build-artifact directories inside a worktree.
 
+    Every returned path is resolved and confirmed to stay within the worktree, so
+    a symlinked component (e.g. a `frontend` symlinked to shared storage) can
+    never cause deletion outside the worktree.
+    """
+
+    worktree_resolved = _resolve(worktree)
     items: list[Path] = []
     seen: set[Path] = set()
 
     def add(candidate: Path) -> None:
         resolved = _resolve(candidate)
-        if resolved not in seen and candidate.exists():
+        if not _is_under(resolved, worktree_resolved):
+            return  # symlink/`..` escape — refuse to delete outside the worktree
+        if resolved not in seen and resolved.exists():
             seen.add(resolved)
-            items.append(candidate)
+            items.append(resolved)
 
     for dirpath, dirnames, _ in os.walk(worktree):
         matched: list[str] = []
@@ -482,8 +677,11 @@ def _collect_deps_items(worktree: Path) -> list[Path]:
                     continue
                 add(full)
                 matched.append(name)
-        # Don't descend into matched artifacts or skip-listed dirs.
-        dirnames[:] = [d for d in dirnames if d not in matched and d not in DEPS_WALK_SKIP]
+        # Don't descend into matched artifacts, skip-listed dirs, or the
+        # explicit-path artifact dirs (handled by the glob pass below).
+        dirnames[:] = [
+            d for d in dirnames if d not in matched and d not in DEPS_WALK_SKIP and d not in DEPS_WALK_PRUNE_LEAVES
+        ]
 
     for pattern in DEPS_EXPLICIT_PATHS:
         for path in worktree.glob(pattern):
@@ -497,71 +695,109 @@ def _looks_like_cargo_target(path: Path) -> bool:
     return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
 
 
-def _du_bytes(paths: Sequence[Path]) -> float:
-    """Total on-disk size of *paths* in bytes via `du -sk` (one subprocess)."""
+def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:
+    """On-disk size in bytes per path via a single `du -sk`.
+
+    Keyed by the string path passed to `du` (which echoes it back). Parses
+    whatever du printed regardless of exit code, so one unreadable path doesn't
+    zero the whole batch.
+    """
 
     existing = [str(p) for p in paths if p.exists()]
     if not existing:
-        return 0.0
+        return {}
     try:
-        out = subprocess.check_output(
+        result = subprocess.run(
             ["du", "-sk", *existing],
+            capture_output=True,
             text=True,
-            stderr=subprocess.DEVNULL,
+            timeout=_DU_TIMEOUT_SECONDS,
         )
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        return 0.0
-    total_kb = 0
-    for line in out.splitlines():
-        field_kb = line.split("\t", 1)[0].strip() or line.split()[0]
-        if field_kb.isdigit():
-            total_kb += int(field_kb)
-    return total_kb * 1024.0
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return {}
+
+    sizes: dict[str, float] = {}
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t", 1)
+        if len(parts) < 2:
+            parts = line.split(None, 1)
+        if len(parts) < 2:
+            continue
+        size_kb, path_str = parts[0].strip(), parts[1].strip()
+        if size_kb.isdigit():
+            sizes[path_str] = int(size_kb) * 1024.0
+    return sizes
 
 
-def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> float:
-    """Delete the selected worktrees (or their deps) and return bytes freed."""
+def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[float, int, int]:
+    """Delete the selected worktrees (or their deps).
+
+    Returns (bytes_freed, worktrees_removed, worktrees_failed). Only space that
+    was actually freed is counted, so the reported total never overstates.
+    """
 
     freed = 0.0
-    pruned_git = False
+    removed = 0
+    failed = 0
+    need_prune = False
+
     for wt in worktrees:
         if mode == "deps":
-            freed += _delete_paths(wt.deps_items, wt.size)
+            wt_freed, failures = _delete_paths(wt.deps_items, wt.deps_sizes)
+            freed += wt_freed
+            if failures:
+                failed += 1
+            else:
+                removed += 1
             continue
 
-        removed_via_git = False
         if wt.registered:
             result = subprocess.run(
-                ["git", "worktree", "remove", "--force", str(wt.path)],
+                ["git", "worktree", "remove", "--force", "--", str(wt.path)],
                 cwd=repo_root,
                 capture_output=True,
                 text=True,
             )
-            removed_via_git = result.returncode == 0
-            pruned_git = pruned_git or removed_via_git
-        if not removed_via_git:
+            if result.returncode != 0:
+                stderr = result.stderr.strip()
+                click.echo(f"  ⚠️  git worktree remove failed for {_display_path(wt.path)}: {stderr}")
+                shutil.rmtree(wt.path, ignore_errors=True)
+            # Either path may have removed it; prune any dangling admin entry.
+            need_prune = True
+        else:
             shutil.rmtree(wt.path, ignore_errors=True)
-        freed += wt.size
-        _cleanup_empty_parent(wt.path)
 
-    if pruned_git:
+        if wt.path.exists():
+            click.echo(f"  ⚠️  could not fully remove {_display_path(wt.path)}")
+            failed += 1
+        else:
+            freed += wt.size
+            removed += 1
+            _cleanup_empty_parent(wt.path)
+
+    if need_prune:
         subprocess.run(["git", "worktree", "prune"], cwd=repo_root, capture_output=True)
-    return freed
+    return freed, removed, failed
 
 
-def _delete_paths(paths: Sequence[Path], measured: float) -> float:
-    """Remove deps directories; return the measured size if anything was removed."""
+def _delete_paths(paths: Sequence[Path], sizes: dict[str, float]) -> tuple[float, int]:
+    """Remove deps directories; return (bytes actually freed, paths that failed)."""
 
-    removed_any = False
+    freed = 0.0
+    failures = 0
     for path in paths:
         try:
             shutil.rmtree(path)
-            removed_any = True
         except FileNotFoundError:
+            continue  # already gone — not a failure
+        except OSError as err:
+            click.echo(f"  ⚠️  could not remove {_display_path(path)}: {err}")
+            failures += 1
             continue
-        except OSError:
-            continue
-    return measured if removed_any else 0.0
+        freed += sizes.get(str(path), 0.0)
+    return freed, failures
 
 
 def _cleanup_empty_parent(path: Path) -> None:
@@ -583,6 +819,8 @@ def _display_path(path: Path) -> str:
 
 
 def _ago(timestamp: float) -> str:
+    if timestamp == float("inf"):
+        return "unknown"
     delta = max(0.0, time.time() - timestamp)
     for unit, seconds in (("w", 604800), ("d", 86400), ("h", 3600), ("m", 60)):
         if delta >= seconds:
