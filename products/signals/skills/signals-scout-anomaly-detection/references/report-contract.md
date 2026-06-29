@@ -142,8 +142,13 @@ was resolved) is a new `emit_report`, with a `summary` lineage line citing the p
 dedup is yours, two-sided:
 
 1. **Before authoring**, `inbox-reports-list` (search by the insight / metric / dashboard) and
-   check your `report:anomaly_detection:insight:<short_id>` pointer. Found one? `edit_report` it.
-2. **After authoring**, write the `report:` pointer with the `report_id`.
+   check your `report:anomaly_detection:insight:<short_id>` pointer. Found one? Check whether it
+   is **live** before editing: if the pointer is flagged suppressed, or `inbox-reports-retrieve`
+   shows the report is suppressed / already resolved, `edit_report` can't resurface it — author a
+   fresh report (with a `summary` lineage line citing the prior `report_id`) instead. Only
+   `edit_report` a report that is still surfaced.
+2. **After authoring**, write the `report:` pointer with the `report_id` (and its status, so the
+   next run applies the live-check above).
 
 **Never retry an `emit_report` / `edit_report` that may have landed** — if unsure, `inbox-reports-list`
 to check before re-sending. The pipeline may later re-research and rewrite a report you authored;
