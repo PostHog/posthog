@@ -211,7 +211,7 @@ state + cloud persistence is its own effort — now **Stage 3** below.
 > **(15)** the **Temporal migration** — `run.py main()` → a **single-turn**
 > `ReviewPRWorkflow` with the fan-out stages as child workflows, landed as a **single change** (decided
 > 2026-06-25); the reviewed-`head_sha` checkout pin is split to **conditional step 16**. The loop-y re-check,
-> cross-turn finding identity, and the `task_run` / `note` work-log artefacts are deferred to a follow-up after
+> cross-turn lifecycle (resolve/update), and the `task_run` / `note` work-log artefacts are deferred to a follow-up after
 > the single-turn workflow lands. The full Temporal conventions + integration map (file:line cites) is captured
 > in _Everything on Temporal_ below. See the step list and the Deferred / future section below.
 
@@ -316,13 +316,12 @@ gives the fail-closed `TeamScopedManager` + canonical-team `save()`; the subclas
 
 Content schemas (`products/review_hog/backend/reviewer/artefact_content.py`, pydantic):
 
-- **`ReviewIssueFinding`** — `file`, `lines`, an `issue_key`, `title`, `body`, `suggestion`, `priority`,
-  `source_perspective`, `is_directly_related_to_changes`. A verdict reuses its finding's `issue_key` so
-  **latest-wins per `issue_key`** pairs them 1:1. The key is `file:start:perspective:{pass}-{chunk}-{issue}` —
-  the trailing pipeline id keeps it **unique within a turn** (two distinct findings on the same line from the
-  same perspective must not collapse and shadow each other). Robust **cross-turn** identity (still-valid /
-  resolved / newly-appeared) needs semantic matching, not a positional id that's reassigned each turn —
-  deferred to the loop phase.
+- **`ReviewIssueFinding`** — `file`, `lines`, an `issue_key`, a `run_index`, `title`, `body`, `suggestion`,
+  `priority`, `source_perspective`, `is_directly_related_to_changes`. A verdict reuses its finding's `issue_key` so
+  **latest-wins per `issue_key`** pairs them 1:1. The key is `r{run_index}:file:start:perspective:{pass}-{chunk}-{issue}`
+  — the `run_index` prefix makes it **turn-unique** (a later turn can't collide with an earlier one's key) and the
+  trailing pipeline id keeps it unique within the turn. It's an **occurrence** id, not a cross-turn problem identity;
+  recognizing the same problem across turns (for resolve/update) is the dedup's same-problem match, deferred to the loop.
 - **`ValidationVerdict`** — `issue_key`, `is_valid`, `category`, `argumentation` (latest-wins per issue).
 - Reuse `Commit` / `CodeReference` / `TaskRunArtefact` / `NoteArtefact` from the Signals leaf for the
   commit / code-pointer / turn / note entries.
@@ -460,11 +459,11 @@ either DB rows, in-process values within the run, or the S3 agent log (`task_run
    load-bearing — the natural companion to the Temporal migration (each stage an activity exchanging **row ids by
    reference**; see _Cloud host, Temporal_ below).
 
-   **Known follow-ups (deferred to the loop):** findings/verdicts are read report-wide and keyed by the per-turn
-   positional `issue_key`, so cross-turn supersession (resolved / still-open / newly-appeared) is **not** yet
-   modeled — correct for the single-turn run today (publish is disabled), but the loop must add **semantic**
-   cross-turn identity before it re-reviews across commits. The `task_run` / `note` work-log artefacts and
-   validation resume also land with the loop.
+   **Known follow-ups (deferred to the loop):** `load_valid_findings` is now `run_index`-scoped, so publish posts only
+   the current turn's findings (no cross-turn accumulation). What's still unmodeled is **supersession** (resolve /
+   still-open / newly-appeared) — the dedup already matches a finding to a prior comment each turn; the loop persists
+   that match + the comment id to resolve/update, no semantic key needed. The `task_run` / `note` work-log artefacts
+   and validation resume also land with the loop.
 
 9. ✅ **`reset_review_hog` management command — wipe ReviewHog's DB state for a clean slate.** A one-shot
    `python manage.py reset_review_hog` deletes **all** ReviewHog rows across every team — every
@@ -872,10 +871,10 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
     the same line flagging _different_ problems are kept; a finding near an unrelated comment (a nit, a question,
     praise) is kept; genuine same-problem findings still collapse to the single most comprehensive one.
   - **Self-dedup is uniform here; lifecycle is the loop's job.** Not re-posting our own prior finding is handled by
-    treating our comment as just-another-prior-comment. The richer behavior — knowing a finding was _resolved_
-    across turns and updating/closing our own comment — needs **cross-turn finding identity against the persisted DB
-    findings** (structured, lifecycle-aware), not re-parsing our own comment text; that ships with the loop
-    (deferred). The DB is the source of truth for "what we already raised"; comments are the GitHub-side reflection.
+    turn-scoped publish + treating our comment as just-another-prior-comment in dedup. The richer behavior — knowing a
+    finding was _resolved_ across turns and updating/closing our own comment — needs the dedup's **same-problem match
+    persisted against the DB findings** (lifecycle-aware) plus the comment id, not re-parsing comment text; ships with
+    the loop. The DB is the source of truth for "what we already raised"; comments are the GitHub-side reflection.
   - **Also tightened** the `IssueDeduplication` model/schema description (no "explanations" field exists; the prompt
     no longer asks for one) and added a regression test that a prior comment from a **non-privileged author** still
     drops a colliding finding — guarding against re-introducing a single-reviewer filter. (No author parameterization:
@@ -935,7 +934,7 @@ version=N)` block — the agent pulls the bar over MCP). Cold-start sync (`run.p
   - **Deferred to a follow-up (after the single-turn workflow):** the **loop-y re-check** — a per-PR singleton
     `continue-as-new` workflow, timer-driven + `signal-with-start` on a GitHub webhook, advanced by the report's
     `head_sha` / `last_seen_comment_id` watermark, the trigger supplying `team_id` / `user_id` = the PR's author and
-    their team — plus **cross-turn finding identity** (semantic, not the positional `issue_key`) and the
+    their team — plus **cross-turn matching** (the dedup's same-problem judgment, not a new key) and the
     `task_run` / `note` work-log artefacts. (See _Cloud host, Temporal & GitHub_ above.)
 
   **Grounded implementation map (researched 2026-06-25 — file:line cites for the rewrite).** A 6-reader sweep of
@@ -1194,13 +1193,17 @@ re-tuning for ReviewHog's objective.
 The append-only artefact log + latest-wins-per-`issue_key` read (`load_valid_findings`, `persistence.py:348-389`) is
 the **right substrate** — keep it; the loop only fixes what's positional. **Six net-new pieces, in priority order:**
 
-1. **Stable semantic finding key (the big one).** `issue_key = file:start:perspective:{pass}-{chunk}-{issue}`
-   (`persistence.py:402-413`) is per-turn **positional**: the `{pass}-{chunk}-{issue}` ordinal is reassigned every
-   run and `start` drifts as the PR evolves, so the same problem re-keys each turn and always looks "newly-appeared."
-   **Anchor identity on `file` + a normalized problem signature (title/body, content-anchored, not line-anchored)**,
-   independent of pipeline ordinals and line position. (`ReviewIssueFinding`'s docstring already _claims_ "stable
-   identity across turns" — `artefact_content.py:47-55` — that contract is **aspirational, not built**; fix it
-   before any cross-turn read is trusted.)
+1. **Cross-turn matching — and it is NOT a "stable key" problem (the reframe).** The duplicate this was feared to
+   need a semantic key for — a prior turn's finding re-posted — was actually a **publish-accumulation** bug, now
+   **fixed**: `issue_key` carries a `run_index` prefix (`r{run}:file:start:perspective:{pass}-{chunk}-{issue}`,
+   `persistence.py:402`) and publish is **scoped to the turn** (`load_valid_findings(run_index=…)`, `persistence.py:348`),
+   so a later turn never replays an earlier one's findings. That `issue_key` is a unique **occurrence** id (turn-local;
+   good for debugging) — it is **not**, and need not be, a cross-turn problem identity. The only thing that still needs
+   cross-turn matching is **resolve / update of our own comment** (run N re-finds the problem run 1 commented on), and
+   that match is a **"same concrete problem?" judgment the dedup LLM already computes** every turn against prior
+   comments. A normalized title/body signature or content hash is the **wrong tool** — brittle to re-phrasing and line
+   drift, and a human-readable name doesn't help either. So the loop work is **persist the dedup's existing match + the
+   GitHub comment id** and act on that comment — not invent a key/name.
 2. **Per-finding lifecycle status.** `ReviewReport.status` (ACTIVE/IDLE/CLOSED) is the _report's_ job-state, not a
    finding's. Add a lifecycle field on the finding (newly-appeared / still-open / resolved-by-a-new-commit /
    superseded) and turn-over-turn diffing to set it.
@@ -1218,10 +1221,10 @@ the **right substrate** — keep it; the loop only fixes what's positional. **Si
    perspectives ran (re-resolved fresh each run), and `status.CLOSED` is never written. Persist the per-turn routing
    decision (a `note` or a small field) and transition to CLOSED on PR merge/close.
 
-> **Load-bearing:** every action variant below **re-spams or re-implements** without #1 + #2. `load_valid_findings`
-> reads **all** turns report-wide with no supersession (`persistence.py:348-389`), so under looping it accumulates
-> stale findings from old commits as if still valid — masked only because publish is gated off. **This lands before
-> publish is re-enabled.**
+> **Load-bearing:** publish no longer accumulates — `load_valid_findings` is `run_index`-scoped (`persistence.py:348`),
+> so it posts only the current turn's findings (the cross-turn re-post is gone). What's still missing for the action
+> variants is **#2 (lifecycle)** — so we can resolve/update a prior comment instead of leaving it; that rides the
+> dedup's same-problem match above, not a new key. **This lands before publish is re-enabled for the loop.**
 
 #### Action plane — "implement the fixes" (step 4)
 
@@ -1234,8 +1237,8 @@ write path):
   `publish_review.py:202-238`). Net-new: the validator must emit a **line-accurate literal replacement** (a
   finding-schema field — today `suggestion` is prose) landing on the diff's RIGHT side (the position finder already
   drops the rest, `publish_review.py:145-199`). Safe by construction — inert until a human clicks, no
-  auth/push/branch — so it's prod-usable the moment the publish flag flips. It **cannot be spam-safe without #1+#2
-  above**, so doing it first _forces_ that persistence work to land.
+  auth/push/branch — so it's prod-usable the moment the publish flag flips. #1 (no cross-turn re-post) is now done by
+  turn-scoped publish; spam-safety across turns still needs **#2 (lifecycle)**, so doing C first _forces_ that to land.
 - **A — delegate true implementation to the Tasks agentic-coding engine (decision: next; medium).** **Verified:** the
   Tasks sandbox already does edit→commit→push→open-PR. `agent-server --createPr <bool> --baseBranch <branch>`
   (`products/tasks/backend/logic/services/modal_sandbox.py:683-696`) is the engine; the sandbox is handed a **real
@@ -1273,8 +1276,8 @@ validation skills from feedback_ (learning across PRs) is a much larger effort, 
 
 #### Recommended build order
 
-1. **Cross-turn finding identity + watermarks** (at least #1–#3) — the hard prerequisite; nothing cross-turn is
-   correct without it, and it's independent of topology.
+1. **Cross-turn lifecycle + watermarks** (#2–#3) — the duplicate/accumulation (#1) is already fixed by turn-scoped
+   publish; what's left is resolve/update (reuse the dedup's match) + the comment watermark. Independent of topology.
 2. **Variant C** (suggestion blocks) behind the existing publish flag — exercises #1/#2 end-to-end and is the first
    prod-usable fix tier.
 3. **The router** as a deterministic `route` activity (re-vendored gates) — pass-through + perspective selection +
@@ -1296,13 +1299,40 @@ validation skills from feedback_ (learning across PRs) is a much larger effort, 
   cross-import `tools/`.
 - **Fix engine = reuse Tasks (A), not a new write sandbox (B).** The Tasks write/push/createPR path is verified; the
   contents-write identity is Tasks' installation-token authorship mode, not a new ReviewHog credential.
-- **The persistence prerequisite is non-optional and lands first** — `load_valid_findings` accumulates stale
-  cross-turn findings until semantic identity + lifecycle exist; must precede re-enabling publish.
+- **Publish accumulation is fixed (turn-scoped `load_valid_findings`); lifecycle is what remains** — resolve/update of
+  our own comments still needs the dedup's cross-turn match persisted before publish is re-enabled for the loop.
 - **Fork-PR safety** (`head.repo == base`) gates _any_ review, and hard-gates _implementing_, on attacker-influenced
   head refs.
 - **Sandbox-leak across `continue_as_new` legs** (Variant A) — reap within the turn, à la `execute_sandbox`.
 - **Triggers + publish identity are assumed / deferred** per the maintainer (label later; App installation token or
   service-user + project key).
+
+#### What to verify in iterative / loop e2e runs (next PR)
+
+The first multi-turn run (#66456, 2026-06-29) proved **run-scoped publish** (no cross-turn re-post) but left the
+**covered-set inert** — its prior findings predated `run_index`, failed to parse, and never reached the prompt. A
+**clean DB + fresh PR** (every finding stamped) is where it actually fires. **Wipe ONCE to start the experiment** —
+`DEBUG=1 python manage.py reset_review_hog --yes` (deletes every `ReviewReport` + `ReviewReportArtefact` across all
+teams; DEBUG-only; GitHub comments untouched) — then **do NOT wipe between turns**: the accumulating DB _is_ the loop's
+cross-turn memory (covered-set, same-head resume, and watermarks all read prior-turn rows). Per turn N (N≥2):
+
+1. **No duplicate.** Bot comments grow only by genuinely-new findings; none byte-identical to a prior turn's. DB:
+   findings stamped with the turn's `run_index`; `load_valid_findings(run_index=N)` returns only turn-N findings.
+   _Red flag:_ a prior turn's finding re-posted, or a missing `run_index` on a fresh PR.
+2. **Covered-set fires (the still-unproven part).** Pull a turn-N review prompt from the agent log
+   (`task_run.log_url`); the `<already_covered_findings_for_chunk>` block must be **present** and list prior turns'
+   findings on that chunk's files. _Red flag:_ block absent on turn ≥2, or `run_index Field required` parse warnings
+   (pre-migration data → covered-set empty).
+3. **Its unique value = DB-only findings.** The covered-set's payoff over the existing comment-avoidance path is the
+   **sub-`should_fix` / `is_valid=False` findings we keep in DB but never post**. Confirm one appears in the covered
+   set and is NOT re-investigated/re-validated that turn.
+4. **Cost drops only where it can.** The win is fewer findings reaching the **validate** fan-out (the expensive
+   per-issue stage), NOT a cheaper review pass — that's fixed (every chunk is read every turn). Compare
+   findings-into-validate turn-over-turn; it should fall as covered ground grows, the review pass won't.
+5. **Watermarks + gate.** `run_count` bumps once per finalized turn; `published_head_sha` advances only on a real post
+   (a no-op publish leaves it); a re-trigger at an already-published head **early-exits** (no review).
+6. **Off-diff valid findings.** A valid finding on a non-added line is dropped at publish (no inline position) —
+   intended, but watch it isn't silently dropping one you'd want surfaced.
 
 ---
 
@@ -1535,22 +1565,25 @@ does not reduce the search work. Consequences for cost on a re-run:
   gate** short-circuits the whole turn (already-published head). So the wasted spend is concentrated in
   re-investigating a moved head and in re-validating findings we already judged on a prior turn.
 
-The remedy is the gap's fix below: reconcile **before** re-validating/surfacing, by stable finding identity, against
-**(prior PR comments ∪ prior DB findings)** — moving the de-dup earlier and against the full prior set, not just PR
-comments after the fact.
+The remedy, **partly built**: the **covered-set** now feeds prior turns' DB findings (incl. sub-`should_fix`) into the
+review prompt (`load_prior_findings` → `build_review_prompt`), so the search agents skip already-covered ground
+instead of re-deriving it. Still to come: carry the prior **verdict** forward so we also skip re-**validating** a
+finding we already ruled on — matched by the dedup's same-problem judgment against (prior PR comments ∪ prior DB
+findings), not a stable key.
 
 **⚠️ The sub-`should_fix` / invalid re-propose gap (raised 2026-06-26 — the key thing to fix for the loop).**
 We persist **every** post-dedup finding (all priorities incl. `CONSIDER`) as `issue_finding` rows and **every**
 verdict incl. `is_valid=False` (`_persistable_findings` has no priority filter; `persist_verdict(s)` stores all).
 The PR only ever receives the publishable subset (`is_valid=True` ∩ `{MUST_FIX, SHOULD_FIX}` ∩ on-diff). So a
 finding we _saw and decided not to surface_ (a `CONSIDER`, or one the validator dropped) lives **only in our DB,
-never on the PR** — and the current dedup reads **PR comments**, so it cannot see those. A re-trigger therefore
-**re-discovers and re-validates the same sub-threshold / invalid findings every turn** (wasted sandbox cost; never
-re-posted, but never reconciled either). **Proposed fix (becomes the cross-turn finding-identity work):**
+never on the PR** — and the dedup reads **PR comments** only. The **covered-set** now closes the re-_discover_ half:
+prior DB findings are fed into the review prompt (`load_prior_findings`), so the search agents are told what's already
+covered and don't re-derive it. The re-_validate_ half remains — a re-found finding still reaches the per-issue
+validator. **Remaining fix (the loop's reconcile step):**
 
-1. **Stable, head-independent finding identity** — a signature like `file + normalized-location + root-cause`
-   (not the per-run positional `issue_key`, whose `id` and line move across heads). See _Cross-turn finding
-   identity & watermarks_ above (Stage 4).
+1. **Match a re-found finding to its prior record** — via the dedup's **"same concrete problem?" judgment** (already
+   run each turn against prior comments), extended to prior DB findings. Not a `file + normalized-location +
+root-cause` signature key — that's brittle to re-phrasing and line drift. See _Cross-turn matching_ above (Stage 4).
 2. **Reconcile each turn's raw findings against the report's prior DB findings, not just PR comments.** Before
    re-validating/surfacing, match new findings to prior ones by that identity and **carry the prior decision
    forward** — skip re-validating a finding we already ruled `is_valid=False`, skip re-surfacing a `CONSIDER` we
@@ -1610,20 +1643,43 @@ first so the latest fixes are loaded.
 
 ### 🔮 Future directions (product, post-Stage-5 — not scheduled)
 
-- **Per-user validation criteria + review perspectives, self-improving from review feedback.** Today the
-  validation skill + the 3 perspectives are team-shared (DB-synced LLMA skills). The goal: **each user has their
-  own** validation skill + perspective set, and **when a user replies to a ReviewHog review comment** (e.g.
-  "this isn't worth flagging", "always flag this"), that **triggers a flow to update _their_ skill** so future
-  reviews better match what they care about. Different users have very different bars — some don't care about
-  frontend issues at all, others want maximally paranoid security/edge-case coverage — so the keep/drop criteria
-  and the perspectives should personalize over time from the comment thread, rather than being one team-wide bar.
-  (Builds on _Validator as a team-customizable skill_ — this is the per-user + feedback-loop generalization.)
-- **User-configurable perspectives (dynamic fan-out, not a hardcoded 3).** The review fan-out is currently pinned
-  to the 3 canonical perspectives (Logic & Correctness / Contracts & Security / Performance & Reliability). The
-  goal: let users **add or remove** perspectives, and have `ReviewPerspectivesWorkflow` **discover whatever
-  perspectives the user/team has** and spawn one sandbox per (perspective × chunk) accordingly — so a team that
-  adds, say, an "Accessibility" or "API-compatibility" perspective gets it reviewed automatically, and one that
-  drops "Performance" stops paying for it. The fan-out width becomes data-driven off the user's perspective set.
+#### ⭐ NEXT SCHEDULED DIRECTION — user-customizable lenses (perspectives / validator / chunking), Scouts-style
+
+The goal: **per-user** ownership of the review lenses, mirroring how Signals lets a user create/own **custom
+scouts** — each user has their own editable perspective set + validator, and a review applies _that user's_ set.
+**Not full-researched yet** (that's the next step); this captures the direction + the decisions already made.
+
+Sequencing (the user's order):
+
+- **Now (1): make the 3 perspectives + the single validator per-user-editable**, Scouts-style. Today they're
+  **team-shared** DB-synced skills — `lazy_seed` already seeds per-team `LLMSkill` rows and **respects edits**
+  (hash-diverged rows are left alone), but that's team-wide, so **per-user ownership is the new work**. Reuse the
+  Scouts custom-scout ownership model (the research step pins the exact mechanism — likely `LLMSkill` + a per-user
+  attribution). Keep the canonical set as the default a user starts from / can reset to (a "reset to canonical"
+  affordance is net-new — sync leaves an edited skill diverged forever today). Keep it **one** validator (simple).
+- **Now (2): move chunking into a skill**, same per-user-customizable treatment — today it's a hardcoded
+  `CHUNKING_SYSTEM_PROMPT` + `generate_chunking_prompt` (`tools/split_pr_into_chunks.py`), not a synced skill.
+- **Next (3): add new lenses → dynamic fan-out (4+).** `load_perspectives_for_run` iterates a **hardcoded 3-tuple**
+  (`skill_loader.PERSPECTIVES`); switch it to **discover the user's perspective skills by prefix**
+  (`review-hog-perspective-*`, the sync's prune already works prefix-scoped) so `ReviewPerspectivesWorkflow` spawns
+  one sandbox per (perspective × chunk) for however many exist. **Prereq:** decouple `Issue.source_perspective` from
+  the hardcoded `PerspectiveType` enum (`combine_issues` does `list(PerspectiveType)[pass_number-1]`; a unit test
+  asserts the order) — derive the perspective label from the skill, not a fixed enum.
+- **Next+1 (4): UI + skills to add/manage perspectives**, like the Scouts authoring UX.
+- **Further out:** **self-improvement from review feedback** — a user replying to a ReviewHog comment ("not worth
+  flagging" / "always flag this") triggers a flow to update _their_ skill, so the keep/drop bar personalizes from the
+  thread instead of being one fixed set.
+
+Two facts that make this safe + straightforward:
+
+- **The output schema is fixed; only the skill (logic) is editable.** Every perspective validates against the same
+  `IssuesReview` / `Issue` schema, the validator against `IssueValidation`, chunking against `ChunksList` — all
+  **code, not skills**. So editing or adding a lens **cannot** change the output format, and the downstream pipeline
+  (combine → dedup → validate → publish) is schema-uniform — it never destabilizes.
+- **"Whose perspectives apply to a PR review" resolves via the existing GitHub-user → PostHog-user mapping**
+  (near `posthog/models/integration.py`): a per-PR/team trigger carries the GitHub actor (PR author / label-applier)
+  → map to the PostHog user → load _their_ perspective set, falling back to canonical if they haven't customized.
+  The run already threads a `user_id`. **Research step pins:** that mapping's exact API + the default/fallback rule.
 
 ---
 
