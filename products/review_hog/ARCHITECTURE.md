@@ -1485,6 +1485,16 @@ roadmap: a `pull_request_review_comment` / `issue_comment` → trigger branch, t
 finding identity. The early-exit gate is structured for this flip: it already surfaces `new_comment_count`, so the
 condition becomes "skip unless the head moved **or** new comments arrived" the moment comment-reaction is in scope.
 
+> **Future behavior (when the action plane is implemented — TODO, not built).** Once ReviewHog can _fix_
+> issues, a tracked PR should be **polled on a cadence (≈ every 30 min)** — a per-PR Temporal Schedule /
+> `workflow.sleep` re-check (the Variant B timer in _Control plane_) — and on each tick: (1) read new comments
+> since the `last_seen_comment_id` watermark; (2) for each genuinely new issue raised (by a human or another
+> bot), **implement the fix** (Action plane tier C/A — suggestion block or a companion-PR via the Tasks engine);
+> (3) **reply to the comment** that raised it (the conversational surface), then advance the watermark so each
+> comment is acted on exactly once. This couples the comment trigger (_Cross-turn finding identity_ #3), the
+> action plane, and the conversational reply into one loop turn — and is exactly why the early-exit gate must
+> learn to wake on new comments, not just a moved head.
+
 **What it exercises (already coded):**
 
 - **Cross-turn positional dedup (step 14).** `deduplicate_issues` drops any finding that collides (same file +
