@@ -1,8 +1,13 @@
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterable, Iterable
 from http import HTTPStatus
 
 from django.db import connections
 from django.http import StreamingHttpResponse
+
+# What StreamingHttpResponse actually accepts: sync or async iterables of bytes or
+# str chunks (Django encodes str via the response charset). Broad on purpose — SSE
+# views yield str, proxies yield bytes, and the empty-stream stub passes a list.
+StreamContent = Iterable[bytes | str] | AsyncIterable[bytes | str]
 
 # Disable proxy buffering/caching so SSE chunks reach the client immediately
 # (nginx/Envoy in front of web-django otherwise buffer the stream).
@@ -34,7 +39,7 @@ def _release_request_connections() -> None:
 
 
 def streaming_response(
-    stream: Iterator[bytes] | AsyncIterator[bytes],
+    stream: StreamContent,
     *,
     content_type: str,
     status: int = HTTPStatus.OK,
@@ -60,7 +65,7 @@ def streaming_response(
 
 
 def sse_streaming_response(
-    stream: Iterator[bytes] | AsyncIterator[bytes],
+    stream: StreamContent,
     *,
     status: int = HTTPStatus.OK,
     headers: dict[str, str] | None = None,
