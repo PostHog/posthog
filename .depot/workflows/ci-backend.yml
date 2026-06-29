@@ -7,23 +7,41 @@
 # job in .github/workflows/ci-backend-shadow-drift.yml fails when canonical
 # changes without a matching depot bump.
 #
-# Intentional deltas vs canonical:
+# Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
-# - action paths: ./.depot/actions/... instead of ./.github/actions/...
+# - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install
+#   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, PR comment posters, snapshot
-#   auto-commit (handle-snapshots), OpenAPI auto-commit, app-token issuance,
-#   posthog-github-action telemetry, --store-durations, test-selection verdict
+#   auto-commit (handle-snapshots), app-token issuance, posthog-github-action
+#   telemetry, --store-durations write, test-selection verdict
+# - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
+#   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
-#   so shared keys with canonical (schema, rust-cache, uv, pnpm) do not collide
+#   so shared keys with canonical (schema, uv, pnpm) do not collide
 # - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
-# - Path-filter persons-SQL folded into migrations; product_yamls dropped
+# - Docker Hub login reads Depot's secret store (secrets.DOCKERHUB_*) rather than
+#   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER
+# - Service launch via `nohup ... --down` (survives Depot's step-shell teardown) and
+#   waits on a superset (objectstorage, Temporal) with an explicit 900s timeout
+# - Path-filter persons-SQL folded into migrations; product_yamls dropped (no
+#   validate-product-yamls job). check-migrations.if also gates on openapi_types
+#   so an OpenAPI-only PR still runs the folded check
+# - Snapshots always run in update mode (--snapshot-update): the shadow never commits,
+#   so it cannot catch snapshot regressions — that gate stays on canonical
+# - Test-duration cache restore omitted: there is no Depot timing-update writer, so
+#   the shadow shards from the committed .test_durations (canonical refreshes from a
+#   daily cache) and the file-granularity split-plan probe stays dormant
+# - master (push) runs only check-migrations to prime the shared schema cache; the
+#   test matrices are skipped on master (canonical runs them). PRs/merge_group/dispatch
+#   run the full graph — that is where the apples-to-apples comparison happens
+# - check-migrations timeout widened to 60m because it also runs the folded OpenAPI generation
 
 # This workflow runs all of our backend django tests.
 #
-# If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
-# .depot/workflows/ci-backend-update-test-timing.yml action
+# Shards derive from the committed .test_durations; to re-time, refresh that file
+# (canonical's .github/workflows/ci-backend-update-test-timing.yml is the source of truth).
 name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
@@ -55,7 +73,9 @@ on:
         types: [opened, synchronize, reopened, ready_for_review, labeled, unlabeled]
     merge_group:
 concurrency:
-    group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+    # PRs: one active run per branch, cancel stale. Push: per-SHA so master
+    # pushes never cancel each other (check-migrations always completes).
+    group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
@@ -440,18 +460,10 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s' "$MIG_FILES" "$PG_IMAGE" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .depot/workflows/ci-backend.yml
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+              uses: ./.depot/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
             - name: Discover products to test
               id: discover
               env:
@@ -639,7 +651,7 @@ jobs:
         if: >-
             always() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
-        timeout-minutes: 60
+        timeout-minutes: 40
         name: Product tests (${{ matrix.group }})
         strategy:
             fail-fast: false
@@ -673,18 +685,10 @@ jobs:
                     db redis7 clickhouse zookeeper kafka objectstorage \
                     temporal elasticsearch objectstorage-azure \
                     </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
-            - name: Setup pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-            - name: Setup Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .depot/workflows/ci-backend.yml
             - name: Install pnpm dependencies
-              run: pnpm install --frozen-lockfile --filter=@posthog/root
+              uses: ./.depot/actions/pnpm-install
+              with:
+                  install-command: pnpm install --frozen-lockfile --filter=@posthog/root
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
               with:
@@ -960,26 +964,10 @@ jobs:
               run: |
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
                   git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
-            - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-            - name: Fix node-gyp permissions
-              # Depot CI's restored pnpm store can land node-gyp's gyp_main.py without +x.
-              # Locate it across pnpm/action-setup layouts and never fail if it is absent.
-              run: find ~/setup-pnpm -name gyp_main.py -path '*/node-gyp/*' -exec chmod +x {} + 2>/dev/null || true
-            - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
-              with:
-                  node-version-file: .nvmrc
-                  cache: pnpm
-                  cache-dependency-path: |
-                      pnpm-lock.yaml
-                      .depot/workflows/ci-backend.yml
             - name: Install package.json dependencies with pnpm
-              env:
-                  npm_config_fetch_retries: 3
-                  npm_config_fetch_retry_mintimeout: 10000
-                  npm_config_fetch_retry_maxtimeout: 60000
-              run: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+              uses: ./.depot/actions/pnpm-install
+              with:
+                  install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
             # Shadow trial: OpenAPI types are check-only — no auto-commit side effect.
@@ -1188,7 +1176,8 @@ jobs:
              needs.turbo-discover.outputs.run_legacy == 'true' ||
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         # increase for tmate testing
-        timeout-minutes: 60
+        # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
+        timeout-minutes: 45
         name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
@@ -1456,6 +1445,7 @@ jobs:
                         --snapshot-update --snapshot-warn-unused \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 \
+                        --pytest-durations=100 \
                         --splitting-algorithm="$SPLITTING_ALGORITHM" \
                         "${SPLIT_GRANULARITY[@]}" \
                         --reruns 2 --reruns-delay 1 \
@@ -1547,6 +1537,7 @@ jobs:
                           --snapshot-update --snapshot-warn-unused \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 \
+                          --pytest-durations=100 \
                           --splitting-algorithm="$SPLITTING_ALGORITHM" \
                           "${SPLIT_GRANULARITY[@]}" \
                           --reruns 2 --reruns-delay 1 \
@@ -1563,7 +1554,7 @@ jobs:
                   fi
             # Post tests
             - name: Show docker compose logs on failure
-              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-decide-read-replica-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
+              if: failure() && (needs.changes.outputs.backend == 'true' && steps.run-core-tests.outcome != 'failure' && steps.run-temporal-tests.outcome != 'failure')
               shell: bash
               run: docker compose -f docker-compose.dev.yml logs
     # Aggregate and commit snapshot changes from all matrix jobs
