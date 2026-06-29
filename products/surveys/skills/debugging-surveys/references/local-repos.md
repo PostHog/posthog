@@ -32,23 +32,40 @@ Example:
 Repo keys match the GitHub repo names. The web and React Native SDKs both live in
 `posthog-js` (`packages/browser/`, `packages/react-native/`).
 
-## Resolving a repo when you need its source
+## First-time setup: `init`
 
-Use the helper — it does all of the below and persists the result:
+Run once to auto-discover and record every PostHog checkout already on the machine — no
+manual typing for repos that are already cloned:
 
 ```sh
-python3 scripts/repos.py ensure posthog-js     # prints the local path, cloning/recording if needed
-python3 scripts/repos.py get posthog-ios       # prints the path, or exits non-zero if unknown
-python3 scripts/repos.py set posthog-android /Users/me/src/posthog-android
-python3 scripts/repos.py list                  # show the whole registry
+python3 scripts/repos.py init
 ```
 
-If you'd rather manage the JSON directly, follow the same logic the script encodes:
+It scans conventional code roots (the cwd's parents, `~/src`, `~/code`, `~/dev`,
+`~/projects`, `~/repos`, `~/work`, `~/git`), matches each git checkout by its `origin`
+remote (`github.com/PostHog/<repo>`), and writes the registry. It's idempotent: re-running
+respects any path you chose explicitly and only fills gaps. If a repo is checked out twice,
+it keeps the first and prints `set` commands so you can pick the other.
+
+There is no global git config that lists where repos are cloned, so the filesystem + the
+`origin` remote is the reliable signal — that's what discovery uses.
+
+## Resolving a repo when you need its source
+
+```sh
+python3 scripts/repos.py ensure posthog-js          # registry -> scan -> path (add --clone to clone)
+python3 scripts/repos.py get posthog-ios            # print path, or exit non-zero if unknown
+python3 scripts/repos.py set posthog-android /path  # override the recorded path
+python3 scripts/repos.py list                       # show the whole registry
+```
+
+`ensure` does the full resolution: recorded path → filesystem scan (recording what it
+finds) → optionally clone with `--clone`. If you'd rather manage the JSON directly, follow
+the same logic the script encodes:
 
 1. **Read the registry.** If the repo is listed and the path exists, use it.
-2. **Search common parents** for a matching checkout: the current working directory's
-   siblings, `~/src`, `~/code`, `~/dev`, `~/projects`. A directory whose name equals the
-   repo key (or whose `git remote get-url origin` points at `PostHog/<repo>`) is a match.
+2. **Scan the code roots** above for a checkout whose `git remote get-url origin` points at
+   `PostHog/<repo>` (name match as a fallback).
 3. **Ask or clone.** If still not found, ask the maintainer where it is, or offer to
    `git clone https://github.com/PostHog/<repo>` into a default location (`~/src/<repo>`).
 4. **Write the resolved path back** to `~/.config/posthog-surveys/repos.json` so future

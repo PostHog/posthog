@@ -20,10 +20,12 @@ failed and _why_.
 
 ## Repos
 
-GitHub is the source of truth for where the code lives. When you need to read or change
-SDK source, resolve a local checkout via the registry described in
-[references/local-repos.md](references/local-repos.md) (or `scripts/repos.py`) so a clone
-is found once and reused — don't re-clone every session.
+GitHub is the source of truth for where the code lives. When you need to read or change SDK
+source, resolve a local checkout via the registry described in
+[references/local-repos.md](references/local-repos.md) so a clone is found once and reused —
+don't re-clone every session. First time on a machine, run `python3 scripts/repos.py init`
+to auto-discover existing checkouts; thereafter `python3 scripts/repos.py ensure <repo>`
+prints the path (and `--clone` clones if missing).
 
 | Concern              | Repo                                                                        | Where to look                                                            |
 | -------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
