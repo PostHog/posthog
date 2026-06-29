@@ -485,6 +485,12 @@ tools:
             deleted/suppressed). Use this to see *which* findings turned into actionable reports, not just what a run
             surfaced (`signals-scout-runs-emissions-list`). Requires `task:read` on top of `signal_scout:read` because
             it exposes report titles. Strictly team-scoped — a run UUID belonging to another team returns 404.
+    signals-scout-runs-emission-reports-batch:
+        operation: signals_scout_runs_emission_reports_batch
+        enabled: false
+    signals-scout-runs-emissions-batch:
+        operation: signals_scout_runs_emissions_batch
+        enabled: false
     signals-scout-runs-emissions-list:
         operation: signals_scout_runs_emissions
         enabled: true

@@ -384,6 +384,81 @@ class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
 
+class TestScoutHarnessEmissionsBatchAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/batch/"
+
+    def test_batches_emissions_across_runs_newest_first(self) -> None:
+        # The findings page opens one batched request instead of one per run; the response flattens
+        # every run's findings newest-first, each row tagged with its own run_id so the UI can regroup.
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        _make_emission(self.team, run_a, finding_id="a-old")
+        _make_emission(self.team, run_b, finding_id="b-mid")
+        _make_emission(self.team, run_a, finding_id="a-new")
+        response = self.client.post(self._url(), data={"run_ids": [str(run_a.id), str(run_b.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [row["finding_id"] for row in body] == ["a-new", "b-mid", "a-old"]
+        run_by_finding = {row["finding_id"]: row["run_id"] for row in body}
+        assert run_by_finding["a-new"] == str(run_a.id)
+        assert run_by_finding["b-mid"] == str(run_b.id)
+
+    def test_foreign_team_run_ids_contribute_no_rows(self) -> None:
+        # A stale or cross-team run id must not 404 the whole batch (one bad id would blank the page) —
+        # team scoping just drops its rows.
+        run = _make_run(self.team)
+        _make_emission(self.team, run, finding_id="mine")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        _make_emission(other, other_run, finding_id="theirs")
+        response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+    def test_empty_run_ids_rejected(self) -> None:
+        response = self.client.post(self._url(), data={"run_ids": []}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/reports/batch/"
+
+    def test_resolves_every_runs_links_in_one_clickhouse_call(self) -> None:
+        # The whole point of the batch endpoint: the per-run page fired one ClickHouse query per run,
+        # which made Findings slow to open. The batched form resolves every run's findings in a single
+        # `fetch_report_ids_for_source_ids` round-trip — assert it's called exactly once with the source
+        # ids from both runs, and that links map back correctly across runs.
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        linked_a = _make_emission(self.team, run_a, finding_id="f-a")
+        linked_b = _make_emission(self.team, run_b, finding_id="f-b")
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+        with patch(
+            _FETCH_REPORT_IDS,
+            return_value={linked_a.source_id: str(report.id), linked_b.source_id: str(report.id)},
+        ) as mock_fetch:
+            response = self.client.post(self._url(), data={"run_ids": [str(run_a.id), str(run_b.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        mock_fetch.assert_called_once()
+        assert sorted(mock_fetch.call_args.args[1]) == sorted([linked_a.source_id, linked_b.source_id])
+        body = {row["finding_id"]: row for row in response.json()}
+        assert body["f-a"]["report"]["id"] == str(report.id)
+        assert body["f-b"]["report"]["id"] == str(report.id)
+
+    def test_foreign_team_run_ids_contribute_no_rows(self) -> None:
+        run = _make_run(self.team)
+        _make_emission(self.team, run, finding_id="mine")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        _make_emission(other, other_run, finding_id="theirs")
+        with patch(_FETCH_REPORT_IDS, return_value={}):
+            response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
