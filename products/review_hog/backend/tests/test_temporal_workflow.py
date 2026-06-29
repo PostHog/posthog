@@ -224,9 +224,8 @@ async def test_review_pr_workflow_early_exits_when_already_published():
 
 @pytest.mark.asyncio
 async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
-    # The PR author isn't a PostHog org user → no perspectives apply → the gate returns the report id
-    # before any sandbox spend (no chunk/analyze/review/validate) and never publishes. Guards against
-    # the gate being dropped (which would review PRs from non-PostHog authors with an empty perspective set).
+    # Unmapped PR author → no perspectives → the gate returns before any sandbox spend and never
+    # publishes. Guards against dropping the gate (which would review non-PostHog authors' PRs empty).
     recorded = await _run_full_review_pr_workflow(publish=True, acting_user_id=None)
     assert recorded["result"] == "rep-1"
     assert recorded["split"] == []

@@ -19,9 +19,8 @@ class ReviewPRWorkflowInputs:
     label trigger sets it true (post the review back to the PR); the eval CLI defaults it false.
     Defaults to false so any caller that forgets it cannot accidentally post to GitHub.
 
-    `acting_user_id` overrides whose enabled perspectives drive the review. The cloud trigger leaves
-    it None (the workflow resolves the PR author after fetch, and skips the review if the author isn't
-    a PostHog org user); the eval CLI sets it explicitly to test a known user's perspectives.
+    `acting_user_id` overrides whose perspectives run: the cloud trigger leaves it None (the workflow
+    resolves the PR author after fetch, skipping if not a PostHog user); the eval CLI sets it explicitly.
     """
 
     team_id: int

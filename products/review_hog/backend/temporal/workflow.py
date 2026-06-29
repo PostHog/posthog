@@ -300,9 +300,8 @@ class ReviewPRWorkflow:
             )
             return report_id
 
-        # Resolve the acting user whose enabled perspectives apply (the PR author, or the CLI
-        # override). Gate here — before any sandbox spend — because an author who isn't a PostHog org
-        # user has no perspectives to apply, so there is nothing to review (no fallback).
+        # Resolve the acting user whose enabled perspectives apply (PR author, or CLI override). Gate
+        # here, before any sandbox spend: a non-PostHog author has no perspectives, so skip the review.
         acting = await workflow.execute_activity(
             resolve_acting_user_activity,
             ResolveActingUserInput(

@@ -125,9 +125,8 @@ class ResolveActingUserInput:
 
 @dataclass
 class ResolveActingUserResult:
-    # The user whose enabled perspectives drive this review, or None when the PR author maps to no
-    # PostHog org user — the parent then skips the review (we apply PostHog-stored skills, so the
-    # author must be a PostHog user).
+    # The user whose enabled perspectives drive this review; None when the PR author maps to no PostHog
+    # org user — we apply PostHog-stored skills, so the parent then skips the review.
     acting_user_id: int | None
 
 
@@ -584,9 +583,8 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             model_to_validate=IssuesReview,
             step_name=f"issues-review-p{input.pass_number}-c{input.chunk_id}",
         )
-    # Stamp the perspective that found each issue = the skill that just ran. Done here (not in
-    # combine) so it survives the persisted result and a resume, and so combine stays free of any
-    # perspective identity — `source_perspective` is the skill_name, decoupled from `PerspectiveType`.
+    # Stamp each issue's perspective (the skill that ran) here, not in combine — it survives the
+    # persisted result + resume, and keeps `source_perspective` = skill_name, decoupled from the enum.
     for issue in review.issues:
         issue.source_perspective = input.skill_name
     await database_sync_to_async(persist_perspective_results, thread_sensitive=False)(

@@ -15,15 +15,12 @@ from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.models.issues_review import PerspectiveType
 from products.skills.backend.models.skills import LLMSkill
 
-# Naming contract for the canonical review perspectives, mirroring `SIGNALS_SCOUT_SKILL_PREFIX`. A
-# perspective is ANY team skill carrying this prefix — canonical and custom are handled identically;
-# the only difference is that the canonicals auto-seed enabled on a user's first run.
+# Naming contract for review perspectives (mirrors `SIGNALS_SCOUT_SKILL_PREFIX`): any team skill with
+# this prefix is a perspective. Canonical and custom are identical except canonicals auto-seed enabled.
 REVIEW_HOG_PERSPECTIVE_PREFIX = "review-hog-perspective-"
 
-# The canonical review perspectives that auto-seed. `PerspectiveType` no longer carries any identity
-# role in the pipeline (a finding's perspective is its `skill_name`, stamped at review time) — it is
-# just the canonical-seed list now, so a custom perspective without an enum member is a first-class
-# citizen. The order here is incidental.
+# Canonical perspectives that auto-seed. `PerspectiveType` is just this seed list now — NOT an identity
+# (skill_name is, stamped at review time), so a custom perspective without an enum member is first-class.
 PERSPECTIVES: tuple[tuple[PerspectiveType, str], ...] = (
     (PerspectiveType.LOGIC_CORRECTNESS, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"),
     (PerspectiveType.CONTRACTS_SECURITY, f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security"),

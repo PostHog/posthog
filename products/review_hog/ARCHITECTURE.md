@@ -1851,7 +1851,12 @@ the user's single enabled `review-hog-validation-*` row (else the canonical defa
 team-latest-by-name resolve; a `register_missing_validation_config` analogue seeds the canonical validator enabled;
 the toggle is a validation-prefix branch in the existing config viewset (enabling a validator flips the others off)
 or a sibling action. Reuse the acting-user resolution already built (same `resolve_acting_user_activity` result
-threads into validation). Validator skills stay team-level and editable exactly like perspectives; the output
+threads into validation). **Temporal threading — mirror exactly what perspectives did** (see the As-built record):
+the validator loads inside `ValidateIssuesWorkflow` via `load_validation_skill_activity(ValidateIntegrationInput(
+team_id))` today, with no acting user — thread `acting_user_id` onto `ValidateIssuesInputs` (passed from the parent
+after the gate, just like `ReviewPerspectivesInputs.acting_user_id`) and swap that activity's input for a
+`LoadValidationInput(team_id, acting_user_id)` (the analogue of `LoadPerspectivesInput`). Validator skills stay
+team-level and editable exactly like perspectives; the output
 schema (`IssueValidation`) stays fixed. If the DB should _guarantee_ one active validator, a partial unique index
 (`UNIQUE(team,user) WHERE validation-prefix AND enabled`) is the option — but app-level matches perspectives. Not
 started.

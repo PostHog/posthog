@@ -27,9 +27,8 @@ class Command(BaseCommand):
             required=True,
             type=int,
             help=(
-                "User the sandbox tasks run as (the PR's author, when triggered in the cloud). The CLI "
-                "also pins this as the acting user, so the review applies this user's enabled perspectives "
-                "regardless of the PR author — keeping eval runs deterministic against any PR."
+                "User the sandbox tasks run as. The CLI also pins this as the acting user, so the review "
+                "applies this user's enabled perspectives regardless of the PR author (deterministic eval)."
             ),
         )
         parser.add_argument(
