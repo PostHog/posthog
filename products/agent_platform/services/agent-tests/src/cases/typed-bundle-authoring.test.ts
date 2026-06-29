@@ -452,6 +452,43 @@ describe('typed bundle authoring API: real e2e', () => {
             expect(res.status).toBe(400)
             expect(res.body.error).toBe('invalid_resource_id')
         })
+
+        it('rejects banned-module imports at the wire (422 + diagnostic)', async () => {
+            const rid = await newDraft(c)
+            const res = await request(c.janitor).put(`/revisions/${rid}/tools/banned`).send({
+                description: 'banned',
+                args_schema: {},
+                source: `import net from 'node:net'\nexport default { actions: { default: () => ({ ok: true }) } }`,
+            })
+            expect(res.status).toBe(422)
+            expect(res.body.error).toBe('tool_compile_failed')
+            expect(res.body.errors[0].kind).toBe('banned_module_import')
+            // No bundle write happened on failure.
+            expect(await c.bundle.exists(rid, 'tools/banned/source.ts')).toBe(false)
+            expect(await c.bundle.exists(rid, 'tools/banned/compiled.js')).toBe(false)
+        })
+
+        it('returns capabilities on a successful PUT', async () => {
+            const rid = await newDraft(c)
+            const res = await request(c.janitor)
+                .put(`/revisions/${rid}/tools/caps`)
+                .send({
+                    description: 'caps',
+                    args_schema: { type: 'object' },
+                    source: `export default {
+                        actions: {
+                            default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+                                return { token: ctx.secrets.ref('FOO_TOKEN') }
+                            }
+                        }
+                    }`,
+                })
+            expect(res.status).toBe(200)
+            expect(res.body.capabilities).toEqual({
+                secret_refs: ['FOO_TOKEN'],
+                dynamic_secret_refs: false,
+            })
+        })
     })
 
     // ─── Spec derivation at freeze ───────────────────────────────────

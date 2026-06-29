@@ -284,7 +284,7 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
 
             await writeToolSourceAndSchema(req.params.id, opts.bundles, tool)
             await opts.bundles.write(req.params.id, toolCompiledPath(id), compile.compiled_js!)
-            res.json({ ok: true, tool_id: id })
+            res.json({ ok: true, tool_id: id, capabilities: compile.capabilities })
         })
     )
 

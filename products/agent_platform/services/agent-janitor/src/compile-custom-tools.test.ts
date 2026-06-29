@@ -165,4 +165,316 @@ export default async function run() { return {} }
         expect(r.errors[0].line).toBeGreaterThan(0)
         expect(r.errors[0].column).toBeGreaterThan(0)
     })
+
+    describe('banned constructs', () => {
+        it.each([
+            { mod: 'http' },
+            { mod: 'node:http' },
+            { mod: 'https' },
+            { mod: 'net' },
+            { mod: 'node:net' },
+            { mod: 'dgram' },
+            { mod: 'tls' },
+            { mod: 'child_process' },
+            { mod: 'node:child_process' },
+            { mod: 'worker_threads' },
+            { mod: 'vm' },
+            // Escape-hatch modules — `inspector` is the worst (full eval +
+            // can open ports); `module` lets you reconstruct require via
+            // `module._load`.
+            { mod: 'inspector' },
+            { mod: 'inspector/promises' },
+            { mod: 'node:inspector' },
+            { mod: 'module' },
+            { mod: 'node:module' },
+            { mod: 'repl' },
+            { mod: 'wasi' },
+        ])('rejects `import` from banned module $mod', async ({ mod }) => {
+            const src = `
+import x from '${mod}'
+export default { actions: { default: () => ({ ok: true }) } }
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-import', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_module_import')
+            expect(r.errors[0].message).toContain(mod)
+            expect(r.errors[0].line).toBeGreaterThan(0)
+        })
+
+        it('rejects `require(...)` of a banned module', async () => {
+            const src = `
+const http = require('node:http')
+export default { actions: { default: () => ({ ok: true }) } }
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-require', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_module_import')
+        })
+
+        it('rejects dynamic `import(...)` of a banned module', async () => {
+            const src = `
+export default {
+    actions: {
+        default: async () => {
+            await import('http')
+            return { ok: true }
+        }
+    }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-dynamic-import', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_module_import')
+        })
+
+        it('rejects nested banned require (helper function body)', async () => {
+            const src = `
+function helper() { return require('net') }
+export default { actions: { default: () => helper() } }
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-nested', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_module_import')
+        })
+
+        it('rejects `eval(...)`', async () => {
+            const src = `
+export default {
+    actions: { default: (args: { code: string }) => eval(args.code) }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-eval', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_eval')
+            expect(r.errors[0].message).toContain('eval')
+        })
+
+        it('rejects `new Function(...)`', async () => {
+            const src = `
+export default {
+    actions: { default: (args: { body: string }) => new Function(args.body)() }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-newfn', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_eval')
+            expect(r.errors[0].message).toContain('Function')
+        })
+
+        it('rejects `Function(...)` without `new` (same hazard)', async () => {
+            const src = `
+export default {
+    actions: { default: (args: { body: string }) => Function(args.body)() }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-fn-nonew', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.errors[0].kind).toBe('banned_eval')
+            expect(r.errors[0].message).toContain('Function')
+        })
+
+        it.each([
+            { mod: 'fs' },
+            { mod: 'node:fs' },
+            { mod: 'path' },
+            { mod: 'crypto' },
+            { mod: 'util' },
+            { mod: 'stream' },
+            { mod: 'url' },
+            { mod: 'querystring' },
+            { mod: 'buffer' },
+            { mod: 'perf_hooks' },
+            { mod: 'zlib' },
+        ])('allows benign import: $mod', async ({ mod }) => {
+            const src = `
+import x from '${mod}'
+void x
+export default { actions: { default: () => ({ ok: true }) } }
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'allowed-import', source: src })
+            expect(r.ok).toBe(true)
+            expect(r.errors).toEqual([])
+        })
+    })
+
+    describe('capability extraction', () => {
+        it('collects literal secret names from ctx.secrets.ref()', async () => {
+            const src = `
+export default {
+    actions: {
+        default: async (_args: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            const a = ctx.secrets.ref('FOO_TOKEN')
+            const b = ctx.secrets.ref('BAR_KEY')
+            const c = ctx.secrets.ref('FOO_TOKEN') // duplicate, deduped
+            return { a, b, c }
+        }
+    }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'caps', source: src })
+            expect(r.ok).toBe(true)
+            expect(r.capabilities).toEqual({
+                secret_refs: ['BAR_KEY', 'FOO_TOKEN'],
+                dynamic_secret_refs: false,
+            })
+        })
+
+        it('flags dynamic secret refs when arg is not a literal', async () => {
+            const src = `
+export default {
+    actions: {
+        default: async (args: { name: string }, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            return ctx.secrets.ref(args.name)
+        }
+    }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'caps-dyn', source: src })
+            expect(r.ok).toBe(true)
+            expect(r.capabilities?.secret_refs).toEqual([])
+            expect(r.capabilities?.dynamic_secret_refs).toBe(true)
+        })
+
+        it('mixes static and dynamic refs', async () => {
+            const src = `
+export default {
+    actions: {
+        default: async (args: { name: string }, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            const known = ctx.secrets.ref('KNOWN')
+            const dyn = ctx.secrets.ref(args.name)
+            return { known, dyn }
+        }
+    }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'caps-mix', source: src })
+            expect(r.ok).toBe(true)
+            expect(r.capabilities?.secret_refs).toEqual(['KNOWN'])
+            expect(r.capabilities?.dynamic_secret_refs).toBe(true)
+        })
+
+        it('returns empty capabilities for tools that touch no secrets', async () => {
+            const r = await compileTypedTool({ tool_id: 'caps-none', source: GOOD })
+            expect(r.ok).toBe(true)
+            expect(r.capabilities).toEqual({ secret_refs: [], dynamic_secret_refs: false })
+        })
+
+        // Receiver-tightening: non-ctx identifiers must not be treated as a
+        // secret reference (over-collection would mislead the UI).
+        it('does not pick up secret refs from a non-ctx receiver', async () => {
+            const src = `
+export default {
+    actions: {
+        default: async () => {
+            const client = { secrets: { ref: (n: string) => 'fake' } }
+            return client.secrets.ref('SHOULD_NOT_BE_COLLECTED')
+        }
+    }
+}
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'caps-nonctx', source: src })
+            expect(r.ok).toBe(true)
+            expect(r.capabilities).toEqual({ secret_refs: [], dynamic_secret_refs: false })
+        })
+
+        // Conservative dynamic flag: any ctx.secrets access we can't fully
+        // resolve to a static ctx.secrets.ref(LITERAL) call must flag
+        // dynamic_secret_refs so the UI knows the static list is advisory.
+        it.each([
+            {
+                label: 'aliased ref via local var',
+                src: `
+export default {
+    actions: {
+        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            const r = ctx.secrets.ref
+            return r('TOKEN')
+        }
+    }
+}`,
+            },
+            {
+                label: 'destructured ref from ctx.secrets',
+                src: `
+export default {
+    actions: {
+        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            const { ref } = ctx.secrets
+            return ref('TOKEN')
+        }
+    }
+}`,
+            },
+            {
+                label: 'destructured secrets from ctx',
+                src: `
+export default {
+    actions: {
+        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            const { secrets } = ctx
+            return secrets.ref('TOKEN')
+        }
+    }
+}`,
+            },
+            {
+                label: 'computed property access on secrets',
+                src: `
+export default {
+    actions: {
+        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            return ctx['secrets']['ref']('TOKEN')
+        }
+    }
+}`,
+            },
+            {
+                label: 'bare ctx.secrets reference (read for side effects)',
+                src: `
+export default {
+    actions: {
+        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string }, log: Function }) => {
+            const s = ctx.secrets
+            void s
+            return { ok: true }
+        }
+    }
+}`,
+            },
+        ])('flags dynamic_secret_refs on $label', async ({ src }) => {
+            const r = await compileTypedTool({ tool_id: 'caps-alias', source: src.trim() })
+            expect(r.ok).toBe(true)
+            expect(r.capabilities?.dynamic_secret_refs).toBe(true)
+        })
+    })
+
+    // Multi-error reporting — authors should see every diagnostic in one
+    // round-trip, not fix in waves.
+    describe('multi-error reporting', () => {
+        it('surfaces both shape errors and banned constructs in one response', async () => {
+            // Two distinct issues in one source: banned `require('http')` AT TOP
+            // and the export-default is a bare function (shape error).
+            const src = `
+const http = require('node:http')
+export default async function run() { return {} }
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'multi-err', source: src })
+            expect(r.ok).toBe(false)
+            const kinds = r.errors.map((e) => e.kind)
+            expect(kinds).toContain('ast_default_not_object')
+            expect(kinds).toContain('banned_module_import')
+            expect(r.compiled_js).toBeUndefined()
+        })
+
+        it('does not emit compiled_js when only a banned construct is present', async () => {
+            const src = `
+import net from 'node:net'
+export default { actions: { default: () => ({ ok: true }) } }
+            `.trim()
+            const r = await compileTypedTool({ tool_id: 'banned-no-compile', source: src })
+            expect(r.ok).toBe(false)
+            expect(r.compiled_js).toBeUndefined()
+            expect(r.errors[0].kind).toBe('banned_module_import')
+        })
+    })
 })
