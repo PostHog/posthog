@@ -43,6 +43,24 @@ const isoMicroseconds = (date: Date): string => {
     return date.toISOString().replace('T', ' ').replace('Z', '000')
 }
 
+// Text-only emails (no `params.html`) still need to surface in the Assets tab so
+// operators can see what plain-text content was delivered. We escape and wrap the
+// text body in a `<pre>` so the iframe renders it as preformatted text without
+// pretending it's HTML — the user-typed `<` / `>` / `&` characters can't break
+// the surrounding markup or inject anything.
+const HTML_ESCAPE: Record<string, string> = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+}
+
+const wrapPlainTextAsHtml = (text: string): string => {
+    const escaped = text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
+    return `<!doctype html><meta charset="utf-8"><pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;margin:0;padding:1rem">${escaped}</pre>`
+}
+
 /**
  * Buffers rendered-email snapshots and flushes them as a single bulk Kafka produce
  * at the batch boundary — so a workflow batch that sends N emails costs one
@@ -69,10 +87,15 @@ export class MessageAssetsService {
 
     /**
      * Builds the row from a successful email send. Returns null when the asset is
-     * intentionally skipped (capture disabled, text-only email, or a standalone
-     * email-destination send with no action id — the Assets API queries by
-     * `function_kind='hog_flow'` keyed off the action node id, so capturing a row
-     * with no action id would write data nothing can ever surface).
+     * intentionally skipped: capture disabled, no content at all (no html AND no
+     * text), or a standalone email-destination send with no action id — the
+     * Assets API queries by `function_kind='hog_flow'` keyed off the action node
+     * id, so capturing a row with no action id would write data nothing can ever
+     * surface.
+     *
+     * Text-only emails still get a row so operators can confirm what was
+     * delivered: the text body is escaped and wrapped in a `<pre>` block so the
+     * existing iframe-based viewer renders it as preformatted text.
      *
      * Pure-ish builder so the email service can append the row directly onto
      * `result.emailAssets` without coupling to this service's buffer.
@@ -84,10 +107,11 @@ export class MessageAssetsService {
         if (!this.config.MESSAGE_ASSETS_CAPTURE_ENABLED) {
             return null
         }
-        if (!params.html) {
+        if (!invocation.state.actionId) {
             return null
         }
-        if (!invocation.state.actionId) {
+        const body = params.html || (params.text ? wrapPlainTextAsHtml(params.text) : '')
+        if (!body) {
             return null
         }
         return {
@@ -108,7 +132,7 @@ export class MessageAssetsService {
             sent_at: isoMicroseconds(new Date()),
             version: microsecondsSinceEpoch(),
             is_deleted: 0,
-            html: params.html,
+            html: body,
         }
     }
 

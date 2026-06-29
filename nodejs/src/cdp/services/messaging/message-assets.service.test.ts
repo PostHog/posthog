@@ -88,8 +88,22 @@ describe('MessageAssetsService', () => {
             expect(row).toBeNull()
         })
 
-        it('returns null for text-only emails (no HTML to snapshot)', () => {
-            const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams({ html: '' }))
+        it('wraps the text body in a <pre> when the email has no HTML, so plain-text sends still surface in the Assets tab', () => {
+            const row = service.buildRowForEmail(
+                invocationWithAction('flow-1'),
+                emailParams({ html: '', text: 'hi <bob> & co' })
+            )
+
+            expect(row).not.toBeNull()
+            // The raw `<`/`>`/`&` from the text body are HTML-escaped so they can't
+            // break the surrounding <pre> markup or inject anything.
+            expect(row!.html).toContain('<pre')
+            expect(row!.html).toContain('hi &lt;bob&gt; &amp; co')
+            expect(row!.html).not.toContain('hi <bob>')
+        })
+
+        it('returns null when both HTML and text bodies are empty', () => {
+            const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams({ html: '', text: '' }))
 
             expect(row).toBeNull()
         })
