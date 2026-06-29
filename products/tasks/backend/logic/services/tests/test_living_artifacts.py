@@ -14,8 +14,10 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DEFAULT_DOCUMENT_CONTENT_TYPE,
     ArtifactCommit,
     create_living_artifact,
+    discard_living_artifact,
     edit_living_artifact,
     register_s3_manifest_artifact,
+    send_living_artifact,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 
@@ -39,6 +41,7 @@ class FakeDocumentConnectorAdapter:
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         document_id = (artifact.location or {}).get("document_id") if artifact is not None else artifact_id
         location = {
@@ -157,6 +160,200 @@ class TestLivingArtifacts(TestCase):
         second.refresh_from_db()
         self.assertEqual(second.name, "renamed.md")
         self.assertEqual(second.metadata["source_artifact_id"], "artifact-1")
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_message_adapter_sends_immediately_by_default(self, mock_integration_for_mapping):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ts": "2222.1"}
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Thread update",
+            artifact_type=TaskArtifact.ArtifactType.SLACK_MESSAGE,
+            content="The report is ready.",
+        )
+
+        self.assertEqual(artifact.location["kind"], "slack_message")
+        self.assertEqual(artifact.location["message_ts"], "2222.1")
+        self.assertNotEqual(artifact.metadata.get("slack_message_status"), "draft")
+        slack.chat_postMessage.assert_called_once_with(
+            channel="C123",
+            thread_ts="1111.1",
+            text="The report is ready.",
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_message_adapter_drafts_edits_and_sends_after_approval(self, mock_integration_for_mapping):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="D123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.chat_postMessage.side_effect = [{"ts": "2222.1"}, {"ts": "3333.1"}]
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Customer update",
+            artifact_type=TaskArtifact.ArtifactType.SLACK_MESSAGE,
+            content="Hi team, the report is ready.",
+            slack_delivery_mode="draft",
+            slack_channel_id="C999",
+            slack_thread_ts="9999.9",
+        )
+
+        self.assertEqual(artifact.adapter, TaskArtifact.Adapter.SLACK_MESSAGE)
+        self.assertEqual(artifact.location["kind"], "slack_message_draft")
+        self.assertEqual(artifact.location["channel"], "C999")
+        self.assertEqual(artifact.location["thread_ts"], "9999.9")
+        self.assertEqual(artifact.location["approval_channel"], "D123")
+        self.assertEqual(artifact.location["approval_message_ts"], "2222.1")
+        self.assertEqual(artifact.metadata["slack_message_status"], "draft")
+        first_post = slack.chat_postMessage.call_args_list[0].kwargs
+        self.assertEqual(first_post["channel"], "D123")
+        self.assertEqual(first_post["thread_ts"], "1111.1")
+        self.assertIn("Send message", str(first_post["blocks"]))
+
+        updated = edit_living_artifact(
+            artifact=artifact,
+            content="Hi team, the updated report is ready.",
+            slack_thread_ts="",
+        )
+        self.assertEqual(updated.current_version, 2)
+        self.assertIsNone(updated.location["thread_ts"])
+        slack.chat_update.assert_called_once()
+        self.assertEqual(slack.chat_update.call_args.kwargs["channel"], "D123")
+        self.assertEqual(slack.chat_update.call_args.kwargs["ts"], "2222.1")
+
+        sent = send_living_artifact(artifact=updated, approved_by_slack_user_id="U123")
+        self.assertEqual(sent.location["kind"], "slack_message")
+        self.assertEqual(sent.location["channel"], "C999")
+        self.assertIsNone(sent.location["thread_ts"])
+        self.assertEqual(sent.location["message_ts"], "3333.1")
+        self.assertEqual(sent.metadata["slack_message_status"], "sent")
+        send_call = slack.chat_postMessage.call_args_list[1].kwargs
+        self.assertEqual(send_call["channel"], "C999")
+        self.assertIsNone(send_call["thread_ts"])
+        self.assertEqual(send_call["text"], "Hi team, the updated report is ready.")
+
+        send_living_artifact(artifact=sent, approved_by_slack_user_id="U123")
+        self.assertEqual(slack.chat_postMessage.call_count, 2)
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_message_send_ignores_prompt_cleanup_failure(self, mock_integration_for_mapping):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="D123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.chat_postMessage.side_effect = [{"ts": "2222.1"}, {"ts": "3333.1"}]
+        slack.chat_update.side_effect = RuntimeError("cleanup failed")
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Customer update",
+            artifact_type=TaskArtifact.ArtifactType.SLACK_MESSAGE,
+            content="Hi team, the report is ready.",
+            slack_delivery_mode="draft",
+            slack_channel_id="C999",
+        )
+
+        sent = send_living_artifact(artifact=artifact, approved_by_slack_user_id="U123")
+
+        self.assertEqual(sent.location["kind"], "slack_message")
+        self.assertEqual(sent.location["message_ts"], "3333.1")
+        self.assertEqual(sent.metadata["slack_message_status"], "sent")
+        slack.chat_update.assert_called_once()
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_slack_message_draft_rejects_wrong_approver_and_discarded_send(self, mock_integration_for_mapping):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write"},
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="D123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ts": "2222.1"}
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Customer update",
+            artifact_type=TaskArtifact.ArtifactType.SLACK_MESSAGE,
+            content="Hi team, the report is ready.",
+            slack_delivery_mode="draft",
+        )
+
+        with self.assertRaises(PermissionError):
+            send_living_artifact(artifact=artifact, approved_by_slack_user_id="U999")
+
+        discarded = discard_living_artifact(artifact=artifact, discarded_by_slack_user_id="U123")
+        self.assertEqual(discarded.metadata["slack_message_status"], "discarded")
+        with self.assertRaisesRegex(ValueError, "discarded"):
+            send_living_artifact(artifact=discarded, approved_by_slack_user_id="U123")
 
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_canvas_adapter_creates_and_edits_canvas(self, mock_integration_for_mapping):

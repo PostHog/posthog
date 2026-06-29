@@ -15,8 +15,8 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.api import _picker_context_cache_key
-from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings
+from products.slack_app.backend.api import SLACK_MESSAGE_ACTION_SEND, _picker_context_cache_key
+from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.agent_permissions import (
     SLACK_PERMISSION_ACTION_APPROVE,
     SLACK_PERMISSION_ACTION_DENY,
@@ -24,7 +24,7 @@ from products.slack_app.backend.services.agent_permissions import (
     SLACK_PERMISSION_CONTEXT_KIND,
 )
 from products.slack_app.backend.tests.helpers import sign_slack_request
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 
 
 class TestPostHogCodeInteractivityHandler(TestCase):
@@ -346,6 +346,75 @@ class TestRepoPickerOptions(TestCase):
             "message": {"ts": "1234.9999"},
         }
 
+    def _create_slack_message_draft(self) -> tuple[TaskRun, TaskArtifact]:
+        task_run = self._create_permission_run()
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=self.posthog_code_integration,
+            slack_workspace_id="T12345",
+            channel="D123",
+            thread_ts="1111.1",
+            task=task_run.task,
+            task_run=task_run,
+            mentioning_slack_user_id="U123",
+        )
+        artifact = TaskArtifact.objects.for_team(self.team.id).create(
+            team=self.team,
+            task=task_run.task,
+            task_run=task_run,
+            created_by=self.user,
+            name="Channel update",
+            artifact_type=TaskArtifact.ArtifactType.SLACK_MESSAGE,
+            adapter=TaskArtifact.Adapter.SLACK_MESSAGE,
+            location={
+                "kind": "slack_message_draft",
+                "integration_id": self.posthog_code_integration.id,
+                "channel": "C999",
+                "thread_ts": "9999.9",
+                "approval_channel": "D123",
+                "approval_thread_ts": "1111.1",
+                "approval_message_ts": "2222.1",
+            },
+            metadata={
+                "slack_workspace_id": "T12345",
+                "slack_message_status": "draft",
+                "slack_message_expected_approver_id": "U123",
+            },
+            versions=[
+                {
+                    "version": 1,
+                    "run_id": str(task_run.id),
+                    "adapter": TaskArtifact.Adapter.SLACK_MESSAGE,
+                    "location": {"kind": "slack_message_draft"},
+                    "content_type": "text/plain",
+                    "content": "The report is ready.",
+                }
+            ],
+            current_version=1,
+        )
+        return task_run, artifact
+
+    def _slack_message_payload(self, artifact: TaskArtifact, *, user_id: str = "U123") -> dict:
+        return {
+            "type": "block_actions",
+            "user": {"id": user_id},
+            "response_url": "https://hooks.slack.example/message",
+            "actions": [
+                {
+                    "action_id": SLACK_MESSAGE_ACTION_SEND,
+                    "value": json.dumps(
+                        {
+                            "integration_id": self.posthog_code_integration.id,
+                            "run_id": str(artifact.task_run_id),
+                            "artifact_id": str(artifact.id),
+                        }
+                    ),
+                }
+            ],
+            "channel": {"id": "D123"},
+            "message": {"ts": "2222.1"},
+        }
+
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
     @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token")
@@ -423,6 +492,55 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         mock_create_token.assert_not_called()
         mock_send_agent_command.assert_not_called()
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_slack_message_send_button_sends_draft(self, mock_config, mock_integration_for_mapping, mock_requests_post):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        _task_run, artifact = self._create_slack_message_draft()
+        slack = MagicMock()
+        slack.chat_postMessage.return_value = {"ts": "3333.1"}
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        mock_integration_for_mapping.return_value = slack_integration
+
+        response = self._post_interactivity(self._slack_message_payload(artifact))
+
+        assert response.status_code == 200
+        artifact.refresh_from_db()
+        assert artifact.metadata["slack_message_status"] == "sent"
+        assert artifact.location["message_ts"] == "3333.1"
+        slack.chat_postMessage.assert_called_once_with(
+            channel="C999",
+            thread_ts="9999.9",
+            text="The report is ready.",
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_slack_message_send_button_rejects_wrong_user(
+        self, mock_config, mock_integration_for_mapping, mock_requests_post
+    ):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        _task_run, artifact = self._create_slack_message_draft()
+        slack_integration = MagicMock()
+        slack_integration.client = MagicMock()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        response = self._post_interactivity(self._slack_message_payload(artifact, user_id="U999"))
+
+        assert response.status_code == 200
+        artifact.refresh_from_db()
+        assert artifact.metadata["slack_message_status"] == "draft"
+        slack_integration.client.chat_postMessage.assert_not_called()
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
 

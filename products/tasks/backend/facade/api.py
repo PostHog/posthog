@@ -164,6 +164,7 @@ __all__ = [
     "run_task_automation_now",
     "save_code_workflow_bindings",
     "send_cancel",
+    "send_task_run_living_artifact",
     "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
@@ -1754,6 +1755,9 @@ def edit_task_run_living_artifact(
     source_storage_path: str | None = None,
     name: str | None = None,
     metadata: dict | None = None,
+    slack_delivery_mode: str | None = None,
+    slack_channel_id: str | None = None,
+    slack_thread_ts: str | None = None,
 ) -> tuple[dict | None, str | None]:
     from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
         edit_living_artifact,
@@ -1777,6 +1781,9 @@ def edit_task_run_living_artifact(
             source_storage_path=source_storage_path,
             name=name,
             metadata=metadata,
+            slack_delivery_mode=slack_delivery_mode,
+            slack_channel_id=slack_channel_id,
+            slack_thread_ts=slack_thread_ts,
         )
     except Exception as exc:
         logger.warning(
@@ -1787,6 +1794,38 @@ def edit_task_run_living_artifact(
         )
         return None, str(exc)
     return serialize_task_artifact(updated), None
+
+
+def send_task_run_living_artifact(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    artifact_id: str | UUID,
+) -> tuple[dict | None, str | None]:
+    from products.tasks.backend.logic.services.living_artifacts import (  # noqa: PLC0415 — keep storage deps off the api import path
+        get_task_artifact_for_run,
+        send_living_artifact,
+        serialize_task_artifact,
+    )
+
+    run = _get_visible_run(run_id, task_id, team_id)
+    if run is None:
+        return None, None
+    artifact = get_task_artifact_for_run(run, artifact_id)
+    if artifact is None:
+        return None, "not_found"
+    try:
+        sent = send_living_artifact(artifact=artifact)
+    except Exception as exc:
+        logger.warning(
+            "task_run.living_artifact_send_failed",
+            run_id=str(run.id),
+            artifact_id=str(artifact_id),
+            error=str(exc),
+        )
+        return None, str(exc)
+    return serialize_task_artifact(sent), None
 
 
 def presign_task_run_artifact(

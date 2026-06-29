@@ -164,8 +164,10 @@ tools:
             document, spreadsheet, canvas, or file has been delivered. Pass `content` for markdown/text deliverables,
             `content_base64` plus `content_type` for small binary Slack files such as .xlsx/.pdf/.docx, or
             `source_artifact_id` / `source_storage_path` to turn an existing run artifact into a living artifact. Use
-            `adapter=slack_file` for binary files that should be uploaded into the mapped Slack thread. Document and sheet
-            artifacts use connector storage with S3 fallback when no Slack adapter is requested.
+            `adapter=slack_file` for binary files that should be uploaded into the mapped Slack thread. Use
+            `artifact_type=slack_message` with `slack_delivery_mode=draft` to draft a message for user approval before
+            sending it to `slack_channel_id` and optional `slack_thread_ts`. Document and sheet artifacts use connector
+            storage with S3 fallback when no Slack adapter is requested.
         feature_flag: tasks
     tasks-runs-living-artifacts-edit:
         operation: tasks_runs_living_artifacts_edit
@@ -182,7 +184,24 @@ tools:
             tasks-runs-living-artifacts-create or tasks-runs-living-artifacts-list. Pass `content` for markdown/text
             updates, `content_base64` plus `content_type` for a new binary file version, or `source_artifact_id` /
             `source_storage_path` for a file already uploaded as a run artifact. The adapter updates the backing Slack
-            message, Slack canvas, Slack file, document connector fallback, or S3 object and records the new version.
+            message draft, sent Slack message, Slack canvas, Slack file, document connector fallback, or S3 object and
+            records the new version.
+        feature_flag: tasks
+    tasks-runs-living-artifacts-send:
+        operation: tasks_runs_living_artifacts_send
+        enabled: true
+        scopes:
+            - task:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Send Slack message draft
+        description: >
+            Send an approved Slack message draft created by tasks-runs-living-artifacts-create with
+            `artifact_type=slack_message` and `slack_delivery_mode=draft`. Use this only after the user explicitly
+            approves the draft, such as by saying to send it. If the user wants to revise the draft first, call
+            tasks-runs-living-artifacts-edit instead.
         feature_flag: tasks
     tasks-runs-living-artifacts-list:
         operation: tasks_runs_living_artifacts_list

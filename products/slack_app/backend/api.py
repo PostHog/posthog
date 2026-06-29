@@ -123,6 +123,8 @@ CHANNEL_APPROVAL_BLOCK_ID_PREFIX = "posthog_code_channel_approval"
 CHANNEL_APPROVAL_ACTION_APPROVE = "posthog_code_channel_approve"
 CHANNEL_APPROVAL_ACTION_DENY = "posthog_code_channel_deny"
 CHANNEL_APPROVAL_CONTEXT_KIND = "channel_approval"
+SLACK_MESSAGE_ACTION_SEND = "posthog_code_slack_message_send"
+SLACK_MESSAGE_ACTION_DISCARD = "posthog_code_slack_message_discard"
 
 _MAX_GITHUB_REPOS = 500
 REPO_LIST_CACHE_TTL_SECONDS = 300
@@ -2652,6 +2654,30 @@ def _extract_terminate_hints(payload: dict) -> tuple[int | None, str | None]:
     return integration_id, mentioning_user_id
 
 
+def _slack_message_action_value(payload: dict) -> dict[str, Any] | None:
+    actions = payload.get("actions", [])
+    action = next(
+        (a for a in actions if a.get("action_id") in {SLACK_MESSAGE_ACTION_SEND, SLACK_MESSAGE_ACTION_DISCARD}),
+        None,
+    )
+    if not action:
+        return None
+
+    try:
+        value = json.loads(action.get("value", ""))
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _extract_slack_message_action_hints(payload: dict) -> int | None:
+    value = _slack_message_action_value(payload)
+    if not value:
+        return None
+    integration_id = value.get("integration_id")
+    return integration_id if isinstance(integration_id, int) else None
+
+
 def _handle_repo_picker_options(payload: dict) -> JsonResponse:
     """Return filtered repo options for the external_select picker."""
     action = payload.get("action_id") or (payload.get("actions", [{}])[0].get("action_id", ""))
@@ -3208,6 +3234,108 @@ def _replace_permission_prompt(payload: dict, text: str) -> None:
         logger.warning("slack_app_permission_replace_failed", exc_info=True)
 
 
+def _replace_slack_message_action_prompt(payload: dict, text: str) -> None:
+    response_url = payload.get("response_url", "")
+    if not response_url:
+        return
+    try:
+        requests.post(
+            response_url,
+            json={
+                "replace_original": True,
+                "text": text,
+                "blocks": [
+                    {
+                        "type": "section",
+                        "text": {"type": "mrkdwn", "text": text, "verbatim": False},
+                    }
+                ],
+            },
+            timeout=3,
+        )
+    except Exception:
+        logger.warning("slack_app_message_action_replace_failed", exc_info=True)
+
+
+def _resolve_slack_message_action_artifact(payload: dict) -> tuple[Integration, Any] | None:
+    value = _slack_message_action_value(payload)
+    slack_team_id = payload.get("team", {}).get("id", "")
+    if not value or not slack_team_id:
+        return None
+
+    integration_id = value.get("integration_id")
+    run_id = value.get("run_id")
+    artifact_id = value.get("artifact_id")
+    if not isinstance(integration_id, int) or not isinstance(run_id, str) or not isinstance(artifact_id, str):
+        return None
+
+    integration = (
+        Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        )
+        .select_related("team")
+        .first()
+    )
+    if integration is None:
+        return None
+
+    from products.tasks.backend.models import TaskArtifact
+
+    artifact = (
+        TaskArtifact.objects.for_team(integration.team_id)
+        .select_related("task_run", "task")
+        .filter(id=artifact_id, task_run_id=run_id)
+        .first()
+    )
+    if artifact is None:
+        return None
+    return integration, artifact
+
+
+def _handle_slack_message_action_submit(payload: dict) -> HttpResponse:
+    action = next(
+        (
+            a
+            for a in payload.get("actions", [])
+            if a.get("action_id") in {SLACK_MESSAGE_ACTION_SEND, SLACK_MESSAGE_ACTION_DISCARD}
+        ),
+        None,
+    )
+    if action is None:
+        return HttpResponse(status=200)
+
+    resolved = _resolve_slack_message_action_artifact(payload)
+    if resolved is None:
+        _post_permission_ephemeral_feedback(payload, "This draft is no longer available.")
+        return HttpResponse(status=200)
+    _integration, artifact = resolved
+    clicker_slack_user_id = payload.get("user", {}).get("id", "")
+
+    from products.tasks.backend.logic.services.living_artifacts import discard_living_artifact, send_living_artifact
+
+    try:
+        if action.get("action_id") == SLACK_MESSAGE_ACTION_DISCARD:
+            discard_living_artifact(artifact=artifact, discarded_by_slack_user_id=clicker_slack_user_id)
+            _replace_slack_message_action_prompt(payload, "Draft discarded.")
+        else:
+            sent = send_living_artifact(artifact=artifact, approved_by_slack_user_id=clicker_slack_user_id)
+            channel = (sent.location or {}).get("channel")
+            thread_ts = (sent.location or {}).get("thread_ts")
+            target = f"<#{channel}>" if channel else "Slack"
+            if thread_ts:
+                target = f"{target} thread `{thread_ts}`"
+            _replace_slack_message_action_prompt(payload, f"Sent to {target}.")
+    except PermissionError:
+        _post_permission_ephemeral_feedback(payload, "Only the person who requested this draft can respond to it.")
+    except Exception as exc:
+        logger.warning("slack_app_message_action_failed", artifact_id=str(artifact.id), error=str(exc))
+        _post_permission_ephemeral_feedback(payload, "I couldn't update that draft. Please ask PostHog to try again.")
+
+    return HttpResponse(status=200)
+
+
 def _selected_autonomy_tier(payload: dict) -> str | None:
     action = next(
         (a for a in payload.get("actions", []) if a.get("action_id") == SLACK_PERMISSION_ACTION_SELECT),
@@ -3522,6 +3650,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
     terminate_integration_id, terminate_user_id = _extract_terminate_hints(payload)
     dismiss_integration_id = _extract_dismiss_hints(payload)
     inbox_integration_id = inbox_interactivity.extract_inbox_hints(payload)
+    slack_message_integration_id = _extract_slack_message_action_hints(payload)
     requesting_user = payload.get("user", {}).get("id", "")
     slack_team_id = payload.get("team", {}).get("id")
 
@@ -3563,6 +3692,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             kind=SLACK_INTEGRATION_KIND,
             integration_id=slack_team_id,
         ).exists()
+    elif slack_team_id and slack_message_integration_id:
+        local = Integration.objects.filter(  # nosemgrep: idor-lookup-without-team
+            id=slack_message_integration_id,  # nosemgrep: idor-taint-user-input-to-model-get
+            kind=SLACK_INTEGRATION_KIND,
+            integration_id=slack_team_id,
+        ).exists()
     elif slack_team_id and _is_home_tab_interactivity(payload, payload_type):
         # App Home routing/account actions carry no per-row hint — the button
         # is tied to the workspace, not a specific picker context. Claim
@@ -3581,6 +3716,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         has_context=bool(context),
         hinted_integration_id=hinted_integration_id,
         terminate_integration_id=terminate_integration_id,
+        slack_message_integration_id=slack_message_integration_id,
         requesting_user=requesting_user,
         hinted_user=hinted_user_id,
         terminate_user=terminate_user_id,
@@ -3662,6 +3798,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_permission_submit(payload)
             if action_id == SLACK_PERMISSION_ACTION_SELECT:
                 return _handle_permission_config_select(payload)
+            if action_id in {SLACK_MESSAGE_ACTION_SEND, SLACK_MESSAGE_ACTION_DISCARD}:
+                return _handle_slack_message_action_submit(payload)
             if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
                 return _handle_signals_dismiss_report(payload)
             if action_id == onboarding.INBOX_CREATE_ACTION_ID:

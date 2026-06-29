@@ -48469,6 +48469,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `send` - send
+     * * `draft` - draft
+     */
+    export type SlackDeliveryModeEnum = typeof SlackDeliveryModeEnum[keyof typeof SlackDeliveryModeEnum];
+
+
+    export const SlackDeliveryModeEnum = {
+      Send: 'send',
+      Draft: 'draft',
+    } as const;
+
+    /**
      * The internal sandbox run the discovery agent used to pick this run's repo.
      *
      * Only present when the originating mention was ambiguous (multiple candidate
@@ -51998,6 +52010,21 @@ export namespace Schemas {
       source_storage_path?: string;
       /** Optional metadata to persist with the living artifact. */
       metadata?: TaskRunLivingArtifactCreateRequestMetadata;
+      /** For slack_message artifacts, use 'draft' to post a Slack approval card before sending or 'send' to preserve immediate delivery into the mapped Slack thread.
+       *
+       * * `send` - send
+       * * `draft` - draft */
+      slack_delivery_mode?: SlackDeliveryModeEnum;
+      /**
+         * For slack_message drafts, optional target Slack channel ID such as C123. Defaults to the run's mapped Slack channel.
+         * @maxLength 80
+         */
+      slack_channel_id?: string;
+      /**
+         * For slack_message drafts, optional target Slack thread timestamp. Omit to post in the target channel root.
+         * @maxLength 80
+         */
+      slack_thread_ts?: string;
     }
 
     /**
@@ -52029,6 +52056,21 @@ export namespace Schemas {
       source_storage_path?: string;
       /** Optional metadata to merge into the artifact registry record. */
       metadata?: TaskRunLivingArtifactEditRequestMetadata;
+      /** For unsent slack_message drafts, keep or switch the artifact to draft mode before approval.
+       *
+       * * `send` - send
+       * * `draft` - draft */
+      slack_delivery_mode?: SlackDeliveryModeEnum;
+      /**
+         * For unsent slack_message drafts, optional replacement target Slack channel ID such as C123.
+         * @maxLength 80
+         */
+      slack_channel_id?: string;
+      /**
+         * For unsent slack_message drafts, optional replacement target Slack thread timestamp.
+         * @maxLength 80
+         */
+      slack_thread_ts?: string;
     }
 
     export type TaskRunLivingArtifactOpenResponseVersionsItem = { [key: string]: unknown };

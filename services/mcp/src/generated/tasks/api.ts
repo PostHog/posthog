@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 9 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -164,6 +164,10 @@ export const tasksRunsLivingArtifactsCreateBodyContentMax = 500000
 
 export const tasksRunsLivingArtifactsCreateBodyContentTypeMax = 255
 
+export const tasksRunsLivingArtifactsCreateBodySlackChannelIdMax = 80
+
+export const tasksRunsLivingArtifactsCreateBodySlackThreadTsMax = 80
+
 export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -217,6 +221,27 @@ export const TasksRunsLivingArtifactsCreateBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe('Optional metadata to persist with the living artifact.'),
+    slack_delivery_mode: zod
+        .enum(['send', 'draft'])
+        .describe('* `send` - send\n* `draft` - draft')
+        .optional()
+        .describe(
+            "For slack_message artifacts, use 'draft' to post a Slack approval card before sending or 'send' to preserve immediate delivery into the mapped Slack thread.\n\n* `send` - send\n* `draft` - draft"
+        ),
+    slack_channel_id: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodySlackChannelIdMax)
+        .optional()
+        .describe(
+            "For slack_message drafts, optional target Slack channel ID such as C123. Defaults to the run's mapped Slack channel."
+        ),
+    slack_thread_ts: zod
+        .string()
+        .max(tasksRunsLivingArtifactsCreateBodySlackThreadTsMax)
+        .optional()
+        .describe(
+            'For slack_message drafts, optional target Slack thread timestamp. Omit to post in the target channel root.'
+        ),
 })
 
 /**
@@ -255,6 +280,10 @@ export const tasksRunsLivingArtifactsEditBodyContentMax = 500000
 
 export const tasksRunsLivingArtifactsEditBodyContentTypeMax = 255
 
+export const tasksRunsLivingArtifactsEditBodySlackChannelIdMax = 80
+
+export const tasksRunsLivingArtifactsEditBodySlackThreadTsMax = 80
+
 export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -287,6 +316,38 @@ export const TasksRunsLivingArtifactsEditBody = /* @__PURE__ */ zod.object({
         .record(zod.string(), zod.unknown())
         .optional()
         .describe('Optional metadata to merge into the artifact registry record.'),
+    slack_delivery_mode: zod
+        .enum(['send', 'draft'])
+        .describe('* `send` - send\n* `draft` - draft')
+        .optional()
+        .describe(
+            'For unsent slack_message drafts, keep or switch the artifact to draft mode before approval.\n\n* `send` - send\n* `draft` - draft'
+        ),
+    slack_channel_id: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodySlackChannelIdMax)
+        .optional()
+        .describe('For unsent slack_message drafts, optional replacement target Slack channel ID such as C123.'),
+    slack_thread_ts: zod
+        .string()
+        .max(tasksRunsLivingArtifactsEditBodySlackThreadTsMax)
+        .optional()
+        .describe('For unsent slack_message drafts, optional replacement target Slack thread timestamp.'),
+})
+
+/**
+ * Send an unsent slack_message living artifact that was created with slack_delivery_mode='draft'. Use only after the user has explicitly approved the draft.
+ * @summary Send a drafted Slack message artifact
+ */
+export const TasksRunsLivingArtifactsSendParams = /* @__PURE__ */ zod.object({
+    artifact_id: zod.string(),
+    id: zod.string(),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    task_id: zod.string(),
 })
 
 /**

@@ -13,6 +13,7 @@ import {
     TasksRunsLivingArtifactsEditParams,
     TasksRunsLivingArtifactsListParams,
     TasksRunsLivingArtifactsOpenParams,
+    TasksRunsLivingArtifactsSendParams,
     TasksRunsRetrieveParams,
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
@@ -133,6 +134,15 @@ const tasksRunsLivingArtifactsCreate = (): ToolBase<
         if (params.metadata !== undefined) {
             body['metadata'] = params.metadata
         }
+        if (params.slack_delivery_mode !== undefined) {
+            body['slack_delivery_mode'] = params.slack_delivery_mode
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_thread_ts !== undefined) {
+            body['slack_thread_ts'] = params.slack_thread_ts
+        }
         const result = await context.api.request<Schemas.TaskRunLivingArtifactResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/living_artifacts/`,
@@ -176,10 +186,37 @@ const tasksRunsLivingArtifactsEdit = (): ToolBase<
         if (params.metadata !== undefined) {
             body['metadata'] = params.metadata
         }
+        if (params.slack_delivery_mode !== undefined) {
+            body['slack_delivery_mode'] = params.slack_delivery_mode
+        }
+        if (params.slack_channel_id !== undefined) {
+            body['slack_channel_id'] = params.slack_channel_id
+        }
+        if (params.slack_thread_ts !== undefined) {
+            body['slack_thread_ts'] = params.slack_thread_ts
+        }
         const result = await context.api.request<Schemas.TaskRunLivingArtifactResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/living_artifacts/${encodeURIComponent(String(params.artifact_id))}/edit/`,
             body,
+        })
+        return result
+    },
+})
+
+const TasksRunsLivingArtifactsSendSchema = TasksRunsLivingArtifactsSendParams.omit({ project_id: true })
+
+const tasksRunsLivingArtifactsSend = (): ToolBase<
+    typeof TasksRunsLivingArtifactsSendSchema,
+    Schemas.TaskRunLivingArtifactResponse
+> => ({
+    name: 'tasks-runs-living-artifacts-send',
+    schema: TasksRunsLivingArtifactsSendSchema,
+    handler: async (context: Context, params: z.infer<typeof TasksRunsLivingArtifactsSendSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.TaskRunLivingArtifactResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tasks/${encodeURIComponent(String(params.task_id))}/runs/${encodeURIComponent(String(params.id))}/living_artifacts/${encodeURIComponent(String(params.artifact_id))}/send/`,
         })
         return result
     },
@@ -315,6 +352,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'tasks-retrieve': tasksRetrieve,
     'tasks-runs-living-artifacts-create': tasksRunsLivingArtifactsCreate,
     'tasks-runs-living-artifacts-edit': tasksRunsLivingArtifactsEdit,
+    'tasks-runs-living-artifacts-send': tasksRunsLivingArtifactsSend,
     'tasks-runs-living-artifacts-list': tasksRunsLivingArtifactsList,
     'tasks-runs-living-artifacts-open': tasksRunsLivingArtifactsOpen,
     'tasks-runs-list': tasksRunsList,

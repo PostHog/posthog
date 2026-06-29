@@ -1771,6 +1771,17 @@ export interface TaskRunLivingArtifactsResponseApi {
  */
 export type TaskRunLivingArtifactCreateRequestApiMetadata = { [key: string]: unknown }
 
+/**
+ * * `send` - send
+ * * `draft` - draft
+ */
+export type SlackDeliveryModeEnumApi = (typeof SlackDeliveryModeEnumApi)[keyof typeof SlackDeliveryModeEnumApi]
+
+export const SlackDeliveryModeEnumApi = {
+    Send: 'send',
+    Draft: 'draft',
+} as const
+
 export interface TaskRunLivingArtifactCreateRequestApi {
     /**
      * Human-readable artifact name, used as the title.
@@ -1814,6 +1825,21 @@ export interface TaskRunLivingArtifactCreateRequestApi {
     source_storage_path?: string
     /** Optional metadata to persist with the living artifact. */
     metadata?: TaskRunLivingArtifactCreateRequestApiMetadata
+    /** For slack_message artifacts, use 'draft' to post a Slack approval card before sending or 'send' to preserve immediate delivery into the mapped Slack thread.
+     *
+     * * `send` - send
+     * * `draft` - draft */
+    slack_delivery_mode?: SlackDeliveryModeEnumApi
+    /**
+     * For slack_message drafts, optional target Slack channel ID such as C123. Defaults to the run's mapped Slack channel.
+     * @maxLength 80
+     */
+    slack_channel_id?: string
+    /**
+     * For slack_message drafts, optional target Slack thread timestamp. Omit to post in the target channel root.
+     * @maxLength 80
+     */
+    slack_thread_ts?: string
 }
 
 export type TaskRunLivingArtifactOpenResponseApiVersionsItem = { [key: string]: unknown }
@@ -1907,6 +1933,21 @@ export interface TaskRunLivingArtifactEditRequestApi {
     source_storage_path?: string
     /** Optional metadata to merge into the artifact registry record. */
     metadata?: TaskRunLivingArtifactEditRequestApiMetadata
+    /** For unsent slack_message drafts, keep or switch the artifact to draft mode before approval.
+     *
+     * * `send` - send
+     * * `draft` - draft */
+    slack_delivery_mode?: SlackDeliveryModeEnumApi
+    /**
+     * For unsent slack_message drafts, optional replacement target Slack channel ID such as C123.
+     * @maxLength 80
+     */
+    slack_channel_id?: string
+    /**
+     * For unsent slack_message drafts, optional replacement target Slack thread timestamp.
+     * @maxLength 80
+     */
+    slack_thread_ts?: string
 }
 
 export interface TaskRunRelayMessageRequestApi {
