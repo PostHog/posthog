@@ -4,14 +4,16 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronRight, IconEllipsis, IconEye, IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronRight, IconEllipsis, IconEye, IconPencil, IconShare, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonMenu, LemonTag, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { IconSlack } from 'lib/lemon-ui/icons'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import {
@@ -19,6 +21,7 @@ import {
     LemonRichContentEditor,
     serializationOptions,
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 
@@ -27,6 +30,19 @@ import { CommentType } from '~/types'
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
 import { getRecordingLinkInfo, isViewingRecording } from './commentUtils'
+import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
+
+// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
+// rides in item_context.
+function getCommentAuthorName(comment: CommentType): string {
+    if (comment.created_by) {
+        return comment.created_by.first_name ?? 'Unknown user'
+    }
+    if (comment.item_context?.from_slack) {
+        return comment.item_context.slack_author_name ?? 'Slack user'
+    }
+    return 'Unknown user'
+}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -177,16 +193,26 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
     const { disabledReasonFor } = useValues(commentsLogic)
-    const { deleteComment, setEditingComment, sendEmojiReaction } = useActions(commentsLogic)
+    const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const { openModal } = useActions(sendCommentToSlackLogic)
 
     const isCompleted = !!comment.completed_at
+    const fromSlack = !!comment.item_context?.from_slack
+    const slackThread = comment.slack_thread
+    // Only an untracked top-level comment (a thread root) can be sent to Slack; replies follow their parent.
+    const canSendToSlack =
+        featureFlags[FEATURE_FLAGS.DISCUSSIONS_SLACK_SYNC] && !comment.source_comment && !fromSlack && !slackThread
 
     return (
         <div className="flex items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-                <span className="ph-no-capture flex-1 font-semibold">
-                    {comment.created_by?.first_name ?? 'Unknown user'}
-                </span>
+                <span className="ph-no-capture flex-1 font-semibold">{getCommentAuthorName(comment)}</span>
+                {fromSlack ? (
+                    <LemonTag size="small" type="muted">
+                        via Slack
+                    </LemonTag>
+                ) : null}
                 {comment.is_task ? (
                     <LemonTag size="small" type={isCompleted ? 'success' : 'warning'}>
                         {isCompleted ? 'Completed' : 'Task'}
@@ -194,6 +220,16 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                 ) : null}
             </div>
             <div className="flex items-center gap-1">
+                {slackThread ? (
+                    <LemonButton
+                        icon={<IconSlack />}
+                        size="xsmall"
+                        to={slackThread.url}
+                        targetBlank
+                        tooltip="Open in Slack"
+                        data-attr="discussions-comment-open-in-slack"
+                    />
+                ) : null}
                 {comment.created_at ? (
                     <span className="text-xs">
                         <TZLabel time={comment.created_at} />
@@ -213,6 +249,20 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
 
                 <LemonMenu
                     items={[
+                        {
+                            icon: <IconShare />,
+                            label: 'Reply',
+                            onClick: () => setReplyingComment(comment.source_comment ?? comment.id),
+                        },
+                        ...(canSendToSlack
+                            ? [
+                                  {
+                                      icon: <IconSlack />,
+                                      label: 'Send to Slack',
+                                      onClick: () => openModal(comment),
+                                  },
+                              ]
+                            : []),
                         {
                             icon: <IconPencil />,
                             label: 'Edit',
