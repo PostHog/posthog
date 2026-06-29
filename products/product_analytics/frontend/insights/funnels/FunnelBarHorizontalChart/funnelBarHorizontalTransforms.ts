@@ -1,6 +1,6 @@
 import type { Series } from '@posthog/quill-charts'
 
-import { getReferenceStep, getStepBreakdownSeries, hasBreakdown } from 'scenes/funnels/funnelUtils'
+import { getReferenceStep, getStepBreakdownSeries } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import { FunnelStepReference, type FunnelStepWithConversionMetrics } from '~/types'
@@ -101,10 +101,6 @@ export function buildFunnelBarHorizontalCompareData(
     steps: FunnelStepWithConversionMetrics[],
     options: BuildOptions
 ): FunnelBarHorizontalCompareStep[] {
-    // Only pure period-vs-period compare gets the "not present" treatment. In breakdown × compare a
-    // bar's headroom mixes "smaller breakdown value" with "smaller period", so the period-specific
-    // framing doesn't apply — those bars keep a full drop-off filler.
-    const isPureCompare = !(steps[0]?.nested_breakdown ?? []).some((variant) => hasBreakdown(variant.breakdown_value))
     return steps.map((step, stepIndex) => {
         const bars = (step.nested_breakdown ?? []).map((variant, breakdownIndex) => {
             const segment: Series<FunnelBarHorizontalSegmentMeta> = {
@@ -114,13 +110,14 @@ export function buildFunnelBarHorizontalCompareData(
                 color: options.getColor(variant),
                 meta: { isDropOff: false, breakdownIndex },
             }
-            // Cap the drop-off filler at this period's own entry level (its step-0 fraction of the
-            // shared baseline) so only genuine within-period drop-off shows; the bar then stops at the
-            // cap, leaving the headroom up to 100% empty and inert (the chart's `isPointInteractive`
-            // seam makes it non-interactive). The larger period (cap = 100%) fills the full track.
-            const capPercent = isPureCompare
-                ? (steps[0].nested_breakdown?.[breakdownIndex]?.conversionRates.fromBasisStep ?? 1) * RATE_TO_PERCENT
-                : RATE_TO_PERCENT
+            // Cap the drop-off filler at this bar's own entry level (its step-0 fraction of the shared
+            // baseline) so only genuine within-period drop-off shows; the bar then stops at the cap,
+            // leaving the headroom up to 100% empty and inert (the chart's `isPointInteractive` seam
+            // makes it non-interactive). Breakdown × compare caps each (breakdown, period) bar the same
+            // way — its headroom is a volume gap vs the largest series, not drop-off. The largest series
+            // (cap = 100%) fills the full track.
+            const capPercent =
+                (steps[0].nested_breakdown?.[breakdownIndex]?.conversionRates.fromBasisStep ?? 1) * RATE_TO_PERCENT
             const dropOff = buildFunnelBarHorizontalFiller([segment], options.fillerColor, breakdownIndex, capPercent)
             return {
                 label: String(stepIndex),

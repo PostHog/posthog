@@ -162,27 +162,27 @@ describe('buildFunnelStepsBarData', () => {
         expect(series.map((s) => s.trackMax)).toEqual([80, undefined])
     })
 
-    it('swaps current/previous within each breakdown value for breakdown × compare', () => {
+    it('swaps periods and caps each (breakdown value, period) bar for breakdown × compare', () => {
         const { series } = buildFunnelStepsBarData(breakdownCompareSteps, options)
 
         // Each value's [current, previous] pair flips to [previous, current]: v0p, v0c, v1p, v1c.
         expect(series.map((s) => s.meta?.breakdownIndex)).toEqual([1, 0, 3, 2])
+        // Every series below the shared baseline is capped at its own entry; only the largest
+        // (mobile-current = 100%, breakdownIndex 0) keeps a full-axis track.
+        expect(series.map((s) => s.trackMax)).toEqual([80, undefined, 25, 40])
     })
 
-    it.each([
-        { name: 'a non-compare funnel', steps: noBreakdownSteps },
-        // breakdown × compare headroom mixes "smaller breakdown" with "smaller period", so no cap
-        { name: 'breakdown × compare', steps: breakdownCompareSteps },
-    ])('sets no trackMax for $name', ({ steps }) => {
-        const { series } = buildFunnelStepsBarData(steps, options)
+    it('sets no trackMax for a non-compare funnel', () => {
+        const { series } = buildFunnelStepsBarData(noBreakdownSteps, options)
 
         expect(series.every((s) => s.trackMax === undefined)).toBe(true)
     })
 
-    it('keeps non-compare breakdown series in their original order', () => {
+    it('keeps non-compare breakdown series in their original order with no trackMax', () => {
         const { series } = buildFunnelStepsBarData(breakdownSteps, options)
 
         expect(series.map((s) => s.meta?.breakdownIndex)).toEqual([0, 1])
+        expect(series.every((s) => s.trackMax === undefined)).toBe(true)
     })
 })
 

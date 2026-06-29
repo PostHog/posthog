@@ -1,7 +1,5 @@
 import type { PointClickData } from '@posthog/quill-charts'
 
-import { hasBreakdown } from 'scenes/funnels/funnelUtils'
-
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
 import { RATE_TO_PERCENT } from '../shared/funnelBarHorizontalShared'
@@ -57,20 +55,16 @@ export function buildFunnelStepsBarData(
 
     const isBreakdown = steps[0].nested_breakdown != null
     const breakdownCount = isBreakdown ? steps[0].nested_breakdown!.length : 1
-    // Only pure period-vs-period compare gets the capped track + "not present" band. In breakdown ×
-    // compare a bar's headroom mixes "smaller breakdown value" with "smaller period", so the
-    // period-specific framing doesn't apply — those keep a full-axis track.
-    const isPureCompare =
-        (steps[0].nested_breakdown?.some((variant) => variant.compare_label != null) ?? false) &&
-        !(steps[0].nested_breakdown ?? []).some((variant) => hasBreakdown(variant.breakdown_value))
+    // Compare scales every series — each period, and each (breakdown value, period) — to one shared
+    // baseline, so a bar below the largest first step has headroom that isn't drop-off. Cap each
+    // series' track at its own entry level so that headroom reads as empty, not drop-off. Applies to
+    // breakdown × compare too; only the largest series sits at 100% and keeps a full-axis track.
+    const isCompare = steps[0].nested_breakdown?.some((variant) => variant.compare_label != null) ?? false
     const seriesVariants: FunnelStepsBarVariant<FunnelStepsBarSeriesMeta>[] = []
 
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
         const variants = steps.map((step) => variantAtStep(step, breakdownIndex, isBreakdown))
         const representative = variants[0]
-        // Cap the track at this period's own entry level (its step-0 fraction of the shared baseline)
-        // so the headroom above reads as "not present", not drop-off. The larger period sits at 100%
-        // and keeps a full-axis track (no cap).
         const capPercent = (representative?.conversionRates.fromBasisStep ?? 1) * RATE_TO_PERCENT
         seriesVariants.push({
             key: `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${breakdownIndex}`,
@@ -78,7 +72,7 @@ export function buildFunnelStepsBarData(
             data: variants.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT),
             color: representative ? options.getColor(representative) : undefined,
             meta: { breakdownIndex },
-            trackMax: isPureCompare && capPercent < RATE_TO_PERCENT ? capPercent : undefined,
+            trackMax: isCompare && capPercent < RATE_TO_PERCENT ? capPercent : undefined,
         })
     }
 

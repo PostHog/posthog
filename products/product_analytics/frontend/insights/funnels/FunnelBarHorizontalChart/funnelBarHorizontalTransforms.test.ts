@@ -388,8 +388,8 @@ describe('buildFunnelBarHorizontalData', () => {
 
         describe('with breakdown', () => {
             // Breakdown + compare: nested_breakdown is paired [value0 current, value0 previous, …], so each
-            // (value, period) gets its own full-track bar — no overflow from stacking variants scaled to the
-            // grouped-bar baseline — and bars read paired by breakdown value with the previous one dimmed.
+            // (value, period) gets its own bar capped at that bar's entry level — its headroom vs the
+            // largest series is a volume gap, left empty, not drop-off — paired by value, previous dimmed.
             const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
                 makeStep({
                     count: 140,
@@ -419,12 +419,15 @@ describe('buildFunnelBarHorizontalData', () => {
                 }),
             ]
 
-            it('renders one full-track bar per (breakdown value, period)', () => {
+            it('caps each (breakdown value, period) bar at its own entry, leaving the headroom empty', () => {
                 const [step] = buildFunnelBarHorizontalCompareData(breakdownCompareSteps, options)
 
                 expect(step.bars).toHaveLength(4)
                 expect(step.bars.map((bar) => bar.series[0].data[0])).toEqual([100, 80, 40, 25])
                 expect(step.bars.map((bar) => bar.series[0].meta?.breakdownIndex)).toEqual([0, 1, 2, 3])
+                // Each bar ends at its own step-0 entry (drop-off filler 0), so the headroom up to 100%
+                // is empty — not filled to 100% as a drop-off as it was before.
+                expect(step.bars.map((bar) => bar.series[1].data[0])).toEqual([0, 0, 0, 0])
             })
 
             it('dims each breakdown value’s previous-period bar', () => {
