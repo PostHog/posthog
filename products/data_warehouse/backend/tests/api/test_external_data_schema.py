@@ -3010,6 +3010,40 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == []
 
+    def test_available_columns_falls_back_to_synced_table_for_rest_source(self):
+        # REST sources (Stripe, …) never populate `schema_metadata`, so `available_columns` must fall
+        # back to the synced table's column store — otherwise the Descriptions UI shows no columns and
+        # users can't annotate them. Internal plumbing columns (`_dlt_id`, …) stay hidden.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "id": {"clickhouse": "String"},
+                "balance": {"clickhouse": "Nullable(Int64)"},
+                "_dlt_id": {"clickhouse": "String"},
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="Customer",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["available_columns"] == [
+            {"name": "id", "data_type": "String", "is_nullable": False},
+            {"name": "balance", "data_type": "Int64", "is_nullable": True},
+        ]
+
     @parameterized.expand(
         [
             # source_type, supports_column_selection_expected

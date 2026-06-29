@@ -96,6 +96,10 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
 
+# Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
+# and never user-facing.
+HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
+
 
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
     def queryable(self) -> "DataWarehouseTableQuerySet":
@@ -192,6 +196,31 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         else:
             prefix = ""
         return self.name[len(prefix) :]
+
+    def get_user_facing_columns(self) -> list[dict[str, Any]]:
+        """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
+
+        Reads the universal `columns` store (populated after every sync for every source type), so it
+        works for REST sources (Stripe, Hubspot, …) too — unlike the SQL-only
+        `ExternalDataSchema.schema_metadata`. Handles both the dict (`{"clickhouse": ...}`) and the
+        legacy plain-string column shapes.
+        """
+        result: list[dict[str, Any]] = []
+        for name, definition in (self.columns or {}).items():
+            if name in HIDDEN_COLUMNS:
+                continue
+            if isinstance(definition, dict):
+                clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
+            else:
+                clickhouse_type = definition or ""
+            result.append(
+                {
+                    "name": name,
+                    "data_type": clean_type(clickhouse_type) if clickhouse_type else "unknown",
+                    "is_nullable": "Nullable(" in clickhouse_type,
+                }
+            )
+        return result
 
     def validate_column_type(
         self,
