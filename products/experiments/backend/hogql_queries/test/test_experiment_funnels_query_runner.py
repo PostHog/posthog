@@ -809,3 +809,65 @@ class TestExperimentFunnelsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             }
         )
         self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)
+
+    @freeze_time("2020-01-01T12:00:00Z")
+    def test_control_events_not_in_current_flag_variants_raise_friendly_error(self):
+        # Events in ClickHouse carry $feature/<flag> = "control", but the flag's current
+        # variant keys no longer include "control" (e.g. after a rename to custom keys).
+        # The control results get filtered out, so validation must surface the friendly
+        # no-results error instead of letting extraction raise a raw ValueError.
+        feature_flag = FeatureFlag.objects.create(
+            name="Test experiment flag: renamed-control",
+            key="renamed-control",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "variant_a", "name": "Variant A", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        experiment = self.create_experiment(feature_flag=feature_flag)
+
+        ff_property = f"$feature/{feature_flag.key}"
+        journeys_for(
+            {
+                "user_control": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "control"}},
+                    {"event": "purchase", "timestamp": "2020-01-03", "properties": {ff_property: "control"}},
+                ],
+                "user_test": [
+                    {"event": "$pageview", "timestamp": "2020-01-02", "properties": {ff_property: "test"}},
+                    {"event": "purchase", "timestamp": "2020-01-03", "properties": {ff_property: "test"}},
+                ],
+            },
+            self.team,
+        )
+
+        flush_persons_and_events()
+
+        funnels_query = FunnelsQuery(
+            series=[EventsNode(event="$pageview"), EventsNode(event="purchase")],
+            dateRange={"date_from": "2020-01-01", "date_to": "2020-01-14"},
+        )
+        experiment_query = ExperimentFunnelsQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentFunnelsQuery",
+            funnels_query=funnels_query,
+        )
+
+        query_runner = ExperimentFunnelsQueryRunner(query=experiment_query, team=self.team)
+        with self.assertRaises(ValidationError) as context:
+            query_runner.calculate()
+
+        expected_errors = json.dumps(
+            {
+                ExperimentNoResultsErrorKeys.NO_CONTROL_VARIANT: True,
+                ExperimentNoResultsErrorKeys.NO_TEST_VARIANT: False,
+            }
+        )
+        self.assertEqual(cast(list, context.exception.detail)[0], expected_errors)

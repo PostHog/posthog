@@ -69,14 +69,19 @@ class ExperimentFunnelsQueryRunner(QueryRunner):
 
         funnels_result = self.funnels_query_runner.calculate()
 
+        # Filter results to only include the flag's current variants in the first step.
+        # This must happen *before* validation so both passes agree on the same data:
+        # events in ClickHouse may carry a $feature/<flag> breakdown value (e.g. "control")
+        # that is no longer one of the flag's variant keys after a rename. Filtering first
+        # lets validation surface the friendly no-results error instead of letting a
+        # stripped-out control variant blow up extraction with a raw ValueError.
+        funnels_result.results = [
+            result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
+        ]
+
         self._validate_event_variants(funnels_result)
 
         try:
-            # Filter results to only include valid variants in the first step
-            funnels_result.results = [
-                result for result in funnels_result.results if result[0]["breakdown_value"][0] in self.variants
-            ]
-
             # Statistical analysis
             control_variant, test_variants = self._get_variants_with_base_stats(funnels_result)
             probabilities = calculate_probabilities_v2(control_variant, test_variants)
