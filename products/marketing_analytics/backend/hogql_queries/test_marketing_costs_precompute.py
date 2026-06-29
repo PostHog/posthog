@@ -16,7 +16,6 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_costs_sql import DISTRIBUTED_MARKETING_COSTS_TABLE
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     GoogleAdsConfig,
     MarketingSourceAdapter,
@@ -26,6 +25,7 @@ from products.marketing_analytics.backend.hogql_queries.adapters.google_ads impo
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_marketing_costs"
 

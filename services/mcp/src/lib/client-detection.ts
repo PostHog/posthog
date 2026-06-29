@@ -137,7 +137,9 @@ export function resolveEffectiveClientName(
 // Value sent in `x-posthog-mcp-consumer` by PostHog Code (the Tasks sandbox
 // wrapper around the Claude Agent SDK) when the task was launched from the
 // PostHog Code UI. Used to force coding-agent behavior and to gate UI-apps
-// emission in single-exec mode. Slack-launched runs send `"slack"` instead.
+// emission in single-exec mode. Slack-launched runs send `"slack"` and
+// posthog_ai (Max) runs send `"posthog_ai"`; only PostHog Code renders MCP UI
+// apps, so this is the sole consumer that gates UI-apps payload emission.
 export const POSTHOG_CODE_CONSUMER = 'posthog-code'
 
 // OAuth application names (from token introspection) for upstream tools that
