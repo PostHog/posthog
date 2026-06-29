@@ -149,15 +149,15 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         # The same (campaign, day) cell materialized under two job_ids — a stale value and a matured one.
         # job_id is in the ReplacingMergeTree sort key, so both rows survive; the read must return the
         # latest-computed value (argMax), not their sum, even when both job_ids are read together.
-        cell = dict(
-            source_id="google_test",
-            source_name="google",
-            grain="campaign",
-            match_key="c1",
-            campaign_id="c1",
-            campaign_name="Camp 1",
-            cost_date=date(2023, 1, 15),
-        )
+        cell = {
+            "source_id": "google_test",
+            "source_name": "google",
+            "grain": "campaign",
+            "match_key": "c1",
+            "campaign_id": "c1",
+            "campaign_name": "Camp 1",
+            "cost_date": date(2023, 1, 15),
+        }
         job_old, job_new = str(uuid.uuid4()), str(uuid.uuid4())
         rows = [
             (
