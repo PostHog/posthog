@@ -333,3 +333,56 @@ class TestFilters(BaseTest):
             "Unsupported filters placeholder `{filters.interval}`",
         ):
             replace_filters(select, HogQLFilters(), self.team)
+
+    def test_replace_filters_date_range_placeholder_in_comparison(self):
+        select = replace_filters(
+            self._parse_select(
+                "SELECT event FROM events WHERE timestamp >= {filters.dateRange.from} AND timestamp < {filters.dateRange.to}"
+            ),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-03")),
+            self.team,
+        )
+        self.assertEqual(
+            self._print_ast(select),
+            "SELECT event FROM events WHERE "
+            "and(greaterOrEquals(timestamp, toDateTime('2020-02-02 00:00:00.000000')), "
+            f"less(timestamp, toDateTime('2020-02-03 00:00:00.000000'))) LIMIT {MAX_SELECT_RETURNED_ROWS}",
+        )
+
+    def test_replace_filters_date_range_placeholder_outside_comparison_with_dates(self):
+        # Used inside a function call (not a direct comparison operand) the placeholder resolves
+        # to the parsed date constant rather than crashing on the empty comparison stack.
+        select = replace_filters(
+            self._parse_select("SELECT dateDiff('day', {filters.dateRange.from}, {filters.dateRange.to}) FROM events"),
+            HogQLFilters(dateRange=DateRange(date_from="2020-02-02", date_to="2020-02-05")),
+            self.team,
+        )
+        call = select.select[0]
+        assert isinstance(call, ast.Call)
+        date_from_arg, date_to_arg = call.args[1], call.args[2]
+        assert isinstance(date_from_arg, ast.Constant)
+        assert isinstance(date_to_arg, ast.Constant)
+        self.assertEqual(date_from_arg.value.year, 2020)
+        self.assertEqual(date_from_arg.value.month, 2)
+        self.assertEqual(date_from_arg.value.day, 2)
+        self.assertEqual(date_to_arg.value.day, 5)
+
+    def test_raises_when_date_range_placeholder_used_outside_comparison_without_dates(self):
+        select = self._parse_select(
+            "SELECT dateDiff('day', {filters.dateRange.from}, {filters.dateRange.to}) FROM events"
+        )
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "The `{filters.dateRange.from}` placeholder must be used as one side of a comparison",
+        ):
+            replace_filters(select, HogQLFilters(), self.team)
+
+    def test_raises_when_date_range_to_placeholder_used_outside_comparison_without_dates(self):
+        select = self._parse_select("SELECT dateAdd({filters.dateRange.to}, toIntervalDay(1)) FROM events")
+
+        with self.assertRaisesMessage(
+            QueryError,
+            "The `{filters.dateRange.to}` placeholder must be used as one side of a comparison",
+        ):
+            replace_filters(select, HogQLFilters(), self.team)

@@ -80,6 +80,13 @@ class ReplaceFilters(CloningVisitor):
             )
         return node
 
+    @staticmethod
+    def _date_range_placeholder_error(side: str) -> QueryError:
+        return QueryError(
+            f"The `{{filters.dateRange.{side}}}` placeholder must be used as one side of a comparison "
+            f"(e.g. `timestamp >= {{filters.dateRange.{side}}}`), unless a date range is set."
+        )
+
     def visit_placeholder(self, node):
         no_filters = self.filters is None or not self.filters.model_fields_set
 
@@ -185,9 +192,14 @@ class ReplaceFilters(CloningVisitor):
                 return exprs[0]
             return ast.And(exprs=exprs)
         if node.chain == ["filters", "dateRange", "from"]:
-            compare_op_wrapper = self.compare_operations[-1]
+            # The skip mechanism only works when the placeholder is one side of a comparison.
+            # Outside a comparison there's no operation to drop, so an unset date range has no
+            # sensible substitute and we surface a clear error instead of crashing.
+            compare_op_wrapper = self.compare_operations[-1] if self.compare_operations else None
 
             if no_filters:
+                if compare_op_wrapper is None:
+                    raise self._date_range_placeholder_error("from")
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
@@ -204,12 +216,16 @@ class ReplaceFilters(CloningVisitor):
 
                 return ast.Constant(value=parsed_date)
             else:
+                if compare_op_wrapper is None:
+                    raise self._date_range_placeholder_error("from")
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
         if node.chain == ["filters", "dateRange", "to"]:
-            compare_op_wrapper = self.compare_operations[-1]
+            compare_op_wrapper = self.compare_operations[-1] if self.compare_operations else None
 
             if no_filters:
+                if compare_op_wrapper is None:
+                    raise self._date_range_placeholder_error("to")
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
@@ -225,6 +241,8 @@ class ReplaceFilters(CloningVisitor):
                     parsed_date = relative_date_parse(dateTo, self.team.timezone_info)
                 return ast.Constant(value=parsed_date)
             else:
+                if compare_op_wrapper is None:
+                    raise self._date_range_placeholder_error("to")
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
