@@ -18079,7 +18079,7 @@ export namespace Schemas {
          * @maxLength 200
          */
       github_login?: string;
-      /** PostHog user UUID (from `org-members-list`, or `@me`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. */
+      /** PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here. */
       user_uuid?: string;
     }
 
@@ -18105,7 +18105,10 @@ export namespace Schemas {
          * @nullable
          */
       append_note?: string | null;
-      /** Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared). */
+      /**
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+         * @maxItems 10
+         */
       suggested_reviewers?: SuggestedReviewer[];
     }
 
@@ -18397,7 +18400,10 @@ export namespace Schemas {
          * @nullable
          */
       priority_explanation?: string | null;
-      /** Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold. */
+      /**
+         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+         * @maxItems 10
+         */
       suggested_reviewers?: SuggestedReviewer[];
     }
 

@@ -15,6 +15,7 @@ from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
 from products.signals.backend.scout_harness.tools.report import (
+    MAX_SUGGESTED_REVIEWERS,
     InvalidScoutReportError,
     ReviewerInput,
     _build_suggested_reviewers,
@@ -400,3 +401,12 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         # drop it, since a silently-dropped reviewer is exactly what leaves a report routed to no one.
         with pytest.raises(InvalidScoutReportError):
             _build_suggested_reviewers(self.team.id, [ReviewerInput(github_login="   ")])
+
+    def test_caps_entries_before_resolving_uuids(self) -> None:
+        # An over-cap list must be rejected before the UUID resolver runs, so a malformed many-entry
+        # call can't fire one unbounded `IN` query just to be rejected afterwards.
+        resolver = "products.signals.backend.scout_harness.tools.report.get_org_member_github_logins_by_user_uuid"
+        entries = [ReviewerInput(user_uuid=str(uuid4())) for _ in range(MAX_SUGGESTED_REVIEWERS + 1)]
+        with patch(resolver) as resolve_mock, pytest.raises(InvalidScoutReportError):
+            _build_suggested_reviewers(self.team.id, entries)
+        resolve_mock.assert_not_called()

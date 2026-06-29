@@ -247,6 +247,8 @@ export const signalsScoutEditReportBodyTitleMax = 300
 
 export const signalsScoutEditReportBodySuggestedReviewersItemGithubLoginMax = 200
 
+export const signalsScoutEditReportBodySuggestedReviewersMax = 10
+
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -282,13 +284,14 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
                             .uuid()
                             .optional()
                             .describe(
-                                "PostHog user UUID (from `org-members-list`, or `@me`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle."
+                                "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here."
                             ),
                     })
                     .describe(
                         "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
                     )
             )
+            .max(signalsScoutEditReportBodySuggestedReviewersMax)
             .optional()
             .describe(
                 'Optional reviewers to set on the report (each a `github_login` and\/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).'
@@ -308,6 +311,8 @@ export const signalsScoutEmitReportBodyEvidenceItemWeightMin = 0
 
 export const signalsScoutEmitReportBodyAlreadyAddressedDefault = false
 export const signalsScoutEmitReportBodySuggestedReviewersItemGithubLoginMax = 200
+
+export const signalsScoutEmitReportBodySuggestedReviewersMax = 10
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -397,13 +402,14 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
                             .uuid()
                             .optional()
                             .describe(
-                                "PostHog user UUID (from `org-members-list`, or `@me`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle."
+                                "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here."
                             ),
                     })
                     .describe(
                         "One suggested reviewer — identified by `github_login`, `user_uuid`, or both.\n\nThe server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the\norg member's linked GitHub login (and wins over a supplied `github_login` when both are given). A\n`user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a\nreviewer is never silently dropped."
                     )
             )
+            .max(signalsScoutEmitReportBodySuggestedReviewersMax)
             .optional()
             .describe(
                 "Optional reviewers to route the report to (each a `github_login` and\/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold."

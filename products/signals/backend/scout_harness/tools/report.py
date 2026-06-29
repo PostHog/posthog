@@ -232,6 +232,12 @@ def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | No
     if not reviewers:
         return None
 
+    # Cap the input list *before* resolving — otherwise a malformed call with hundreds of uuid entries
+    # would fire one unbounded `IN` query (parameter/timeout risk) just to be rejected afterwards. The
+    # DRF ListField enforces the same bound at the API boundary; this guards the direct callers too.
+    if len(reviewers) > MAX_SUGGESTED_REVIEWERS:
+        raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(reviewers)}")
+
     for entry in reviewers:
         has_login = bool(entry.github_login and entry.github_login.strip())
         if not has_login and not entry.user_uuid:
@@ -261,8 +267,6 @@ def _build_suggested_reviewers(team_id: int, reviewers: list[ReviewerInput] | No
 
     if not logins:
         return None
-    if len(logins) > MAX_SUGGESTED_REVIEWERS:
-        raise InvalidScoutReportError(f"at most {MAX_SUGGESTED_REVIEWERS} suggested reviewers, got {len(logins)}")
     return SuggestedReviewers(root=[SuggestedReviewerEntry(github_login=login) for login in logins])
 
 

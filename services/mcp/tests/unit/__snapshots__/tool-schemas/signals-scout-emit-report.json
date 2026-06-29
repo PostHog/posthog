@@ -90,12 +90,13 @@
                         "type": "string"
                     },
                     "user_uuid": {
-                        "description": "PostHog user UUID (from `org-members-list`, or `@me`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle.",
+                        "description": "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here.",
                         "type": "string"
                     }
                 },
                 "type": "object"
             },
+            "maxItems": 10,
             "type": "array"
         },
         "summary": {

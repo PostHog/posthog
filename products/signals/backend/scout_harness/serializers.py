@@ -22,7 +22,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAG_LENGTH,
     MAX_TAGS_PER_FINDING,
 )
-from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH
+from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -518,8 +518,9 @@ class SuggestedReviewerSerializer(serializers.Serializer):
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (from `org-members-list`, or `@me`). Resolved server-side to the member's "
-            "linked GitHub login — use this when you know the PostHog user but not their GitHub handle."
+            "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked "
+            "GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a "
+            "concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here."
         ),
     )
 
@@ -593,6 +594,7 @@ class EmitReportRequestSerializer(serializers.Serializer):
     suggested_reviewers = serializers.ListField(
         required=False,
         child=SuggestedReviewerSerializer(),
+        max_length=MAX_SUGGESTED_REVIEWERS,
         help_text=(
             "Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is "
             "the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top "
@@ -654,6 +656,7 @@ class EditReportRequestSerializer(serializers.Serializer):
     suggested_reviewers = serializers.ListField(
         required=False,
         child=SuggestedReviewerSerializer(),
+        max_length=MAX_SUGGESTED_REVIEWERS,
         help_text=(
             "Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing "
             "any existing list. Use this to route a report that surfaced with no reviewer — it re-runs "
