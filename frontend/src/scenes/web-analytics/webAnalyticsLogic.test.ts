@@ -1,6 +1,8 @@
 import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -314,5 +316,47 @@ describe('webAnalyticsLogic precompute payload', () => {
         await expectLogic(logic).toMatchValues({
             controls: expect.objectContaining({ useWebAnalyticsPrecompute: expected }),
         })
+    })
+})
+
+describe('webAnalyticsLogic URL restoration', () => {
+    let logic: ReturnType<typeof webAnalyticsLogic.build>
+
+    beforeEach(() => {
+        localStorage.clear()
+        initKeaTests()
+        jest.spyOn(api.propertyDefinitions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api.hogFunctions, 'list').mockResolvedValue({ results: [] } as any)
+        jest.spyOn(api, 'update').mockResolvedValue({} as any)
+        ;(posthog as any).setPersonProperties = jest.fn()
+        featureFlagLogic.mount()
+        logic = webAnalyticsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    // Guards the rapid-URL-change cascade: when urlToAction restores state from a URL with several
+    // params it dispatches a flurry of setX actions. Without the isApplyingUrlState guard each of
+    // those re-enters actionToUrl and re-pushes the URL (each push strips then re-adds params),
+    // tripping the rapid-change detector. The only push that should happen is our own navigation.
+    it('applies tab state from the URL without re-pushing it', async () => {
+        const pushSpy = jest.spyOn(router.actions, 'push')
+
+        router.actions.push('/web', {
+            device_tab: 'BROWSER',
+            source_tab: 'REFERRING_DOMAIN',
+            path_tab: 'INITIAL_PATH',
+        })
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(pushSpy).toHaveBeenCalledTimes(1)
+        expect(logic.values._deviceTab).toBe('BROWSER')
+        expect(logic.values._sourceTab).toBe('REFERRING_DOMAIN')
+        expect(logic.values._pathTab).toBe('INITIAL_PATH')
     })
 })
