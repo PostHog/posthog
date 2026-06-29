@@ -44,20 +44,18 @@ describe('DateRangePicker', () => {
         expect(setDateRange).toHaveBeenCalledWith({ date_from: '-5M', date_to: null })
     })
 
-    it('hides the timezone selector when no timezone props are passed', async () => {
-        renderPicker()
+    it.each<[string, string | undefined, boolean]>([
+        ['hidden', undefined, false],
+        ['shown', 'UTC', true],
+    ])('timezone selector is %s when timezone props are %s', async (_label, timezone, shouldShow) => {
+        renderPicker(timezone ? { timezone, onTimezoneChange: jest.fn() } : {})
 
         await userEvent.click(screen.getByText('Last 1 hour'))
 
-        expect(screen.queryByTestId('timezone-select')).not.toBeInTheDocument()
-    })
-
-    it('shows the timezone selector when timezone props are passed', async () => {
-        const onTimezoneChange = jest.fn()
-        renderPicker({ timezone: 'UTC', onTimezoneChange })
-
-        await userEvent.click(screen.getByText('Last 1 hour'))
-
-        expect(screen.getByTestId('timezone-select')).toBeInTheDocument()
+        if (shouldShow) {
+            expect(screen.getByTestId('timezone-select')).toBeInTheDocument()
+        } else {
+            expect(screen.queryByTestId('timezone-select')).not.toBeInTheDocument()
+        }
     })
 })
