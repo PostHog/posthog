@@ -47,26 +47,24 @@ export const ConfigurationTab = ({ id }: ConfigurationTabProps): JSX.Element => 
 }
 
 function UpdateSourceConnectionFormContainer(): JSX.Element {
-    const { sourceFieldConfig, source, sourceConfigLoading, migratingGoogleServiceAccountAuth } = useValues(sourceSettingsLogic)
+    const { sourceFieldConfig, source, sourceConfigLoading, migratingGoogleServiceAccountAuth } =
+        useValues(sourceSettingsLogic)
     const { setSourceConfigValue, migrateGoogleServiceAccountAuth } = useActions(sourceSettingsLogic)
 
     const [jobInputs, setJobInputs] = useState<Record<string, any>>({})
     const highlightResetTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
     const highlightField = (field: HTMLElement | null): void => {
-        if (!field) return;
+        if (!field) {
+            return
+        }
 
         field.scrollIntoView({
             behavior: 'smooth',
             block: 'center',
         })
 
-        const highlightClasses = [
-            'rounded-md',
-            '!ring-2',
-            '!ring-accent',
-            '!ring-offset-4',
-        ]
+        const highlightClasses = ['rounded-md', '!ring-2', '!ring-accent', '!ring-offset-4']
         field.classList.add(...highlightClasses)
 
         if (highlightResetTimeoutRef.current) {
@@ -123,16 +121,22 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
             {showLegacyGoogleServiceAccountAuthBanner && (
                 <LemonBanner type="info" className="mb-3">
                     <div className="space-y-2">
-                        <p className="mb-0 mb-2">
-                            {source.source_type} now uses service account credentials from Integrations. Pick an existing credential below,
-                            or migrate this source&apos;s stored legacy service account key.
-                            <br/><br/>
-                            Picking an existing integration will delete the legacy service account key and a new one has to be created.
+                        <p className="mb-2">
+                            {source.source_type} now uses service account credentials from Integrations. Pick an
+                            existing credential below, or migrate this source&apos;s stored legacy service account key.
+                            <br />
+                            <br />
+                            Picking an existing integration will delete the legacy service account key and a new one has
+                            to be created.
                         </p>
                         <div className="flex flex-wrap items-center gap-2">
-                            <LemonButton size="small" type="secondary" onClick={
-                                () => highlightField(document.getElementById(GOOGLE_CLOUD_CREDENTIAL_FIELD_ID))
-                            }>
+                            <LemonButton
+                                size="small"
+                                type="secondary"
+                                onClick={() =>
+                                    highlightField(document.getElementById(GOOGLE_CLOUD_CREDENTIAL_FIELD_ID))
+                                }
+                            >
                                 Choose existing credential
                             </LemonButton>
                             <AccessControlAction
