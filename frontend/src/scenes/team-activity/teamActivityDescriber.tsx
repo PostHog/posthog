@@ -754,6 +754,8 @@ const TEAM_PROPERTIES_MAPPING: Record<keyof TeamType, (change: ActivityChange) =
     web_analytics_pre_aggregated_tables_version: () => null,
     managed_viewsets: () => null,
     workflows_config: () => null,
+    event_retention_months: () => null,
+    events_retention_enforced: () => null,
 }
 
 function nameAndLink(logItem?: ActivityLogItem): JSX.Element {

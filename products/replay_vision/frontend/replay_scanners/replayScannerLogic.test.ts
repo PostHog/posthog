@@ -240,6 +240,7 @@ describe('replayScannerLogic', () => {
             observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
+            observationSubjectFilter: '',
             observationsSort: null,
             scanner: null,
         }
@@ -302,6 +303,19 @@ describe('replayScannerLogic', () => {
                 observationsSort: { columnKey: 'version', order: 1 },
             })
             expect(params.order_by).toBe('scanner_version')
+        })
+
+        it('passes recording_subject trimmed when set', () => {
+            const params = buildObservationListParams({ ...emptyValues, observationSubjectFilter: '  acme  ' })
+            expect(params.recording_subject).toBe('acme')
+        })
+
+        it('maps recording_subject column to recording_subject_email', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationsSort: { columnKey: 'recording_subject', order: 1 },
+            })
+            expect(params.order_by).toBe('recording_subject_email')
         })
     })
 

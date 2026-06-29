@@ -28,6 +28,7 @@ from posthog.schema import (
 
 from posthog.api.cohort import CohortSerializer
 from posthog.event_usage import EventSource, report_user_action
+from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -52,7 +53,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentTimeseriesRecalculation,
     ExperimentToSavedMetric,
     experiment_has_legacy_metrics,
-    get_excluded_variants,
     holdout_filters_for_flag,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -186,31 +186,6 @@ class ExperimentService:
                     "'key' to 'control'."
                 )
 
-        excluded_variants = parameters.get("excluded_variants")
-        if excluded_variants is None:
-            return
-
-        if not isinstance(excluded_variants, list) or not all(isinstance(v, str) for v in excluded_variants):
-            raise ValidationError("excluded_variants must be a list of strings")
-
-        if not excluded_variants:
-            return
-
-        # `parameters` is replaced wholesale on update (see update_experiment:
-        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
-        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
-        # otherwise the stored object would have no variants at all. Surface that
-        # explicitly rather than letting every key fall through to "unknown variants".
-        if not variants:
-            raise ValidationError(
-                "excluded_variants requires feature_flag_variants in the same request — "
-                "parameters are replaced as a whole on update, so send the full parameters object"
-            )
-
-        variant_keys = {v["key"] for v in variants}
-        baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
-        ExperimentService._validate_excluded_variant_keys(excluded_variants, variant_keys, baseline_key)
-
     @staticmethod
     def _validate_excluded_variant_keys(
         excluded_variants: list[str], variant_keys: Iterable[str], baseline_key: str
@@ -251,16 +226,6 @@ class ExperimentService:
             return
         if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
             raise ValidationError("excluded_variants must be a list of strings")
-
-    @staticmethod
-    def _merge_excluded_variants_into_parameters(parameters: dict | None, excluded_variants: list[str] | None) -> dict:
-        """Mirror the canonical excluded_variants into the legacy `parameters` blob."""
-        merged = dict(parameters or {})
-        if excluded_variants is None:
-            merged.pop("excluded_variants", None)
-        else:
-            merged["excluded_variants"] = list(excluded_variants)
-        return merged
 
     RUNNING_TIME_CALCULATION_KEYS = (
         "minimum_detectable_effect",
@@ -792,12 +757,6 @@ class ExperimentService:
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
         running_time_calculation = running_time_calculation or {}
-        # Dual-write for excluded_variants during the parameters deprecation window: the canonical
-        # column wins over legacy `parameters` when supplied; otherwise derive the column from `parameters`.
-        if excluded_variants is not None:
-            parameters = self._merge_excluded_variants_into_parameters(parameters, excluded_variants)
-        else:
-            excluded_variants = (parameters or {}).get("excluded_variants")
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -1345,7 +1304,7 @@ class ExperimentService:
                         experiment.start_date,
                         experiment.stats_config,
                         experiment.exposure_criteria,
-                        excluded_variants=get_excluded_variants(experiment),
+                        excluded_variants=experiment.excluded_variants or [],
                     ),
                 )
 
@@ -1699,7 +1658,6 @@ class ExperimentService:
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
         completed_metadata["parameters"] = experiment.parameters
-        completed_metadata["saved_metrics_count"] = experiment.saved_metrics.count()
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
@@ -2003,14 +1961,26 @@ class ExperimentService:
         *,
         serializer_context: dict | None = None,
         allow_unknown_events: bool = False,
+        event_source: EventSource | None = None,
     ) -> Experiment:
         """Update an experiment with full business-logic validation.
 
         ``update_data`` mirrors the DRF ``validated_data`` dict produced by
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
+
+        ``event_source`` attributes the "experiment updated" event for non-HTTP callers,
+        mirroring ``create_experiment``.
         """
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
+
+        # Snapshot before the update to diff what actually changed. The activity-log diff
+        # misses the saved-metric M2M, so capture its signature separately, before the sync
+        # below mutates it. Skip the reads when neither channel will report.
+        report_request = serializer_context.get("request") if serializer_context else None
+        should_report_update = report_request is not None or event_source is not None
+        before_update = experiment._get_before_update() if should_report_update else None
+        before_saved_metrics = self._saved_metric_signature(experiment) if should_report_update else frozenset()
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
@@ -2186,9 +2156,8 @@ class ExperimentService:
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
-        # Validate excluded_variants on the canonical column path against the resolved flag
-        # variants — no feature_flag_variants resend required (the legacy
-        # `parameters.excluded_variants` path is still validated in the serializer).
+        # Validate excluded_variants against the resolved flag variants — no
+        # feature_flag_variants resend required.
         if "excluded_variants" in update_data:
             new_excluded = update_data["excluded_variants"]
             if new_excluded:
@@ -2209,16 +2178,13 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
-        # Canonical excluded_variants for fingerprints: prefer an explicit column update, then
-        # legacy parameters in the payload, then the stored canonical value. Computed here
-        # (before the dual-write below) so a new client PATCHing only excluded_variants still
-        # fingerprints with the new exclusions.
+        # Canonical excluded_variants for fingerprints: prefer an explicit column update,
+        # otherwise the stored canonical value. So a client PATCHing only excluded_variants
+        # still fingerprints with the new exclusions.
         if "excluded_variants" in update_data:
             excluded_variants = update_data["excluded_variants"]
-        elif "parameters" in update_data:
-            excluded_variants = (update_data["parameters"] or {}).get("excluded_variants")
         else:
-            excluded_variants = get_excluded_variants(experiment)
+            excluded_variants = experiment.excluded_variants or []
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -2248,23 +2214,73 @@ class ExperimentService:
             feature_flag.active = True
             feature_flag.save()
 
-        # --- excluded_variants dual-write -----------------------------------
-        # Mirror the canonical excluded_variants column into legacy `parameters`.
-        # The column wins when both are sent.
-        if "excluded_variants" in update_data:
-            update_data["parameters"] = self._merge_excluded_variants_into_parameters(
-                update_data.get("parameters", experiment.parameters),
-                update_data["excluded_variants"],
-            )
-        elif "parameters" in update_data:
-            update_data["excluded_variants"] = (update_data["parameters"] or {}).get("excluded_variants")
-
         # --- apply changes and save ----------------------------------------
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
         experiment.save()
 
+        if should_report_update:
+            changed_fields = self._compute_changed_fields(
+                experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
+            )
+            if changed_fields:
+                self._report_experiment_updated(
+                    experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
+                )
+
         return experiment
+
+    def _compute_changed_fields(
+        self,
+        experiment: Experiment,
+        *,
+        before_update: "Experiment | None",
+        before_saved_metrics: frozenset[tuple[int, str]],
+    ) -> list[str]:
+        """The experiment fields that actually changed, sorted and deduped.
+
+        Scalar/JSON fields come from the activity-log diff; the saved-metric M2M is diffed
+        separately because that relation is excluded from it.
+        """
+        changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        # Check if saved_metric assignment has changed
+        if before_saved_metrics != self._saved_metric_signature(experiment):
+            changed_fields = [*changed_fields, "saved_metrics"]
+        return sorted(set(changed_fields))
+
+    @staticmethod
+    def _saved_metric_signature(experiment: Experiment) -> frozenset[tuple[int, str]]:
+        """Identity of an experiment's shared-metric links: (saved_metric_id, type)."""
+        return frozenset(
+            (saved_metric_id, (metadata or {}).get("type", "primary"))
+            for saved_metric_id, metadata in experiment.experimenttosavedmetric_set.values_list(
+                "saved_metric_id", "metadata"
+            )
+        )
+
+    def _report_experiment_updated(
+        self,
+        experiment: Experiment,
+        *,
+        changed_fields: list[str],
+        request: Any | None = None,
+        event_source: EventSource | None = None,
+    ) -> None:
+        if request is None and event_source is None:
+            return
+
+        metadata = experiment.get_analytics_metadata()
+        metadata["changed_fields"] = changed_fields
+        if event_source is not None:
+            metadata["source"] = event_source
+
+        report_user_action(
+            self.user,
+            "experiment updated",
+            metadata,
+            team=experiment.team,
+            request=request,
+        )
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
