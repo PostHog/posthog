@@ -115,3 +115,38 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
             f"both periods must share one HogQL database (the previous runner has no user); "
             f"Database.create_for ran {create_for_spy.call_count} times"
         )
+
+    def test_compare_previous_period_not_zeroed_under_user_scoped_adapters(self):
+        # Reproduces the symptom: warehouse adapters resolve only for a user-scoped runner (warehouse
+        # RBAC). A user-less previous runner gets no adapters -> empty cost fallback -> previous = 0.
+        # Passing the user to the previous runner fixes it.
+        query = MarketingAnalyticsAggregatedQuery(
+            dateRange=self.default_date_range,
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+        )
+        runner = MarketingAnalyticsAggregatedQueryRunner(query=query, team=self.team, user=self.user)
+
+        mock_adapter = Mock()
+        mock_adapter.get_source_id.return_value = "test_source"
+        mock_adapter.supports_level.return_value = True
+        mock_adapter.build_query.return_value = parse_select(
+            "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
+            "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
+            "25.0 as reported_conversion_value, 'Campaign' as match_key"
+        )
+
+        def rbac_adapters(runner_self, date_range):
+            return [mock_adapter] if runner_self.user is not None else []
+
+        with patch.object(
+            MarketingAnalyticsAggregatedQueryRunner,
+            "_get_marketing_source_adapters",
+            autospec=True,
+            side_effect=rbac_adapters,
+        ):
+            response = runner.calculate()
+
+        cost = response.results["Cost"]
+        assert cost.value == 50.0
+        assert cost.previous == 50.0, f"previous fell back to the empty cost source (user-less runner): {cost.previous}"

@@ -194,12 +194,15 @@ class NonIntegratedConversionsTableQueryRunner(
             date_to=previous_date_range.date_to().isoformat(),
         )
 
+        # Same user as the current period — a user-less runner resolves warehouse tables and
+        # conversion-goal property RBAC without the user's access.
         previous_runner = NonIntegratedConversionsTableQueryRunner(
             query=previous_query,
             team=self.team,
             timings=self.timings,
             modifiers=self.modifiers,
             limit_context=self.limit_context,
+            user=self.user,
         )
         # Share the prebuilt HogQL database across both periods so the compare query pays the ~1s
         # Database.create_for once, not twice. Pre-populates the previous runner's cached_property.
