@@ -23,6 +23,8 @@ import type {
     ReplayScannerApi,
     ScannerCreatorsResponseApi,
     ScannerStatsResponseApi,
+    SuggestTagsRequestApi,
+    SuggestTagsResponseApi,
     VisionActionApi,
     VisionActionsListParams,
     VisionObservationsListParams,
@@ -484,5 +486,25 @@ export const visionScannersStatsRetrieve = async (
     return apiMutator<ScannerStatsResponseApi>(getVisionScannersStatsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getVisionScannersSuggestTagsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/suggest_tags/`
+}
+
+/**
+ * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
+ */
+export const visionScannersSuggestTagsCreate = async (
+    projectId: string,
+    suggestTagsRequestApi: SuggestTagsRequestApi,
+    options?: RequestInit
+): Promise<SuggestTagsResponseApi> => {
+    return apiMutator<SuggestTagsResponseApi>(getVisionScannersSuggestTagsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(suggestTagsRequestApi),
     })
 }

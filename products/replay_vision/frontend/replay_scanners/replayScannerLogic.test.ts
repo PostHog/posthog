@@ -19,9 +19,11 @@ import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 describe('replayScannerLogic', () => {
     let logic: ReturnType<typeof replayScannerLogic.build>
     let observeSpy: jest.Mock
+    let suggestSpy: jest.Mock
 
     beforeEach(() => {
         observeSpy = jest.fn(() => [202, { workflow_id: 'wf-test' }])
+        suggestSpy = jest.fn(() => [200, { suggestions: [] }])
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
@@ -29,6 +31,7 @@ describe('replayScannerLogic', () => {
             },
             post: {
                 '/api/projects/:team/vision/scanners/:id/observe/': observeSpy,
+                '/api/projects/:team/vision/scanners/suggest_tags/': suggestSpy,
             },
         })
         initKeaTests()
@@ -122,6 +125,81 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.appendClassifierTags(['x'])).toMatchValues({
                 scanner: expect.objectContaining({ scanner_type: 'monitor', scanner_config: { prompt: '' } }),
             })
+        })
+    })
+
+    describe('tag suggestions', () => {
+        const setupClassifier = (): void => {
+            logic.actions.setScannerType('classifier')
+            logic.actions.setScannerValues({
+                scanner_config: {
+                    prompt: 'Categorize intent',
+                    tags: ['pricing'],
+                    multi_label: true,
+                } as ClassifierScanner['scanner_config'],
+            })
+        }
+
+        it('loads grounded suggestions from the endpoint', async () => {
+            suggestSpy.mockReturnValueOnce([
+                200,
+                { suggestions: [{ tag: 'abandoned_checkout', rationale: 'seen 12x', source: 'observed' }] },
+            ])
+            setupClassifier()
+            await expectLogic(logic, () => logic.actions.loadTagSuggestions())
+                .toDispatchActions(['loadTagSuggestionsSuccess'])
+                .toMatchValues({
+                    tagSuggestions: [{ tag: 'abandoned_checkout', rationale: 'seen 12x', source: 'observed' }],
+                    tagSuggestionsLoading: false,
+                })
+        })
+
+        it('accepting a suggestion adds it to the vocabulary and drops it from the panel', async () => {
+            suggestSpy.mockReturnValueOnce([
+                200,
+                {
+                    suggestions: [
+                        { tag: 'abandoned_checkout', rationale: 'r', source: 'observed' },
+                        { tag: 'pricing_confusion', rationale: 'r', source: 'product' },
+                    ],
+                },
+            ])
+            setupClassifier()
+            await expectLogic(logic, () => logic.actions.loadTagSuggestions()).toDispatchActions([
+                'loadTagSuggestionsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.acceptTagSuggestion('abandoned_checkout'))
+                .toFinishAllListeners()
+                .toMatchValues({
+                    scanner: expect.objectContaining({
+                        scanner_config: expect.objectContaining({ tags: ['pricing', 'abandoned_checkout'] }),
+                    }),
+                    tagSuggestions: [{ tag: 'pricing_confusion', rationale: 'r', source: 'product' }],
+                })
+        })
+
+        it('accept all adds every suggestion and clears the panel', async () => {
+            suggestSpy.mockReturnValueOnce([
+                200,
+                {
+                    suggestions: [
+                        { tag: 'rage_clicking', rationale: 'r', source: 'observed' },
+                        { tag: 'form_errors', rationale: 'r', source: 'product' },
+                    ],
+                },
+            ])
+            setupClassifier()
+            await expectLogic(logic, () => logic.actions.loadTagSuggestions()).toDispatchActions([
+                'loadTagSuggestionsSuccess',
+            ])
+            await expectLogic(logic, () => logic.actions.acceptAllTagSuggestions())
+                .toFinishAllListeners()
+                .toMatchValues({
+                    scanner: expect.objectContaining({
+                        scanner_config: expect.objectContaining({ tags: ['pricing', 'rage_clicking', 'form_errors'] }),
+                    }),
+                    tagSuggestions: [],
+                })
         })
     })
 

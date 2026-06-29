@@ -527,7 +527,6 @@ export type AssistantTool =
     | 'marketing_suggest_utm_mappings'
     | 'summarize_replay_vision_summaries'
     | 'draft_replay_vision_scanner_prompt'
-    | 'suggest_replay_vision_classifier_tags'
     | 'search_replay_vision_observations'
     | 'upsert_account'
     | 'upsert_account_notebook'

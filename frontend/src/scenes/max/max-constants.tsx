@@ -778,18 +778,6 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Drafting scanner prompt...'
         },
     },
-    suggest_replay_vision_classifier_tags: {
-        name: 'Suggest classifier tags',
-        description: 'Suggest a tag vocabulary for a Replay Vision classifier scanner',
-        icon: iconForType('session_replay'),
-        modes: [AgentMode.SessionReplay],
-        displayFormatter: (toolCall) => {
-            if (toolCall.status === 'completed') {
-                return 'Suggested classifier tags'
-            }
-            return 'Suggesting classifier tags...'
-        },
-    },
     search_replay_vision_observations: {
         name: 'Search observations',
         description: "Search observations by the meaning of a Replay Vision scanner's model reasoning",

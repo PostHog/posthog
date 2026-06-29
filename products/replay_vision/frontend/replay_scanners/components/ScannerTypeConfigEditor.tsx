@@ -1,8 +1,17 @@
 import { useActions, useValues } from 'kea'
 import { useCallback } from 'react'
 
-import { IconAI } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSegmentedButton, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
+import { IconAI, IconPlus, IconX } from '@posthog/icons'
+import {
+    LemonButton,
+    LemonCard,
+    LemonInput,
+    LemonSegmentedButton,
+    LemonSwitch,
+    LemonTag,
+    LemonTextArea,
+    Spinner,
+} from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
@@ -82,52 +91,101 @@ function ScannerPromptField({
     )
 }
 
-/** Tag-vocabulary field with a Max entry point that suggests relevant tags and merges them into the vocabulary. */
+const SUGGESTION_SOURCE_META: Record<string, { label: string; type: 'success' | 'primary' | 'default' }> = {
+    observed: { label: 'Seen in recordings', type: 'success' },
+    product: { label: 'From your product', type: 'primary' },
+    prompt: { label: 'From the goal', type: 'default' },
+}
+
+/** Grounded tag suggestions, each shown with the evidence it came from and a one-click add. */
+function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Element | null {
+    const logic = replayScannerLogic({ id: scannerId })
+    const { tagSuggestions, tagSuggestionsLoading, tagSuggestionsError } = useValues(logic)
+    const { acceptTagSuggestion, acceptAllTagSuggestions, dismissTagSuggestions } = useActions(logic)
+
+    if (tagSuggestionsLoading) {
+        return (
+            <div className="flex items-center gap-2 text-sm text-muted">
+                <Spinner />
+                Reading this scanner's recordings and your product to suggest tags…
+            </div>
+        )
+    }
+    if (tagSuggestionsError) {
+        return <div className="text-xs text-danger">{tagSuggestionsError}</div>
+    }
+    if (tagSuggestions.length === 0) {
+        return null
+    }
+    return (
+        <LemonCard className="space-y-2">
+            <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">Suggested tags</span>
+                <div className="flex items-center gap-1">
+                    <LemonButton size="xsmall" type="secondary" onClick={() => acceptAllTagSuggestions()}>
+                        Add all
+                    </LemonButton>
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        tooltip="Dismiss"
+                        onClick={() => dismissTagSuggestions()}
+                    />
+                </div>
+            </div>
+            <div className="space-y-2">
+                {tagSuggestions.map((suggestion) => {
+                    const meta = SUGGESTION_SOURCE_META[suggestion.source] ?? SUGGESTION_SOURCE_META.prompt
+                    return (
+                        <div key={suggestion.tag} className="flex items-start gap-2">
+                            <LemonButton
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconPlus />}
+                                tooltip="Add to vocabulary"
+                                onClick={() => acceptTagSuggestion(suggestion.tag)}
+                            />
+                            <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5">
+                                    <span className="font-mono text-xs">{suggestion.tag}</span>
+                                    <LemonTag size="small" type={meta.type}>
+                                        {meta.label}
+                                    </LemonTag>
+                                </div>
+                                <div className="text-xs text-muted">{suggestion.rationale}</div>
+                            </div>
+                        </div>
+                    )
+                })}
+            </div>
+        </LemonCard>
+    )
+}
+
+/** Tag-vocabulary field with an AI entry point that suggests grounded tags to add. */
 function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element {
     const logic = replayScannerLogic({ id: scannerId })
-    const { scanner } = useValues(logic)
-    const { appendClassifierTags } = useActions(logic)
+    const { scanner, tagSuggestionsLoading } = useValues(logic)
+    const { loadTagSuggestions } = useActions(logic)
 
     const config = scanner?.scanner_config as ClassifierScannerConfig | undefined
-
-    const onSuggestedTags = useCallback(
-        (toolOutput: { tags?: string[]; error?: string }) => {
-            if (!toolOutput?.error && toolOutput?.tags?.length) {
-                appendClassifierTags(toolOutput.tags)
-            }
-        },
-        [appendClassifierTags]
-    )
-
-    const { openMax } = useMaxTool({
-        identifier: 'suggest_replay_vision_classifier_tags',
-        active: !!scanner,
-        context: {
-            current_prompt: config?.prompt || '',
-            current_tags: config?.tags ?? [],
-        },
-        contextDescription: scanner
-            ? { text: `${scannerTypeLabel(scanner.scanner_type)} scanner`, icon: iconForType('session_replay') }
-            : undefined,
-        initialMaxPrompt: 'Suggest relevant tags for this classifier',
-        callback: onSuggestedTags,
-    })
+    const hasPrompt = !!config?.prompt?.trim()
 
     return (
         <div className="space-y-2">
             <div className="flex items-center justify-between gap-2">
                 <label className="text-sm font-medium">Tag vocabulary</label>
-                {openMax && (
-                    <LemonButton
-                        size="xsmall"
-                        type="secondary"
-                        icon={<IconAI />}
-                        onClick={() => openMax()}
-                        data-attr="replay-vision-suggest-tags-with-ai"
-                    >
-                        Suggest tags with PostHog AI
-                    </LemonButton>
-                )}
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    icon={<IconAI />}
+                    loading={tagSuggestionsLoading}
+                    disabledReason={hasPrompt ? undefined : 'Add a prompt first so suggestions match your goal'}
+                    onClick={() => loadTagSuggestions()}
+                    data-attr="replay-vision-suggest-tags-with-ai"
+                >
+                    Suggest tags with PostHog AI
+                </LemonButton>
             </div>
             <LemonField name="scanner_config.tags">
                 {({ value, onChange }) => (
@@ -141,6 +199,7 @@ function ClassifierTagsField({ scannerId }: { scannerId: string }): JSX.Element 
                     />
                 )}
             </LemonField>
+            <ClassifierTagSuggestions scannerId={scannerId} />
         </div>
     )
 }
