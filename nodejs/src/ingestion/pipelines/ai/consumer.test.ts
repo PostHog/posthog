@@ -1,12 +1,13 @@
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
-import { ProducerName } from '~/common/outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonHogConfig } from '~/common/personhog'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { TeamManagerComponent } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { ProducerName } from '~/ingestion/common/producers'
 import { newScope } from '~/ingestion/common/scopes'
-import { IngestionConsumerConfig, IngestionOutputsConfig, PersonHogConfig } from '~/ingestion/config'
+import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { TeamManagerComponent } from '~/utils/team-manager'
 
 import { AiConsumerConfig, AiOutputs, AiSharedScope, createAiConsumer } from './consumer'
 import * as pipelineModule from './pipeline'
@@ -36,10 +37,6 @@ describe('createAiConsumer', () => {
                 | 'INGESTION_STATEFUL_OVERFLOW_LOCAL_CACHE_TTL_SECONDS'
                 | 'EVENT_OVERFLOW_BUCKET_CAPACITY'
                 | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
-                | 'INGESTION_AI_EVENT_SPLITTING_ENABLED'
-                | 'INGESTION_AI_EVENT_SPLITTING_TEAMS'
-                | 'INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS'
-                | 'INGESTION_AI_EVENT_SPLITTING_PERCENTAGE'
             >),
             ...({} as IngestionOutputsConfig),
             ...({} as PersonHogConfig),

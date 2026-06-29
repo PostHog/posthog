@@ -80,6 +80,8 @@
     'posthog.tasks.plugin_server.fatal_plugin_error',
     'posthog.tasks.plugin_server.hog_function_state_transition',
     'posthog.tasks.push_notifications.send_user_push',
+    'posthog.tasks.remote_config.cleanup_stale_remote_config_expiry_tracking_task',
+    'posthog.tasks.remote_config.refresh_expiring_remote_config_cache_entries',
     'posthog.tasks.remote_config.sync_all_remote_configs',
     'posthog.tasks.remote_config.update_team_remote_config',
     'posthog.tasks.split_person.split_person',

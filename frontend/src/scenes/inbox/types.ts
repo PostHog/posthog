@@ -6,6 +6,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from '~/queries/schema/schema-signals'
+import type { UserBasicType } from '~/types'
 
 export type { EnrichedReviewer, RelevantCommit }
 export { SignalSourceProduct, SignalSourceType }
@@ -70,6 +71,12 @@ export interface SignalReportArtefact {
     type: string
     content: Record<string, any>
     created_at: string
+    /** Log artefacts are editable in place; null for write-once rows. */
+    updated_at?: string | null
+    /** Set when a human produced the artefact (drives the "by {name}" attribution byline). */
+    created_by?: UserBasicType | null
+    /** Set when an agent task produced the artefact (attribution reads "by agent"). */
+    task_id?: string | null
 }
 
 export interface SignalReportArtefactResponse {
@@ -155,19 +162,15 @@ export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
+// The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
+// relationship vocabulary below is retained only for the task-creation kickoff path, where the
+// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
 
 export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
-
-export interface SignalReportTask {
-    id: string
-    relationship: SignalReportTaskRelationship
-    task_id: string
-    created_at: string
-}
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
@@ -202,11 +205,13 @@ export interface SignalScoutConfig {
     id: string
     /** The `signals-scout-*` skill this config controls. Fixed at creation. */
     skill_name: string
+    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
+    description: string
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */
     emit: boolean
-    /** Minutes between runs (10–43200). */
+    /** Minutes between runs (30–43200). */
     run_interval_minutes: number
     /** When the coordinator last dispatched this scout; null if never. */
     last_run_at: string | null
@@ -240,6 +245,12 @@ export interface SignalScoutRunSummary {
     summary: string
     emitted_count: number
     emitted_finding_ids: string[]
+    /** Reports this run authored directly via the `emit_report` channel. Distinct from `emitted_count`
+     * (weak `emit_signal` findings): a report-authoring run writes a full report instead of a finding. */
+    emitted_report_ids: string[]
+    /** Reports this run mutated via the `edit_report` channel (retitled/resummarized and/or appended a
+     * note), deduped. Can target any inbox report, so these are generally not reports the run authored. */
+    edited_report_ids: string[]
 }
 
 /** One finding a scout run emitted to the inbox. */

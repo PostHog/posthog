@@ -197,14 +197,46 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertEqual(toolkit.retrieve_entity_property_values("org", "test"), '"7"')
 
-    def test_retrieve_entity_property_values_virtual_person_property_with_examples(self):
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_virtual_person_property_with_examples(self, mock_runner_class):
+        # A virtual property has no stored actor values, so the toolkit falls back to
+        # the taxonomy's hardcoded examples. The real runner reads ClickHouse actor
+        # data, which sibling tests on the same shard can pollute (file-level sharding
+        # runs the whole file together and ClickHouse writes are not rolled back per
+        # test), making it return a stray "Unknown" instead of nothing. Mock an empty
+        # result so this asserts the fallback deterministically; the real-runner path
+        # is covered by the property-value tests that seed actual actor data.
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
         toolkit = DummyToolkit(self.team, self.user)
         self.assertEqual(
             toolkit.retrieve_entity_property_values("person", "$virt_initial_channel_type"),
             '"Paid Search", "Organic Video", "Direct" and many more distinct values.',
         )
 
-    def test_retrieve_entity_property_values_virtual_property_without_examples(self):
+    @patch("ee.hogai.chat_agent.query_planner.toolkit.ActorsPropertyTaxonomyQueryRunner")
+    def test_retrieve_entity_property_values_virtual_property_without_examples(self, mock_runner_class):
+        # The real runner reads ClickHouse actor data, which sibling tests on the same
+        # shard can pollute (file-level sharding runs the whole file together and
+        # ClickHouse writes are not rolled back per test), making $virt_mrr resolve to a
+        # stray value instead of nothing. Mock an empty result so this asserts the
+        # no-values fallback deterministically.
+        now = datetime(2024, 1, 1, tzinfo=UTC)
+        mock_runner_class.return_value.run.return_value = CachedActorsPropertyTaxonomyQueryResponse(
+            cache_key="test",
+            is_cached=True,
+            last_refresh=now,
+            next_allowed_client_refresh=now,
+            results=[],
+            timezone="UTC",
+        )
         create_group_type_mapping_without_created_at(
             team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="proj"
         )

@@ -61,6 +61,33 @@ _BASE_PROMPT_TAIL = """# How a run works
    fill space. The harness parses the JSON and writes `summary` to the run row
    as searchable prose.
 
+# Scratchpad keys
+
+`remember` upserts on `key`: writing a key that already exists *overwrites it in
+place*. A key is a stable identity, not a log entry — it must name the *thing*
+you're tracking, never *when* you saw it. Embedding a date, timestamp, or run id
+in a key mints a brand-new row every run, never reclaims the old one, and — for a
+dedupe key — guarantees next run's key won't match the entity you already
+surfaced, defeating the dedupe it was meant to do.
+
+- **Run state / cursors** (a "last scan" marker, a rolling baseline, "where I got
+  to") → one fixed key like `pattern:<domain>:cursor`, with the timestamp *in the
+  content*. Overwrite it each run.
+- **Dedupe / "already surfaced X"** → key off the stable identity of the thing —
+  `dedupe:<domain>:<issue_id>`, `<account_external_id>`, `<file_path>` — with no
+  date. Put the dates you saw it *in the content* ("surfaced 2026-05-01,
+  re-confirmed 2026-06-09"); re-confirming updates the same row in place.
+- **One row per real external item** (a specific Discord message id, a specific
+  alert id) is fine — that's bounded by real events, not by time.
+
+Good: `dedupe:error_tracking:019de34e`, `pattern:apm:cursor`.
+Bad: `dedupe:error_tracking:019de34e-2026-06-09`, `pattern:apm:scan-2026-06-09-0400`.
+
+Write the `content` as **Markdown** — headings, bullet lists, `inline code` for
+ids/keys, links. Humans read these entries directly, so structured Markdown is far
+easier to skim than a wall of prose; it costs you nothing and reads verbatim into
+future prompts just the same.
+
 # Recency lens
 
 Default to recent windows (~last 72h) when querying — fresh evidence is usually

@@ -53,3 +53,9 @@ export const aiOtelSystemInstructionsCounter = new Counter({
     help: 'Outcome of promoting `gen_ai.system_instructions` into a leading $ai_input system message',
     labelNames: ['outcome'],
 })
+
+export const aiOtelGroupsCounter = new Counter({
+    name: 'llma_ai_otel_groups_total',
+    help: 'Outcome of decoding a string-valued $groups attribute back into an object',
+    labelNames: ['outcome'],
+})

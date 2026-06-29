@@ -41,7 +41,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'desktop_recording', objectName: 'Desktop recording', objectPlural: 'desktop recordings' },
     { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
@@ -50,6 +49,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'error_tracking', objectName: 'Error tracking', objectPlural: 'error tracking' },
     { key: 'evaluation', objectName: 'Evaluation', objectPlural: 'evaluations' },
     { key: 'experiment', objectName: 'Experiment', objectPlural: 'experiments' },
+    { key: 'experiment_holdout', objectName: 'Holdout', objectPlural: 'holdouts' },
     { key: 'experiment_saved_metric', objectName: 'Shared metric', objectPlural: 'shared metrics' },
     { key: 'external_data_source', objectName: 'External data source', objectPlural: 'external data sources' },
     { key: 'export', objectName: 'Export', objectPlural: 'exports' },
@@ -107,7 +107,6 @@ export const API_SCOPES: APIScope[] = [
         },
     },
     { key: 'person', objectName: 'Person', objectPlural: 'persons' },
-    { key: 'persisted_folder', objectName: 'Persisted folder', objectPlural: 'persisted folders' },
     { key: 'customer_profile_config', objectName: 'Customer profile config', objectPlural: 'customer profile configs' },
     { key: 'plugin', objectName: 'Plugin', objectPlural: 'plugins' },
     { key: 'product_tour', objectName: 'Product tour', objectPlural: 'product tours' },
@@ -121,7 +120,8 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'property_definition', objectName: 'Property definition', objectPlural: 'property definitions' },
     { key: 'query', objectName: 'Query', objectPlural: 'queries', disabledActions: ['write'] },
-    // `query_performance` is omitted — see `INTERNAL_API_SCOPE_OBJECTS` in posthog/scopes.py.
+    // `query_performance` is omitted — OAuth-hidden, PAT-grantable only (see `OAUTH_HIDDEN_SCOPE_OBJECTS` in posthog/scopes.py).
+    // `wizard_session` is also omitted for the same reason.
     { key: 'replay_scanner', objectName: 'Replay scanner', objectPlural: 'replay scanners' },
     { key: 'revenue_analytics', objectName: 'Revenue analytics', objectPlural: 'revenue analytics' },
     { key: 'session_recording', objectName: 'Session recording', objectPlural: 'session recordings' },
@@ -170,7 +170,7 @@ export const API_SCOPES: APIScope[] = [
 ]
 API_SCOPES.sort((a, b) => a.objectName.localeCompare(b.objectName))
 
-export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read'] as const
+export const PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION = ['endpoint:read', 'feature_flag:read'] as const
 
 export type ProjectSecretAPIKeyAllowedScope = (typeof PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION)[number]
 
@@ -263,6 +263,7 @@ export type ProjectSecretAPIKeyScopePreset = {
 
 export const PROJECT_SECRET_API_KEY_SCOPE_PRESETS: ProjectSecretAPIKeyScopePreset[] = [
     { value: 'endpoint_execution', label: 'Endpoint execution', scopes: ['endpoint:read'] },
+    { value: 'local_evaluation', label: 'Local feature flag evaluation', scopes: ['feature_flag:read'] },
     { value: 'llm_gateway', label: 'AI gateway access', scopes: ['llm_gateway:read'] },
 ]
 
@@ -316,6 +317,7 @@ export const getScopeDescription = (scope: string): string | undefined => {
     }
 
     if (scope === 'introspection') {
+        // OAuth-internal scope — never shown to users; list call sites .filter(Boolean) it out.
         return undefined
     }
 
@@ -325,12 +327,14 @@ export const getScopeDescription = (scope: string): string | undefined => {
         return scope
     }
 
+    const actionWord = action === 'write' ? 'Write' : 'Read'
+
     const scopeObject = API_SCOPES.find((s) => s.key === object)
     if (!scopeObject) {
-        // Unknown / hidden scope — call sites .filter(Boolean) the result.
-        return undefined
+        // OAuth-hidden scope (e.g. wizard_session, query_performance) — absent from API_SCOPES,
+        // so derive a readable label from the raw key rather than surfacing the raw identifier.
+        return `${actionWord} access to ${object.replace(/_/g, ' ')}`
     }
-    const actionWord = action === 'write' ? 'Write' : 'Read'
 
     return `${actionWord} access to ${scopeObject.objectPlural}`
 }

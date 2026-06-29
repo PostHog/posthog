@@ -15,6 +15,7 @@ from posthog.models.user import User
 from products.tasks.backend.facade import (
     api as facade,
     contracts,
+    warm as warm_facade,
 )
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
 
@@ -130,6 +131,65 @@ class TestFacadeReadsAndMappers(TestCase):
 
         self.assertEqual(facade.get_latest_pr_url_by_task([]), {})
 
+    def test_get_conversation_task_dtos_carries_latest_run_id_not_nested_run(self):
+        task = self._make_task(title="Conversation task")
+        TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        latest = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+
+        dtos = facade.get_conversation_task_dtos([task.id], self.team.id)
+
+        self.assertEqual(set(dtos.keys()), {task.id})
+        dto = dtos[task.id]
+        self.assertIsInstance(dto, contracts.TaskDetailDTO)
+        self.assertEqual(dto.id, task.id)
+        self.assertEqual(dto.title, "Conversation task")
+        # The nested run payload stays excluded (no presigned log URLs); only the id is carried.
+        self.assertIsNone(dto.latest_run)
+        self.assertEqual(dto.latest_run_id, latest.id)
+        self.assertEqual(facade.get_conversation_task_dtos([task.id], other_team.id), {})
+
+    def test_get_conversation_task_dtos_latest_run_id_none_without_runs(self):
+        task = self._make_task(title="No runs")
+
+        dto = facade.get_conversation_task_dtos([task.id], self.team.id)[task.id]
+
+        self.assertIsNone(dto.latest_run_id)
+
+    def test_get_conversation_task_dtos_is_cheap_for_many_tasks(self):
+        tasks = [self._make_task(title=f"task-{i}") for i in range(5)]
+        for task in tasks:
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+
+        # A single query with the latest-run-id subquery — no per-task run lookup, no N+1.
+        with self.assertNumQueries(1):
+            dtos = facade.get_conversation_task_dtos([t.id for t in tasks], self.team.id)
+            for task in tasks:
+                self.assertIsNotNone(dtos[task.id].latest_run_id)
+
+    @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
+    @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
+    def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
+        task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            dto = warm_facade.warm_task_run(
+                task.id,
+                self.team.id,
+                self.user.id,
+                extra_state={"systemPrompt": {"type": "preset"}},
+            )
+
+        self.assertIsInstance(dto, contracts.WarmRunDTO)
+        self.assertEqual(dto.task_id, task.id)
+        self.assertTrue(dto.just_created)
+
+        run = TaskRun.objects.get(id=dto.run_id)
+        self.assertEqual(dto.run_status, run.status)
+        self.assertEqual(run.state["systemPrompt"], {"type": "preset"})
+        mock_workflow.assert_called_once()
+
     def test_stale_queued_and_fail(self):
         task = self._make_task()
         fresh = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
@@ -148,6 +208,26 @@ class TestFacadeReadsAndMappers(TestCase):
         stale.refresh_from_db()
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
+
+    def test_stale_queued_created_at_hard_cap(self):
+        task = self._make_task()
+        now = django_timezone.now()
+        ancient = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.filter(pk=ancient.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(hours=2)
+        )
+        resuming = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.filter(pk=resuming.pk).update(
+            created_at=now - timedelta(hours=50), updated_at=now - timedelta(minutes=10)
+        )
+
+        self.assertNotIn(ancient.id, facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100))
+
+        hard_capped = facade.get_stale_queued_task_run_ids(
+            older_than=timedelta(hours=24), limit=100, created_hard_cap=timedelta(hours=48)
+        )
+        self.assertIn(ancient.id, hard_capped)
+        self.assertNotIn(resuming.id, hard_capped)
 
     def test_update_task_run_state(self):
         task = self._make_task()

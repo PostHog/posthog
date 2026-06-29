@@ -27,7 +27,7 @@ from posthog.models.comment import Comment
 from posthog.models.comment.utils import build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.utils import UUIDT
-from posthog.ph_client import get_client
+from posthog.ph_client import feature_enabled_or_false, get_client
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
 
@@ -1107,7 +1107,7 @@ def login_from_new_device_notification(
     elif user.current_organization is None:
         enabled = False
     else:
-        enabled = posthoganalytics.feature_enabled(
+        enabled = feature_enabled_or_false(
             key="login-from-new-device-notification",
             distinct_id=str(user.distinct_id),
             groups={"organization": str(user.current_organization.id)},
@@ -1907,6 +1907,7 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             "new_issues": error_tracking_api.get_new_issues_for_team(team),
             "daily_counts": error_tracking_api.get_daily_exception_counts(team),
             "crash_free": error_tracking_api.get_crash_free_sessions(team),
+            "source_maps_recommendation": error_tracking_api.get_source_maps_recommendation_for_team(team),
             "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
             "ingestion_failures_url": error_tracking_api.build_ingestion_failures_url(team_id),
         }

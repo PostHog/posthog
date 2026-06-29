@@ -1,15 +1,15 @@
 import { create } from '@bufbuild/protobuf'
 import { Client } from '@connectrpc/connect'
 
-import { PersonHogService } from '~/generated/personhog/personhog/service/v1/service_pb'
-import { GroupKeySchema } from '~/generated/personhog/personhog/types/v1/common_pb'
+import { PersonHogService } from '~/common/generated/personhog/personhog/service/v1/service_pb'
+import { GroupKeySchema } from '~/common/generated/personhog/personhog/types/v1/common_pb'
 import {
     GetGroupRequestSchema,
     GetGroupTypeMappingsByProjectIdsRequestSchema,
     GetGroupTypeMappingsByTeamIdsRequestSchema,
     GetGroupsBatchRequestSchema,
-} from '~/generated/personhog/personhog/types/v1/group_pb'
-import type { Group as ProtoGroup } from '~/generated/personhog/personhog/types/v1/group_pb'
+} from '~/common/generated/personhog/personhog/types/v1/group_pb'
+import type { Group as ProtoGroup } from '~/common/generated/personhog/personhog/types/v1/group_pb'
 import { Group as DomainGroup, GroupTypeIndex } from '~/types'
 
 import { epochMsToDateTime, eventualReadOptions, parseJsonBytes } from './client'

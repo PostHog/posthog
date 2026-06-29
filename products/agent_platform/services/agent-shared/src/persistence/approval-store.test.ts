@@ -4,8 +4,20 @@ import { Pool } from 'pg'
 import { reset } from '@posthog/agent-shared/testing'
 
 import { AssistantMessageRecord } from '../spec/spec'
-import { ApprovalStore, hashCanonicalArgs, UpsertApprovalRequestInput } from './approval-store'
+import { ApprovalStore, effectiveApprovalType, hashCanonicalArgs, UpsertApprovalRequestInput } from './approval-store'
 import { PgApprovalStore } from './pg-approval-store'
+
+describe('effectiveApprovalType', () => {
+    it.each([
+        ['new principal scope', { type: 'principal', allow_edit: false }, 'principal'],
+        ['new agent scope', { type: 'agent', allow_edit: true }, 'agent'],
+        ['legacy team_admins → agent', { approvers: ['team_admins'] }, 'agent'],
+        ['legacy session_principal → principal', { approvers: ['session_principal'] }, 'principal'],
+        ['empty / unknown → principal', {}, 'principal'],
+    ])('%s', (_label, scope, expected) => {
+        expect(effectiveApprovalType(scope as never)).toBe(expected)
+    })
+})
 
 const TEST_DB_URL =
     process.env.AGENT_TEST_DB_URL ?? 'postgres://posthog:posthog@localhost:5432/agent_runtime_queue_test'
@@ -51,9 +63,8 @@ function buildInput(overrides: Partial<UpsertApprovalRequestInput> = {}): Upsert
         proposed_args: { team_id: 42 },
         assistant_message: fauxAssistantMessage(),
         approver_scope: {
-            approvers: ['team_admins'],
+            type: 'agent',
             allow_edit: false,
-            allow_agent_approver: false,
         },
         expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
         ...overrides,

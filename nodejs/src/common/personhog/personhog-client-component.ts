@@ -1,7 +1,5 @@
-import { PersonHogConfig } from '~/ingestion/config'
-
 import { PersonHogClient } from './client'
-import { createPersonHogClient } from './index'
+import { PersonHogConfig, createPersonHogClient } from './index'
 
 /**
  * Scope owner for a PersonHog gRPC client: builds the client on `start()` and

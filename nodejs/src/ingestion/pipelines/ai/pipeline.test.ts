@@ -2,23 +2,23 @@ import { Message } from 'node-rdkafka'
 
 import { ReadOnlyGroupTypeManager } from '~/common/groups/readonly-group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { TopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { ok } from '~/ingestion/framework/results'
 import { DisabledOverflowRedirect } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { createTestTeam } from '~/tests/helpers/team'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { parseJSON } from '~/utils/json-parse'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
-import { UUIDT } from '~/utils/utils'
 
 import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT } from './outputs'
 import { AiIngestionPipelineConfig, createAiIngestionPipeline } from './pipeline'
@@ -167,7 +167,6 @@ describe('AiIngestionPipeline', () => {
             hogTransformer: mockHogTransformer as unknown as HogTransformer,
             personRepository: mockPersonRepository,
             groupTypeManager: mockGroupTypeManager,
-            splitAiEventsConfig: { enabled: true, enabledTeams: '*', enabledPercentage: 0, stripHeavyTeams: [] },
             overflowEnabled: false,
             preservePartitionLocality: false,
             overflowRedirectService: new DisabledOverflowRedirect(),

@@ -61,7 +61,7 @@ from products.actions.backend.models.action import Action, ActionStepJSON
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 
 def parse_semver(value: str) -> tuple[str, str, str]:
@@ -807,7 +807,11 @@ def property_to_expr(
     else:
         raise QueryError(f"property_to_expr with property of type {type(property).__name__} not implemented")
 
-    if property.type == "hogql":
+    if property.type == "flag":
+        # Flag dependencies are evaluated at flag-matching time and can't be expressed
+        # in HogQL — return a neutral filter, mirroring the FlagPropertyFilter handling above.
+        return ast.Constant(value=1)
+    elif property.type == "hogql":
         tag_contains_user_hogql()
         return parse_expr(property.key, cache_origin=CacheOrigin.USER)
     elif property.type == "event_metadata" and scope == "group" and GROUP_KEY_PATTERN.match(property.key) is not None:

@@ -572,7 +572,7 @@ describe('buildUsageLimitApproachingMessage', () => {
             { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
         ])
         expect(result.title).toEqual('You will soon hit your usage limit')
-        expect(result.message).toEqual('You have currently used 90% of your recordings allocation.')
+        expect(result.message).toEqual('You have currently used 90% of your Session replay allocation.')
     })
 
     it('should build message for multiple products', () => {
@@ -582,13 +582,17 @@ describe('buildUsageLimitApproachingMessage', () => {
         ])
         expect(result.title).toEqual('You will soon hit your usage limits')
         expect(result.message).toEqual(
-            'You are approaching your usage limits: 90% of your recordings allocation, 87% of your feature_flag_requests allocation.'
+            'You are approaching your usage limits: 90% of your Session replay allocation, 87% of your Feature flags & Experiments allocation.'
         )
     })
 
-    it('should handle missing usage_key', () => {
-        const result = buildUsageLimitApproachingMessage([{ name: 'Session replay', percentage_usage: 0.9 }])
-        expect(result.message).toContain('usage allocation')
+    it.each([
+        { name: 'Session replay', usage_key: undefined, expected: 'Session replay allocation' },
+        { name: '', usage_key: 'signals_credits', expected: 'signals_credits allocation' },
+        { name: '', usage_key: undefined, expected: 'usage allocation' },
+    ])('should resolve label to "$expected" (name="$name", usage_key=$usage_key)', ({ name, usage_key, expected }) => {
+        const result = buildUsageLimitApproachingMessage([{ name, percentage_usage: 0.9, usage_key }])
+        expect(result.message).toContain(expected)
     })
 
     it('should format percentage with up to 2 decimal places', () => {

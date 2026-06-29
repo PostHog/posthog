@@ -4,9 +4,9 @@ import { useState } from 'react'
 import { IconClock } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
-import { keybindToKeyboardShortcutProps } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
+import { keybindToKeyboardShortcutProps } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
+import { useShortcut } from 'lib/components/Shortcuts/useShortcut'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -40,7 +40,7 @@ export function RecentItemsMenu(): JSX.Element {
         setIsOpen(open)
     }
 
-    useAppShortcut({
+    useShortcut({
         name: 'recent-items-menu',
         keybind: [keyBinds.recentItems],
         intent: 'Open recent items menu',

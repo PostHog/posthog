@@ -22,6 +22,10 @@ TASK_RUN_STREAM_TIMEOUT = SANDBOX_TTL_SECONDS
 TASK_RUN_STREAM_SEQUENCE_TIMEOUT = int(SANDBOX_EVENT_INGEST_TOKEN_TTL.total_seconds())
 TASK_RUN_STREAM_PREFIX = "task-run-stream:"
 TASK_RUN_STREAM_READ_COUNT = 16
+# XREAD BLOCK is push-based (XADD wakes the blocked client immediately), so a
+# longer block only cuts idle polling — it never delays delivery. Keep it under
+# the keepalive interval so idle readers still wake in time to emit one.
+TASK_RUN_STREAM_READ_BLOCK_MS = 5_000
 TASK_RUN_STREAM_WAIT_INITIAL_DELAY_SECONDS = 0.05
 TASK_RUN_STREAM_WAIT_DELAY_INCREMENT_SECONDS = 0.15
 TASK_RUN_STREAM_WAIT_MAX_DELAY_SECONDS = 2.0
@@ -194,7 +198,7 @@ class TaskRunRedisStream:
     async def read_stream(
         self,
         start_id: str = "0",
-        block_ms: int = 100,
+        block_ms: int = TASK_RUN_STREAM_READ_BLOCK_MS,
         count: Optional[int] = TASK_RUN_STREAM_READ_COUNT,
         keepalive_interval_seconds: float | None = None,
     ) -> AsyncGenerator[dict]:
@@ -212,7 +216,7 @@ class TaskRunRedisStream:
     async def read_stream_entries(
         self,
         start_id: str = "0",
-        block_ms: int = 100,
+        block_ms: int = TASK_RUN_STREAM_READ_BLOCK_MS,
         count: Optional[int] = TASK_RUN_STREAM_READ_COUNT,
         keepalive_interval_seconds: float | None = None,
     ) -> AsyncGenerator[TaskRunStreamEntryOrKeepalive]:

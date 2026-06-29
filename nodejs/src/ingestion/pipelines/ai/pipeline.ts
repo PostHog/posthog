@@ -5,6 +5,10 @@ import { HogTransformer } from '~/common/hog-transformations/hog-transformer.int
 import { AppMetricsOutput, DlqOutput, IngestionWarningsOutput, OverflowOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
 import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
@@ -42,10 +46,7 @@ import { createNormalizeProcessPersonFlagStep } from '~/ingestion/common/steps/e
 import { createPrefetchHogFunctionsStep } from '~/ingestion/common/steps/event-processing/prefetch-hog-functions-step'
 import { createPrepareEventStep } from '~/ingestion/common/steps/event-processing/prepare-event-step'
 import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-processing/readonly-process-groups-step'
-import {
-    SplitAiEventsStepConfig,
-    createSplitAiEventsStep,
-} from '~/ingestion/common/steps/event-processing/split-ai-events-step'
+import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
@@ -54,10 +55,6 @@ import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/exte
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { isDropResult } from '~/ingestion/framework/results'
 import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
 
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'
@@ -75,7 +72,6 @@ export interface AiIngestionPipelineConfig {
     // Read-only person/group access — the AI pipeline never writes persons or groups.
     personRepository: PersonReadRepository
     groupTypeManager: ReadOnlyGroupTypeManager
-    splitAiEventsConfig: SplitAiEventsStepConfig
     overflowEnabled: boolean
     preservePartitionLocality: boolean
     overflowRedirectService: OverflowRedirectService
@@ -123,7 +119,6 @@ export function createAiIngestionPipeline<
         hogTransformer,
         personRepository,
         groupTypeManager,
-        splitAiEventsConfig,
         overflowEnabled,
         preservePartitionLocality,
         overflowRedirectService,
@@ -273,7 +268,7 @@ export function createAiIngestionPipeline<
                                                         .pipe(createReadOnlyProcessGroupsStep(groupTypeManager))
                                                         .pipe(createCreateEventStep(EVENTS_OUTPUT))
                                                         // Double-write to events + ai_events outputs.
-                                                        .pipe(createSplitAiEventsStep(splitAiEventsConfig))
+                                                        .pipe(createSplitAiEventsStep())
                                                         .pipe(
                                                             topHog(createEmitEventStep({ outputs }), [
                                                                 sum(

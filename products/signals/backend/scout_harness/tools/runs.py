@@ -20,6 +20,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from django.db.models import Q
+
 from products.signals.backend.models import SignalScoutRun
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -52,6 +54,14 @@ class RunSummary:
     summary: str
     emitted_count: int = 0
     emitted_finding_ids: list[str] = field(default_factory=list)
+    # Reports authored via the `emit_report` channel — separate from `emitted_count`/`emitted_finding_ids`
+    # (which count weak `emit_signal` findings), so a run that only authored a report still reads as
+    # having emitted something.
+    emitted_report_ids: list[str] = field(default_factory=list)
+    # Reports this run *mutated* via the `edit_report` channel (rewrote title/summary and/or appended a
+    # note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are
+    # generally not reports the run authored. Lets "which reports did this run edit?" be a column lookup.
+    edited_report_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -83,6 +93,14 @@ class RunDetail:
     summary: str
     emitted_count: int = 0
     emitted_finding_ids: list[str] = field(default_factory=list)
+    # Reports authored via the `emit_report` channel — separate from `emitted_count`/`emitted_finding_ids`
+    # (which count weak `emit_signal` findings), so a run that only authored a report still reads as
+    # having emitted something.
+    emitted_report_ids: list[str] = field(default_factory=list)
+    # Reports this run *mutated* via the `edit_report` channel (rewrote title/summary and/or appended a
+    # note), deduped. Distinct from `emitted_report_ids`: edit can target any inbox report, so these are
+    # generally not reports the run authored. Lets "which reports did this run edit?" be a column lookup.
+    edited_report_ids: list[str] = field(default_factory=list)
     task_id: str | None = None
     task_run_id: str | None = None
     task_url: str | None = None
@@ -115,8 +133,9 @@ def search_recent_runs(
     `text` is a case-insensitive substring match on the agent's end-of-run
     `summary` — the primary dedupe path for runs that didn't emit findings.
     `emitted` filters on emit outcome: `True` keeps only runs that emitted at least
-    one finding (`emitted_count > 0`), `False` keeps only runs that emitted nothing;
-    omit it for both. `skill_name` is an exact-match filter that narrows the dump to
+    one finding *or* authored a report (`emitted_count > 0` or a non-empty
+    `emitted_report_ids`), `False` keeps only runs that emitted nothing on either
+    channel; omit it for both. `skill_name` is an exact-match filter that narrows the dump to
     a single scout — the primary scoping path for a specialist deduping against its
     own past work; pair it with `skill_version` to pin a specific version. Results
     are capped at `MAX_RUN_SEARCH_LIMIT`.
@@ -130,7 +149,13 @@ def search_recent_runs(
     if text:
         qs = qs.filter(summary__icontains=text)
     if emitted is not None:
-        qs = qs.filter(emitted_count__gt=0) if emitted else qs.filter(emitted_count=0)
+        # A run "emitted" if it surfaced a weak finding (emitted_count) or authored a report
+        # (emitted_report_ids). Treat null/[] report lists as empty for the negative case.
+        emitted_a_report = ~Q(emitted_report_ids=[]) & ~Q(emitted_report_ids__isnull=True)
+        if emitted:
+            qs = qs.filter(Q(emitted_count__gt=0) | emitted_a_report)
+        else:
+            qs = qs.filter(emitted_count=0).filter(Q(emitted_report_ids=[]) | Q(emitted_report_ids__isnull=True))
     if skill_name:
         qs = qs.filter(skill_name=skill_name)
     if skill_version is not None:
@@ -167,6 +192,8 @@ def _to_summary(row: SignalScoutRun, *, team_id: int) -> RunSummary:
         summary=row.summary,
         emitted_count=row.emitted_count or 0,
         emitted_finding_ids=list(row.emitted_finding_ids or []),
+        emitted_report_ids=list(row.emitted_report_ids or []),
+        edited_report_ids=list(row.edited_report_ids or []),
         task_id=task_id,
         task_run_id=task_run_id,
         task_url=_build_task_url(team_id=team_id, task_id=task_id, task_run_id=task_run_id),

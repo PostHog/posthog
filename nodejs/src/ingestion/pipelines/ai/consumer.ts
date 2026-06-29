@@ -8,21 +8,25 @@ import {
     EventOutput,
     IngestionWarningsOutput,
     OverflowOutput,
-    ProducerName,
     TophogOutput,
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
+import { PersonHogConfig } from '~/common/personhog'
 import { PersonHogClientComponent } from '~/common/personhog/personhog-client-component'
 import { PersonHogGroupReadRepository } from '~/common/personhog/personhog-group-read-repository'
 import { PersonHogPersonReadRepository } from '~/common/personhog/personhog-person-read-repository'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { EventIngestionRestrictionManagerComponent } from '~/common/utils/event-ingestion-restrictions'
+import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
+import { TeamManager } from '~/common/utils/team-manager'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManagerComponent } from '~/ingestion/common/event-filters'
 import { CommonIngestionConsumerConfig, CommonIngestionConsumerScope } from '~/ingestion/common/ingestion-consumer'
+import { ProducerName } from '~/ingestion/common/producers'
 import { Scope, extend } from '~/ingestion/common/scopes'
-import { parseSplitAiEventsConfig } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { PromiseSchedulerComponent } from '~/ingestion/common/utils/promise-scheduler'
-import { IngestionConsumerConfig, IngestionOutputsConfig, PersonHogConfig } from '~/ingestion/config'
+import { IngestionConsumerConfig, IngestionOutputsConfig } from '~/ingestion/config'
 import { createTopHogWrapper } from '~/ingestion/framework/extensions/tophog'
 import { TopHog } from '~/ingestion/framework/tophog'
 import { DisabledOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/disabled-overflow-redirect'
@@ -30,10 +34,6 @@ import { MainLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-re
 import { OverflowLaneOverflowRedirectComponent } from '~/ingestion/utils/overflow-redirect/overflow-lane-overflow-redirect'
 import { RedisOverflowRepositoryComponent } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
 import { RedisPool } from '~/types'
-import { PostgresRouter } from '~/utils/db/postgres'
-import { EventIngestionRestrictionManagerComponent } from '~/utils/event-ingestion-restrictions'
-import { EventSchemaEnforcementManager } from '~/utils/event-schema-enforcement-manager'
-import { TeamManager } from '~/utils/team-manager'
 
 import { createAiIngestionPipeline } from './pipeline'
 
@@ -50,10 +50,6 @@ export type AiConsumerConfig = CommonIngestionConsumerConfig &
         | 'EVENT_OVERFLOW_BUCKET_REPLENISH_RATE'
         | 'INGESTION_OVERFLOW_PRESERVE_PARTITION_LOCALITY'
         | 'INGESTION_WORKER_CONCURRENT_BATCHES'
-        | 'INGESTION_AI_EVENT_SPLITTING_ENABLED'
-        | 'INGESTION_AI_EVENT_SPLITTING_TEAMS'
-        | 'INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS'
-        | 'INGESTION_AI_EVENT_SPLITTING_PERCENTAGE'
         | 'DROP_EVENTS_BY_TOKEN_DISTINCT_ID'
         | 'SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID'
         | 'INGESTION_FORCE_OVERFLOW_BY_TOKEN_DISTINCT_ID'
@@ -172,12 +168,6 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
             personRepository: new PersonHogPersonReadRepository(container.personhogClient, clientLabel),
             groupTypeManager: new ReadOnlyGroupTypeManager(
                 new PersonHogGroupReadRepository(container.personhogClient, clientLabel)
-            ),
-            splitAiEventsConfig: parseSplitAiEventsConfig(
-                config.INGESTION_AI_EVENT_SPLITTING_ENABLED,
-                config.INGESTION_AI_EVENT_SPLITTING_TEAMS,
-                config.INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY_TEAMS,
-                config.INGESTION_AI_EVENT_SPLITTING_PERCENTAGE
             ),
             overflowEnabled,
             preservePartitionLocality,

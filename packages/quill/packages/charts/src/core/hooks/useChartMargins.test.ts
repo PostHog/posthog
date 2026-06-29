@@ -96,6 +96,17 @@ describe('useChartMargins', () => {
         expect(render({ series: oneVisible, labels: ['a', 'b'] }).right).toBeLessThan(48)
     })
 
+    it('reserves the gutter on the right for a single axis pinned right', () => {
+        const data = [200, 800, 1200]
+        const onRight: Series[] = [{ key: 'a', label: 'A', data, yAxisId: 'right' }]
+        const soleRight = render({ series: onRight, labels: ['a', 'b', 'c'], yAxisPositions: { right: 'right' } })
+        const soleLeft = render({ series: [{ key: 'a', label: 'A', data }], labels: ['a', 'b', 'c'] })
+        // The right gutter is reserved (dual-axis floor) and the left no longer holds the axis labels.
+        expect(soleRight.right).toBeGreaterThanOrEqual(48)
+        expect(soleRight.right).toBeGreaterThan(soleLeft.right)
+        expect(soleRight.left).toBeLessThan(soleLeft.left)
+    })
+
     it('widens the left margin to fit long y-tick labels', () => {
         const big: Series[] = [{ key: 'a', label: 'A', data: [1_000_000_000, 2_000_000_000] }]
         const small: Series[] = [{ key: 'a', label: 'A', data: [1, 2] }]

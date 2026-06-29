@@ -1,10 +1,10 @@
 import { Pool as GenericPool } from 'generic-pool'
 import { Redis } from 'ioredis'
 
+import { timeoutGuard } from '~/common/utils/db/utils'
+import { logger } from '~/common/utils/logger'
 import { Component } from '~/ingestion/common/scopes'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '~/types'
-import { timeoutGuard } from '~/utils/db/utils'
-import { logger } from '~/utils/logger'
 
 import { overflowRedirectRedisLatency, overflowRedirectRedisOpsTotal } from './metrics'
 

@@ -209,8 +209,14 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setPanel(0)
                         return
                     }
+                    const fieldError = e?.data?.email
+                    const emailErrorMessage = fieldError
+                        ? Array.isArray(fieldError)
+                            ? String(fieldError[0])
+                            : String(fieldError)
+                        : e?.detail || 'Could not verify your email. Please try again.'
                     actions.setSignupPanelEmailManualErrors({
-                        email: e?.detail || 'Could not verify your email. Please try again.',
+                        email: emailErrorMessage,
                     })
                     return
                 }
@@ -220,7 +226,8 @@ export const signupLogic = kea<signupLogicType>([
                     return
                 }
                 actions.setPendingInvite(null)
-                actions.setPanel(1)
+                // Demo is passwordless — skip the password/passkey panel straight to onboarding.
+                actions.setPanel(values.preflight?.demo ? 2 : 1)
             },
         },
         signupPanelAuth: {
@@ -308,6 +315,16 @@ export const signupLogic = kea<signupLogicType>([
 
                     actions.resetChallenge()
 
+                    // If the server returns an email validation error, send the user back to the
+                    // email step so the error appears next to the field that caused it.
+                    const emailError = error.data?.email
+                    if (emailError) {
+                        const message = Array.isArray(emailError) ? String(emailError[0]) : String(emailError)
+                        actions.setSignupPanelEmailManualErrors({ email: message })
+                        actions.setPanel(0)
+                        return
+                    }
+
                     if (error.code === 'throttled') {
                         actions.setSignupPanelOnboardingManualErrors({
                             generic: {
@@ -363,8 +380,14 @@ export const signupLogic = kea<signupLogicType>([
                         actions.setPanel(0)
                         return
                     }
+                    const fieldError = e?.data?.email
+                    const emailErrorMessage = fieldError
+                        ? Array.isArray(fieldError)
+                            ? String(fieldError[0])
+                            : String(fieldError)
+                        : e?.detail || 'Could not verify your email. Please try again.'
                     actions.setSignupPanel1ManualErrors({
-                        email: e?.detail || 'Could not verify your email. Please try again.',
+                        email: emailErrorMessage,
                     })
                     return
                 }
@@ -438,6 +461,14 @@ export const signupLogic = kea<signupLogicType>([
                     }
 
                     actions.resetChallenge()
+
+                    const emailError = error.data?.email
+                    if (emailError) {
+                        const message = Array.isArray(emailError) ? String(emailError[0]) : String(emailError)
+                        actions.setSignupPanel1ManualErrors({ email: message })
+                        actions.setPanel(0)
+                        return
+                    }
 
                     if (error.code === 'throttled') {
                         actions.setSignupPanel2ManualErrors({
