@@ -9902,11 +9902,11 @@ export namespace Schemas {
       UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
-    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+    export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
 
 
-    export const AzureBlobDestinationConfigType = {
-      AzureBlob: 'AzureBlob',
+    export const AwsS3DestinationConfigType = {
+      AwsS3: 'AwsS3',
     } as const;
 
     /**
@@ -9928,15 +9928,93 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `JSONLines` - JSONLines
      * * `Parquet` - Parquet
+     * * `JSONLines` - JSONLines
      */
     export type FileFormatEnum = typeof FileFormatEnum[keyof typeof FileFormatEnum];
 
 
     export const FileFormatEnum = {
-      JSONLines: 'JSONLines',
       Parquet: 'Parquet',
+      JSONLines: 'JSONLines',
+    } as const;
+
+    /**
+     * Typed configuration for an AWS S3 batch-export destination.
+     *
+     * AWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of
+     * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface AwsS3DestinationConfig {
+      /** Name of the destination bucket. */
+      bucket_name: string;
+      /** Region the bucket is in (e.g. 'us-east-1'). */
+      region: string;
+      /** Object key prefix applied to every exported file. */
+      prefix: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+       *
+       * * `brotli` - brotli
+       * * `gzip` - gzip
+       * * `lz4` - lz4
+       * * `snappy` - snappy
+       * * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+       *
+       * * `Parquet` - Parquet
+       * * `JSONLines` - JSONLines */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      /**
+         * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
+         * @nullable
+         */
+      encryption?: string | null;
+      /**
+         * KMS key ID to use when encryption is 'aws:kms'.
+         * @nullable
+         */
+      kms_key_id?: string | null;
+      type: AwsS3DestinationConfigType;
+    }
+
+    export type AwsS3DestinationRequestType = typeof AwsS3DestinationRequestType[keyof typeof AwsS3DestinationRequestType];
+
+
+    export const AwsS3DestinationRequestType = {
+      AwsS3: 'AwsS3',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an AWS S3 batch-export destination.
+     */
+    export interface AwsS3DestinationRequest {
+      type: AwsS3DestinationRequestType;
+      /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: AwsS3DestinationConfig;
+    }
+
+    /**
+     * * `AwsS3` - AwsS3
+     */
+    export type AwsS3DestinationRequestTypeEnum = typeof AwsS3DestinationRequestTypeEnum[keyof typeof AwsS3DestinationRequestTypeEnum];
+
+
+    export const AwsS3DestinationRequestTypeEnum = {
+      AwsS3: 'AwsS3',
+    } as const;
+
+    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+
+
+    export const AzureBlobDestinationConfigType = {
+      AzureBlob: 'AzureBlob',
     } as const;
 
     /**
@@ -10541,14 +10619,59 @@ export namespace Schemas {
       type: PostgresDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
+    export type S3CompatibleDestinationConfigType = typeof S3CompatibleDestinationConfigType[keyof typeof S3CompatibleDestinationConfigType];
+
+
+    export const S3CompatibleDestinationConfigType = {
+      S3Compatible: 'S3Compatible',
+    } as const;
+
+    /**
+     * Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
+     * DigitalOcean Spaces, etc.).
+     *
+     * Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
+     * Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
+     * `products/batch_exports/backend/service.py`.
+     */
+    export interface S3CompatibleDestinationConfig {
+      /** Name of the destination bucket. */
+      bucket_name: string;
+      /** Region the bucket is in (e.g. 'us-east-1'). */
+      region: string;
+      /** Object key prefix applied to every exported file. */
+      prefix: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+       *
+       * * `brotli` - brotli
+       * * `gzip` - gzip
+       * * `lz4` - lz4
+       * * `snappy` - snappy
+       * * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+       *
+       * * `Parquet` - Parquet
+       * * `JSONLines` - JSONLines */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      /** Use virtual-hosted-style addressing rather than path-style. */
+      use_virtual_style_addressing?: boolean;
+      type: S3CompatibleDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
-     * Other destination types accept the same JSON shape but without a typed
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
+     * AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
@@ -10568,7 +10691,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10576,7 +10699,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11527,7 +11650,24 @@ export namespace Schemas {
       config: PostgresDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
+    export type S3CompatibleDestinationRequestType = typeof S3CompatibleDestinationRequestType[keyof typeof S3CompatibleDestinationRequestType];
+
+
+    export const S3CompatibleDestinationRequestType = {
+      S3Compatible: 'S3Compatible',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an S3-compatible batch-export destination.
+     */
+    export interface S3CompatibleDestinationRequest {
+      type: S3CompatibleDestinationRequestType;
+      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: S3CompatibleDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -47013,6 +47153,16 @@ export namespace Schemas {
          */
       recommended_running_time_days: number | null;
     }
+
+    /**
+     * * `S3Compatible` - S3Compatible
+     */
+    export type S3CompatibleDestinationRequestTypeEnum = typeof S3CompatibleDestinationRequestTypeEnum[keyof typeof S3CompatibleDestinationRequestTypeEnum];
+
+
+    export const S3CompatibleDestinationRequestTypeEnum = {
+      S3Compatible: 'S3Compatible',
+    } as const;
 
     /**
      * Form fields that must be submitted verbatim with the file upload
