@@ -304,11 +304,20 @@
                         count: document.getElementById("change_mode_count_row"),
                         size: document.getElementById("change_mode_size_row"),
                     };
+                    function setRow(row, visible) {
+                        row.style.display = visible ? "" : "none";
+                        // Disable controls in hidden rows so they're neither submitted nor subject
+                        // to HTML5 constraint validation — a hidden invalid/required control would
+                        // otherwise silently block form submission ("not focusable").
+                        row.querySelectorAll("input, select").forEach(function (el) {
+                            el.disabled = !visible;
+                        });
+                    }
                     function sync() {
                         var mode = modeSelect.value;
-                        rows.format.style.display = mode === "datetime" ? "" : "none";
-                        rows.count.style.display = mode === "md5" ? "" : "none";
-                        rows.size.style.display = mode === "numerical" ? "" : "none";
+                        setRow(rows.format, mode === "datetime");
+                        setRow(rows.count, mode === "md5");
+                        setRow(rows.size, mode === "numerical");
                     }
                     modeSelect.addEventListener("change", sync);
                     sync();

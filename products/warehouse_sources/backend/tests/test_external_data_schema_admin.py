@@ -210,9 +210,11 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
     @parameterized.expand(
         [
-            # datetime/numerical need exactly one key; the count/size inputs aren't `required` in
-            # the form (they're JS-toggled per mode), so an empty submission must be rejected
-            # server-side rather than blowing up on int("") or staging a half-built override.
+            # datetime/numerical need exactly one key. The change-mode count/size inputs are
+            # intentionally not `required` (the form disables them when their mode isn't selected,
+            # so a hidden control can't block submission), which means an empty submission reaches
+            # the server and must be rejected here rather than blowing up on int("") or staging a
+            # half-built override.
             (
                 "datetime_without_single_key",
                 {"partition_mode": "datetime", "partitioning_keys": "record_id,action_date"},

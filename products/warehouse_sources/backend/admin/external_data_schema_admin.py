@@ -60,6 +60,29 @@ def _change_url(schema_id) -> str:
     return reverse("admin:warehouse_sources_externaldataschema_change", args=[schema_id])
 
 
+def _parse_positive_int(request, field: str, label: str) -> int | None:
+    """Parse a required positive integer from POST, posting a flash message on failure.
+
+    Returns the parsed value, or None if the field is empty / not an integer / < 1
+    (after posting the appropriate `messages.error`). Callers redirect back to the
+    change page when None is returned. Shared by the repartition and change-partition-mode
+    views, whose forms both take operator-typed partition counts/sizes.
+    """
+    raw = request.POST.get(field, "").strip()
+    if not raw:
+        messages.error(request, f"{label} is required.")
+        return None
+    try:
+        value = int(raw)
+    except ValueError:
+        messages.error(request, f"{label} must be an integer; got {raw!r}.")
+        return None
+    if value < 1:
+        messages.error(request, f"{label} must be >= 1; got {value}.")
+        return None
+    return value
+
+
 @admin.register(ExternalDataSchema)
 class ExternalDataSchemaAdmin(admin.ModelAdmin):
     list_display = (
@@ -160,14 +183,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             partition_value = new_format
             previous_value = schema.partition_format
         elif schema.partition_mode == "numerical":
-            raw = request.POST.get("partition_size", "").strip()
-            try:
-                new_size = int(raw)
-            except ValueError:
-                messages.error(request, f"partition_size must be an integer; got {raw!r}.")
-                return redirect(_change_url(schema_id))
-            if new_size < 1:
-                messages.error(request, f"partition_size must be >= 1; got {new_size}.")
+            new_size = _parse_positive_int(request, "partition_size", "partition_size")
+            if new_size is None:
                 return redirect(_change_url(schema_id))
             # Write the *_override key, not partition_size directly: the bundled reset below
             # wipes partition_size, so a plain write would be discarded and the source would
@@ -177,14 +194,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             partition_value = new_size
             previous_value = schema.partition_size
         elif schema.partition_mode == "md5":
-            raw = request.POST.get("partition_count", "").strip()
-            try:
-                new_count = int(raw)
-            except ValueError:
-                messages.error(request, f"partition_count must be an integer; got {raw!r}.")
-                return redirect(_change_url(schema_id))
-            if new_count < 1:
-                messages.error(request, f"partition_count must be >= 1; got {new_count}.")
+            new_count = _parse_positive_int(request, "partition_count", "partition_count")
+            if new_count is None:
                 return redirect(_change_url(schema_id))
             # Write the *_override key (survives the reset); see the numerical branch above.
             partition_field = "partition_count_override"
@@ -356,34 +367,16 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if len(keys) != 1:
                 messages.error(request, "numerical mode needs exactly one integer partitioning key.")
                 return redirect(_change_url(schema_id))
-            raw = request.POST.get("partition_size", "").strip()
-            if not raw:
-                messages.error(request, "partition_size is required for numerical mode.")
-                return redirect(_change_url(schema_id))
-            try:
-                new_size = int(raw)
-            except ValueError:
-                messages.error(request, f"partition_size must be an integer; got {raw!r}.")
-                return redirect(_change_url(schema_id))
-            if new_size < 1:
-                messages.error(request, f"partition_size must be >= 1; got {new_size}.")
+            new_size = _parse_positive_int(request, "partition_size", "partition_size")
+            if new_size is None:
                 return redirect(_change_url(schema_id))
             staged["partitioning_keys_override"] = keys
             staged["partition_size_override"] = new_size
             label_bits.append(f"keys={keys}")
             label_bits.append(f"partition_size={new_size}")
         else:  # md5
-            raw = request.POST.get("partition_count", "").strip()
-            if not raw:
-                messages.error(request, "partition_count is required for md5 mode.")
-                return redirect(_change_url(schema_id))
-            try:
-                new_count = int(raw)
-            except ValueError:
-                messages.error(request, f"partition_count must be an integer; got {raw!r}.")
-                return redirect(_change_url(schema_id))
-            if new_count < 1:
-                messages.error(request, f"partition_count must be >= 1; got {new_count}.")
+            new_count = _parse_positive_int(request, "partition_count", "partition_count")
+            if new_count is None:
                 return redirect(_change_url(schema_id))
             # Always stage partitioning_keys_override (None when no keys supplied) so a stale
             # override from a prior change-mode action — e.g. the date column pinned by an earlier
