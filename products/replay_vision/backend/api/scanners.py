@@ -546,7 +546,7 @@ class TagSuggestionSerializer(serializers.Serializer):
     rationale = serializers.CharField(
         help_text="One sentence explaining the specific evidence this tag is grounded in."
     )
-    source = serializers.ChoiceField(
+    source = serializers.ChoiceField(  # type: ignore[assignment]
         choices=["observed", "product", "prompt"],
         help_text=(
             "Primary grounding: observed=a category this scanner already emitted on recordings; "
