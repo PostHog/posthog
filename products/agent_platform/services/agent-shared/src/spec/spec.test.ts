@@ -29,7 +29,7 @@ describe('AgentSpecSchema', () => {
                 { kind: 'native', id: '@posthog/query' },
                 { kind: 'custom', id: 'fetch-acme', path: 'tools/fetch-acme/' },
             ],
-            mcps: [{ id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
+            mcps: [{ kind: 'agent', id: 'posthog', url: 'https://app.posthog.com/api/mcp' }],
             skills: [{ id: 'deep-research', path: 'skills/deep-research/SKILL.md' }],
             secrets: ['ACME_KEY'],
             limits: { max_turns: 10, max_tool_calls: 50, max_wall_seconds: 300 },
@@ -443,6 +443,7 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
                         secrets: ['LINEAR_TOKEN'],
@@ -462,6 +463,7 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'posthog',
                         url: 'https://app.posthog.com/api/mcp',
                         tools: [
@@ -499,6 +501,7 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
                         tools: [{ name: 'create-issue' }],
@@ -516,7 +519,7 @@ describe('AgentSpecSchema', () => {
         it('defaults secrets to [] and tools to undefined when omitted on external', () => {
             const spec = AgentSpecSchema.parse({
                 model: 'x',
-                mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse' }],
+                mcps: [{ kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse' }],
             })
             const m = spec.mcps[0]
             expect(m.secrets).toEqual([])
@@ -533,6 +536,7 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'github',
                         url: 'https://api.githubcopilot.com/mcp',
                         secrets: ['GITHUB_TOKEN'],
@@ -551,16 +555,19 @@ describe('AgentSpecSchema', () => {
         })
 
         it.each([
-            { label: 'missing id', mcp: { url: 'https://mcp.linear.app/sse' } },
-            { label: 'empty id', mcp: { id: '', url: 'https://mcp.linear.app/sse' } },
-            { label: 'non-URL endpoint', mcp: { id: 'linear', url: 'not-a-url' } },
+            { label: 'missing id', mcp: { kind: 'agent', url: 'https://mcp.linear.app/sse' } },
+            { label: 'empty id', mcp: { kind: 'agent', id: '', url: 'https://mcp.linear.app/sse' } },
+            { label: 'non-URL endpoint', mcp: { kind: 'agent', id: 'linear', url: 'not-a-url' } },
+            { label: 'missing kind', mcp: { id: 'linear', url: 'https://mcp.linear.app/sse' } },
+            { label: 'bad kind', mcp: { kind: 'shared', id: 'linear', url: 'https://mcp.linear.app/sse' } },
             {
                 label: 'tools entry with empty name string',
-                mcp: { id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
+                mcp: { kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', tools: [''] },
             },
             {
                 label: 'tools object with empty name',
                 mcp: {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: [{ name: '' }],
@@ -569,6 +576,7 @@ describe('AgentSpecSchema', () => {
             {
                 label: 'duplicate bare-string entries',
                 mcp: {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['create-issue', 'create-issue'],
@@ -577,6 +585,7 @@ describe('AgentSpecSchema', () => {
             {
                 label: 'a bare-string entry duplicating an object entry name',
                 mcp: {
+                    kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
                     tools: ['create-issue', { name: 'create-issue', requires_approval: true }],
@@ -597,6 +606,7 @@ describe('AgentSpecSchema', () => {
                 model: 'x',
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'linear',
                         url: 'https://mcp.linear.app/sse',
                         allowlist: ['create-issue'],
@@ -614,6 +624,7 @@ describe('AgentSpecSchema', () => {
             const spec = AgentSpecSchema.parse({
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'incident',
                         url: 'https://mcp.incident.io/mcp',
                         connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
@@ -628,6 +639,7 @@ describe('AgentSpecSchema', () => {
             const spec = AgentSpecSchema.parse({
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'incident',
                         url: 'https://mcp.incident.io/mcp',
                         connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
@@ -655,7 +667,7 @@ describe('AgentSpecSchema', () => {
 
         it('leaves default_tool_approval undefined under the legacy allowlist model', () => {
             const spec = AgentSpecSchema.parse({
-                mcps: [{ id: 'linear', url: 'https://mcp.linear.app/sse', tools: ['create-issue'] }],
+                mcps: [{ kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', tools: ['create-issue'] }],
             })
             expect(spec.mcps[0].default_tool_approval).toBeUndefined()
         })
@@ -663,16 +675,62 @@ describe('AgentSpecSchema', () => {
         it.each([
             {
                 label: 'a bad connection-wide default_tool_approval',
-                mcp: { id: 'incident', url: 'https://mcp.incident.io/mcp', default_tool_approval: 'ask' },
+                mcp: {
+                    kind: 'agent',
+                    id: 'incident',
+                    url: 'https://mcp.incident.io/mcp',
+                    default_tool_approval: 'ask',
+                },
             },
             {
                 label: 'a bad per-tool level override',
                 mcp: {
+                    kind: 'agent',
                     id: 'incident',
                     url: 'https://mcp.incident.io/mcp',
                     default_tool_approval: 'allow',
                     tools: [{ name: 'x', level: 'maybe' }],
                 },
+            },
+        ])('rejects $label', ({ mcp }) => {
+            expect(() => AgentSpecSchema.parse({ mcps: [mcp] })).toThrow()
+        })
+    })
+
+    describe('mcps[].kind (required credential model)', () => {
+        it('parses a principal-kind MCP wired to a per-asker identity provider', () => {
+            const spec = AgentSpecSchema.parse({
+                mcps: [
+                    {
+                        kind: 'principal',
+                        id: 'posthog',
+                        url: 'https://app.posthog.com/api/mcp',
+                        auth: { provider: 'posthog' },
+                    },
+                ],
+            })
+            expect(spec.mcps[0].kind).toBe('principal')
+            expect(spec.mcps[0].auth?.provider).toBe('posthog')
+        })
+
+        it.each([
+            {
+                label: 'a principal kind without auth.provider',
+                mcp: { kind: 'principal', id: 'x', url: 'https://m.dev/mcp' },
+            },
+            {
+                label: 'a principal kind that also pins a connection',
+                mcp: {
+                    kind: 'principal',
+                    id: 'x',
+                    url: 'https://m.dev/mcp',
+                    connection: '019e7fb7-f4c0-75e2-9055-7c29a5cbb999',
+                    auth: { provider: 'posthog' },
+                },
+            },
+            {
+                label: 'an agent kind that sets auth.provider',
+                mcp: { kind: 'agent', id: 'x', url: 'https://m.dev/mcp', auth: { provider: 'posthog' } },
             },
         ])('rejects $label', ({ mcp }) => {
             expect(() => AgentSpecSchema.parse({ mcps: [mcp] })).toThrow()

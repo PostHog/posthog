@@ -251,6 +251,7 @@
     ],
     "mcps": [
         {
+            "kind": "principal",
             "id": "posthog",
             "url": "http://localhost:8787/mcp",
             "auth": {

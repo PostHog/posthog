@@ -182,12 +182,14 @@
     "reasoning": "high",
     "mcps": [
         {
+            "kind": "agent",
             "id": "incident-io",
             "url": "https://mcp.incident.io/mcp",
             "connection": "00000000-0000-0000-0000-000000000000",
             "default_tool_approval": "approve"
         },
         {
+            "kind": "principal",
             "id": "posthog",
             "url": "http://localhost:8787/mcp",
             "auth": { "provider": "posthog" }

