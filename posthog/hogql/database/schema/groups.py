@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectQuery
 from posthog.hogql.context import HogQLContext
@@ -126,9 +128,11 @@ def _bare_limit_key_count(node: SelectQuery) -> int | None:
     ):
         return None
 
-    offset = node.offset.value if node.offset is not None else 0
+    # The guard above proved both are non-negative integer Constants; cast so mypy sees `.value` (mirrors persons).
+    node_limit = cast(ast.Constant, node.limit)
+    node_offset = cast(ast.Constant, node.offset)
     # +1 mirrors persons: leaves room to detect whether more rows exist; the outer LIMIT trims the extra group.
-    return node.limit.value + offset + 1
+    return node_limit.value + (node_offset.value if node.offset else 0) + 1
 
 
 def join_with_group_n_table(
