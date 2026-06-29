@@ -82,6 +82,12 @@ export const CODING_AGENT_CLIENT_NAME_FRAGMENTS = [
     // `clientInfo.name` as `opencode`. It renders text, not MCP Apps UI, so it
     // wants single-exec mode like the other coding agents.
     'opencode',
+    // Amp is Sourcegraph's coding agent; its MCP client self-reports
+    // `clientInfo.name` as `amp-mcp-client` and benefits from single-exec mode.
+    'amp-mcp-client',
+    // Poke is an LLM-driven assistant that renders text, not MCP Apps UI, so it
+    // wants the same single-exec mode as the coding agents.
+    'poke',
 ] as const
 
 // Known `x-anthropic-client` (`vendorClient`) header values. Anthropic pools
