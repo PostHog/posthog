@@ -15,6 +15,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
     RelevantEvents,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
+    MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
     PromptRejectedError,
@@ -268,6 +269,33 @@ class TestPinnedEventNames(APIBaseTest):
         EventDefinition.objects.create(team=other, name="export created")
 
         assert _pinned_event_names(self.team, "how is `export created`?") == []
+
+    @parameterized.expand(
+        [
+            # `$` and `.` are part of an event-name token, so `$pageview` and `app.opened` match as
+            # whole names but never as a bare `pageview`/`opened` slice of a larger token.
+            ("quoted_dollar_name", "how is `$pageview`?", ["$pageview"]),
+            ("bare_dollar_name_excludes_plain", "spike in $pageview today", ["$pageview"]),
+            ("bare_plain_name_excludes_dollar", "how many pageview events", ["pageview"]),
+            ("dotted_name_pinned", "trend of app.opened", ["app.opened"]),
+            ("embedded_in_identifier_not_matched", "check my_pageview_handler logs", []),
+        ]
+    )
+    def test_special_char_token_boundaries(self, _name: str, prompt: str, expected: list[str]) -> None:
+        for name in ("$pageview", "pageview", "app.opened"):
+            EventDefinition.objects.create(team=self.team, name=name)
+
+        assert _pinned_event_names(self.team, prompt) == expected
+
+    def test_caps_pinned_count_at_max(self) -> None:
+        # A degenerate prompt naming more events than the ceiling pins at most MAX_PINNED_EVENTS, so the
+        # planner context and the downstream property lookup stay bounded.
+        names = [f"evt_{i}" for i in range(MAX_PINNED_EVENTS + 5)]
+        for name in names:
+            EventDefinition.objects.create(team=self.team, name=name)
+        prompt = " ".join(f"`{n}`" for n in names)
+
+        assert len(_pinned_event_names(self.team, prompt)) == MAX_PINNED_EVENTS
 
 
 class TestEventPropertyNames(APIBaseTest):

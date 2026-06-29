@@ -52,6 +52,13 @@ EVENT_NAME_MAX_LENGTH = 120
 CANDIDATE_EVENTS_LIMIT = 500
 RELEVANT_EVENTS_LIMIT = 12
 EVENT_PROPERTIES_PER_EVENT_LIMIT = 15
+# A user-named event is pinned even when it falls outside the LLM candidate cap, but both ends are
+# bounded so neither a large taxonomy nor a degenerate prompt can blow up generation. The pin scan
+# reads at most PINNED_EVENT_SCAN_LIMIT definitions (most-recently-seen first — far past
+# CANDIDATE_EVENTS_LIMIT, so any realistically-recent named event still resolves), and at most
+# MAX_PINNED_EVENTS pins survive (keeps the planner context / property lookup predictable).
+PINNED_EVENT_SCAN_LIMIT = 2000
+MAX_PINNED_EVENTS = 25
 
 DEFAULT_PLANNER_MODEL = "gpt-4.1"
 DEFAULT_SYNTHESIS_MODEL = "gpt-4.1"
@@ -247,9 +254,10 @@ def _pinned_event_names(team: Team, prompt: str) -> list[str]:
 
     An event is pinned when its (normalized) name either (a) was quoted/backticked in the prompt, or
     (b) appears verbatim as a standalone token in the prompt. Validation is a single team-scoped
-    `EventDefinition` lookup over the FULL taxonomy — deliberately not the capped candidate set — so a
-    named event survives even when it falls outside `CANDIDATE_EVENTS_LIMIT`. Returns raw names so the
-    EventProperty lookup (keyed on the stored name) works, ordered most-recently-seen first.
+    `EventDefinition` lookup, most-recently-seen first and bounded by `PINNED_EVENT_SCAN_LIMIT` — well
+    past `CANDIDATE_EVENTS_LIMIT`, so a named event survives even when it falls outside the LLM
+    candidate set, without scanning an unbounded taxonomy. At most `MAX_PINNED_EVENTS` pins are
+    returned. Returns raw names so the EventProperty lookup (keyed on the stored name) works.
     """
     quoted = _extract_quoted_event_tokens(prompt)
     # Bare matching needs a normalized haystack to test each event name against as a standalone token.
@@ -260,7 +268,7 @@ def _pinned_event_names(team: Team, prompt: str) -> list[str]:
     raw_names = (
         EventDefinition.objects.filter(team_id=team.pk)
         .order_by(F("last_seen_at").desc(nulls_last=True), "name")
-        .values_list("name", flat=True)
+        .values_list("name", flat=True)[:PINNED_EVENT_SCAN_LIMIT]
     )
     pinned: list[str] = []
     seen: set[str] = set()
@@ -271,6 +279,8 @@ def _pinned_event_names(team: Team, prompt: str) -> list[str]:
         if normalized in quoted or _appears_as_standalone_token(normalized, haystack):
             seen.add(normalized)
             pinned.append(raw)
+            if len(pinned) >= MAX_PINNED_EVENTS:
+                break
     return pinned
 
 
@@ -333,14 +343,12 @@ def _select_relevant_events(
     pinned = _pinned_event_names(team, prompt)
     llm_selected = _llm_selected_events(team, user, prompt, candidates, trace_correlation_id)
 
-    selected: list[str] = []
-    seen: set[str] = set()
-    for raw in (*pinned, *llm_selected):
-        if raw in seen:
-            continue
-        seen.add(raw)
-        selected.append(raw)
-    # Cap the union, but never below the pinned set — explicit picks are the guarantee this PR adds.
+    # `dict.fromkeys` unions the two (each already deduped) order-preserving, pinned leading. Both paths
+    # resolve to the same raw representative per normalized name — identical `EventDefinition` ordering,
+    # first-raw-wins — so an event surfaced by both can't appear twice.
+    selected = list(dict.fromkeys((*pinned, *llm_selected)))
+    # Cap the union, but never below the (already MAX_PINNED_EVENTS-bounded) pinned set — explicit picks
+    # are the guarantee this PR adds.
     cap = max(RELEVANT_EVENTS_LIMIT, len(pinned))
     return selected[:cap]
 
