@@ -188,6 +188,7 @@ mod tests {
             details,
             destination: Destination::AnalyticsMain,
             force_disable_person_processing: false,
+            is_gateway_verified: false,
         }
     }
 

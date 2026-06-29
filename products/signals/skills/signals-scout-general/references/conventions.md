@@ -72,7 +72,9 @@ duplicating entries.
 ## Entry shape that pays off
 
 Good entries are **future-run actionable**. The next scout reads them and
-changes behavior because of them:
+changes behavior because of them. Write `content` as Markdown — humans read these
+entries directly, so structured Markdown (headings, bullets, `inline code` for ids)
+is far easier to skim than a wall of prose:
 
 ```text
 key:     dedupe:error_tracking:019de34e-2026-05-01

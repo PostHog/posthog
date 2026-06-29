@@ -29,9 +29,14 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     _get_aws_storage_options,
 )
 
-from products.data_modeling.backend.models import DAG, Node, NodeType
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DAG,
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 from products.data_warehouse.backend.facade.api import CreateTableResult
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 

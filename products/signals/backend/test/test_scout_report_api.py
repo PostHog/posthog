@@ -144,6 +144,24 @@ class TestScoutReportAPI(APIBaseTest):
         assert "title" in response.json()["updated_fields"]
         assert response.json()["note_appended"] is True
         assert SignalReport.objects.get(id=created["report_id"]).title == "new title"
+        # The run records which report it edited so "which reports did this run touch?" is a column lookup.
+        run.refresh_from_db()
+        assert run.edited_report_ids == [created["report_id"]]
+
+    def test_edit_report_records_edited_report_once_across_repeated_edits(self) -> None:
+        # The edited tally is set-membership, not a per-edit log: a run editing the same report twice
+        # records it once (the per-edit detail lives in the report's artefact log).
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        for title in ("first edit", "second edit"):
+            response = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, "title": title}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
 
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")
@@ -221,8 +239,10 @@ class TestScoutReportAPI(APIBaseTest):
         self, _name: str, safe: bool, ai_approved: bool, expected_outcome: str
     ) -> None:
         # The `signals_scout_report_emitted` event is the report channel's observability funnel — its
-        # `outcome` must classify every terminal path (surfaced / suppressed / gate_skipped) correctly and
-        # carry the run/report ids that join it to the run lifecycle events.
+        # `outcome` must classify every terminal path (surfaced / suppressed / gate_skipped) correctly,
+        # carry the run/report ids that join it to the run lifecycle events, and (parity with the signal
+        # channel's `signal_emitted`) carry the report's content on every outcome so internal consumers can
+        # act on the report's substance, not just its ids.
         if not ai_approved:
             self.organization.is_ai_data_processing_approved = False
             self.organization.save(update_fields=["is_ai_data_processing_approved"])
@@ -240,6 +260,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["run_id"] == str(run.id)
         assert props["report_id"] == body["report_id"]
         assert props["evidence_count"] == 1
+        # Content parity with `signal_emitted` — present on every outcome, including gate_skipped.
+        assert props["title"] == "Checkout p99 regressed after 4.2"
+        assert props["summary"] == "The /checkout endpoint p99 doubled after the 4.2 deploy."
+        assert props["actionability"] == "immediately_actionable"
 
     def test_edit_report_captures_edited_event(self) -> None:
         run = _make_run(self.team)
@@ -255,6 +279,10 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["report_id"] == created["report_id"]
         assert "title" in props["updated_fields"]
         assert props["note_appended"] is True
+        # The edit event carries the content the edit applied; an untouched field (summary) stays None.
+        assert props["title"] == "new title"
+        assert props["note"] == "re-validated"
+        assert props["summary"] is None
 
     @parameterized.expand(
         [
