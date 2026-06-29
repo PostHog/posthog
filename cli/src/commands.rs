@@ -594,21 +594,20 @@ mod tests {
     #[test]
     fn agents_is_off_by_default_and_gated_behind_experimental() {
         // Without the flag, `experimental` parses false — run_impl gates on this.
-        let cli = Cli::try_parse_from(["posthog-cli", "agents", "list", "dir"]).unwrap();
+        // `dir` defaults to cwd, so `agents list` takes no positional.
+        let cli = Cli::try_parse_from(["posthog-cli", "agents", "list"]).unwrap();
         assert!(!cli.experimental);
         assert!(matches!(cli.command, Commands::Agents { .. }));
 
         // The flag must precede the subcommand (it is not a clap global).
-        let cli = Cli::try_parse_from(["posthog-cli", "--experimental", "agents", "list", "dir"])
-            .unwrap();
+        let cli = Cli::try_parse_from(["posthog-cli", "--experimental", "agents", "list"]).unwrap();
         assert!(cli.experimental);
     }
 
     #[test]
     fn agents_deploy_dry_run_is_independent_of_top_level_flag() {
         // `agents deploy --dry-run` sets only the subcommand preview flag, like `exp endpoints`.
-        let cli =
-            Cli::try_parse_from(["posthog-cli", "agents", "deploy", "dir", "--dry-run"]).unwrap();
+        let cli = Cli::try_parse_from(["posthog-cli", "agents", "deploy", "--dry-run"]).unwrap();
         assert!(!cli.dry_run);
         assert_eq!(dry_run_skipped_command(&cli.command), None);
     }

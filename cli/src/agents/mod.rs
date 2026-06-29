@@ -104,7 +104,9 @@ pub enum AgentsCommand {
 
 #[derive(Args, Clone)]
 pub struct DeployArgs {
-    /// Directory of agent bundles (each a subdir with spec.json + agent.md).
+    /// Bundle directory: a single bundle (spec.json + agent.md) or a parent of
+    /// bundles. Defaults to the current directory.
+    #[arg(short = 'd', long, default_value = ".")]
     pub dir: String,
 
     /// Only deploy bundles whose slug equals or contains one of these.
@@ -143,7 +145,9 @@ pub struct DeployArgs {
 
 #[derive(Args, Clone)]
 pub struct PullArgs {
-    /// Directory of agent bundles to pull into.
+    /// Bundle directory: a single bundle (spec.json + agent.md) or a parent of
+    /// bundles. Defaults to the current directory.
+    #[arg(short = 'd', long, default_value = ".")]
     pub dir: String,
 
     /// Only pull bundles whose slug equals or contains one of these.
@@ -172,7 +176,9 @@ pub struct PullArgs {
 
 #[derive(Args, Clone)]
 pub struct ListArgs {
-    /// Directory of agent bundles.
+    /// Bundle directory: a single bundle (spec.json + agent.md) or a parent of
+    /// bundles. Defaults to the current directory.
+    #[arg(short = 'd', long, default_value = ".")]
     pub dir: String,
 }
 
@@ -196,13 +202,33 @@ pub struct LoadedBundle {
     pub files: HashMap<String, String>,
 }
 
-/// Every immediate subdir of `dir` that holds a deployable bundle (spec.json +
-/// agent.md), sorted by slug.
+/// Bundles to act on, resolved from `dir` (commonly the current directory):
+/// - `dir` is itself a bundle (`spec.json` + `agent.md`) → just that bundle;
+/// - otherwise every immediate subdir that is a bundle, sorted by slug.
+///
+/// Paths are canonicalized so a relative `dir` (e.g. `.`) yields a real slug.
+/// A half-formed bundle (one of the two files present) errors loudly rather
+/// than being silently treated as an empty parent.
 pub fn discover_bundles(dir: &Path) -> Result<Vec<PathBuf>> {
+    let dir = std::fs::canonicalize(dir).with_context(|| format!("resolving {}", dir.display()))?;
     if !dir.is_dir() {
         anyhow::bail!("not a directory: {}", dir.display());
     }
-    let mut out: Vec<PathBuf> = std::fs::read_dir(dir)
+
+    let has_spec = dir.join("spec.json").is_file();
+    let has_agent = dir.join("agent.md").is_file();
+    if has_spec && has_agent {
+        return Ok(vec![dir]);
+    }
+    if has_spec || has_agent {
+        anyhow::bail!(
+            "{} looks like a bundle but is missing {}",
+            dir.display(),
+            if has_spec { "agent.md" } else { "spec.json" }
+        );
+    }
+
+    let mut out: Vec<PathBuf> = std::fs::read_dir(&dir)
         .with_context(|| format!("reading {}", dir.display()))?
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter(|p| p.is_dir() && p.join("spec.json").is_file() && p.join("agent.md").is_file())
@@ -428,4 +454,60 @@ pub fn apply_spec_overrides(
         }
     }
     Ok(spec)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A unique scratch dir under the system temp dir for one test.
+    fn scratch(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("ph_agents_{}_{tag}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_bundle(dir: &Path) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join("spec.json"), "{}").unwrap();
+        std::fs::write(dir.join("agent.md"), "# agent").unwrap();
+    }
+
+    #[test]
+    fn discover_bundles_treats_a_bundle_dir_as_a_single_bundle() {
+        let dir = scratch("single");
+        write_bundle(&dir);
+        let found = discover_bundles(&dir).unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            slug_of(&found[0]),
+            dir.file_name().map(|n| n.to_string_lossy().to_string())
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn discover_bundles_finds_child_bundles_under_a_parent() {
+        let parent = scratch("parent");
+        write_bundle(&parent.join("alpha"));
+        write_bundle(&parent.join("beta"));
+        std::fs::create_dir_all(parent.join("not-a-bundle")).unwrap(); // no spec/agent → ignored
+        let slugs: Vec<String> = discover_bundles(&parent)
+            .unwrap()
+            .iter()
+            .filter_map(|p| slug_of(p))
+            .collect();
+        assert_eq!(slugs, vec!["alpha".to_string(), "beta".to_string()]);
+        std::fs::remove_dir_all(&parent).unwrap();
+    }
+
+    #[test]
+    fn discover_bundles_errors_on_a_half_formed_bundle() {
+        let dir = scratch("partial");
+        std::fs::write(dir.join("spec.json"), "{}").unwrap(); // spec but no agent.md
+        let err = discover_bundles(&dir).unwrap_err().to_string();
+        assert!(err.contains("missing agent.md"), "unexpected error: {err}");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }
