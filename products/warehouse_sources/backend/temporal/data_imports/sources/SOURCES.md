@@ -50,6 +50,7 @@ the row lists both.
 | algolia             | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads          | HTTP                        | requests                                                        | ✅                          |
 | amplitude           | HTTP                        | requests                                                        | ✅                          |
+| apify_dataset       | HTTP                        | requests                                                        | ✅                          |
 | apollo              | HTTP                        | requests                                                        | ✅                          |
 | appsflyer           | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana               | HTTP                        | requests                                                        | ✅                          |
@@ -295,7 +296,6 @@ doesn't conflict with concurrent PRs.
 - amazon_selling_partner
 - amazon_sns
 - amazon_sqs
-- apify_dataset
 - appcues
 - appfigures
 - appfollow
