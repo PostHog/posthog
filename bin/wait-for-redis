@@ -1,0 +1,58 @@
+#!/usr/bin/env python
+"""Block until Redis (the RedBeat/Celery broker) answers a PING, with a bounded timeout.
+
+RedBeat connects to Redis directly during its ``setup_schedule`` (it does not benefit
+from Celery's broker startup-retry), so a transient DNS or connection blip while
+resolving the broker host crashes ``celery beat`` on boot. The container then restarts
+and fails again, re-emitting the same exception on every loop. Waiting for Redis to
+answer before launching beat absorbs the momentary blips that happen around deploys.
+
+On timeout we still exit 0 so beat starts and behaves exactly as before -- the wait is a
+best-effort cushion for brief outages, not a new hard failure mode that masks a genuinely
+unreachable Redis.
+"""
+
+import os
+import sys
+import time
+
+import django
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+django.setup()
+
+from django.conf import settings
+
+from redis import StrictRedis
+from redis.exceptions import RedisError
+
+TIMEOUT = float(os.getenv("WAIT_FOR_REDIS_TIMEOUT", "120"))
+RETRY_INTERVAL = float(os.getenv("WAIT_FOR_REDIS_RETRY_INTERVAL", "2"))
+
+
+def main() -> int:
+    # Same value RedBeat resolves via app.conf['BROKER_URL'] (CELERY namespace).
+    url = settings.CELERY_BROKER_URL
+    deadline = time.monotonic() + TIMEOUT
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            StrictRedis.from_url(url, socket_connect_timeout=5).ping()
+            print(f"[wait-for-redis] Redis reachable after {attempt} attempt(s)")
+            return 0
+        # gaierror (DNS) is an OSError subclass; RedisError covers auth/connection errors.
+        except (RedisError, OSError) as exc:
+            if time.monotonic() >= deadline:
+                print(
+                    f"[wait-for-redis] still unreachable after {TIMEOUT:.0f}s, "
+                    f"starting beat anyway: {exc}",
+                    file=sys.stderr,
+                )
+                return 0
+            print(f"[wait-for-redis] not ready (attempt {attempt}): {exc}; retrying...")
+            time.sleep(RETRY_INTERVAL)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
