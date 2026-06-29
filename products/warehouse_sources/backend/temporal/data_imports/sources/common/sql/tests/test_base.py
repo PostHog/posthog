@@ -69,7 +69,7 @@ class _FakeImplementation(SQLSourceImplementation[_FakeConfig, object, Any]):
         self.get_foreign_keys_called = False
 
     @contextmanager
-    def connect(self, config: _FakeConfig):
+    def connect(self, config: _FakeConfig, *, team_id: int | None = None):
         yield object()
 
     def get_columns(

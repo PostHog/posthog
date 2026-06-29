@@ -332,8 +332,10 @@ def _resolve_query_project(config: BigQuerySourceConfig) -> str:
     return dataset_project_id if dataset_project_id is not None else _resolve_project_id(config)
 
 
-def resolve_bigquery_auth(config: BigQuerySourceConfig, team_id: int) -> BigQueryAuthInfo:
+def resolve_bigquery_auth(config: BigQuerySourceConfig, team_id: int | None) -> BigQueryAuthInfo:
     if config.google_cloud_service_account_integration_id is not None:
+        if team_id is None:
+            raise ValueError("team_id is required when using a Google Cloud service account integration")
         return _resolve_auth_from_integration(int(config.google_cloud_service_account_integration_id), team_id)
     return _resolve_auth_from_key_file(config)
 
@@ -850,7 +852,8 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
     def connect(
         self,
         config: BigQuerySourceConfig,
-        team_id: int,
+        *,
+        team_id: int | None = None,
         auth: BigQueryAuthInfo | None = None,
     ) -> Iterator[bigquery.Client]:
         # Without a custom region the client is built with `location=None`, so discovery

@@ -3287,6 +3287,7 @@ class PostgresImplementation(SQLSourceImplementation[PostgresSourceConfig, psyco
         self,
         config: PostgresSourceConfig,
         *,
+        team_id: int | None = None,
         require_ssl: bool = False,
     ) -> Iterator[psycopg.Connection]:
         """Open a single psycopg connection (through the SSH tunnel if configured)."""

@@ -621,6 +621,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         self,
         config: MySQLSourceConfig,
         *,
+        team_id: int | None = None,
         read_timeout: int | None = None,
     ) -> Iterator[pymysql.Connection]:
         """Open a pymysql connection for the duration of the context.

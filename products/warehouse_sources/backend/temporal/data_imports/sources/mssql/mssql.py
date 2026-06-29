@@ -354,7 +354,12 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
     # ------------------------------------------------------------------
 
     @contextmanager
-    def connect(self, config: MSSQLSourceConfig) -> Iterator[pymssql.Connection]:
+    def connect(
+        self,
+        config: MSSQLSourceConfig,
+        *,
+        team_id: int | None = None,
+    ) -> Iterator[pymssql.Connection]:
         """Open a pymssql connection for the duration of the context.
 
         Opens the SSH tunnel (if configured) once, then connects with the

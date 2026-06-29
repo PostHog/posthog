@@ -9,7 +9,7 @@ Every SQL source decomposes into two concerns:
   by every `SQLSource` subclass via the `get_implementation` property.
 
 The wrapper stays thin: `get_schemas` opens a connection once via
-`impl.connect(config)`, threads it through each query method, and
+`impl.connect(config, team_id=...)`, threads it through each query method, and
 assembles `SourceSchema` rows; `source_for_pipeline` delegates straight
 to `impl.build_pipeline`. Subclasses usually only define:
 
@@ -115,7 +115,7 @@ class SQLSource(SimpleSource[ConfigType], Generic[ConfigType]):
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
         impl = self.get_implementation
-        with impl.connect(config) as conn:
+        with impl.connect(config, team_id=team_id) as conn:
             columns_by_table = impl.get_columns(conn, config, names)
             if not columns_by_table:
                 return []
