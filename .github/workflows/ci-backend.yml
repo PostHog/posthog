@@ -1014,6 +1014,35 @@ jobs:
                   fi
                   ./bin/hogli product:lint:owners $names
 
+    # Block deleting historical migration files. Deleting a migration that exists on
+    # master leaves the table/constraints in every DB where it ran, never recreates
+    # them on fresh DBs, and makes Migration Risk Analysis flag phantom migrations on
+    # every open PR that predates the deletion. See safe-django-migrations.md.
+    check-deleted-migrations:
+        needs: [changes]
+        if: github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true')
+        name: Check deleted migrations
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Fail if a historical migration file was deleted
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: |
+                  # The PR files API reports each file's status relative to the PR base
+                  # (base...head), so a "removed" file existed on the base branch — i.e. a
+                  # historical migration. Renames carry the old path in previous_filename;
+                  # renaming a historical migration is the same hazard.
+                  gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" \
+                    --jq '.[] | if .status == "removed" then .filename elif .status == "renamed" then .previous_filename else empty end' \
+                    | .github/scripts/check-no-deleted-migrations.sh --stdin
+
     # Migration validation.
     # This job needs Docker + DB — it checks out master first to run baseline
     # migrations, then checks out the PR branch. OpenAPI type generation belongs
@@ -2771,6 +2800,7 @@ jobs:
             [
                 django,
                 check-migrations,
+                check-deleted-migrations,
                 check-openapi-types,
                 async-migrations,
                 turbo-discover,
@@ -2793,6 +2823,7 @@ jobs:
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| check-deleted-migrations | ${{ needs.check-deleted-migrations.result }} |"
                     echo "| async-migrations | ${{ needs.async-migrations.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| turbo-tests | ${{ needs.turbo-tests.result }} |"
@@ -2853,6 +2884,7 @@ jobs:
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "Deleted migration check" "${{ needs.check-deleted-migrations.result }}"
                   check_required_result "Async migration tests" "${{ needs.async-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
