@@ -21,7 +21,11 @@ from products.signals.backend.scout_harness.lazy_seed import sync_canonical_skil
 from products.signals.backend.scout_harness.limits import DEFAULT_MAX_RUNTIME_S, STALE_RUN_CUTOFF_S
 from products.signals.backend.scout_harness.model_selection import resolve_scout_model
 from products.signals.backend.scout_harness.prompt import SignalScoutRunSummary, build_run_prompt
-from products.signals.backend.scout_harness.skill_loader import LoadedSkill, load_skill_for_run
+from products.signals.backend.scout_harness.skill_loader import (
+    LoadedSkill,
+    load_skill_for_run,
+    skill_uses_report_channel,
+)
 from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPORT_RESEARCH_ENV_NAME,
@@ -45,8 +49,8 @@ SIGNALS_SCOUT_SANDBOX_ENV_NAME = SIGNALS_REPORT_RESEARCH_ENV_NAME
 # the posture selection where the sandbox context is built). A baseline scout never carries that
 # scope, so the MCP server strips the report tools from its toolset — they can't bleed into a run
 # that didn't opt in. `views._assert_report_tool_opted_in` is the matching fail-closed gate on the
-# write itself.
-REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
+# write itself. `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` live in `skill_loader` so the
+# runner, prompt builder, and viewset all resolve the same opt-in set.
 
 
 @dataclass(frozen=True)
@@ -387,7 +391,7 @@ async def _spawn_and_run(
         # emit_report/edit_report tools. Every other scout gets plain `signals_scout` and never
         # sees them.
         posthog_mcp_scopes=(
-            "signals_scout_reports" if REPORT_CHANNEL_TOOLS & set(skill.allowed_tools or []) else "signals_scout"
+            "signals_scout_reports" if skill_uses_report_channel(skill.allowed_tools) else "signals_scout"
         ),
         # `None` keeps the agent-server default; an override pins the whole run on one model
         # (the `scouts-model-selection` gate routes it here). The model the gateway actually serves

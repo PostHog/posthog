@@ -32,7 +32,6 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
-    get_excluded_variants,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer
@@ -5541,68 +5540,33 @@ class TestExperimentService(APIBaseTest):
             )
 
 
-class TestValidateExperimentParametersExcludedVariants:
-    def _base_params(self) -> dict[str, Any]:
-        return {
-            "feature_flag_variants": [
-                {"key": "control", "rollout_percentage": 50},
-                {"key": "test-1", "rollout_percentage": 25},
-                {"key": "test-2", "rollout_percentage": 25},
-            ]
-        }
+class TestValidateExcludedVariantKeys:
+    _VARIANT_KEYS = {"control", "test-1", "test-2"}
 
     @pytest.mark.parametrize(
-        "extra_params",
+        "excluded_variants,baseline_key",
         [
-            {},
-            {"excluded_variants": []},
-            {"excluded_variants": ["test-2"]},
-            {"excluded_variants": ["test-2", "test-2"]},
+            ([], "control"),
+            (["test-2"], "control"),
+            (["test-2", "test-2"], "control"),
         ],
     )
-    def test_valid_excluded_variants(self, extra_params: dict[str, Any]):
-        ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
+    def test_valid_excluded_variants(self, excluded_variants: list[str], baseline_key: str):
+        ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
 
     @pytest.mark.parametrize(
-        "extra_params,match",
+        "excluded_variants,baseline_key,match",
         [
-            ({"excluded_variants": ["does-not-exist"]}, "unknown variants"),
-            ({"excluded_variants": ["control"]}, "baseline variant cannot be excluded"),
-            ({"excluded_variants": ["holdout-42"]}, "cannot exclude holdout"),
-            ({"excluded_variants": ["test-1", "test-2"]}, "at least one test variant"),
-            ({"excluded_variants": "test-2"}, "must be a list of strings"),
-            ({"excluded_variants": [123]}, "must be a list of strings"),
-            (
-                {"stats_config": {"baseline_variant_key": "test-1"}, "excluded_variants": ["test-1"]},
-                "baseline variant cannot be excluded",
-            ),
+            (["does-not-exist"], "control", "unknown variants"),
+            (["control"], "control", "baseline variant cannot be excluded"),
+            (["holdout-42"], "control", "cannot exclude holdout"),
+            (["test-1", "test-2"], "control", "at least one test variant"),
+            (["test-1"], "test-1", "baseline variant cannot be excluded"),
         ],
     )
-    def test_invalid_excluded_variants_raises(self, extra_params: dict[str, Any], match: str):
+    def test_invalid_excluded_variants_raises(self, excluded_variants: list[str], baseline_key: str, match: str):
         with pytest.raises(ValidationError, match=match):
-            ExperimentService.validate_experiment_parameters({**self._base_params(), **extra_params})
-
-    def test_excluded_variants_without_feature_flag_variants_raises(self):
-        with pytest.raises(ValidationError, match="requires feature_flag_variants in the same request"):
-            ExperimentService.validate_experiment_parameters({"excluded_variants": ["test-1"]})
-
-
-class TestGetExcludedVariants:
-    @pytest.mark.parametrize(
-        "column,parameters,expected",
-        [
-            (None, None, []),
-            (None, {}, []),
-            # the column is canonical, including an explicit empty list
-            (["test-2"], {"excluded_variants": ["legacy"]}, ["test-2"]),
-            ([], {"excluded_variants": ["legacy"]}, []),
-            # falls back to legacy parameters only when the column is None (never set)
-            (None, {"excluded_variants": ["legacy"]}, ["legacy"]),
-        ],
-    )
-    def test_precedence(self, column, parameters, expected):
-        experiment = Experiment(excluded_variants=column, parameters=parameters)
-        assert get_excluded_variants(experiment) == expected
+            ExperimentService._validate_excluded_variant_keys(excluded_variants, self._VARIANT_KEYS, baseline_key)
 
 
 class TestValidateExcludedVariants:
