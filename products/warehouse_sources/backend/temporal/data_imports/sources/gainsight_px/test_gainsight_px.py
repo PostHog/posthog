@@ -79,6 +79,8 @@ class TestExtractRecords:
             # ...but only when it's unambiguous — two object-lists, or a scalar list, fall through to [].
             ("two_object_lists_no_heal", {"a": [{"id": 1}], "b": [{"id": 2}]}, "accounts", []),
             ("scalar_list_no_heal", {"foo": [1, 2]}, "accounts", []),
+            # A list that only starts with a dict must not qualify — every item has to be an object.
+            ("heterogeneous_list_no_heal", {"renamed": [{"id": 1}, "nope"]}, "accounts", []),
         ]
     )
     def test_extract(self, _name: str, payload: Any, data_key: str, expected: list) -> None:
@@ -90,28 +92,26 @@ class TestExtractRecords:
         logger.warning.assert_called_once()
 
 
-class TestFetchPageClassification:
-    # `_fetch_page` is wrapped in tenacity's @retry; `.__wrapped__` is the undecorated function, so we
-    # assert the status classification without incurring real retry backoff waits.
+class TestCheckResponse:
+    # Status classification is split out of `_fetch_page` (which is wrapped in tenacity's @retry) so it
+    # can be asserted directly without incurring real retry backoff waits.
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_raise_retryable_error(self, _name: str, status: int) -> None:
-        session = _session_returning(FakeResponse(status_code=status, text="boom"))
         with pytest.raises(gpx.GainsightPxRetryableError):
-            gpx._fetch_page.__wrapped__(session, "http://x", {}, {}, LOGGER)
+            gpx._check_response(FakeResponse(status_code=status, text="boom"), "http://x", LOGGER)  # type: ignore[arg-type]
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_errors_raise_http_error(self, _name: str, status: int) -> None:
-        session = _session_returning(FakeResponse(status_code=status, text="nope"))
         with pytest.raises(requests.HTTPError):
-            gpx._fetch_page.__wrapped__(session, "http://x", {}, {}, LOGGER)
+            gpx._check_response(FakeResponse(status_code=status, text="nope"), "http://x", LOGGER)  # type: ignore[arg-type]
 
-    def test_ok_returns_parsed_json(self) -> None:
-        session = _session_returning(FakeResponse(status_code=200, json_data={"accounts": []}))
-        assert gpx._fetch_page.__wrapped__(session, "http://x", {}, {}, LOGGER) == {"accounts": []}
+    def test_ok_passes_response_through(self) -> None:
+        response = FakeResponse(status_code=200, json_data={"accounts": []})
+        assert gpx._check_response(response, "http://x", LOGGER) is response  # type: ignore[arg-type, comparison-overlap]
 
 
 class TestPagination:
-    def _run(self, pages: list[dict], endpoint: str = "accounts") -> tuple[list[dict], MagicMock]:
+    def _run(self, pages: list[dict[str, Any]], endpoint: str = "accounts") -> tuple[list[dict[str, Any]], MagicMock]:
         with (
             patch.object(gpx, "make_tracked_session", return_value=MagicMock()),
             patch.object(gpx, "_fetch_page", side_effect=pages) as mock_fetch,
@@ -122,7 +122,7 @@ class TestPagination:
     def test_full_page_then_short_page_stops_even_when_scroll_id_persists(self) -> None:
         # PX does not reliably null `scrollId` on the final page, so a short page (fewer rows than
         # requested) is the real terminator. A `while scroll_id:` loop here would never stop.
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"accounts": [{"id": i} for i in range(gpx.PAGE_SIZE)], "scrollId": "s1"},
             {"accounts": [{"id": i} for i in range(gpx.PAGE_SIZE, gpx.PAGE_SIZE + 100)], "scrollId": "s1"},
         ]
@@ -142,7 +142,7 @@ class TestPagination:
     def test_exact_page_multiple_fetches_once_more_then_stops(self) -> None:
         # A full final page can't be distinguished from a non-final one, so we fetch once more and stop
         # on the trailing empty page rather than dropping rows or looping.
-        pages = [
+        pages: list[dict[str, Any]] = [
             {"accounts": [{"id": i} for i in range(gpx.PAGE_SIZE)], "scrollId": "s1"},
             {"accounts": [], "scrollId": "s1"},
         ]
@@ -168,6 +168,24 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(gpx, "make_tracked_session", return_value=session):
             assert gpx.validate_credentials("eu", "key") is False
+
+
+class TestSecretRedaction:
+    # The API key rides in a custom header the tracked transport won't redact by name, so every session
+    # must be built with value-based redaction — guards against the key leaking into captured HTTP samples.
+    def test_validate_credentials_redacts_key(self) -> None:
+        session = _session_returning(FakeResponse(status_code=200))
+        with patch.object(gpx, "make_tracked_session", return_value=session) as mock_factory:
+            gpx.validate_credentials("us", "secret-key")
+        assert mock_factory.call_args.kwargs.get("redact_values") == ("secret-key",)
+
+    def test_sync_session_redacts_key(self) -> None:
+        with (
+            patch.object(gpx, "make_tracked_session", return_value=MagicMock()) as mock_factory,
+            patch.object(gpx, "_fetch_page", side_effect=[{"accounts": []}]),
+        ):
+            list(gpx.get_rows("us", "secret-key", "accounts", LOGGER))
+        assert mock_factory.call_args.kwargs.get("redact_values") == ("secret-key",)
 
 
 class TestSourceResponse:

@@ -57,7 +57,9 @@ def _extract_records(payload: Any, data_key: str, logger: FilteringBoundLogger |
     records = payload.get(data_key)
     if isinstance(records, list):
         return records
-    candidates = [v for v in payload.values() if isinstance(v, list) and v and isinstance(v[0], dict)]
+    candidates = [
+        v for v in payload.values() if isinstance(v, list) and v and all(isinstance(item, dict) for item in v)
+    ]
     if len(candidates) == 1:
         if logger is not None:
             logger.warning(
@@ -70,6 +72,18 @@ def _extract_records(payload: Any, data_key: str, logger: FilteringBoundLogger |
 
 def _scroll_id(payload: Any) -> str | None:
     return payload.get("scrollId") if isinstance(payload, dict) else None
+
+
+def _check_response(response: requests.Response, url: str, logger: FilteringBoundLogger) -> requests.Response:
+    """Classify a response: raise retryable on 429/5xx, raise HTTPError on other 4xx, else pass through."""
+    if response.status_code == 429 or response.status_code >= 500:
+        raise GainsightPxRetryableError(f"Gainsight PX API error (retryable): status={response.status_code}, url={url}")
+
+    if not response.ok:
+        logger.error(f"Gainsight PX API error: status={response.status_code}, body={response.text}, url={url}")
+        response.raise_for_status()
+
+    return response
 
 
 @retry(
@@ -86,24 +100,20 @@ def _fetch_page(
     logger: FilteringBoundLogger,
 ) -> Any:
     response = session.get(url, headers=headers, params=params, timeout=60)
-
-    if response.status_code == 429 or response.status_code >= 500:
-        raise GainsightPxRetryableError(f"Gainsight PX API error (retryable): status={response.status_code}, url={url}")
-
-    if not response.ok:
-        logger.error(f"Gainsight PX API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
-
-    return response.json()
+    return _check_response(response, url, logger).json()
 
 
 def validate_credentials(region: str, api_key: str) -> bool:
     """One cheap probe against `/accounts` to confirm the key authenticates for this region."""
     url = f"{_base_url(region)}/accounts"
+    # `redact_values` masks the API key in the tracked transport's logs and sample capture — the custom
+    # `X-APTRINSIC-API-KEY` header isn't on the name-based denylist, so value-based masking is required.
     try:
-        response = make_tracked_session().get(url, headers=_headers(api_key), params={"pageSize": 1}, timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, headers=_headers(api_key), params={"pageSize": 1}, timeout=10
+        )
         return response.status_code == 200
-    except Exception:
+    except requests.RequestException:
         return False
 
 
@@ -116,7 +126,8 @@ def get_rows(
     config = GAINSIGHT_PX_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive between requests.
-    session = make_tracked_session()
+    # `redact_values` masks the API key in tracked logs / sample capture (custom auth header).
+    session = make_tracked_session(redact_values=(api_key,))
     url = f"{_base_url(region)}{config.path}"
 
     scroll_id: str | None = None
