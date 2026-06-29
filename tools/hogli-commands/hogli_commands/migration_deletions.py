@@ -99,10 +99,10 @@ def cmd_lint_migration_deletions() -> None:
         click.echo("No historical migration files deleted.")
         return
 
-    for path in violations:
-        if _IN_GH_ACTIONS:
+    if _IN_GH_ACTIONS:
+        for path in violations:
             click.echo(
-                f"::error file={path}::Deleting a historical Django migration is not allowed (see safe-django-migrations.md)"
+                f"::error file={path} title=lint:migration-deletions::Deleting a historical Django migration is not allowed (see safe-django-migrations.md)"
             )
     click.echo("\nERROR: refusing to delete historical Django migration file(s):\n", err=True)
     for path in violations:

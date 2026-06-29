@@ -84,6 +84,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
@@ -246,6 +247,12 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      # Any Django migration file in any app — broader than `migrations`
+                      # above (which omits ee/ and posthog sub-package dirs). Gates the
+                      # check-deleted-migrations job so its venv bootstrap runs only when a
+                      # migration could have been deleted or moved.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       persons_sql:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
@@ -1015,11 +1022,12 @@ jobs:
                   ./bin/hogli product:lint:owners $names
 
     # Block deleting historical migration files (see safe-django-migrations.md for why).
-    # Gate on `backend` (not just `migrations`): the migrations paths-filter omits
-    # ee/ and posthog/ sub-package migration dirs that the guard still flags.
+    # Gate on any migration-file change so the venv bootstrap is skipped on the
+    # majority of PRs that touch no migrations; a deletion or a product move always
+    # changes a `migrations/*.py` path, so nothing slips.
     check-deleted-migrations:
         needs: [changes]
-        if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
+        if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
         name: Check deleted migrations
         runs-on: ubuntu-latest
         timeout-minutes: 10
