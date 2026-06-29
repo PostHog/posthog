@@ -962,7 +962,12 @@ _ARROW_UNSUPPORTED_PREFIXES: tuple[str, ...] = (
     "Nested(",
     "Variant(",
     "Object(",
+    # SimpleAggregateFunction behaves as its underlying type, so toString() can
+    # serialize it. Plain AggregateFunction holds an opaque aggregate state and
+    # needs finalizeAggregation() instead — see _needs_finalize_aggregation.
+    "SimpleAggregateFunction(",
 )
+_AGGREGATE_FUNCTION_PREFIX = "AggregateFunction("
 
 
 def _needs_to_string_cast(inner: str) -> bool:
@@ -971,13 +976,30 @@ def _needs_to_string_cast(inner: str) -> bool:
     return any(inner.startswith(prefix) for prefix in _ARROW_UNSUPPORTED_PREFIXES)
 
 
+def _needs_finalize_aggregation(inner: str) -> bool:
+    """True for AggregateFunction(...) state columns (but not SimpleAggregateFunction).
+
+    Arrow output can't serialize an aggregate state, and toString() doesn't work
+    on it either — finalizeAggregation() must run first to produce a serializable
+    value. SimpleAggregateFunction is excluded because it behaves as its
+    underlying type and is handled by the toString() route instead.
+    """
+    return inner.startswith(_AGGREGATE_FUNCTION_PREFIX)
+
+
 def _build_select_list(columns: list[ClickHouseColumn]) -> str:
-    """Build explicit SELECT list, wrapping Arrow-unsupported types in toString()."""
+    """Build explicit SELECT list, coercing Arrow-unsupported types.
+
+    Most unsupported types are wrapped in toString(); AggregateFunction state
+    columns need finalizeAggregation() to produce a serializable value.
+    """
     parts: list[str] = []
     for col in columns:
         quoted = _quote_identifier(col.name)
         inner, _ = _strip_type_modifiers(col.data_type)
-        if _needs_to_string_cast(inner):
+        if _needs_finalize_aggregation(inner):
+            parts.append(f"finalizeAggregation({quoted}) AS {quoted}")
+        elif _needs_to_string_cast(inner):
             parts.append(f"toString({quoted}) AS {quoted}")
         else:
             parts.append(quoted)

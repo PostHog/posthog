@@ -221,6 +221,32 @@ class TestBuildQuery:
         assert "toString(`tags`) AS `tags`" in query
         assert "toString(`status`) AS `status`" in query
 
+    def test_finalizes_aggregate_function_state_columns(self):
+        # AggregateFunction state can't be serialized to Arrow and toString()
+        # doesn't work on it — finalizeAggregation() must run first. A
+        # SimpleAggregateFunction behaves as its underlying type and follows
+        # the toString() route instead.
+        query, _ = _build_query(
+            database="default",
+            table_name="events",
+            columns=[
+                ClickHouseColumn(name="id", data_type="Int64", nullable=False),
+                ClickHouseColumn(name="profile_id", data_type="AggregateFunction(uniq, String)", nullable=False),
+                ClickHouseColumn(
+                    name="nested_state",
+                    data_type="Nullable(AggregateFunction(quantiles(0.5), UInt64))",
+                    nullable=True,
+                ),
+                ClickHouseColumn(name="total", data_type="SimpleAggregateFunction(sum, UInt64)", nullable=False),
+            ],
+            should_use_incremental_field=False,
+            incremental_field=None,
+        )
+        assert "`id`" in query
+        assert "finalizeAggregation(`profile_id`) AS `profile_id`" in query
+        assert "finalizeAggregation(`nested_state`) AS `nested_state`" in query
+        assert "toString(`total`) AS `total`" in query
+
     def test_full_refresh_with_row_filters_binds_values_as_params(self):
         query, params = _build_query(
             database="default",
