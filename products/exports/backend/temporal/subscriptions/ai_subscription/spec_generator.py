@@ -1,3 +1,4 @@
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, tzinfo
@@ -206,16 +207,79 @@ def _candidate_event_names(team: Team, limit: int) -> dict[str, str]:
     return candidates
 
 
-def _select_relevant_events(
-    team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
-) -> list[str]:
-    # Pass 1: the model picks relevant events from the project's vocabulary (vs lexical matching). Returns
-    # RAW event names (the EventProperty lookup is keyed on them); any failure degrades to no relevant-events
-    # section rather than breaking generation.
-    candidates = _candidate_event_names(team, CANDIDATE_EVENTS_LIMIT)
-    if not candidates:
+# Tokens the user quoted in the prompt to name a specific event: `event name`, "event name",
+# or 'event name'. The capture groups are non-greedy so adjacent quotes don't merge into one token.
+_QUOTED_TOKEN_RE = re.compile(r"`([^`]+)`|\"([^\"]+)\"|'([^']+)'")
+
+
+def _normalize_event_token(value: str) -> str:
+    # Sanitize (event names are user-controlled) then case-fold + collapse whitespace so a quoted
+    # `Export Created` matches a stored `export created`. Empty if nothing survives sanitization.
+    return sanitize_user_text(value, EVENT_NAME_MAX_LENGTH).casefold()
+
+
+def _extract_quoted_event_tokens(prompt: str) -> set[str]:
+    """Pure: pull the normalized tokens the user wrapped in backticks or quotes in the prompt.
+
+    These are explicit event references the user typed. Returns normalized strings (see
+    `_normalize_event_token`); validation against the team's taxonomy happens in `_pinned_event_names`.
+    """
+    tokens: set[str] = set()
+    for match in _QUOTED_TOKEN_RE.finditer(prompt):
+        raw = next(group for group in match.groups() if group is not None)
+        normalized = _normalize_event_token(raw)
+        if normalized:
+            tokens.add(normalized)
+    return tokens
+
+
+def _appears_as_standalone_token(needle: str, haystack: str) -> bool:
+    # Match `needle` only when flanked by string edges or non-identifier chars, so a bare `pageview`
+    # reference is pinned but `my_pageview_handler` is not. `$`/`.` are treated as part of the token
+    # (event names like `$pageview` and `app.opened` are common), so they don't form a false boundary.
+    if not needle:
+        return False
+    return re.search(rf"(?<![\w$.]){re.escape(needle)}(?![\w$.])", haystack) is not None
+
+
+def _pinned_event_names(team: Team, prompt: str) -> list[str]:
+    """Deterministically resolve the events the user named in the prompt to their RAW taxonomy names.
+
+    An event is pinned when its (normalized) name either (a) was quoted/backticked in the prompt, or
+    (b) appears verbatim as a standalone token in the prompt. Validation is a single team-scoped
+    `EventDefinition` lookup over the FULL taxonomy — deliberately not the capped candidate set — so a
+    named event survives even when it falls outside `CANDIDATE_EVENTS_LIMIT`. Returns raw names so the
+    EventProperty lookup (keyed on the stored name) works, ordered most-recently-seen first.
+    """
+    quoted = _extract_quoted_event_tokens(prompt)
+    # Bare matching needs a normalized haystack to test each event name against as a standalone token.
+    haystack = _normalize_event_token(prompt)
+    if not quoted and not haystack:
         return []
 
+    raw_names = (
+        EventDefinition.objects.filter(team_id=team.pk)
+        .order_by(F("last_seen_at").desc(nulls_last=True), "name")
+        .values_list("name", flat=True)
+    )
+    pinned: list[str] = []
+    seen: set[str] = set()
+    for raw in raw_names:
+        normalized = _normalize_event_token(raw)
+        if not normalized or normalized in seen:
+            continue
+        if normalized in quoted or _appears_as_standalone_token(normalized, haystack):
+            seen.add(normalized)
+            pinned.append(raw)
+    return pinned
+
+
+def _llm_selected_events(
+    team: Team, user: User, prompt: str, candidates: dict[str, str], trace_correlation_id: Optional[Union[int, str]]
+) -> list[str]:
+    # The model picks relevant events from the project's vocabulary (vs lexical matching). Returns RAW
+    # event names (the EventProperty lookup is keyed on them); any failure degrades to no picks rather
+    # than breaking generation — the deterministic pins in `_select_relevant_events` still survive.
     posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "event_selection"}
     if trace_correlation_id is not None:
         posthog_properties["subscription_id"] = trace_correlation_id
@@ -250,9 +314,35 @@ def _select_relevant_events(
         if raw is not None and raw not in seen:
             seen.add(raw)
             selected.append(raw)
-            if len(selected) >= RELEVANT_EVENTS_LIMIT:
-                break
     return selected
+
+
+def _select_relevant_events(
+    team: Team, user: User, prompt: str, trace_correlation_id: Optional[Union[int, str]] = None
+) -> list[str]:
+    # Pass 1 of context enrichment: resolve the events whose property schema the planner needs. Two
+    # sources, unioned: a deterministic pin of the events the user named in the prompt (always wins, even
+    # outside the candidate cap), and the LLM's relevance picks from the project's vocabulary. Returns RAW
+    # event names (the EventProperty lookup is keyed on them).
+    candidates = _candidate_event_names(team, CANDIDATE_EVENTS_LIMIT)
+    if not candidates:
+        return []
+
+    # Pinned events lead the result so the `RELEVANT_EVENTS_LIMIT` cap drops LLM picks first — an event
+    # the user explicitly named must always end up queried, never truncated away by the cap.
+    pinned = _pinned_event_names(team, prompt)
+    llm_selected = _llm_selected_events(team, user, prompt, candidates, trace_correlation_id)
+
+    selected: list[str] = []
+    seen: set[str] = set()
+    for raw in (*pinned, *llm_selected):
+        if raw in seen:
+            continue
+        seen.add(raw)
+        selected.append(raw)
+    # Cap the union, but never below the pinned set — explicit picks are the guarantee this PR adds.
+    cap = max(RELEVANT_EVENTS_LIMIT, len(pinned))
+    return selected[:cap]
 
 
 def _event_property_names(team: Team, events: list[str], per_event_limit: int) -> dict[str, list[str]]:
