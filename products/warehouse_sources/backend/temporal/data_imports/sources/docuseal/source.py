@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -42,6 +42,12 @@ class DocusealSource(ResumableSource[DocusealSourceConfig, DocusealResumeConfig]
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DOCUSEAL
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # `region` picks the host the stored API key is sent to; retargeting it (us <-> eu) must
+        # re-require the key so a preserved credential can't be replayed against a different host.
+        return ["region"]
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -127,7 +133,7 @@ Pick the region your DocuSeal account is hosted in. Self-hosted deployments are 
         return schemas
 
     def validate_credentials(
-        self, config: DocusealSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: DocusealSourceConfig, team_id: int, schema_name: str | None = None
     ) -> tuple[bool, str | None]:
         return validate_docuseal_credentials(config.api_key, config.region)
 

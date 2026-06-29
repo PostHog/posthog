@@ -143,7 +143,7 @@ def get_rows(
                 resumable_source_manager.save_state(DocusealResumeConfig(after=after))
 
         next_cursor = data.get("pagination", {}).get("next")
-        # `next` is null only on an empty page; a short page (< limit) is the last one. Either way we
+        # A null `next` or a short page (< limit) both signal the end of the list. Either way we
         # stop without issuing a final empty request.
         if not next_cursor or len(rows) < PAGE_SIZE:
             break

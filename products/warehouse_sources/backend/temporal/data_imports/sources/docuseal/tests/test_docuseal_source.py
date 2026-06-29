@@ -1,3 +1,5 @@
+from typing import cast
+
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -51,6 +53,11 @@ class TestDocusealSourceConfig:
         assert region_field.required is True
         assert region_field.defaultValue == "us"
         assert {opt.value for opt in region_field.options} == {"us", "eu"}
+
+    def test_region_is_a_connection_host_field(self) -> None:
+        # `region` decides which host the stored API key is sent to, so changing it must force the
+        # editor to re-enter the secret instead of replaying it against a different host.
+        assert DocusealSource().connection_host_fields == ["region"]
 
 
 class TestDocusealSchemas:
@@ -141,7 +148,7 @@ class TestDocusealPipelineWiring:
         with patch.object(source_module, "docuseal_source", side_effect=fake_source) as mock_source:
             result = DocusealSource().source_for_pipeline(_config(region="eu"), manager, inputs)
 
-        assert result == "sentinel"
+        assert cast(object, result) == "sentinel"
         mock_source.assert_called_once()
         assert captured["api_key"] == "tok"
         assert captured["region"] == "eu"
