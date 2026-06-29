@@ -2,7 +2,7 @@ import { defaultAllowLists } from './default-dict'
 import { scrubConsolePlugin, scrubGenericField, scrubNetworkPlugin } from './value'
 
 describe('anonymize/value', () => {
-    const ctx = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const ctx = { allow: defaultAllowLists() }
 
     describe('scrubGenericField', () => {
         it('recurses objects/arrays, scrubs string leaves, leaves keys and non-strings alone', () => {
@@ -10,7 +10,7 @@ describe('anonymize/value', () => {
                 payload: {
                     a: 'Hello SecretName',
                     b: ['Hello SecretName', 42, true],
-                    c: { url: 'https://example.com/user/abc/profile?q=1' },
+                    c: { url: 'https://example.com/user/abc/profile?token=secret' },
                 },
             }
             expect(scrubGenericField(ctx, owner, 'payload')).toBe(true)
@@ -18,7 +18,7 @@ describe('anonymize/value', () => {
             expect(owner.payload.b[0]).toBe('Hello **********')
             expect(owner.payload.b[1]).toBe(42)
             expect(owner.payload.b[2]).toBe(true)
-            // http(s) string leaves are URL-scrubbed (query dropped), not text-scrubbed.
+            // http(s) string leaves are URL-scrubbed (denied query dropped), not text-scrubbed.
             expect(owner.payload.c.url).toBe('https://example.com/user/[redacted]/profile')
         })
 

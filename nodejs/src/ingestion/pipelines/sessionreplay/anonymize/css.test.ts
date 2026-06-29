@@ -6,8 +6,8 @@ import { defaultAllowLists } from './default-dict'
 const ONE_PX =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAJUlEQVQokWN4plEBRyInbOAIlzjDINRAjCJk8cGoYRAG60iMBwA8H08Qor0ygQAAAABJRU5ErkJggg=='
 
-function ctx(): { allow: ReturnType<typeof defaultAllowLists>; maxWordsLen: number; blurJobs: any[] } {
-    return { allow: defaultAllowLists(), maxWordsLen: 8, blurJobs: [] }
+function ctx(): { allow: ReturnType<typeof defaultAllowLists>; blurJobs: any[] } {
+    return { allow: defaultAllowLists(), blurJobs: [] }
 }
 
 describe('anonymize/css', () => {

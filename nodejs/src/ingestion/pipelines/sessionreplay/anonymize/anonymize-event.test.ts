@@ -2,7 +2,7 @@ import { anonymizeEvent } from './anonymize-event'
 import { defaultAllowLists } from './default-dict'
 
 describe('anonymize/event router', () => {
-    const ctx = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const ctx = { allow: defaultAllowLists() }
 
     it('scrubs Input text', () => {
         const event: any = {

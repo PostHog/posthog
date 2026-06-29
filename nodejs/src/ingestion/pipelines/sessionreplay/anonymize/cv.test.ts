@@ -9,7 +9,7 @@ const compress = (v: unknown): string => gzipSync(Buffer.from(JSON.stringify(v))
 const decompress = (s: string): any => parseJSON(gunzipSync(Buffer.from(s, 'latin1')).toString('utf8'))
 
 describe('anonymize/cv', () => {
-    const ctx = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const ctx = { allow: defaultAllowLists() }
 
     it('round-trips a cv-compressed FullSnapshot and scrubs the DOM text', () => {
         const payload = {

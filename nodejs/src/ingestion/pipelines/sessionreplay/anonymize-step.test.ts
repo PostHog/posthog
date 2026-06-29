@@ -5,7 +5,7 @@ import { defaultAllowLists } from './anonymize/default-dict'
 import { ParsedMessageData } from './kafka/types'
 
 describe('anonymize-step', () => {
-    const step = createAnonymizeStep({ scrubContext: { allow: defaultAllowLists(), maxWordsLen: 8 } })
+    const step = createAnonymizeStep({ scrubContext: { allow: defaultAllowLists() } })
 
     const parsedMessageWith = (eventsByWindowId: Record<string, any[]>): ParsedMessageData =>
         ({ eventsByWindowId }) as unknown as ParsedMessageData

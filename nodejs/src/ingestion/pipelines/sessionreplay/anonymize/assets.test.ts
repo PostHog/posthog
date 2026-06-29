@@ -2,7 +2,7 @@ import { PLACEHOLDER_SRC, applyBlur, isMediaTag } from './assets'
 import { defaultAllowLists } from './default-dict'
 
 describe('anonymize/assets', () => {
-    const ctx = { allow: defaultAllowLists(), maxWordsLen: 8 }
+    const ctx = { allow: defaultAllowLists() }
 
     it('classifies media tags', () => {
         for (const tag of ['img', 'IMG', 'image', 'video', 'audio', 'source', 'track']) {

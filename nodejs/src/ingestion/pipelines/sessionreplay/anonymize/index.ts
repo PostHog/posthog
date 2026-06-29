@@ -1,5 +1,5 @@
 export { AllowLists } from './allow-lists'
 export { anonymizeEvent, anonymizeParsedMessage } from './anonymize-event'
 export { loadAllowLists } from './allow-list-loader'
-export { DEFAULT_MAX_WORDS_LEN, type ScrubContext } from './config'
+export { type ScrubContext } from './config'
 export { defaultAllowLists } from './default-dict'

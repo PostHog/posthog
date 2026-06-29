@@ -13,7 +13,7 @@ export interface RawAllowLists {
 export type AllowListFetcher = () => Promise<RawAllowLists>
 
 // Bound an untrusted allow-list document so a malformed/huge file can't exhaust memory.
-const MAX_ALLOW_LIST_ENTRIES = 100_000
+const MAX_ALLOW_LIST_ENTRIES = 500_000
 const MAX_ALLOW_LIST_ENTRY_LEN = 256
 
 function sanitizeEntries(raw: unknown): string[] {

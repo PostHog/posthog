@@ -27,7 +27,6 @@ export function scrubText(ctx: ScrubContext, input: string): ScrubResult {
     // Nuke whole email addresses first; the tokenizer then runs over what's left.
     const emails = redactEmails(input)
     const text = emails.value
-    const forceRedactAll = exceedsWordLimit(text, ctx.maxWordsLen)
     let changed = emails.changed
     let out = ''
     let lastIndex = 0
@@ -40,7 +39,7 @@ export function scrubText(ctx: ScrubContext, input: string): ScrubResult {
         if (start > lastIndex) {
             out += text.slice(lastIndex, start)
         }
-        const emitted = emitWord(word, ctx.allow, forceRedactAll)
+        const emitted = emitWord(word, ctx.allow)
         out += emitted.value
         changed = changed || emitted.changed
         lastIndex = WORD_RE.lastIndex
@@ -52,25 +51,9 @@ export function scrubText(ctx: ScrubContext, input: string): ScrubResult {
     return { value: out, changed }
 }
 
-// True if `input` has more than `max` words. Stops scanning once the limit is
-// exceeded rather than counting every word in long free-text blobs.
-function exceedsWordLimit(input: string, max: number): boolean {
-    WORD_RE.lastIndex = 0
-    let n = 0
-    while (WORD_RE.exec(input) !== null) {
-        if (++n > max) {
-            return true
-        }
-    }
-    return false
-}
-
-function emitWord(word: string, allow: AllowLists, forceRedactAll: boolean): ScrubResult {
+function emitWord(word: string, allow: AllowLists): ScrubResult {
     if (isNumericToken(word)) {
         return { value: redact(word, NUMBER_CHAR), changed: true }
-    }
-    if (forceRedactAll) {
-        return { value: redact(word, REDACT_CHAR), changed: true }
     }
     if (wordIsAllowed(allow, word)) {
         return { value: word, changed: false }

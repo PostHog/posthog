@@ -8,7 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/producers'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
-import { DEFAULT_MAX_WORDS_LEN, ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
+import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/config'
 import {
     type SessionReplayProducerName,
     getDefaultSessionRecordingApiConfig,
@@ -112,7 +112,6 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
 
         const scrubContext: ScrubContext = {
             allow: await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket)),
-            maxWordsLen: DEFAULT_MAX_WORDS_LEN,
         }
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
