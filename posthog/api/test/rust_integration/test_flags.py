@@ -154,6 +154,11 @@ def test_static_cohort(db: TestDB, api: DjangoAPI, env: TestEnv):
     assert evaluate_flags(env.api_token, "nonmember")["flags"]["static-flag"]["enabled"] is False
 
 
+@pytest.mark.skip(
+    reason="Flag creation reads group-type mappings via the personhog client, which this "
+    "integration job does not provision (the Django server runs without a personhog service). "
+    "Re-enable once personhog is wired into this workflow. See PostHog/posthog#65968."
+)
 def test_group_based_flag(db: TestDB, api: DjangoAPI, env: TestEnv):
     db.create_person(["group_user"], {"email": "user@company.com"})
     db.create_group("organization", 0, "org_123", {"plan": "enterprise"})
