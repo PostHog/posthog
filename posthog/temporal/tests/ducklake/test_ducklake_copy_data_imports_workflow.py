@@ -5,6 +5,7 @@ from collections.abc import Sequence
 import pytest
 from unittest.mock import MagicMock
 
+import psycopg
 import temporalio.worker
 import temporalio.converter
 from temporalio import activity as temporal_activity
@@ -1238,3 +1239,52 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
     assert call_counts["copy"] == 1
     assert call_counts["verify"] == 1
     assert call_counts["cleanup"] == 1
+
+
+def _partition_verification_inputs() -> DuckLakeCopyDataImportsActivityInputs:
+    metadata = DuckLakeCopyDataImportsMetadata(
+        model_label="postgres_events",
+        source_schema_id="schema-123",
+        source_schema_name="events",
+        source_normalized_name="events",
+        source_table_uri="s3://bucket/team_1/events",
+        ducklake_schema_name="posthog_data_imports_team_1",
+        ducklake_table_name="postgres_events_abc12345",
+        source_partition_column="created_at",
+        staging_uri="s3://test-bucket/__posthog_staging/team_1/events",
+    )
+    return DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
+
+
+def test_partition_verification_propagates_transient_connection_error():
+    # A dropped Duckgres SSL connection must propagate so Temporal retries the activity,
+    # rather than being recorded as a permanent verification failure.
+    conn = MagicMock()
+    conn.execute.side_effect = psycopg.OperationalError("SSL SYSCALL error: EOF detected")
+
+    with pytest.raises(psycopg.OperationalError):
+        ducklake_module._run_data_imports_partition_verification(
+            conn,
+            "posthog_data_imports_team_1.postgres_events_abc12345",
+            _partition_verification_inputs(),
+            parameter_placeholder="%s",
+        )
+
+
+def test_partition_verification_records_non_transient_error_as_failed_result():
+    # Non-connection errors from the Delta schema fetch must degrade to a failed result
+    # (matching the schema-verification path) instead of crashing the activity.
+    conn = MagicMock()
+    conn.execute.side_effect = ValueError("delta_scan blew up")
+
+    result = ducklake_module._run_data_imports_partition_verification(
+        conn,
+        "posthog_data_imports_team_1.postgres_events_abc12345",
+        _partition_verification_inputs(),
+        parameter_placeholder="%s",
+    )
+
+    assert result is not None
+    assert result.name == "data_imports.partition_counts"
+    assert result.passed is False
+    assert result.error == "delta_scan blew up"

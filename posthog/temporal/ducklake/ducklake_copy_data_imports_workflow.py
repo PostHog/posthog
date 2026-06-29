@@ -7,6 +7,7 @@ import dataclasses
 from django.conf import settings
 
 import duckdb
+import psycopg
 import deltalake
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -539,6 +540,8 @@ def _run_data_imports_verification_checks(
         try:
             row = conn.execute(rendered_sql, params).fetchone()
         except Exception as exc:
+            if _is_transient_connection_error(exc):
+                raise
             logger.warning(
                 "DuckLake verification query failed",
                 check=query.name,
@@ -669,6 +672,16 @@ def _resolve_data_imports_verification_parameter(
     return mapping[parameter]
 
 
+def _is_transient_connection_error(exc: BaseException) -> bool:
+    """Whether an exception is a transient Duckgres connection drop worth retrying.
+
+    These surface as psycopg ``OperationalError`` (e.g. "SSL SYSCALL error: EOF detected"
+    when the connection drops mid-query). We let them propagate so Temporal retries the
+    activity rather than recording them as a permanent verification failure.
+    """
+    return isinstance(exc, psycopg.OperationalError)
+
+
 def _run_data_imports_schema_verification(
     conn: _VerificationConnection,
     ducklake_table: str,
@@ -683,6 +696,8 @@ def _run_data_imports_schema_verification(
         source_schema = _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
         ducklake_schema = _fetch_schema(conn, ducklake_table)
     except Exception as exc:
+        if _is_transient_connection_error(exc):
+            raise
         return DuckLakeCopyDataImportsVerificationResult(
             name="data_imports.schema_hash",
             passed=False,
@@ -725,7 +740,18 @@ def _run_data_imports_partition_verification(
         return None
 
     # Get partition column type from Delta schema directly
-    source_schema = _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
+    try:
+        source_schema = _fetch_delta_schema(conn, effective_source_uri, parameter_placeholder=parameter_placeholder)
+    except Exception as exc:
+        if _is_transient_connection_error(exc):
+            raise
+        return DuckLakeCopyDataImportsVerificationResult(
+            name="data_imports.partition_counts",
+            passed=False,
+            description="Ensure partition counts match between source and DuckLake.",
+            error=str(exc),
+        )
+
     partition_column_type = _get_column_type_from_schema(source_schema, partition_column)
     if partition_column_type is None:
         # Partition column doesn't exist in Delta schema - skip verification
@@ -760,6 +786,8 @@ def _run_data_imports_partition_verification(
     try:
         mismatches = conn.execute(sql, [effective_source_uri]).fetchall()
     except Exception as exc:
+        if _is_transient_connection_error(exc):
+            raise
         return DuckLakeCopyDataImportsVerificationResult(
             name="data_imports.partition_counts",
             passed=False,
@@ -956,7 +984,14 @@ class DuckLakeCopyDataImportsWorkflow(PostHogWorkflow):
                     activity_inputs,
                     start_to_close_timeout=dt.timedelta(minutes=10),
                     heartbeat_timeout=dt.timedelta(minutes=2),
-                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    # Retry transient connection blips (e.g. a dropped Duckgres SSL connection);
+                    # genuine verification failures are returned as results, not raised, so they
+                    # don't re-run.
+                    retry_policy=RetryPolicy(
+                        maximum_attempts=3,
+                        initial_interval=dt.timedelta(seconds=2),
+                        maximum_interval=dt.timedelta(seconds=30),
+                    ),
                 )
 
                 if verification_results:
