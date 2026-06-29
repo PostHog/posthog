@@ -1,6 +1,6 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
-import { parseJSON } from '~/utils/json-parse'
 
 import { OtelLibraryMiddleware } from './types'
 
@@ -60,6 +60,34 @@ function isPromptVersion(value: unknown): value is string | number {
     return isNonEmptyString(value) || (typeof value === 'number' && Number.isInteger(value) && value > 0)
 }
 
+// Vercel AI SDK top-level spans (ai.generateText/ai.streamText/ai.*Object) record
+// ai.prompt as a JSON object — { system?, prompt?, messages? } — not a bare
+// messages array. Flatten it into a messages array so it maps to $ai_input.
+// Older SDK versions (and provider-level spans) sent a bare array or raw string,
+// which we still accept.
+function promptToMessages(prompt: unknown): unknown[] | null {
+    if (Array.isArray(prompt)) {
+        return prompt
+    }
+    if (typeof prompt === 'string') {
+        return [{ role: 'user', content: prompt }]
+    }
+    if (prompt !== null && typeof prompt === 'object') {
+        const { system, prompt: rawPrompt, messages } = prompt as Record<string, unknown>
+        const result: unknown[] = []
+        if (isNonEmptyString(system)) {
+            result.push({ role: 'system', content: system })
+        }
+        if (Array.isArray(messages)) {
+            result.push(...messages)
+        } else if (isNonEmptyString(rawPrompt)) {
+            result.push({ role: 'user', content: rawPrompt })
+        }
+        return result.length > 0 ? result : null
+    }
+    return null
+}
+
 function numericValue(value: unknown): number | null {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value
@@ -94,7 +122,8 @@ function process(event: PluginEvent, next: () => void): void {
     // Map ai.prompt.messages → gen_ai.input.messages before the standard mapping
     // runs, so mapOtelAttributes() picks it up as $ai_input. Provider-level spans
     // (doGenerate/doStream) carry ai.prompt.messages, while top-level wrapper
-    // spans carry ai.prompt as a raw string.
+    // spans carry ai.prompt — a { system?, prompt?, messages? } object, a bare
+    // messages array, or a raw string depending on the SDK version.
     if (props['ai.prompt.messages'] !== undefined && props['gen_ai.input.messages'] === undefined) {
         props['gen_ai.input.messages'] = props['ai.prompt.messages']
     } else if (props['ai.prompt'] !== undefined && props['gen_ai.input.messages'] === undefined) {
@@ -106,10 +135,9 @@ function process(event: PluginEvent, next: () => void): void {
                 // Keep original string
             }
         }
-        if (Array.isArray(prompt)) {
-            props['gen_ai.input.messages'] = prompt
-        } else if (typeof prompt === 'string') {
-            props['gen_ai.input.messages'] = [{ role: 'user', content: prompt }]
+        const messages = promptToMessages(prompt)
+        if (messages) {
+            props['gen_ai.input.messages'] = messages
         }
     }
     delete props['ai.prompt.messages']
@@ -133,7 +161,9 @@ function process(event: PluginEvent, next: () => void): void {
         if (props['$ai_input'] !== undefined && props['$ai_input_state'] === undefined) {
             const input = props['$ai_input']
             if (Array.isArray(input)) {
-                const userMsg = input.find(
+                // Prefer the most recent user turn so multi-turn traces show the
+                // current message rather than the start of the conversation.
+                const userMsg = input.findLast(
                     (m: Record<string, unknown>) => typeof m === 'object' && m !== null && m.role === 'user'
                 )
                 if (userMsg) {

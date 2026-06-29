@@ -1,10 +1,11 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useCallback, useEffect, useMemo } from 'react'
 
-import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { LemonInputSelect, LemonSegmentedButton, LemonSelect, LemonSwitch, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { CUSTOM_OPTION_KEY } from 'lib/components/DateFilter/types'
+import { type MetricSummary } from 'lib/components/Metric/metricSummary'
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { DATE_TIME_FORMAT, formatDateRange } from 'lib/utils/datetime'
@@ -13,7 +14,21 @@ import { DateMappingOption } from '~/types'
 
 import { MetricNameFilter } from './MetricNameFilter'
 import { metricNamePickerLogic } from './metricNamePickerLogic'
-import { MetricAggregation, metricsViewerLogic } from './metricsViewerLogic'
+import { MetricsChartLegend } from './MetricsChartLegend'
+import { MetricStatPanel } from './MetricStatPanel'
+import { LIVE_REFRESH_MS, MetricAggregation, metricsViewerLogic, MetricsViewMode } from './metricsViewerLogic'
+
+const VIEW_MODE_OPTIONS: { value: MetricsViewMode; label: string }[] = [
+    { value: 'chart', label: 'Chart' },
+    { value: 'stat', label: 'Stat' },
+]
+
+// How the stat card summarizes the series into one headline value.
+const SUMMARY_OPTIONS: { value: MetricSummary; label: string }[] = [
+    { value: 'latest', label: 'Latest' },
+    { value: 'average', label: 'Average' },
+    { value: 'total', label: 'Total' },
+]
 
 const AGGREGATION_OPTIONS: { value: MetricAggregation; label: string }[] = [
     { value: 'sum', label: 'Sum' },
@@ -78,18 +93,48 @@ export const MetricsViewer = (): JSX.Element => {
         aggregation,
         dateFrom,
         dateTo,
+        viewMode,
+        statSummary,
+        groupByKeys,
+        filterStrings,
+        chartSeries,
         sparklineValues,
         sparklineLabels,
+        statTotal,
+        anomalyBadge,
+        liveRefresh,
         queryResultsLoading,
         hasMetricName,
     } = useValues(logic)
-    const { setMetricName, setAggregation, setDateFrom, setDateTo, fetchQueryResults } = useActions(logic)
+    const {
+        setMetricName,
+        setAggregation,
+        setDateFrom,
+        setDateTo,
+        setViewMode,
+        setStatSummary,
+        setGroupByKeys,
+        setFilterStrings,
+        setLiveRefresh,
+        fetchQueryResults,
+        fetchAnomaly,
+        clearAnomaly,
+    } = useActions(logic)
     const { items: pickerItems } = useValues(pickerLogic)
 
     // Refetch the chart whenever any filter changes — the loader breakpoint debounces input.
     useEffect(() => {
         fetchQueryResults({})
-    }, [metricName, aggregation, dateFrom, dateTo]) // eslint-disable-line react-hooks/exhaustive-deps
+    }, [metricName, aggregation, dateFrom, dateTo, groupByKeys, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Characterize the recent window only while the stat card is visible — the badge is stat-mode only.
+    useEffect(() => {
+        if (viewMode === 'stat' && hasMetricName) {
+            fetchAnomaly({})
+        } else {
+            clearAnomaly()
+        }
+    }, [metricName, aggregation, dateFrom, dateTo, viewMode, hasMetricName, filterStrings]) // eslint-disable-line react-hooks/exhaustive-deps
 
     const selectedMetricType = useMemo(
         () => pickerItems.find((item) => item.name === metricName)?.metric_type,
@@ -158,6 +203,26 @@ export const MetricsViewer = (): JSX.Element => {
                     options={AGGREGATION_OPTIONS}
                     onChange={(value) => setAggregation(value as MetricAggregation)}
                 />
+                <LemonInputSelect
+                    mode="multiple"
+                    size="small"
+                    allowCustomValues
+                    value={groupByKeys}
+                    onChange={setGroupByKeys}
+                    options={[]}
+                    placeholder="Group by attribute…"
+                    className="min-w-[12rem]"
+                />
+                <LemonInputSelect
+                    mode="multiple"
+                    size="small"
+                    allowCustomValues
+                    value={filterStrings}
+                    onChange={setFilterStrings}
+                    options={[]}
+                    placeholder="Filter attribute=value…"
+                    className="min-w-[14rem]"
+                />
                 <DateFilter
                     size="small"
                     dateFrom={dateFrom}
@@ -172,16 +237,47 @@ export const MetricsViewer = (): JSX.Element => {
                     allowedRollingDateOptions={['minutes', 'hours', 'days', 'weeks']}
                     use24HourFormat
                 />
+                <LemonSegmentedButton
+                    size="small"
+                    value={viewMode}
+                    options={VIEW_MODE_OPTIONS}
+                    onChange={(value) => setViewMode(value)}
+                />
+                {viewMode === 'stat' && (
+                    <LemonSelect
+                        size="small"
+                        value={statSummary}
+                        options={SUMMARY_OPTIONS}
+                        onChange={(value) => setStatSummary(value)}
+                    />
+                )}
+                <LemonSwitch
+                    label="Live"
+                    checked={liveRefresh}
+                    onChange={setLiveRefresh}
+                    tooltip={`Auto-refresh every ${LIVE_REFRESH_MS / 1000}s`}
+                    bordered
+                />
             </div>
             <div className="relative h-[360px] border rounded p-3">
                 {!hasMetricName ? (
                     <div className="h-full flex items-center justify-center text-secondary text-sm">
                         Pick a metric to see its time series.
                     </div>
+                ) : hasResults && viewMode === 'stat' ? (
+                    <MetricStatPanel
+                        title={metricName}
+                        summary={statSummary}
+                        aggregation={aggregation}
+                        total={statTotal}
+                        values={sparklineValues}
+                        labels={sparklineLabels.map(renderLabel)}
+                        anomaly={anomalyBadge}
+                    />
                 ) : hasResults ? (
                     <Sparkline
                         type="line"
-                        data={[{ name: aggregation, values: sparklineValues, color: 'data-color-1' }]}
+                        data={chartSeries}
                         labels={sparklineLabels}
                         className="w-full h-full"
                         withXScale={withXScale}
@@ -194,6 +290,7 @@ export const MetricsViewer = (): JSX.Element => {
                 ) : null}
                 {queryResultsLoading && <SpinnerOverlay />}
             </div>
+            {viewMode === 'chart' && hasResults && <MetricsChartLegend series={chartSeries} />}
         </div>
     )
 }

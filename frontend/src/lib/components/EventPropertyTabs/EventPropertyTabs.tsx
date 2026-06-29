@@ -61,7 +61,8 @@ export const EventPropertyTabs = ({
     const isErrorEvent = event.event === '$exception'
     const isSurveyResponseEvent = event.event === 'survey sent'
     const isMcpEvent =
-        typeof event.event === 'string' && (event.event.startsWith('mcp_') || event.event.startsWith('mcp '))
+        typeof event.event === 'string' &&
+        (event.event.startsWith('mcp_') || event.event.startsWith('$mcp_') || event.event.startsWith('mcp '))
 
     const { filterProperties } = useValues(eventPropertyFilteringLogic)
 

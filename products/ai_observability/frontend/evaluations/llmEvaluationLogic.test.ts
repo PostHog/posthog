@@ -70,6 +70,7 @@ const mockEvaluation: EvaluationConfig = {
     enabled: true,
     status: 'active',
     status_reason: null,
+    status_reason_detail: null,
     evaluation_type: 'llm_judge',
     evaluation_config: { prompt: 'Is this response helpful?' },
     output_type: 'boolean',
@@ -121,6 +122,78 @@ const mockRuns: EvaluationRun[] = [
         applicable: false,
         reasoning: 'Not applicable',
         status: 'completed',
+    },
+]
+
+const mockSentimentEvaluation: EvaluationConfig = {
+    ...mockEvaluation,
+    evaluation_type: 'sentiment',
+    evaluation_config: { source: 'user_messages' },
+    output_type: 'sentiment',
+    output_config: {},
+    model_configuration: null,
+}
+
+const mockSentimentRuns: EvaluationRun[] = [
+    {
+        id: 'run-negative',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-negative',
+        trace_id: 'trace-negative',
+        timestamp: '2024-01-01T12:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'negative',
+        sentiment_score: -0.8,
+        reasoning: 'The message was frustrated',
+        status: 'completed',
+    },
+    {
+        id: 'run-positive',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-positive',
+        trace_id: 'trace-positive',
+        timestamp: '2024-01-01T13:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'positive',
+        sentiment_score: 0.7,
+        reasoning: 'The message was happy',
+        status: 'completed',
+    },
+    {
+        id: 'run-neutral',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-neutral',
+        trace_id: 'trace-neutral',
+        timestamp: '2024-01-01T14:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'neutral',
+        sentiment_score: 0.1,
+        reasoning: 'The message was neutral',
+        status: 'completed',
+    },
+    {
+        id: 'run-positive-failed',
+        evaluation_id: 'eval-123',
+        evaluation_name: 'Sentiment Evaluation',
+        generation_id: 'gen-positive-failed',
+        trace_id: 'trace-positive-failed',
+        timestamp: '2024-01-01T15:00:00Z',
+        evaluation_type: 'sentiment',
+        result_type: 'sentiment',
+        result: null,
+        sentiment_label: 'positive',
+        sentiment_score: 0.5,
+        reasoning: 'This run did not complete',
+        status: 'failed',
     },
 ]
 
@@ -211,6 +284,16 @@ describe('llmEvaluationLogic', () => {
             })
         })
 
+        it('initializes new evaluations with 100% sampling', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                }),
+            })
+        })
+
         it('setModelConfiguration updates model config', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
@@ -264,6 +347,7 @@ describe('llmEvaluationLogic', () => {
                 await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
                 logic.actions.setEvaluationName('Valid Name')
                 logic.actions.setEvaluationPrompt('Valid prompt')
+                logic.actions.setTriggerConditions([{ id: 'c1', rollout_percentage: 0, properties: [] }])
 
                 await expectLogic(logic).toMatchValues({ formValid: false })
             })
@@ -438,7 +522,10 @@ describe('llmEvaluationLogic', () => {
                 logic.actions.resetEvaluation()
 
                 await expectLogic(logic).toMatchValues({
-                    evaluation: expect.objectContaining({ name: '' }),
+                    evaluation: expect.objectContaining({
+                        name: '',
+                        conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                    }),
                     hasUnsavedChanges: false,
                 })
             })
@@ -498,6 +585,20 @@ describe('llmEvaluationLogic', () => {
 
                 await expectLogic(logic).toMatchValues({
                     evaluationSummary: null,
+                })
+            })
+        })
+
+        describe('sentiment evaluation filters', () => {
+            it('defaults to all for boolean evaluations', async () => {
+                expect(logic.values.evaluationSummaryFilter).toBe('all')
+            })
+
+            it('defaults to negative for sentiment evaluations', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+
+                await expectLogic(logic).toMatchValues({
+                    evaluationSummaryFilter: 'negative',
                 })
             })
         })
@@ -653,6 +754,35 @@ describe('llmEvaluationLogic', () => {
                     filteredEvaluationRuns: [expect.objectContaining({ id: 'run-1' })],
                 })
             })
+
+            it('returns only negative sentiment runs by default for sentiment evaluations', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+                logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-negative' })],
+                })
+            })
+
+            it('returns only completed sentiment runs matching the selected filter', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+                logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
+                logic.actions.setEvaluationSummaryFilter('positive', 'negative')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: [expect.objectContaining({ id: 'run-positive' })],
+                })
+            })
+
+            it('returns all sentiment runs when the all filter is selected', async () => {
+                logic.actions.loadEvaluationSuccess(mockSentimentEvaluation)
+                logic.actions.loadEvaluationRunsSuccess(mockSentimentRuns)
+                logic.actions.setEvaluationSummaryFilter('all', 'negative')
+
+                await expectLogic(logic).toMatchValues({
+                    filteredEvaluationRuns: mockSentimentRuns,
+                })
+            })
         })
 
         describe('runsLookup', () => {
@@ -708,6 +838,25 @@ describe('llmEvaluationLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'sentiment',
+                    evaluation_config: { source: 'user_messages' },
+                    output_type: 'sentiment',
+                    output_config: {},
+                    model_configuration: null,
+                    conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                }),
+            })
+        })
+
+        it('initializes new evaluations as sentiment when requested', async () => {
+            logic.unmount()
+            logic = llmEvaluationLogic({ evaluationId: 'new', evaluationType: 'sentiment' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({

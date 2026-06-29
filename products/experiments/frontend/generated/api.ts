@@ -9,6 +9,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    ArchiveExperimentApi,
     CopyExperimentToProjectApi,
     CreateFromPromptInputApi,
     EndExperimentApi,
@@ -406,17 +407,22 @@ export const getExperimentsArchiveCreateUrl = (projectId: string, id: number) =>
  * Archive an ended experiment.
  *
  * Hides the experiment from the default list view. The experiment can be
- * restored at any time by updating archived=false. Returns 400 if the
- * experiment is already archived or has not ended yet.
+ * restored at any time by updating archived=false. When the linked feature
+ * flag is still enabled, pass disable_feature_flag=true to also disable and
+ * archive it. Returns 400 if the experiment is already archived or has not
+ * ended yet.
  */
 export const experimentsArchiveCreate = async (
     projectId: string,
     id: number,
+    archiveExperimentApi?: ArchiveExperimentApi,
     options?: RequestInit
 ): Promise<ExperimentApi> => {
     return apiMutator<ExperimentApi>(getExperimentsArchiveCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(archiveExperimentApi),
     })
 }
 

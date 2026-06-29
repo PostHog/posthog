@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { IconChevronRight } from '@posthog/icons'
 
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { MessageTemplate } from 'scenes/max/messages/MessageTemplate'
+
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { CompatMessage } from '../types'
 import {

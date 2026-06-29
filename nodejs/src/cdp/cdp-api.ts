@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/api/router'
+import { ModifiedRequest } from '~/common/api/router'
+import { logger } from '~/common/utils/logger'
+import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -11,8 +13,6 @@ import {
     PluginServerService,
     PluginsServerConfig,
 } from '../types'
-import { logger } from '../utils/logger'
-import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
 import { CdpOutputs, createCdpCoreServices } from './cdp-services'
@@ -765,6 +765,9 @@ export class CdpApi {
                 return res.status(400).json({ error: 'Only batch Workflows are supported for batch jobs' })
             }
 
+            const maxAudienceSize =
+                typeof req.body.max_audience_size === 'number' ? req.body.max_audience_size : undefined
+
             const batchHogFlowRequest = {
                 teamId: team.id,
                 hogFlowId: hogFlow.id,
@@ -773,6 +776,7 @@ export class CdpApi {
                     properties: hogFlow.trigger.filters.properties || [],
                     filter_test_accounts: req.body.filters?.filter_test_accounts || false,
                 },
+                maxAudienceSize,
             }
 
             await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {

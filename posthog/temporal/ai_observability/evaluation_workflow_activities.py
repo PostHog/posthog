@@ -4,13 +4,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from django.conf import settings
-from django.db import models
+from django.db import models, transaction
 
 import structlog
 import temporalio
 from structlog.contextvars import bind_contextvars
 
-from posthog.api.capture_dispatch import capture_internal_routed
+from posthog.api.capture import capture_internal
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_llm_judge import DEFAULT_JUDGE_MODEL
@@ -18,7 +18,7 @@ from posthog.temporal.ai_observability.evaluation_types import EvaluationActivit
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome
 
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.evaluations import Evaluation
+from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationStatus
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
@@ -126,16 +126,30 @@ async def increment_trial_eval_count_activity(team_id: int) -> int | None:
 
 
 @temporalio.activity.defn
-async def disable_evaluation_activity(evaluation_id: str, team_id: int, status_reason: str = "") -> None:
-    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error."""
+async def disable_evaluation_activity(
+    evaluation_id: str, team_id: int, status_reason: str = "", status_reason_detail: str | None = None
+) -> bool:
+    """Transition an evaluation into the ERROR state when the workflow hits a terminal skippable error.
 
-    def _disable() -> None:
+    Returns True only for the first workflow that disables the evaluation. Later in-flight
+    workflows can hit the same terminal error after the first transition, but shouldn't send
+    duplicate disabled notifications or write duplicate activity log rows.
+    """
+
+    def _disable() -> bool:
         reason = status_reason or "trial_limit_reached"
-        evaluation = Evaluation.objects.filter(id=evaluation_id, team_id=team_id).first()
-        if evaluation is not None:
-            evaluation.set_status("error", reason)
+        with transaction.atomic():
+            evaluation = Evaluation.objects.select_for_update().filter(id=evaluation_id, team_id=team_id).first()
+            if evaluation is None:
+                return False
 
-    await database_sync_to_async(_disable)()
+            if evaluation.status == EvaluationStatus.ERROR and not evaluation.enabled:
+                return False
+
+            evaluation.set_status("error", reason, status_reason_detail)
+            return True
+
+    return await database_sync_to_async(_disable)()
 
 
 @dataclass
@@ -228,11 +242,19 @@ class SendEvaluationDisabledEmailInputs:
     evaluation_name: str
     status_reason: str
     human_readable_reason: str
+    disabled_at: datetime | None = None
 
 
 _STATUS_REASON_SUBJECTS = {
     "model_not_allowed": "Your AI observability evaluation was disabled because its model isn't supported on the trial plan",
+    "no_default_model": "Your AI observability evaluation was disabled because no default model is configured",
     "provider_key_deleted": "Your AI observability evaluation was disabled because its provider API key was removed",
+    "provider_key_invalid": "Your AI observability evaluation was disabled because its provider API key is invalid",
+    "provider_key_permission_denied": "Your AI observability evaluation was disabled because its provider API key lacks model access",
+    "provider_key_quota_exceeded": "Your AI observability evaluation was disabled because its provider API key quota was exceeded",
+    "provider_key_rate_limited": "Your AI observability evaluation was disabled because its provider API key is being rate limited",
+    "model_not_found": "Your AI observability evaluation was disabled because its model was not found",
+    "hog_error": "Your AI observability evaluation was disabled because its Hog code failed",
 }
 
 
@@ -260,6 +282,8 @@ async def send_evaluation_disabled_email_activity(inputs: SendEvaluationDisabled
         settings_url = f"/project/{team.pk}/settings/project-ai-observability#ai-observability-byok"
         evaluation_url = f"/project/{team.pk}/ai-evals/evaluations/{inputs.evaluation_id}"
         campaign_key = f"llm_analytics_eval_disabled_{inputs.evaluation_id}_{inputs.status_reason}"
+        if inputs.disabled_at is not None:
+            campaign_key = f"{campaign_key}_{int(inputs.disabled_at.timestamp() * 1_000_000)}"
         subject = _STATUS_REASON_SUBJECTS.get(
             inputs.status_reason, f'Your evaluation "{inputs.evaluation_name}" has been disabled'
         )
@@ -383,7 +407,7 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
 
         event_timestamp = datetime.now(UTC)
 
-        capture_result = capture_internal_routed(
+        capture_result = capture_internal(
             token=team.api_token,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",

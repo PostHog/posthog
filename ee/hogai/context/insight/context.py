@@ -78,6 +78,7 @@ class InsightContext:
         prompt_template: str = INSIGHT_RESULT_TEMPLATE,
         return_exceptions: bool = False,
         truncate_results: bool = True,
+        include_prompt_framing: bool = True,
     ) -> str:
         """Execute query and format results."""
         effective_query = await self._get_effective_query()
@@ -90,6 +91,7 @@ class InsightContext:
                 insight_id=self.insight_model_id,
                 truncate_results=truncate_results,
                 user=self.user,
+                include_prompt_framing=include_prompt_framing,
             )
         except Exception as e:
             error_message = f"Error executing query: {str(e)}"

@@ -36,6 +36,13 @@ export const ToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        /**
+         * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
+         * so the agent sees it at point of use instead of it growing the always-loaded tool
+         * description. Keep it to a sentence or two and defer details to the referenced
+         * tools' own descriptions.
+         */
+        agent_note: z.string().optional(),
         exclude_params: z.array(z.string()).optional(),
         include_params: z.array(z.string()).optional(),
         /**

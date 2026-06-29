@@ -5,7 +5,17 @@ import { LLMProvider } from '../settings/llmProviderKeysLogic'
 export type EvaluationType = 'llm_judge' | 'hog' | 'sentiment'
 export type EvaluationOutputType = 'boolean' | 'sentiment'
 export type EvaluationStatus = 'active' | 'paused' | 'error'
-export type EvaluationStatusReason = 'trial_limit_reached' | 'model_not_allowed' | 'provider_key_deleted'
+export type EvaluationStatusReason =
+    | 'trial_limit_reached'
+    | 'model_not_allowed'
+    | 'provider_key_deleted'
+    | 'no_default_model'
+    | 'provider_key_invalid'
+    | 'provider_key_permission_denied'
+    | 'provider_key_quota_exceeded'
+    | 'provider_key_rate_limited'
+    | 'model_not_found'
+    | 'hog_error'
 
 export interface ModelConfiguration {
     provider: LLMProvider
@@ -38,6 +48,7 @@ export interface BaseEvaluationConfig {
     enabled: boolean
     status: EvaluationStatus
     status_reason: EvaluationStatusReason | null
+    status_reason_detail: string | null
     output_type: EvaluationOutputType
     output_config: EvaluationOutputConfig
     conditions: EvaluationConditionSet[]
@@ -191,7 +202,8 @@ export interface EvaluationReportRun {
     created_at: string
 }
 
-export type EvaluationSummaryFilter = 'all' | 'pass' | 'fail' | 'na'
+export type SentimentEvaluationRunsFilter = 'negative' | 'positive' | 'neutral' | 'all'
+export type EvaluationSummaryFilter = 'pass' | 'fail' | 'na' | SentimentEvaluationRunsFilter
 
 export interface EvaluationPattern {
     title: string

@@ -186,6 +186,18 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "multiple_variant_handling": {
+                            "anyOf": [
+                                {
+                                    "enum": ["exclude", "first_seen"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
                         }
                     },
                     "type": "object"
@@ -308,6 +320,23 @@
                                 }
                             ],
                             "description": "Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100."
+                        },
+                        "variant_notes": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {
+                                        "type": "string"
+                                    },
+                                    "propertyNames": {
+                                        "type": "string"
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL."
                         }
                     },
                     "type": "object"

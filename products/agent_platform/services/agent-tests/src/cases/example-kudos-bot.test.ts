@@ -489,7 +489,7 @@ describe('example: kudos-bot bundle', () => {
         // 2026-06-08 is a Monday and 09:00 PDT = 16:00 UTC. Window is
         // (lastTickAt, now], so t0 must land strictly before the firing.
         const state = newCronTickState()
-        const deps = { revisions: c.revisions, queue: c.queue }
+        const deps = { revisions: c.revisions, queue: c.queue, encryption: c.encryption }
         const t0 = new Date('2026-06-08T15:59:00Z') // 08:59 PT — seeds the window
         await cronTick({ ...deps, now: () => t0 }, state)
         const t1 = new Date('2026-06-08T16:01:00Z') // window (15:59, 16:01] catches 16:00

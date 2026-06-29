@@ -48,7 +48,7 @@ import {
     evaluationTypeUsesModelConfiguration,
 } from './evaluationCapabilities'
 import { LLMEvaluationLogicProps, llmEvaluationLogic } from './llmEvaluationLogic'
-import { statusReasonLabel } from './statusDisplay'
+import { statusReasonLabel, statusReasonRecoveryLabel } from './statusDisplay'
 import { EvaluationType } from './types'
 
 export function AIObservabilityEvaluation(): JSX.Element {
@@ -223,16 +223,12 @@ export function AIObservabilityEvaluation(): JSX.Element {
         push(combineUrl(urls.aiObservabilityEvaluations(), searchParams).url)
     }
 
-    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = featureFlags[
-        FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE
+    const hogEvaluationMethodOptions: { value: EvaluationType; label: string }[] = [
+        {
+            value: 'hog',
+            label: 'Hog code',
+        },
     ]
-        ? [
-              {
-                  value: 'hog',
-                  label: 'Hog code',
-              },
-          ]
-        : []
     const sentimentEvaluationMethodOptions: { value: EvaluationType; label: string }[] =
         evaluationTypeCanBeCreated('sentiment', featureFlags) || isSentiment
             ? [
@@ -325,10 +321,17 @@ export function AIObservabilityEvaluation(): JSX.Element {
                     <div className="space-y-1">
                         <p className="font-semibold">This evaluation was automatically disabled</p>
                         <p>
-                            {statusReasonLabel(evaluation.status_reason)}. Update the configuration below (e.g. choose a
-                            supported model or add a provider API key in settings), then re-enable the evaluation to
-                            resume running.
+                            {statusReasonLabel(evaluation.status_reason)}.{' '}
+                            {statusReasonRecoveryLabel(evaluation.status_reason)}
                         </p>
+                        {evaluation.status_reason_detail && (
+                            <div className="space-y-1">
+                                <p className="font-semibold">Error details</p>
+                                <pre className="m-0 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded border bg-bg-light p-2 font-mono text-xs">
+                                    {evaluation.status_reason_detail}
+                                </pre>
+                            </div>
+                        )}
                     </div>
                 </LemonBanner>
             )}
@@ -444,7 +447,7 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                             )}
                                             <p className="text-muted text-sm -mt-2">
                                                 {isSentiment ? (
-                                                    'Classify the sentiment of user messages on each matching generation.'
+                                                    'Classify the sentiment of only the last user message on each matching generation event with a sentiment classifier, not LLM calls.'
                                                 ) : isHog ? (
                                                     <>
                                                         Run deterministic{' '}
@@ -554,10 +557,9 @@ export function AIObservabilityEvaluation(): JSX.Element {
                                     )}
 
                                     {/* Judge Model Configuration (LLM judge only) */}
-                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) &&
-                                        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                                            <EvaluationModelPicker />
-                                        )}
+                                    {evaluationTypeUsesModelConfiguration(evaluation.evaluation_type) && (
+                                        <EvaluationModelPicker />
+                                    )}
 
                                     {/* Trigger Configuration */}
                                     <div ref={triggersRef} className="bg-bg-light border rounded p-6">
@@ -645,5 +647,6 @@ export const scene: SceneExport<LLMEvaluationLogicProps> = {
     paramsToProps: ({ params: { id }, searchParams }) => ({
         evaluationId: id && id !== 'new' ? id : 'new',
         templateKey: typeof searchParams.template === 'string' ? searchParams.template : undefined,
+        evaluationType: searchParams.type === 'sentiment' ? 'sentiment' : undefined,
     }),
 }
