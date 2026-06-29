@@ -120,9 +120,9 @@ tools:
             dashboard/insight state at send time) is not returned — use the insight/dashboard tools for current state.
             recipient_results and error are also excluded to match what the web UI exposes and to avoid leaking
             recipient identifiers or upstream response bodies that may contain tokens / PII. Unlike the list tool,
-            ai_report (the full report markdown for AI-prompt subscriptions) is returned here, alongside ai_report_prompt
-            (the prompt it was generated from). ai_report_diagnostics (per-query generated HogQL + failure types) stays
-            excluded — read it in the web UI's delivery history.
+            ai_report (the full report markdown for AI-prompt subscriptions) is returned here, alongside
+            ai_report_prompt (the prompt it was generated from). ai_report_diagnostics (per-query generated HogQL +
+            failure types) stays excluded — read it in the web UI's delivery history.
         response:
             exclude:
                 - content_snapshot
