@@ -1,3 +1,5 @@
+"""Temporal workflow that generates and persists signal report summaries."""
+
 import json
 import asyncio
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.signals.backend.models import SignalReport
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.temporal import metrics
 from products.signals.backend.temporal.agentic.report import (
     RunAgenticReportInput,
     RunAgenticReportOutput,
@@ -44,7 +47,11 @@ from products.signals.backend.temporal.signal_queries import (
     FetchSignalsForReportOutput,
     fetch_signals_for_report_activity,
 )
-from products.signals.backend.temporal.types import SignalData, SignalReportSummaryWorkflowInputs
+from products.signals.backend.temporal.types import (
+    RERESEARCH_MAX_SIGNALS,
+    SignalData,
+    SignalReportSummaryWorkflowInputs,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -70,6 +77,10 @@ def _capture_report_event(
         properties["result"] = result
     if failure_reason is not None:
         properties["failure_reason"] = failure_reason
+
+    if event == "signal_report_completed" and result is not None:
+        metrics.increment_report_completed(result)
+
     try:
         posthoganalytics.capture(
             event=event,
@@ -474,7 +485,9 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 return True, report.run_count, True
             updated_fields = report.transition_to(SignalReport.Status.READY, title=input.title, summary=input.summary)
             report.save(update_fields=updated_fields)
-            has_new_signals = report.signal_count > input.processed_signal_count
+            # Loop to re-research only if new signals arrived and we're within the cap; past
+            # RERESEARCH_MAX_SIGNALS the report stays READY instead of re-running over a large set.
+            has_new_signals = input.processed_signal_count < report.signal_count <= RERESEARCH_MAX_SIGNALS
             if has_new_signals:
                 # If more signals arrived while the report was being processed, we want to
                 # re-promote it back to candidate and loop to also process new signals

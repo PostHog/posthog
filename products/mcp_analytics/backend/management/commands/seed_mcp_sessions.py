@@ -8,12 +8,13 @@ from django.core.management.base import BaseCommand, CommandParser
 from posthog.clickhouse.client import sync_execute
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.event.util import create_event
-from posthog.models.person import Person, PersonDistinctId
 from posthog.models.person.util import create_person, create_person_distinct_id, get_person_by_distinct_id
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import UUIDT, uuid7
 from posthog.personhog_client.caller_tag import personhog_caller_tag
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person, update_seed_person
 
 from products.mcp_analytics.backend.models import MCPSession
 
@@ -152,7 +153,7 @@ EXCEPTION_PAIR_PROBABILITY = 0.6
 
 
 class Command(BaseCommand):
-    help = "Seed mcp_tool_call events into ClickHouse for local testing of MCP analytics."
+    help = "Seed $mcp_tool_call events into ClickHouse for local testing of MCP analytics."
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, required=True, help="Team ID to seed events for.")
@@ -169,7 +170,7 @@ class Command(BaseCommand):
         parser.add_argument(
             "--clear",
             action="store_true",
-            help="Delete existing mcp_tool_call events for the team before seeding (clean slate).",
+            help="Delete existing $mcp_tool_call events for the team before seeding (clean slate).",
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
@@ -194,7 +195,7 @@ class Command(BaseCommand):
         if clear:
             sync_execute(
                 f"ALTER TABLE {EVENTS_DATA_TABLE()} DELETE WHERE team_id = %(team_id)s "
-                "AND (event = 'mcp_tool_call' OR (event = '$exception' AND JSONExtractString(properties, '$mcp_tool_name') != '')) "
+                "AND (event = '$mcp_tool_call' OR (event = '$exception' AND JSONExtractString(properties, '$mcp_tool_name') != '')) "
                 "SETTINGS mutations_sync=1",
                 {"team_id": team_id},
             )
@@ -221,19 +222,27 @@ class Command(BaseCommand):
                     team_id=team.id, distinct_id=distinct_id, distinct_id_limit=0
                 )
             if existing_person:
-                person = existing_person
+                person_uuid = str(existing_person.uuid)
                 if properties:
-                    person.properties = properties
-                    person.is_identified = is_identified
-                    person.save(update_fields=["properties", "is_identified"])
+                    with persons_db_connection(writer=True) as conn:
+                        update_seed_person(
+                            conn,
+                            team_id=team.id,
+                            uuid=person_uuid,
+                            properties=properties,
+                            is_identified=is_identified,
+                        )
             else:
-                person = Person.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, properties=properties, is_identified=is_identified
-                )
-                PersonDistinctId.objects.create(  # nosemgrep: no-direct-persons-db-orm
-                    team=team, distinct_id=distinct_id, person=person
-                )
-            person_uuid = str(person.uuid)
+                person_uuid = str(UUIDT())
+                with persons_db_connection(writer=True) as conn:
+                    person_id = insert_seed_person(
+                        conn,
+                        team_id=team.id,
+                        properties=properties,
+                        is_identified=is_identified,
+                        uuid=person_uuid,
+                    )
+                    insert_seed_distinct_id(conn, team_id=team.id, person_id=person_id, distinct_id=distinct_id)
             create_person(
                 team_id=team.id,
                 uuid=person_uuid,
@@ -254,12 +263,9 @@ class Command(BaseCommand):
             )
 
         for session_idx in range(session_count):
-            # $mcp_session_id is the canonical session grouping key emitted by the MCP
-            # SDK. Use uuid4 because that's the format the real service emits (e.g.
-            # ba10420e-7ff2-4253-a6ac-3e404f14f8be).
-            mcp_session_id = str(uuid.uuid4())
-            # $session_id keeps the PostHog uuid7 convention so session-replay-style
-            # consumers don't choke on it.
+            # $session_id is the canonical session key — the @posthog/mcp SDK emits only
+            # this (no $mcp_session_id), so these fixtures mirror a plain SDK-instrumented
+            # server. uuid7 matches the PostHog session-id convention.
             session_id = str(uuid7())
             if rng.random() < IDENTIFIED_PROBABILITY:
                 persona = rng.choice(IDENTIFIED_PERSONAS)
@@ -301,7 +307,7 @@ class Command(BaseCommand):
                     duration_ms = int(duration_ms * rng.uniform(1.5, 3.0))
                 create_event(
                     event_uuid=uuid.uuid4(),
-                    event="mcp_tool_call",
+                    event="$mcp_tool_call",
                     team=team,
                     distinct_id=distinct_id,
                     timestamp=timestamp,
@@ -309,7 +315,6 @@ class Command(BaseCommand):
                     person_properties=person_props,
                     properties={
                         "$session_id": session_id,
-                        "$mcp_session_id": mcp_session_id,
                         "$mcp_source": NEW_SDK_SOURCE,
                         "$mcp_tool_name": tool_name,
                         "$mcp_tool_category": TOOL_CATEGORIES.get(tool_name, "Other"),
@@ -340,7 +345,6 @@ class Command(BaseCommand):
                         person_properties=person_props,
                         properties={
                             "$session_id": session_id,
-                            "$mcp_session_id": mcp_session_id,
                             "$mcp_tool_name": tool_name,
                             "$mcp_client_name": client_name,
                             "$exception_message": rng.choice(EXCEPTION_MESSAGES),
@@ -356,7 +360,7 @@ class Command(BaseCommand):
                     team=team, session_id=session_id, defaults={"intent": session_intent}
                 )
             self.stdout.write(
-                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (mcp_session_id={mcp_session_id})"
+                f"  session {session_idx + 1}/{session_count}: {calls} tool calls (session_id={session_id})"
             )
 
         self.stdout.write(

@@ -1,9 +1,11 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
+import httpx
+import anthropic
 from pydantic import BaseModel
 
-from products.ai_observability.backend.llm.errors import StructuredOutputParseError
+from products.ai_observability.backend.llm.errors import QuotaExceededError, StructuredOutputParseError
 from products.ai_observability.backend.llm.providers.anthropic import AnthropicAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest
 
@@ -224,3 +226,48 @@ class TestStructuredOutputComplete:
         assert result.parsed is not None
         assert isinstance(result.parsed, BooleanEvalResult)
         assert result.parsed.result is False
+
+
+def _make_anthropic_bad_request(message: str) -> anthropic.BadRequestError:
+    body = {
+        "type": "error",
+        "error": {"type": "invalid_request_error", "message": message},
+        "request_id": "req_test",
+    }
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    response = httpx.Response(400, request=request, json=body)
+    return anthropic.BadRequestError(f"Error code: 400 - {body}", response=response, body=body)
+
+
+class TestAnthropicAdapterErrorMapping:
+    def _make_request(self) -> CompletionRequest:
+        return CompletionRequest(
+            model="claude-haiku-4-5",
+            messages=[{"role": "user", "content": "hi"}],
+            provider="anthropic",
+            system="s",
+        )
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_low_credit_bad_request_is_mapped_to_quota_exceeded(self, mock_anthropic_cls):
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = _make_anthropic_bad_request(
+            "Your credit balance is too low to access the Anthropic API."
+        )
+        mock_anthropic_cls.return_value = mock_client
+
+        adapter = AnthropicAdapter()
+
+        with pytest.raises(QuotaExceededError, match="credit balance"):
+            adapter.complete(self._make_request(), api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))
+
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_other_bad_request_is_not_swallowed(self, mock_anthropic_cls):
+        mock_client = MagicMock()
+        mock_client.messages.create.side_effect = _make_anthropic_bad_request("Request payload is invalid.")
+        mock_anthropic_cls.return_value = mock_client
+
+        adapter = AnthropicAdapter()
+
+        with pytest.raises(anthropic.BadRequestError, match="Request payload is invalid"):
+            adapter.complete(self._make_request(), api_key="sk-ant-test", analytics=AnalyticsContext(capture=False))

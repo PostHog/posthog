@@ -2,13 +2,13 @@ from django.db import transaction
 
 import requests
 import structlog
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
 from posthog.models.team.team import Team
@@ -104,7 +104,14 @@ class TeamsChannelsView(APIView):
 
             data = resp.json()
             channels = [
-                {"id": c.get("id"), "name": c.get("displayName")}
+                {
+                    "id": c.get("id"),
+                    "name": c.get("displayName"),
+                    # "standard" | "shared" | "private" — drives shared-channel
+                    # polling and the picker badge. Absent fields are treated as
+                    # standard downstream.
+                    "membership_type": c.get("membershipType"),
+                }
                 for c in data.get("value", [])
                 if c.get("id") and c.get("displayName")
             ]
@@ -384,6 +391,10 @@ class TeamsSelectChannelView(APIView):
                 "team_name": teams_team_name,
                 "channel_id": teams_channel_id,
                 "channel_name": teams_channel_name,
+                # "standard" | "shared" | "private". Shared/private channels never
+                # push ambient messages over the bot webhook, so the per-minute
+                # poller pulls them from Graph; standard channels stay webhook-only.
+                "membership_type": channel_match.get("membershipType"),
             }
             # Remove existing entry with same channel_id (if any)
             teams_channels = [c for c in teams_channels if c.get("channel_id") != teams_channel_id]
@@ -425,7 +436,7 @@ class TeamsSelectChannelView(APIView):
             organization_id=team.organization_id,
             team_id=team.pk,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team.pk,
             activity="updated",
@@ -470,7 +481,7 @@ class TeamsSelectChannelView(APIView):
             organization_id=team.organization_id,
             team_id=team.pk,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team.pk,
             activity="updated",
@@ -584,7 +595,7 @@ class TeamsSelectChannelView(APIView):
             organization_id=team.organization_id,
             team_id=team.pk,
             user=user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="updated",

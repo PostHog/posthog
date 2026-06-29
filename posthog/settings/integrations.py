@@ -88,10 +88,6 @@ WORKOS_RADAR_ENABLED = get_from_env("WORKOS_RADAR_ENABLED", False, type_cast=str
 CLOUDFLARE_TURNSTILE_SECRET_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SECRET_KEY", "")
 CLOUDFLARE_TURNSTILE_SITE_KEY = get_from_env("CLOUDFLARE_TURNSTILE_SITE_KEY", "")
 
-# Recall.ai (for desktop recordings product)
-RECALL_AI_API_KEY = get_from_env("RECALL_AI_API_KEY", "")
-RECALL_AI_API_URL = get_from_env("RECALL_AI_API_URL", "https://us-west-2.recall.ai")
-
 # ElevenLabs (Max hands-free mode)
 # STT goes browser ↔ ElevenLabs over a single-use Scribe WebSocket token (backend just mints).
 # TTS goes browser → PostHog → ElevenLabs → audio stream (backend proxies the key to ElevenLabs).
@@ -125,6 +121,3 @@ HEATMAP_BROWSERLESS_TOKEN = get_from_env("HEATMAP_BROWSERLESS_TOKEN", "")
 HEATMAP_BROWSERLESS_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_TIMEOUT_MS", 180000, type_cast=int)
 HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS = get_from_env("HEATMAP_BROWSERLESS_CONNECT_TIMEOUT_MS", 30000, type_cast=int)
 HEATMAP_BROWSERLESS_BLOCK_ADS = get_from_env("HEATMAP_BROWSERLESS_BLOCK_ADS", False, type_cast=str_to_bool)
-HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS = get_from_env(
-    "HEATMAP_BROWSERLESS_BLOCK_CONSENT_MODALS", True, type_cast=str_to_bool
-)

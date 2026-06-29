@@ -105,6 +105,61 @@ A **bold** paragraph.
 ![PostHog engineering](https://res.cloudinary.com/demo/image/upload/posthog.png)`)
     })
 
+    it('keeps a query attr whose object carries nested undefined optional fields', () => {
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.Query,
+                    attrs: {
+                        query: {
+                            kind: 'InsightVizNode',
+                            source: {
+                                kind: 'TrendsQuery',
+                                series: [{ kind: 'EventsNode', event: '$pageview', math: undefined }],
+                                properties: undefined,
+                            },
+                            full: undefined,
+                        },
+                        isDefaultFilterApplied: false,
+                    },
+                },
+            ],
+        }
+
+        // Nested undefined must be stripped, not cause the whole query prop to be dropped.
+        expect(convertNotebookContentToMarkdown(content)).toEqual(
+            '<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[{"kind":"EventsNode","event":"$pageview"}]}}} isDefaultFilterApplied={false} />'
+        )
+    })
+
+    it('serializes a json-string query attr as an expression that parses back to an object', () => {
+        // Persisted v1 nodes can carry `query` as a JSON string (NodeWrapper round-trips attrs as
+        // JSON). Serializing it verbatim emits query="..." which parses back as a string, rendering
+        // an empty Query node.
+        const queryObject = {
+            kind: 'DataVisualizationNode',
+            source: { kind: 'HogQLQuery', query: 'select event, count() from events group by event' },
+            display: 'ActionsTable',
+        }
+        const content: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: NotebookNodeType.Query,
+                    attrs: { query: JSON.stringify(queryObject), nodeId: 'cc41998d' },
+                },
+            ],
+        }
+
+        const markdown = convertNotebookContentToMarkdown(content)
+        expect(markdown).toContain('query={{"kind":"DataVisualizationNode"')
+        expect(markdown).not.toContain('query="')
+
+        const parsedNode = parseMarkdownNotebook(markdown).nodes.find((node) => node.type === 'component')
+        expect(parsedNode?.type === 'component' ? parsedNode.props.query : null).toEqual(queryObject)
+    })
+
     it('converts legacy task lists to checkbox list markdown', () => {
         const content: JSONContent = {
             type: 'doc',
@@ -305,7 +360,7 @@ after`)
 
 Users activated faster.
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]},"showHeader":true}} title="Activation trend" />
 
 <Recording id="018a8a51-a39d-7b18-897f-94054eec5f61" timestampMs={12000} title="Activation replay" />`)
     })
@@ -326,7 +381,7 @@ Users activated faster.
         }
 
         expect(notebookArtifactContentToMarkdown(content)).toEqual(
-            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
+            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Events pie chart" />'
         )
     })
 
@@ -353,7 +408,7 @@ Users activated faster.
             ],
         })
         expect(notebookArtifactContentToMarkdown(notebookContent)).toEqual(
-            '<Query query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
+            '<Query hideFilters query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select event, count() from events group by event"},"display":"ActionsPie"}} title="Create a pie chart" />'
         )
     })
 

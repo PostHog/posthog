@@ -12,8 +12,7 @@ Usage in tests::
             assert len(result) == 1
 
 The fake uses real proto message classes so that converters / serialization
-boundaries are exercised end-to-end.  The gate is forced ON by default
-(override with ``gate_enabled=False``).
+boundaries are exercised end-to-end.
 """
 
 from __future__ import annotations
@@ -27,7 +26,12 @@ from typing import Any
 from unittest.mock import patch
 
 from posthog.models.person.missing_person import uuidFromDistinctId
-from posthog.personhog_client.proto.generated.personhog.types.v1 import cohort_pb2, group_pb2, person_pb2
+from posthog.personhog_client.proto.generated.personhog.types.v1 import (
+    cohort_pb2,
+    feature_flag_pb2,
+    group_pb2,
+    person_pb2,
+)
 
 
 @dataclass
@@ -87,6 +91,7 @@ class FakePersonHogClient:
         is_user_id: bool | None = None,
         distinct_ids: list[str] | None = None,
         distinct_id_versions: dict[str, int] | None = None,
+        last_seen_at: int = 0,
     ) -> person_pb2.Person:
         person = person_pb2.Person(
             id=person_id,
@@ -96,6 +101,7 @@ class FakePersonHogClient:
             created_at=created_at,
             version=version,
             is_identified=is_identified,
+            last_seen_at=last_seen_at,
         )
         if is_user_id is not None:
             person.is_user_id = is_user_id
@@ -540,6 +546,15 @@ class FakePersonHogClient:
                 break
         return group_pb2.DeleteGroupTypeMappingsBatchForTeamResponse(deleted_count=deleted)
 
+    # ── Feature flag hash key overrides ───────────────────────────────
+
+    def delete_hash_key_overrides_by_teams(
+        self, request: feature_flag_pb2.DeleteHashKeyOverridesByTeamsRequest, timeout: float | None = None
+    ) -> feature_flag_pb2.DeleteHashKeyOverridesByTeamsResponse:
+        # The fake does not track hash key overrides; record the call and report nothing deleted.
+        self.calls.append(_Call("delete_hash_key_overrides_by_teams", request))
+        return feature_flag_pb2.DeleteHashKeyOverridesByTeamsResponse(deleted_count=0)
+
     # ── Person deletes ────────────────────────────────────────────────
 
     def delete_persons(
@@ -579,6 +594,15 @@ class FakePersonHogClient:
             deleted_count += 1
         response = person_pb2.DeletePersonsBatchForTeamResponse(deleted_count=deleted_count)
         self.calls.append(_Call("delete_persons_batch_for_team", request, response))
+        return response
+
+    def delete_personless_distinct_ids_batch_for_team(
+        self, request: person_pb2.DeletePersonlessDistinctIdsBatchForTeamRequest, timeout: float | None = None
+    ) -> person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse:
+        # The fake does not model personless distinct IDs, so this records the
+        # call for assertions and reports nothing deleted.
+        response = person_pb2.DeletePersonlessDistinctIdsBatchForTeamResponse(deleted_count=0)
+        self.calls.append(_Call("delete_personless_distinct_ids_batch_for_team", request, response))
         return response
 
     # ── Person split ──────────────────────────────────────────────────
@@ -644,6 +668,36 @@ class FakePersonHogClient:
 
         return person_pb2.SplitPersonResponse(splits=splits)
 
+    # ── Undelete repair ───────────────────────────────────────────────
+
+    def set_person_distinct_id_version_floor(
+        self, request: person_pb2.SetPersonDistinctIdVersionFloorRequest, timeout: float | None = None
+    ) -> person_pb2.SetPersonDistinctIdVersionFloorResponse:
+        self.calls.append(_Call("set_person_distinct_id_version_floor", request))
+
+        person = self._persons_by_distinct_id.get((request.team_id, request.distinct_id))
+        if person is None:
+            return person_pb2.SetPersonDistinctIdVersionFloorResponse()
+
+        # Guarded bump: never lower the stored version. The person is returned whenever
+        # the distinct_id exists, even if the version is left unchanged.
+        for mapping in self._distinct_ids.get((request.team_id, person.id), []):
+            if mapping.distinct_id == request.distinct_id and mapping.version < request.min_version:
+                mapping.version = request.min_version
+        return person_pb2.SetPersonDistinctIdVersionFloorResponse(person=person)
+
+    def set_person_version_floor(
+        self, request: person_pb2.SetPersonVersionFloorRequest, timeout: float | None = None
+    ) -> person_pb2.SetPersonVersionFloorResponse:
+        self.calls.append(_Call("set_person_version_floor", request))
+
+        person = self._persons_by_id.get((request.team_id, request.person_id))
+        if person is None or person.version >= request.min_version:
+            return person_pb2.SetPersonVersionFloorResponse(updated=False)
+
+        person.version = request.min_version
+        return person_pb2.SetPersonVersionFloorResponse(updated=True)
+
     # ── Assertion helpers ────────────────────────────────────────────
 
     def assert_called(self, method: str, *, times: int | None = None) -> list[_Call]:
@@ -660,12 +714,11 @@ class FakePersonHogClient:
 
 
 @contextmanager
-def fake_personhog_client(*, gate_enabled: bool = True):
-    """Context manager that patches the personhog client singleton and gate.
+def fake_personhog_client():
+    """Context manager that patches the personhog client singleton.
 
-    Yields a ``FakePersonHogClient`` that is pre-seeded as empty.
-    The gate (``use_personhog()``) returns ``gate_enabled`` for
-    every call — no randomness.
+    Yields a ``FakePersonHogClient`` that is pre-seeded as empty. personhog is
+    the sole read path, so patching ``get_personhog_client`` is all that's needed.
 
     Example::
 
@@ -674,8 +727,50 @@ def fake_personhog_client(*, gate_enabled: bool = True):
             result = some_function_that_uses_personhog(1)
     """
     fake = FakePersonHogClient()
-    with (
-        patch("posthog.personhog_client.client.get_personhog_client", return_value=fake),
-        patch("posthog.personhog_client.gate.use_personhog", return_value=gate_enabled),
-    ):
+    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
         yield fake
+
+
+# ── Global singleton for conftest integration ───────────────────────
+
+_active_fake: FakePersonHogClient | None = None
+
+
+def set_active_fake(fake: FakePersonHogClient | None) -> None:
+    global _active_fake
+    _active_fake = fake
+
+
+def get_active_fake() -> FakePersonHogClient:
+    assert _active_fake is not None, "get_active_fake() called outside activate_personhog_fake() context"
+    return _active_fake
+
+
+def personhog_fake_active() -> bool:
+    """Whether a personhog fake is active for the current test.
+
+    The test seed helpers use this to choose between seeding the fake (fake active, the default)
+    and writing the real persons DB via off-Django psycopg (fake off — persons_db_direct tests).
+    """
+    return _active_fake is not None
+
+
+@contextmanager
+def activate_personhog_fake():
+    """Activate a FakePersonHogClient for the duration of a test.
+
+    Patches get_personhog_client so all reads route through the fake and blocks
+    persons-DB ORM access so a stray Person.objects.* call fails loudly.  Test
+    helpers in posthog.test.persons seed the fake explicitly when creating data.
+    """
+    from posthog.person_db_router import block_persons_orm, unblock_persons_orm  # noqa: PLC0415
+
+    fake = FakePersonHogClient()
+    set_active_fake(fake)
+    block_persons_orm()
+    with patch("posthog.personhog_client.client.get_personhog_client", return_value=fake):
+        try:
+            yield fake
+        finally:
+            unblock_persons_orm()
+            set_active_fake(None)

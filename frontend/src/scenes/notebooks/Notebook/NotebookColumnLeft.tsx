@@ -20,7 +20,13 @@ import { NotebookTableOfContents } from './NotebookTableOfContents'
 export const NotebookColumnLeft = (): JSX.Element | null => {
     const { content, editingNodeLogicsForLeft, isShowingLeftColumn, showHistory, showKernelInfo, showTableOfContents } =
         useValues(notebookLogic)
-    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebookContent(content)
+    const isMarkdownNotebook = isMarkdownNotebookContent(content)
+
+    if (isMarkdownNotebook) {
+        return null
+    }
+
+    const shouldShowTableOfContents = showTableOfContents && !isMarkdownNotebook
     const isShowingEffectiveLeftColumn =
         isShowingLeftColumn &&
         (editingNodeLogicsForLeft.length > 0 || showHistory || shouldShowTableOfContents || showKernelInfo)

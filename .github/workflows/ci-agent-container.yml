@@ -13,9 +13,6 @@ on:
     push:
         branches:
             - 'master'
-            # Kept while the agent platform integrates on `ass` and deploys from
-            # it for testing. Drop at the master cutover (then deploy is master-only).
-            - 'ass'
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -71,7 +68,7 @@ jobs:
             (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && needs.changes.outputs.agent_files == 'true') ||
             github.event_name == 'merge_group' ||
             github.event_name == 'workflow_dispatch' ||
-            (github.event_name == 'push' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && needs.changes.outputs.agent_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
+            (github.event_name == 'push' && github.ref == 'refs/heads/master' && needs.changes.outputs.agent_files == 'true' && github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true')
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
         permissions:
@@ -251,7 +248,7 @@ jobs:
     deploy:
         name: Deploy ${{ matrix.image }}
         needs: build
-        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/ass') && github.event_name == 'push'
+        if: github.repository_owner == 'PostHog' && vars.CD_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/master' && github.event_name == 'push'
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         # One dispatch per image, not per Helm release. The charts side keys

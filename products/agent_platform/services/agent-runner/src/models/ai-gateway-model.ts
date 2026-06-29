@@ -15,6 +15,15 @@
  *     or `/responses` to baseUrl, so we keep the `/v1` suffix on baseUrl.
  *   - anthropic-messages → Anthropic SDK appends `/v1/messages` itself, so
  *     we strip the trailing `/v1` from baseUrl.
+ *
+ * Auth: the gateway authenticates the customer with `Authorization: Bearer
+ * <phs_…>` (it reads only that header). pi-ai's openai shapes already send the
+ * apiKey as `Authorization: Bearer`, but its anthropic-messages shape sends it
+ * as `x-api-key` with no `Authorization` — so a Claude model would 401 at the
+ * gateway's auth tier. We pin `Authorization: Bearer <key>` on the model so
+ * every shape authenticates the way the gateway expects. pi-ai still sends the
+ * key as the provider credential too (x-api-key for Anthropic), which the
+ * gateway overrides when it forwards to the upstream provider.
  */
 
 import type { Model } from '@earendil-works/pi-ai'
@@ -26,6 +35,13 @@ export interface AiGatewayModelOpts {
     specModel: string
     /** Gateway root with `/v1` suffix, e.g. `http://localhost:8080/v1`. */
     baseUrl: string
+    /**
+     * The gateway bearer — a `phs_` project secret key with `llm_gateway:read`.
+     * Pinned as `Authorization: Bearer <key>` on the model so the
+     * anthropic-messages shape (which otherwise sends only `x-api-key`)
+     * authenticates against the gateway. See the auth note above.
+     */
+    apiKey: string
 }
 
 /**
@@ -46,6 +62,10 @@ export function posthogAiGatewayModel(opts: AiGatewayModelOpts): Model<string> {
         id: aiGatewaySkuFor(opts.specModel),
         provider: 'posthog-ai-gateway',
         baseUrl: gatewayBaseUrlForApi(native.api, opts.baseUrl),
+        headers: {
+            ...native.headers,
+            Authorization: `Bearer ${opts.apiKey}`,
+        },
     }
 }
 

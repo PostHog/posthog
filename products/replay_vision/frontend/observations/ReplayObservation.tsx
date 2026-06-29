@@ -2,6 +2,8 @@ import { useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import {
+    IconArrowLeft,
+    IconArrowRight,
     IconClock,
     IconCollapse,
     IconExpand,
@@ -193,7 +195,41 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                 name={scannerName}
                 description={`Observation of session ${observation.session_id}`}
                 resourceType={{ type: 'replay_vision' }}
-                actions={<ReplayVisionFeedbackButton />}
+                actions={
+                    <>
+                        <LemonButton
+                            icon={<IconArrowLeft />}
+                            type="secondary"
+                            size="small"
+                            to={
+                                observation.previous_observation_id
+                                    ? urls.replayVisionObservation(observation.previous_observation_id)
+                                    : undefined
+                            }
+                            disabledReason={observation.previous_observation_id ? undefined : 'No newer observation'}
+                            tooltip="Previous (newer) observation for this scanner"
+                            data-attr="vision-observation-prev"
+                        >
+                            Previous
+                        </LemonButton>
+                        <LemonButton
+                            sideIcon={<IconArrowRight />}
+                            type="secondary"
+                            size="small"
+                            to={
+                                observation.next_observation_id
+                                    ? urls.replayVisionObservation(observation.next_observation_id)
+                                    : undefined
+                            }
+                            disabledReason={observation.next_observation_id ? undefined : 'No older observation'}
+                            tooltip="Next (older) observation for this scanner"
+                            data-attr="vision-observation-next"
+                        >
+                            Next
+                        </LemonButton>
+                        <ReplayVisionFeedbackButton />
+                    </>
+                }
             />
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -234,6 +270,18 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                             >
                                 {observation.session_id}
                             </Link>
+                        </div>
+                        <div>
+                            <div className="text-xs text-muted mb-0.5">Recording subject</div>
+                            {observation.distinct_id ? (
+                                <Link to={urls.personByDistinctId(observation.distinct_id)}>
+                                    {observation.recording_subject_email ?? observation.distinct_id}
+                                </Link>
+                            ) : observation.recording_subject_email ? (
+                                <span>{observation.recording_subject_email}</span>
+                            ) : (
+                                <span className="text-muted">—</span>
+                            )}
                         </div>
                     </div>
                 </LemonCard>

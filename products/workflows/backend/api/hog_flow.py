@@ -4,6 +4,7 @@ import uuid as uuid_mod
 from datetime import timedelta
 from typing import Optional, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -61,9 +62,14 @@ from products.feature_flags.backend.user_blast_radius import (
 from products.workflows.backend.api.graph_operations import apply_graph_operations
 from products.workflows.backend.api.graph_validation import validate_graph
 from products.workflows.backend.api.hog_flow_batch_job import HogFlowBatchJobSerializer
-from products.workflows.backend.models.hog_flow.hog_flow import BILLABLE_ACTION_TYPES, HogFlow
+from products.workflows.backend.models.hog_flow.hog_flow import (
+    BILLABLE_ACTION_TYPES,
+    PERSON_DEPENDENT_ACTION_TYPES,
+    HogFlow,
+)
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import SCHEDULED_TRIGGER_TYPES, HogFlowSchedule
+from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
 from products.workflows.backend.utils.rrule_utils import compute_next_occurrences, validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -135,6 +141,7 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
 class BlastRadiusSerializer(serializers.Serializer):
     affected = serializers.IntegerField(help_text="Number of users matching the filters")
     total = serializers.IntegerField(help_text="Total number of users")
+    limit = serializers.IntegerField(help_text="Maximum allowed audience size for batch triggers for this team.")
 
 
 class WorkflowGlobalStatsRequestSerializer(serializers.Serializer):
@@ -328,7 +335,7 @@ class HogFlowActionSerializer(serializers.Serializer):
         # behavior the way it's intended; the UI hides behavioral cohorts from the audience picker. Mirror
         # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
         # membership is frozen and precalculated — matching the audience-picker exemption in
-        # _build_cohort_dependency_graph in posthog/api/cohort.py.
+        # _build_cohort_dependency_graph in products/cohorts/backend/models/dependencies.py.
         if not isinstance(properties, list):
             return
         cohort_ids = [
@@ -416,6 +423,31 @@ class HogFlowActionSerializer(serializers.Serializer):
                     filters = data.get("config", {}).get("filters", {})
                     if isinstance(filters, dict):
                         self._reject_behavioral_cohorts_in_audience(filters.get("properties"))
+            elif data.get("config", {}).get("type") == "data-warehouse-table":
+                # Warehouse-triggered workflows are person-less ("row-scoped"): one workflow run
+                # per synced row, filtering only against the row payload. The dot-notated table_name
+                # must match the format produced by the Python CDPProducer so producer gating and
+                # trigger config use identical strings.
+                config = data.get("config", {})
+                table_name = config.get("table_name")
+                if not is_draft and (not table_name or not isinstance(table_name, str)):
+                    raise serializers.ValidationError(
+                        {"table_name": "A data warehouse table name is required for this trigger."}
+                    )
+
+                # Compile the row-property filters to bytecode so the executor can evaluate them.
+                # We force the data-warehouse-table source so only row properties are considered.
+                filters = config.get("filters", {}) or {}
+                if not isinstance(filters, dict):
+                    raise serializers.ValidationError({"filters": "Filters must be a dictionary."})
+                filters["source"] = "data-warehouse-table"
+                serializer = HogFunctionFiltersSerializer(data=filters, context=self.context)
+                if is_draft:
+                    if serializer.is_valid():
+                        data["config"]["filters"] = serializer.validated_data
+                else:
+                    serializer.is_valid(raise_exception=True)
+                    data["config"]["filters"] = serializer.validated_data
             else:
                 if strict:
                     raise serializers.ValidationError({"config": "Invalid trigger type"})
@@ -850,6 +882,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
 
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
+        is_draft = self.context.get("is_draft")
         actions = data.get("actions", instance.actions if instance else [])
 
         # When activating a draft, re-validate actions from the instance with full (non-draft) checks
@@ -866,6 +899,31 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             raise serializers.ValidationError({"actions": "Exactly one trigger action is required"})
 
         data["trigger"] = trigger_actions[0]["config"]
+
+        # Warehouse-triggered workflows are person-less ("row-scoped"): one run per synced row with no
+        # associated person. Person-dependent steps and person-aware exit conditions would silently
+        # assume person data, so we block them here — the serializer is the source of truth, so the API,
+        # MCP, and frontend can't bypass it. We force exit_only_at_end since the other exit conditions
+        # re-evaluate trigger/conversion filters that may reference person properties.
+        if data["trigger"].get("type") == "data-warehouse-table":
+            data["exit_condition"] = HogFlow.ExitCondition.ONLY_AT_END
+            if not is_draft:
+                offending_types = sorted(
+                    {
+                        action.get("type", "")
+                        for action in actions
+                        if action.get("type") in PERSON_DEPENDENT_ACTION_TYPES
+                    }
+                )
+                if offending_types:
+                    raise serializers.ValidationError(
+                        {
+                            "actions": (
+                                "These step types rely on person data, which is unavailable for data warehouse "
+                                f"table triggers: {', '.join(offending_types)}"
+                            )
+                        }
+                    )
 
         # Compute and store unique billable action types for efficient quota checking
         # Only track billable actions defined in BILLABLE_ACTION_TYPES
@@ -1341,7 +1399,15 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
 
         result = get_user_blast_radius(self.team, filters, group_type_index)
 
-        return Response(BlastRadiusSerializer(result).data)
+        return Response(
+            BlastRadiusSerializer(
+                {
+                    "affected": result.affected,
+                    "total": result.total,
+                    "limit": get_hogflow_batch_trigger_limit(self.team_id),
+                }
+            ).data
+        )
 
     @extend_schema(
         operation_id="hog_flows_invocation_results_retrieve",
@@ -1578,7 +1644,15 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
         try:
             reject_flag_conditions_in_audience(team, filters)
             result = get_user_blast_radius(team, filters, group_type_index)
-            return Response(BlastRadiusSerializer(result).data)
+            return Response(
+                BlastRadiusSerializer(
+                    {
+                        "affected": result.affected,
+                        "total": result.total,
+                        "limit": get_hogflow_batch_trigger_limit(team.id),
+                    }
+                ).data
+            )
         except exceptions.ValidationError as e:
             return Response({"error": _validation_error_message(e)}, status=400)
         except Exception as e:
@@ -1773,4 +1847,73 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
         except Exception as e:
             logger.exception("Error in internal_process_due_schedules", error=str(e))
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_update_batch_job_status(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the Node-side batch resolver to write the terminal
+        status of a HogFlowBatchJob run. Idempotent: if the row is already in a
+        terminal status, returns 200 without re-writing — the resolver retries
+        this call via cyclotron retry semantics, so safe repeats are required.
+
+        Accepts: { status: "completed" | "failed" }
+        """
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
+
+        if request.method != "PUT":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        new_status = request.data.get("status")
+        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+            return Response(
+                {"error": "status must be one of: completed, failed"},
+                status=400,
+            )
+
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
+            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
+            # belt-and-suspenders catch for str→int / str→UUID edge cases on
+            # other backends. Either way, surface as 404, not 500.
+            return Response({"error": "Batch job not found"}, status=404)
+
+        terminal_states = {
+            HogFlowBatchJob.State.COMPLETED,
+            HogFlowBatchJob.State.FAILED,
+            HogFlowBatchJob.State.CANCELLED,
+        }
+        if batch_job.status in terminal_states:
+            # Idempotent no-op: already in a terminal state.
+            return Response(
+                {
+                    "id": str(batch_job.id),
+                    "status": batch_job.status,
+                    "no_op": True,
+                }
+            )
+
+        try:
+            batch_job.status = new_status
+            batch_job.save(update_fields=["status", "updated_at"])
+            return Response(
+                {
+                    "id": str(batch_job.id),
+                    "status": batch_job.status,
+                    "no_op": False,
+                }
+            )
+        except Exception as e:
+            logger.exception(
+                "Error in internal_update_batch_job_status",
+                error=str(e),
+                team_id=team_id,
+                batch_job_id=batch_job_id,
+            )
             return Response({"error": "Internal server error"}, status=500)

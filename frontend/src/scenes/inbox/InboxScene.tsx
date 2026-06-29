@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBug } from '@posthog/icons'
+import { IconArrowLeft, IconBug } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
@@ -10,17 +10,23 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { AgentRunDetail } from './components/detail/AgentRunDetail'
 import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { FindingsPanel } from './components/findings/FindingsPanel'
+import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
+import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
 import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
+import { ArchivedTab } from './components/tabs/ArchivedTab'
 import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
+import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
@@ -33,7 +39,7 @@ const SETUP_RAIL_MIN_PX = 1024
 
 /** Tabs that show the centered report list (scope chrome in the header). Runs/Configuration are special. */
 function isReportListTab(tab: InboxTabKey): boolean {
-    return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable'
+    return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable' || tab === 'archived'
 }
 
 function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: SignalReport[] }): JSX.Element {
@@ -44,6 +50,8 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
             return <ReportsTab />
         case 'not-actionable':
             return <NotActionableTab />
+        case 'archived':
+            return <ArchivedTab />
         case 'runs':
             return <RunsTab reports={runsReports} />
         case 'config':
@@ -61,11 +69,17 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
  */
 function InboxListView(): JSX.Element {
     const { activeTab, runsTabReports } = useValues(inboxSceneLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
         { initialSize: 'wide' }
     )
-    const showRail = size === 'wide'
+    const wide = size === 'wide'
+    // Self-driving isn't set up and the inbox is empty: the inbox becomes a single locked "Welcome"
+    // tab (the other tabs are visible but disabled) whose body is the onboarding card. The setup rail
+    // is dropped too, so the onboarding is the whole story – just run the one command.
+    const onboarding = onboardingMode === 'takeover'
+    const showRail = wide && !onboarding
     // The rail and the Configuration tab are mutually exclusive – never leave 'config' active
     // (e.g. via a deep link) while the rail shows, or the rail and a config body would both appear.
     const effectiveTab = showRail && activeTab === 'config' ? 'pulls' : activeTab
@@ -73,17 +87,22 @@ function InboxListView(): JSX.Element {
     return (
         <div ref={widthRef} className="flex min-h-0 flex-1">
             <div className="flex flex-col min-h-0 flex-1 min-w-0">
-                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above. */}
-                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-2 shrink-0">
-                    <InboxTabBar showConfigTab={!showRail} />
-                    {isReportListTab(effectiveTab) && (
+                {/* pl-5 (20px) aligns the first tab label with the SceneTitleSection description above;
+                    pr-6 matches the report list's px-6 so the scope select shares the list's right edge. */}
+                <div className="flex items-end justify-between gap-2 border-b border-primary pl-5 pr-6 shrink-0">
+                    <InboxTabBar showConfigTab={!wide} onboarding={onboarding} />
+                    {!onboarding && isReportListTab(effectiveTab) && (
                         <div className="pb-1.5">
                             <InboxScopeSelect />
                         </div>
                     )}
                 </div>
                 <div className="flex-1 overflow-auto min-h-0">
-                    <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                    {onboarding ? (
+                        <InboxOnboardingTakeover />
+                    ) : (
+                        <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                    )}
                 </div>
             </div>
             {showRail && (
@@ -119,24 +138,57 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     )
 }
 
+/**
+ * Shared chrome for the full-width scout panels (scratchpad, findings): a "Scouts" back link over the
+ * panel body, rendered full-width over the list like the scout detail. Reached from their callouts.
+ */
+function InboxPanelView({ onBack, children }: { onBack: () => void; children: JSX.Element }): JSX.Element {
+    return (
+        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+            <div className="px-4 pt-3">
+                <LemonButton
+                    type="tertiary"
+                    size="small"
+                    icon={<IconArrowLeft />}
+                    onClick={onBack}
+                    className="self-start"
+                >
+                    Scouts
+                </LemonButton>
+            </div>
+            {children}
+        </div>
+    )
+}
+
 export function InboxScene(): JSX.Element {
-    const { isRunningSessionAnalysis, selectedReportId, selectedReport, selectedReportLoading } =
-        useValues(inboxSceneLogic)
-    const { runSessionAnalysis } = useActions(inboxSceneLogic)
+    const {
+        isRunningSessionAnalysis,
+        selectedReportId,
+        selectedReport,
+        selectedReportLoading,
+        selectedScoutSkillName,
+        isScratchpadOpen,
+        isFindingsOpen,
+    } = useValues(inboxSceneLogic)
+    const { runSessionAnalysis, setScratchpadOpen, setFindingsOpen } = useActions(inboxSceneLogic)
+    const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { isDev } = useValues(preflightLogic)
 
-    // Detail route renders full-width over the list (desktop parity), but the list view stays *mounted*
-    // (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll container
-    // alive, so clicking "back" lands on the same scroll position with the same loaded pages — instead of
-    // remounting and resetting to the first page at the top.
-    const showDetail = !!selectedReportId
+    // Detail routes (report or scout) render full-width over the list (desktop parity), but the list view
+    // stays *mounted* (just hidden) rather than being unmounted. That keeps `reportListLogic` and the scroll
+    // container alive, so clicking "back" lands on the same scroll position with the same loaded pages —
+    // instead of remounting and resetting to the first page at the top.
+    const showDetail = !!selectedReportId || !!selectedScoutSkillName || isScratchpadOpen || isFindingsOpen
 
     return (
         <SceneContent className="gap-y-0 border-b-0 flex-1 min-h-0">
-            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-2 flex-1 min-h-0'}>
+            <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
-                    description="Work done by your agents – pull requests, reports, and live runs."
+                    // The takeover's hero carries its own headline + pitch, so the scene description
+                    // would be redundant there; keep it for the normal/banner states.
+                    description="Self-driving for your product. Look through work done by PostHog agents – code changes and reports."
                     resourceType={{ type: 'inbox' }}
                     actions={
                         isDev ? (
@@ -157,14 +209,28 @@ export function InboxScene(): JSX.Element {
                     }
                 />
 
-                <div className="flex flex-col -mx-4 flex-1 min-h-0">
+                <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
+                    {/* The inbox always renders (its own list skeleton covers loading). When self-driving
+                        isn't set up, the list view itself swaps in a locked "Welcome" onboarding tab; the
+                        banner sits above the otherwise-normal inbox when there's already work to keep. */}
+                    {onboardingMode === 'banner' && <InboxOnboardingBanner />}
                     <InboxListView />
                 </div>
             </div>
 
             {showDetail && (
                 <div className="flex flex-col -mx-4 flex-1 min-h-0">
-                    {selectedReport ? (
+                    {isFindingsOpen ? (
+                        <InboxPanelView onBack={() => setFindingsOpen(false)}>
+                            <FindingsPanel />
+                        </InboxPanelView>
+                    ) : isScratchpadOpen ? (
+                        <InboxPanelView onBack={() => setScratchpadOpen(false)}>
+                            <ScratchpadPanel />
+                        </InboxPanelView>
+                    ) : selectedScoutSkillName ? (
+                        <ScoutDetailView skillName={selectedScoutSkillName} />
+                    ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />
                     ) : selectedReportLoading ? (
                         <div className="flex flex-col min-h-0 flex-1 overflow-auto">

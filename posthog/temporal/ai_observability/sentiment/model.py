@@ -20,6 +20,8 @@ from posthog.temporal.ai_observability.sentiment.constants import (
     MODEL_MAX_TOKENS,
     MODEL_NAME,
     ONNX_CACHE_DIR,
+    ONNX_INTER_OP_NUM_THREADS,
+    ONNX_INTRA_OP_NUM_THREADS,
 )
 from posthog.temporal.ai_observability.sentiment.schema import SentimentResult
 
@@ -57,12 +59,22 @@ def _load_pipeline():
                 f"Ensure Dockerfile.llm-analytics bakes the model into {ONNX_CACHE_DIR}."
             )
 
+        from onnxruntime import SessionOptions
         from optimum.onnxruntime import ORTModelForSequenceClassification
         from transformers import AutoTokenizer, pipeline
 
-        logger.info("Loading sentiment model from ONNX cache", cache_dir=cache_dir)
+        session_options = SessionOptions()
+        session_options.intra_op_num_threads = ONNX_INTRA_OP_NUM_THREADS
+        session_options.inter_op_num_threads = ONNX_INTER_OP_NUM_THREADS
+
+        logger.info(
+            "Loading sentiment model from ONNX cache",
+            cache_dir=cache_dir,
+            onnx_intra_op_threads=ONNX_INTRA_OP_NUM_THREADS,
+            onnx_inter_op_threads=ONNX_INTER_OP_NUM_THREADS,
+        )
         tokenizer = AutoTokenizer.from_pretrained(cache_dir)
-        model = ORTModelForSequenceClassification.from_pretrained(cache_dir)
+        model = ORTModelForSequenceClassification.from_pretrained(cache_dir, session_options=session_options)
 
         _pipeline_cache["pipe"] = pipeline(
             "sentiment-analysis",

@@ -1,4 +1,5 @@
 import json
+from dataclasses import replace
 from datetime import datetime, timedelta
 from functools import partial
 from uuid import uuid4
@@ -16,6 +17,7 @@ from posthog.dags.data_deletion_requests import (
     DataDeletionRequestConfig,
     DeletionRequestContext,
     PersonRemovalContext,
+    _property_removal_where,
     data_deletion_request_event_removal,
     data_deletion_request_person_removal,
     data_deletion_request_pickup_sensor,
@@ -30,7 +32,7 @@ from posthog.dags.data_deletion_requests import (
     load_property_removal_request,
 )
 from posthog.models.data_deletion_request import DataDeletionRequest, ExecutionMode, RequestStatus, RequestType
-from posthog.models.person import Person
+from posthog.test.persons import create_person
 
 TEAM_ID = 99999
 
@@ -1561,7 +1563,7 @@ def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
 def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: ClickhouseCluster):
     # When the request was submitted by distinct_id, the events op must resolve to UUIDs
     # because the CH events table is keyed by person_id (UUID).
-    p = Person.objects.create(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
+    p = create_person(team_id=TEAM_ID, uuid=uuid4(), distinct_ids=["distinct-only"])
     bystander_uuid = str(uuid4())
     now = datetime.now()
 
@@ -1595,7 +1597,7 @@ def test_delete_person_events_op_resolves_distinct_ids_to_uuids(cluster: Clickho
 @pytest.mark.django_db
 def test_delete_person_recordings_op_calls_helper_when_enabled():
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
@@ -1631,7 +1633,7 @@ def test_delete_person_recordings_op_noop_when_disabled():
 @pytest.mark.django_db
 def test_delete_person_profiles_op_calls_helper_when_enabled():
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
@@ -1669,7 +1671,7 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
     # logs, but the op returns normally so the request can finalize to COMPLETED and the
     # operator can issue a follow-up request for the failed UUIDs.
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
         team_id=TEAM_ID,
@@ -1696,7 +1698,7 @@ def test_delete_person_profiles_op_records_per_person_errors_in_metadata():
 @pytest.mark.django_db
 def test_data_deletion_request_person_removal_lifecycle(cluster: ClickhouseCluster):
     p_uuid = str(uuid4())
-    Person.objects.create(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
+    create_person(team_id=TEAM_ID, uuid=p_uuid, distinct_ids=["a"])
     request = DataDeletionRequest.objects.create(
         team_id=TEAM_ID,
         request_type=RequestType.PERSON_REMOVAL,
@@ -1771,3 +1773,27 @@ def test_pickup_sensor_run_key_changes_across_attempts():
     assert isinstance(second, dagster.RunRequest)
     assert second.run_key == f"{request.pk}:1"
     assert second.run_key != first.run_key
+
+
+def _property_removal_ctx(**overrides) -> DeletionRequestContext:
+    base = DeletionRequestContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        start_time=datetime.now() - timedelta(days=7),
+        end_time=datetime.now(),
+        events=["$pageview"],
+        properties=["$ip"],
+    )
+    return replace(base, **overrides)
+
+
+def test_property_removal_where_scopes_to_events_by_default():
+    sql, params = _property_removal_where(_property_removal_ctx())
+    assert "AND event IN %(events)s" in sql
+    assert params["events"] == ["$pageview"]
+
+
+def test_property_removal_where_omits_event_filter_when_delete_all_events():
+    sql, params = _property_removal_where(_property_removal_ctx(events=[], delete_all_events=True))
+    assert "event IN" not in sql
+    assert "events" not in params

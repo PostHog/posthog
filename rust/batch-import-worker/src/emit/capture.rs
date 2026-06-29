@@ -6,20 +6,11 @@ use std::{
 use anyhow::Error;
 use async_trait::async_trait;
 use common_types::{InternallyCapturedEvent, RawEvent};
+use metrics::counter;
 use posthog_rs::{Client, Event};
-use tracing::{info, warn};
-
-use crate::job::backoff::BackoffPolicy;
+use tracing::info;
 
 use super::{Emitter, Transaction};
-
-const MAX_RETRIES: u32 = 5;
-
-/// Retry policy for transient HTTP errors from the capture service. Starts at
-/// 1 second and doubles up to 30 seconds, giving roughly a minute of total
-/// retry time before surfacing the error.
-const RETRY_POLICY: BackoffPolicy =
-    BackoffPolicy::new(Duration::from_secs(1), 2.0, Duration::from_secs(30));
 
 pub struct CaptureEmitter {
     client: Client,
@@ -31,7 +22,6 @@ pub struct CaptureTransaction<'a> {
     send_rate: u64,
     start: Instant,
     events: Mutex<Vec<Event>>,
-    retry_policy: BackoffPolicy,
 }
 
 impl CaptureEmitter {
@@ -48,7 +38,6 @@ impl Emitter for CaptureEmitter {
             send_rate: self.send_rate,
             start: Instant::now(),
             events: Mutex::new(Vec::new()),
-            retry_policy: RETRY_POLICY,
         }))
     }
 }
@@ -88,13 +77,6 @@ fn convert_event(ice: &InternallyCapturedEvent) -> Result<Event, Error> {
     Ok(event)
 }
 
-fn is_retryable(err: &posthog_rs::Error) -> bool {
-    matches!(
-        err,
-        posthog_rs::Error::RateLimit | posthog_rs::Error::ServerError { .. }
-    )
-}
-
 #[async_trait]
 impl<'a> Transaction<'a> for CaptureTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
@@ -115,15 +97,6 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
             .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?;
         let count = events.len();
 
-        // Short-circuit on empty transactions. The Capture HTTP API rejects
-        // empty batches with HTTP 400 (CaptureError::EmptyBatch), which is a
-        // non-retryable error. If we let it propagate, do_commit's two-phase
-        // commit would leave the job stuck in `paused` state: begin_part_commit
-        // pauses before commit_write is attempted, and a non-retryable failure
-        // never reaches complete_commit. This path is hit whenever a source
-        // part has zero events (e.g. an Amplitude 404 for a date range with
-        // no activity), and there's nothing meaningful to send to Capture
-        // anyway.
         if count == 0 {
             info!("skipping capture send for empty event batch");
             return Ok(Duration::ZERO);
@@ -134,30 +107,26 @@ impl<'a> Transaction<'a> for CaptureTransaction<'a> {
         let to_sleep = min_duration.saturating_sub(txn_elapsed);
 
         info!(
-            "sending {count} events to capture in {txn_elapsed:?}, minimum send duration is {min_duration:?}, sleeping for {to_sleep:?}"
+            count,
+            ?txn_elapsed,
+            ?min_duration,
+            ?to_sleep,
+            "sending events to capture"
         );
 
-        for attempt in 0..=MAX_RETRIES {
-            match self.client.capture_batch(events.clone(), true).await {
-                Ok(()) => break,
-                Err(e) if is_retryable(&e) && attempt < MAX_RETRIES => {
-                    let delay = self.retry_policy.next_delay(attempt);
-                    warn!(
-                        "transient capture error, retrying (attempt {attempt}/{MAX_RETRIES}, delay {delay:?}): {e}"
-                    );
-                    tokio::time::sleep(delay).await;
-                }
-                Err(e) => {
-                    return Err(Error::msg(format!(
-                        "capture batch failed after {} attempts: {e}",
-                        attempt + 1
-                    )));
-                }
+        match self.client.capture_batch(events, true).await {
+            Ok(()) => {
+                counter!("capture_batch_events_total", "outcome" => "success")
+                    .increment(count as u64);
+                info!(count, "successfully sent batch to capture");
+                Ok(to_sleep)
+            }
+            Err(e) => {
+                counter!("capture_batch_events_total", "outcome" => "failure")
+                    .increment(count as u64);
+                Err(Error::msg(format!("capture batch failed: {e}")))
             }
         }
-
-        info!("successfully sent batch to capture");
-        Ok(to_sleep)
     }
 }
 
@@ -213,6 +182,10 @@ mod tests {
         }
     }
 
+    /// V1 capture returns a JSON body with per-event results. An empty results
+    /// map means all events are silently accepted (dropped from retry tracking).
+    const V1_OK_BODY: &str = r#"{"results":{}}"#;
+
     #[test]
     fn test_convert_event_basic_properties() {
         let ice = make_internally_captured_event(
@@ -227,7 +200,7 @@ mod tests {
         let json = serde_json::to_value(&event).unwrap();
 
         assert_eq!(json["event"], "test_event");
-        assert_eq!(json["$distinct_id"], "user123");
+        assert_eq!(json["distinct_id"], "user123");
         assert_eq!(json["properties"]["color"], "red");
         assert_eq!(json["properties"]["count"], 42);
         assert_eq!(json["properties"]["$geoip_disable"], true);
@@ -273,6 +246,40 @@ mod tests {
         assert_eq!(get_min_txn_duration(500, 1000), Duration::from_secs(2));
     }
 
+    async fn make_client(base_url: &str) -> Client {
+        let options = posthog_rs::ClientOptionsBuilder::default()
+            .api_key("test_api_key".to_string())
+            .host(base_url)
+            .max_capture_attempts(1u32)
+            .build()
+            .unwrap();
+        posthog_rs::client(options).await
+    }
+
+    async fn make_client_with_retries(base_url: &str, attempts: u32) -> Client {
+        let options = posthog_rs::ClientOptionsBuilder::default()
+            .api_key("test_api_key".to_string())
+            .host(base_url)
+            .max_capture_attempts(attempts)
+            .retry_initial_backoff_ms(1u64)
+            .retry_max_backoff_ms(1u64)
+            .build()
+            .unwrap();
+        posthog_rs::client(options).await
+    }
+
+    fn make_transaction(client: &Client) -> Box<CaptureTransaction<'_>> {
+        let mut event = Event::new("test", "user1");
+        event.insert_prop("key", "value").unwrap();
+
+        Box::new(CaptureTransaction {
+            client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(vec![event]),
+        })
+    }
+
     #[tokio::test]
     async fn test_batch_payload_preserves_uuid_and_lib_properties() {
         let expected_uuid = Uuid::parse_str("019c7d2c-5f84-7000-dd7f-9295cfe7993f").unwrap();
@@ -291,12 +298,12 @@ mod tests {
 
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/batch/")
+            .mock("POST", "/i/v1/analytics/events")
             .match_body(mockito::Matcher::PartialJson(serde_json::json!({
                 "batch": [{
                     "uuid": expected_uuid.to_string(),
                     "event": "test_event",
-                    "$distinct_id": "user123",
+                    "distinct_id": "user123",
                     "properties": {
                         "$lib": "posthog-python",
                         "$lib_version": "3.0.0",
@@ -306,6 +313,7 @@ mod tests {
                 }]
             })))
             .with_status(200)
+            .with_body(V1_OK_BODY)
             .expect(1)
             .create();
 
@@ -318,50 +326,12 @@ mod tests {
         mock.assert();
     }
 
-    #[test]
-    fn test_is_retryable() {
-        assert!(is_retryable(&posthog_rs::Error::RateLimit));
-        assert!(is_retryable(&posthog_rs::Error::ServerError {
-            status: 500,
-            message: "internal".to_string()
-        }));
-        assert!(!is_retryable(&posthog_rs::Error::BadRequest(
-            "bad".to_string()
-        )));
-        assert!(!is_retryable(&posthog_rs::Error::Connection(
-            "timeout".to_string()
-        )));
-    }
-
-    async fn make_client(base_url: &str) -> Client {
-        let options: posthog_rs::ClientOptions = ("test_api_key", base_url).into();
-        posthog_rs::client(options).await
-    }
-
-    fn make_transaction(client: &Client) -> Box<CaptureTransaction<'_>> {
-        let mut event = Event::new("test", "user1");
-        event.insert_prop("key", "value").unwrap();
-
-        Box::new(CaptureTransaction {
-            client,
-            send_rate: 10_000,
-            start: Instant::now(),
-            events: Mutex::new(vec![event]),
-            retry_policy: BackoffPolicy::new(Duration::ZERO, 1.0, Duration::ZERO),
-        })
-    }
-
     #[tokio::test]
     async fn test_commit_write_skips_http_on_empty_batch() {
-        // If the worker has zero events to send (e.g. an Amplitude 404 produced
-        // an empty source part), commit_write must short-circuit instead of
-        // hitting Capture's HTTP API. The API rejects empty batches with 400
-        // (CaptureError::EmptyBatch), which is non-retryable and would leave
-        // the job stuck in `paused` via do_commit's two-phase commit.
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/batch/")
-            .expect(0) // must not be hit
+            .mock("POST", "/i/v1/analytics/events")
+            .expect(0)
             .create();
 
         let client = make_client(&server.url()).await;
@@ -370,7 +340,6 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(vec![]),
-            retry_policy: BackoffPolicy::new(Duration::ZERO, 1.0, Duration::ZERO),
         });
 
         let result = txn.commit_write().await;
@@ -390,8 +359,9 @@ mod tests {
     async fn test_commit_write_succeeds_on_first_try() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/batch/")
+            .mock("POST", "/i/v1/analytics/events")
             .with_status(200)
+            .with_body(V1_OK_BODY)
             .expect(1)
             .create();
 
@@ -407,18 +377,19 @@ mod tests {
     async fn test_commit_write_retries_on_500_then_succeeds() {
         let mut server = mockito::Server::new_async().await;
         let fail_mock = server
-            .mock("POST", "/batch/")
+            .mock("POST", "/i/v1/analytics/events")
             .with_status(500)
             .with_body("internal error")
             .expect(2)
             .create();
         let success_mock = server
-            .mock("POST", "/batch/")
+            .mock("POST", "/i/v1/analytics/events")
             .with_status(200)
+            .with_body(V1_OK_BODY)
             .expect(1)
             .create();
 
-        let client = make_client(&server.url()).await;
+        let client = make_client_with_retries(&server.url(), 3).await;
         let txn = make_transaction(&client);
 
         let result = txn.commit_write().await;
@@ -431,7 +402,7 @@ mod tests {
     async fn test_commit_write_fails_immediately_on_400() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/batch/")
+            .mock("POST", "/i/v1/analytics/events")
             .with_status(400)
             .with_body("bad request")
             .expect(1)
@@ -442,7 +413,33 @@ mod tests {
 
         let result = txn.commit_write().await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("after 1 attempts"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("capture batch failed"));
+        mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_commit_write_fails_on_402_billing_limit() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("POST", "/i/v1/analytics/events")
+            .with_status(402)
+            .with_body("billing limit exceeded")
+            .expect(1)
+            .create();
+
+        let client = make_client(&server.url()).await;
+        let txn = make_transaction(&client);
+
+        let result = txn.commit_write().await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Billing Limit Exceeded"),
+            "expected billing error, got: {err_msg}"
+        );
         mock.assert();
     }
 
@@ -450,13 +447,13 @@ mod tests {
     async fn test_commit_write_exhausts_retries_on_persistent_500() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
-            .mock("POST", "/batch/")
+            .mock("POST", "/i/v1/analytics/events")
             .with_status(500)
             .with_body("internal error")
-            .expect((MAX_RETRIES + 1) as usize)
+            .expect(6)
             .create();
 
-        let client = make_client(&server.url()).await;
+        let client = make_client_with_retries(&server.url(), 6).await;
         let txn = make_transaction(&client);
 
         let result = txn.commit_write().await;

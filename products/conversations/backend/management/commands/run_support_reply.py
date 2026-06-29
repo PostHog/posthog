@@ -20,15 +20,23 @@ class Command(BaseCommand):
     help = "Run the grounded support reply pipeline for a single ticket."
 
     def add_arguments(self, parser) -> None:
-        parser.add_argument("ticket_id", type=str, help="UUID of the ticket to process")
+        group = parser.add_mutually_exclusive_group(required=True)
+        group.add_argument("--ticket-id", type=str, help="UUID of the ticket to process")
+        group.add_argument("--ticket-number", type=int, help="Team-scoped ticket number")
         parser.add_argument("--team-id", type=int, required=True)
 
     def handle(self, *args, **options) -> None:
-        ticket_id: str = options["ticket_id"]
         team_id: int = options["team_id"]
 
-        if not Ticket.objects.filter(id=ticket_id, team_id=team_id).exists():
-            raise CommandError(f"Ticket {ticket_id} not found for team {team_id}")
+        if options["ticket_id"]:
+            ticket = Ticket.objects.filter(id=options["ticket_id"], team_id=team_id).first()
+        else:
+            ticket = Ticket.objects.filter(ticket_number=options["ticket_number"], team_id=team_id).first()
+
+        if not ticket:
+            raise CommandError(f"Ticket not found for team {team_id}")
+
+        ticket_id = str(ticket.id)
 
         result = asyncio.run(self._run_workflow(team_id, ticket_id))
         self.stdout.write(self.style.SUCCESS(f"Pipeline result: {result}"))

@@ -8,7 +8,7 @@ import {
     serializeNode,
 } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookBlockNode, NotebookComponentProps, NotebookPropValue } from 'lib/components/MarkdownNotebook/types'
-import { getInlineText, isNotebookPropValue } from 'lib/components/MarkdownNotebook/utils'
+import { getInlineText, isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 
 import { DocumentBlock, VisualizationBlock } from '~/queries/schema/schema-assistant-artifacts'
@@ -271,6 +271,7 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
                 type: 'component',
                 tagName: 'Query',
                 props: {
+                    hideFilters: true,
                     query,
                     ...getOptionalTitleProp(block.title),
                 },
@@ -591,9 +592,32 @@ function normalizeTableRow(row: string[] | undefined, columnCount: number): stri
 
 function getSerializableAttrs(attrs: Record<string, unknown> | undefined): NotebookComponentProps {
     return Object.entries(attrs ?? {}).reduce<NotebookComponentProps>((props, [key, value]) => {
-        if (isNotebookPropValue(value)) {
-            props[key] = value
+        const serializableValue = toSerializablePropValue(reviveJsonEncodedAttr(value))
+        if (serializableValue !== undefined) {
+            props[key] = serializableValue
         }
         return props
     }, {})
+}
+
+// Widget node attributes round-trip through HTML as JSON strings (NodeWrapper's jsonAttr), so a
+// persisted v1 node can carry an attr like `query` as the JSON *string* `'{"kind":...}'` rather than
+// the object. Serializing that string verbatim emits `query="..."`, which parses back as a string and
+// renders an empty Query node. Revive object/array-shaped JSON strings to their real value so they
+// serialize as `query={{...}}`. Only `{`/`[`-prefixed strings are touched, so plain text and HogQL
+// query strings (which never start that way) are left untouched.
+function reviveJsonEncodedAttr(value: unknown): unknown {
+    if (typeof value !== 'string') {
+        return value
+    }
+    const trimmed = value.trim()
+    if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        return value
+    }
+    try {
+        const parsed = JSON.parse(trimmed) as unknown
+        return parsed !== null && typeof parsed === 'object' ? parsed : value
+    } catch {
+        return value
+    }
 }

@@ -6,9 +6,11 @@ from django.core.exceptions import FieldError
 from django.db.models import Q
 from django.http import HttpResponse
 
+import structlog
 import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
+from prometheus_client import Counter
 from rest_framework import request, response, serializers, status, viewsets
 
 from posthog.schema import DateRange, HogQLFilters, HogQLQueryResponse, ProductKey
@@ -28,6 +30,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import ExportRendererAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.rate_limit import (
@@ -47,6 +50,14 @@ from products.web_analytics.backend.tasks.heatmap_screenshot import generate_hea
 STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 HEATMAPS_COHORT_FILTER_FLAG = "heatmaps-cohort-filter"
+
+logger = structlog.get_logger(__name__)
+
+HEATMAP_CONTENT_REQUESTS = Counter(
+    "heatmap_screenshot_content_requests",
+    "Heatmap screenshot content endpoint responses",
+    labelnames=["outcome"],
+)
 
 
 def _heatmaps_cohort_filter_enabled(user: User, team: Team) -> bool:
@@ -744,6 +755,7 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "has_content",
             "snapshots",
             "deleted",
+            "block_consent_modals",
             "created_by",
             "created_at",
             "updated_at",
@@ -769,6 +781,10 @@ class HeatmapScreenshotResponseSerializer(serializers.ModelSerializer):
             "status": {"help_text": "Screenshot generation status: 'processing', 'completed', or 'failed'."},
             "has_content": {"help_text": "Whether at least one rendered image is ready to fetch."},
             "deleted": {"help_text": "Soft-delete flag; deleted heatmaps are hidden from the list."},
+            "block_consent_modals": {
+                "help_text": "Whether the headless browser dismisses cookie/consent banners before capturing "
+                "the screenshot. Only applies to 'screenshot' heatmaps."
+            },
             "exception": {"help_text": "Error detail when screenshot generation failed, otherwise null."},
         }
 
@@ -824,46 +840,71 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     @action(methods=["GET"], detail=True)
     def content(self, request: request.Request, *args: Any, **kwargs: Any) -> HttpResponse:
         screenshot = self.get_object()
-        if screenshot.deleted:
-            return response.Response(status=status.HTTP_404_NOT_FOUND)
 
-        # Pick requested width or default
+        def _finish(resp: HttpResponse, outcome: str, **attrs: Any) -> HttpResponse:
+            HEATMAP_CONTENT_REQUESTS.labels(outcome=outcome).inc()
+            if outcome in ("not_found", "bad_request", "not_implemented"):
+                log = logger.warning if outcome in ("bad_request", "not_implemented") else logger.info
+                log(
+                    "heatmap_screenshot.content_request",
+                    screenshot_id=str(screenshot.id),
+                    team_id=screenshot.team_id,
+                    outcome=outcome,
+                    status_code=resp.status_code,
+                    **attrs,
+                )
+            return resp
+
+        if screenshot.deleted:
+            return _finish(response.Response(status=status.HTTP_404_NOT_FOUND), "not_found")
+
         try:
             requested_width = int(request.query_params.get("width", 1024))
         except (ValueError, TypeError):
-            return response.Response(
-                {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+            return _finish(
+                response.Response(
+                    {"error": "Invalid width parameter, must be an integer"}, status=status.HTTP_400_BAD_REQUEST
+                ),
+                "bad_request",
             )
 
-        # Try exact match snapshot
         snapshot = screenshot.snapshots.filter(width=requested_width).first()
 
-        # If not found, pick closest by absolute difference among available snapshots
         if not snapshot:
             all_snaps = list(screenshot.snapshots.all())
             if all_snaps:
                 snapshot = min(all_snaps, key=lambda s: abs(s.width - requested_width))
 
         if not snapshot:
-            # Nothing generated yet
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+            return _finish(
+                response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
+                "generating",
+            )
 
         if snapshot.content:
             http_response = HttpResponse(snapshot.content, content_type="image/jpeg")
             http_response["Content-Disposition"] = (
                 f'attachment; filename="screenshot-{screenshot.id}-{snapshot.width}.jpg"'
             )
-            return http_response
+            return _finish(http_response, "served")
         elif snapshot.content_location:
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(
-                {**response_serializer.data, "error": "Content location not implemented yet"},
-                status=status.HTTP_501_NOT_IMPLEMENTED,
+            return _finish(
+                response.Response(
+                    {**response_serializer.data, "error": "Content location not implemented yet"},
+                    status=status.HTTP_501_NOT_IMPLEMENTED,
+                ),
+                "not_implemented",
+                requested_width=requested_width,
+                served_width=snapshot.width,
             )
         else:
             response_serializer = HeatmapScreenshotResponseSerializer(screenshot)
-            return response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED)
+            return _finish(
+                response.Response(response_serializer.data, status=status.HTTP_202_ACCEPTED),
+                "generating",
+            )
 
 
 _URL_PATTERN_CHARS = set("*+?^${}()|[]\\")
@@ -891,7 +932,7 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SavedHeatmap
-        fields = ["name", "url", "data_url", "widths", "type", "deleted"]
+        fields = ["name", "url", "data_url", "widths", "type", "deleted", "block_consent_modals"]
         extra_kwargs = {
             "name": {"required": False, "allow_null": True, "help_text": "Human-readable label for the saved heatmap."},
             "url": {
@@ -910,6 +951,12 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
                 "or 'recording'. Only 'screenshot' generates image bytes.",
             },
             "deleted": {"required": False, "help_text": "Set true to soft-delete the saved heatmap."},
+            "block_consent_modals": {
+                "required": False,
+                "help_text": "When true, ask the headless browser to dismiss cookie/consent banners before "
+                "capturing the screenshot. Off by default: the blocker can stall the render on some sites and "
+                "time out. Only applies to 'screenshot' heatmaps.",
+            },
         }
 
 
@@ -1013,6 +1060,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         data_url = serializer.validated_data.get("data_url") or url
         widths = serializer.validated_data.get("widths", DEFAULT_TARGET_WIDTHS)
         heatmap_type = serializer.validated_data.get("type", SavedHeatmap.Type.SCREENSHOT)
+        block_consent_modals = serializer.validated_data.get("block_consent_modals", False)
 
         screenshot = SavedHeatmap.objects.create(
             team=self.team,
@@ -1021,6 +1069,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             data_url=data_url,
             target_widths=widths,
             type=heatmap_type,
+            block_consent_modals=block_consent_modals,
             created_by=cast(User, request.user),
             status=SavedHeatmap.Status.PROCESSING
             if heatmap_type == SavedHeatmap.Type.SCREENSHOT
@@ -1037,7 +1086,7 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="created",
             detail=Detail(name=screenshot.name or screenshot.url, short_id=screenshot.short_id, type=screenshot.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated(request),
         )
 
         if heatmap_type == SavedHeatmap.Type.SCREENSHOT:
@@ -1094,11 +1143,13 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
         old_url = obj.url
+        old_block_consent_modals = obj.block_consent_modals
         serializer = SavedHeatmapRequestSerializer(obj, data=request.data, partial=True)
         serializer.is_valid(raise_exception=True)
         updated = serializer.save()
 
-        if updated.type == SavedHeatmap.Type.SCREENSHOT and updated.url != old_url:
+        render_input_changed = updated.url != old_url or updated.block_consent_modals != old_block_consent_modals
+        if updated.type == SavedHeatmap.Type.SCREENSHOT and render_input_changed:
             self._regenerate(updated)
 
         log_activity(
@@ -1111,6 +1162,6 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
             scope="Heatmap",
             activity="updated",
             detail=Detail(name=updated.name or updated.url, short_id=updated.short_id, type=updated.type),
-            was_impersonated=getattr(request, "was_impersonated", False),
+            was_impersonated=is_impersonated(request),
         )
         return response.Response(HeatmapScreenshotResponseSerializer(updated).data, status=status.HTTP_200_OK)

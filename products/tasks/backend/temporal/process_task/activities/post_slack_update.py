@@ -60,9 +60,6 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             if creator_has_access
             else None
         )
-        logs_deeplink: str | None = (
-            f"posthog-code://task/{task_run.task_id}/run/{task_run.id}" if creator_has_access else None
-        )
         pr_url = (task_run.output or {}).get("pr_url")
 
         if input.sandbox_cleaned:
@@ -105,7 +102,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 handler.delete_progress()
                 return
             stage = _get_stage_from_status(task_run.status, task_run.stage)
-            handler.post_or_update_progress(stage, logs_deeplink)
+            handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
 

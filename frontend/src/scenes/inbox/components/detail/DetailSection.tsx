@@ -1,4 +1,6 @@
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
+
+import { IconChevronRight } from '@posthog/icons'
 
 interface DetailSectionProps {
     icon: ReactNode
@@ -29,23 +31,57 @@ interface RightColumnSectionProps {
     title: string
     rightSlot?: ReactNode
     children: ReactNode
+    /** When set, the header toggles the body open/closed. */
+    collapsible?: boolean
+    /** Start collapsed (only honoured when `collapsible`). */
+    defaultCollapsed?: boolean
 }
 
 /**
  * Slim caption header used by sections in the detail-view right column (Runs, Reviewers).
- * Lighter than `DetailSection` so the side column reads as supporting detail.
+ * Lighter than `DetailSection` so the side column reads as supporting detail. Optionally
+ * collapsible — the header becomes a toggle while `rightSlot` stays outside it so its own
+ * controls remain clickable.
  */
-export function RightColumnSection({ icon, title, rightSlot, children }: RightColumnSectionProps): JSX.Element {
+export function RightColumnSection({
+    icon,
+    title,
+    rightSlot,
+    children,
+    collapsible = false,
+    defaultCollapsed = false,
+}: RightColumnSectionProps): JSX.Element {
+    const [collapsed, setCollapsed] = useState(defaultCollapsed)
+    const open = !collapsible || !collapsed
+
+    const caption = (
+        <>
+            <span className="flex shrink-0 items-center [&_svg]:size-3">{icon}</span>
+            <span className="font-medium text-[0.6875rem] uppercase tracking-wider">{title}</span>
+        </>
+    )
+
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between gap-2 cursor-default select-none text-tertiary">
-                <div className="flex items-center gap-2">
-                    <span className="flex shrink-0 items-center [&_svg]:size-3">{icon}</span>
-                    <span className="font-medium text-[0.6875rem] uppercase tracking-wider">{title}</span>
-                </div>
+            <div className="flex items-center justify-between gap-2 select-none text-tertiary">
+                {collapsible ? (
+                    <button
+                        type="button"
+                        aria-expanded={open}
+                        onClick={() => setCollapsed((c) => !c)}
+                        className="flex items-center gap-2 rounded text-left transition-colors hover:text-secondary"
+                    >
+                        <IconChevronRight
+                            className={`size-3 shrink-0 transition-transform ${open ? 'rotate-90' : ''}`}
+                        />
+                        {caption}
+                    </button>
+                ) : (
+                    <div className="flex items-center gap-2 cursor-default">{caption}</div>
+                )}
                 {rightSlot && <div className="shrink-0">{rightSlot}</div>}
             </div>
-            <div>{children}</div>
+            {open && <div>{children}</div>}
         </div>
     )
 }

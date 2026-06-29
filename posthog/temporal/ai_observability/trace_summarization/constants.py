@@ -127,6 +127,14 @@ GENERATION_DOCUMENT_TYPE = "llm-generation-summary-detailed"  # For generation-l
 EMBEDDING_METADATA_BATCH_RUN_ID_KEY = "batch_run_id"
 EMBEDDING_METADATA_JOB_ID_KEY = "job_id"
 
+# The summary embedding's `document_id` is `{item_id}::{job_id}` — the clustering job id is
+# appended to the trace/generation id (joined by this delimiter). `document_id` is the only
+# non-LowCardinality component of the document_embeddings ReplacingMergeTree key, so scoping per
+# job here keeps two jobs that summarize the same item on the same day in distinct rows instead of
+# collapsing them on merge (which would drop a job's embeddings). Stage B strips it back to the
+# bare item id (item ids contain no ":", so a single split recovers it) before pairing summaries.
+EMBEDDING_DOCUMENT_ID_JOB_DELIMITER = "::"
+
 # Generation-level configuration
 DEFAULT_MAX_GENERATIONS_PER_WINDOW = 20  # Higher than traces - generations are simpler units
 

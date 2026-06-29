@@ -127,6 +127,21 @@ describe('WidgetCardHeader', () => {
         expect(screen.getByRole('link', { name: /Top issues/i })).toHaveAttribute('href', '/error_tracking')
     })
 
+    it('forwards the hover refresh control into the dashboard_tile header', () => {
+        const { container } = render(
+            <WidgetCardHeader
+                layout="dashboard_tile"
+                title="Top issues"
+                topHeading={<span>Error tracking • Last 7 days</span>}
+                moreButtonOverlay={<div>Menu</div>}
+                refreshControl={<button className="CardMeta__refresh" data-attr="dashboard-widget-refresh" />}
+            />
+        )
+
+        expect(container.querySelector('[data-attr="dashboard-widget-refresh"]')).toBeTruthy()
+        expect(container.querySelector('.CardMeta__controls .CardMeta__refresh')).toBeTruthy()
+    })
+
     it('renders simple layout without inline refresh', () => {
         const { container } = render(<WidgetCardHeader layout="simple" title="My widget" showEditingControls={false} />)
 

@@ -7,7 +7,7 @@ description: Determine which PostHog team owns a file, directory, or code path, 
 
 Two sources, checked in order:
 
-1. **`products/*/product.yaml`: source of truth under `products/`.** Lists owning team(s) under `owners:` as bare slugs (the CODEOWNERS handle minus `@PostHog/`: `conversations`, `logs`, `team-signals`, …) and owns **all** of `products/<name>/**`. Lives in the dir it owns, so never stale.
+1. **`products/*/product.yaml`: source of truth under `products/`.** Lists owning team(s) under `owners:` as bare slugs (the CODEOWNERS handle minus `@PostHog/`: `conversations`, `logs`, `team-self-driving`, …) and owns **all** of `products/<name>/**`. Lives in the dir it owns, so never stale.
 2. **`.github/CODEOWNERS` + [`CODEOWNERS-soft`](../../../.github/CODEOWNERS-soft): backup for paths outside `products/`.** [`CODEOWNERS`](../../../.github/CODEOWNERS) is hard/blocking (mostly infra); `CODEOWNERS-soft` carries most product mappings for shared code (backend, frontend scenes, generated artifacts, overrides).
 
 ## Fast path: `ownership.js`
@@ -63,4 +63,4 @@ If even the handbook fails and the Slack MCP is available, search Slack. It's th
 
 - **Handle** (CODEOWNERS): `@PostHog/<slug>`, e.g. `@PostHog/team-replay`.
 - **Slug** (`product.yaml`): handle minus `@PostHog/`, e.g. `team-replay`.
-- **Not uniform**: some carry `team-` (`team-signals`), some don't (`conversations`, `logs`). If a name doesn't resolve, try both forms.
+- **Not uniform**: some carry `team-` (`team-self-driving`), some don't (`conversations`, `logs`). If a name doesn't resolve, try both forms.

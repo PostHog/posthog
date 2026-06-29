@@ -52,6 +52,16 @@ class TestListChunksActivity:
 
         assert result.estimated_unscored_sessions == 42 * DEFAULT_OF_CHUNKS
 
+    @pytest.mark.asyncio
+    async def test_emits_backlog_gauge_with_extrapolated_estimate(self) -> None:
+        with (
+            mock.patch(f"{ACTIVITIES_MODULE}._count_unscored_in_one_bucket", return_value=42),
+            mock.patch(f"{ACTIVITIES_MODULE}.record_backlog_estimate") as record_backlog_mock,
+        ):
+            await ActivityEnvironment().run(list_chunks_activity, ScoreSessionsBatchInputs())
+
+        record_backlog_mock.assert_called_once_with(42 * DEFAULT_OF_CHUNKS)
+
 
 class TestBuildPartialRow:
     def test_naive_datetime_is_treated_as_utc(self) -> None:

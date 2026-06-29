@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { combineUrl, router } from 'kea-router'
 
 import {
     LemonButton,
@@ -7,30 +6,17 @@ import {
     LemonInputSelect,
     LemonSegmentedButton,
     LemonSelect,
-    LemonTable,
-    LemonTableColumns,
-    LemonTag,
-    Link,
+    LemonSwitch,
 } from '@posthog/lemon-ui'
 
-import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration } from 'lib/utils/durations'
-import { newInternalTab } from 'lib/utils/newInternalTab'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
-import { CIStatusTag } from '../components/CIStatusTag'
+import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { PullRequestTable } from '../components/PullRequestTable'
 import { StatCard } from '../components/StatCard'
-import { githubPrUrl } from '../lib/github'
-import {
-    CIStatusFilter,
-    PRStateFilter,
-    PullRequestRow,
-    engineeringAnalyticsLogic,
-    prKeyOf,
-} from './engineeringAnalyticsLogic'
+import { CIStatusFilter, PRStateFilter, engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 export function EngineeringAnalyticsPullRequests(): JSX.Element {
     const {
@@ -39,7 +25,6 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         filteredPullRequests,
         pullRequestsLoading,
         tableTruncated,
-        loadFailed,
         stateFilter,
         author,
         repo,
@@ -50,89 +35,34 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
         hasActiveFilters,
         activeCard,
         sourceId,
+        notConnected,
+        pullRequestsLoadError,
+        costLensEnabled,
     } = useValues(engineeringAnalyticsLogic)
-    const { setStateFilter, setAuthor, setRepo, setCiStatusFilter, setSearch, resetFilters, applyCardFilter } =
-        useActions(engineeringAnalyticsLogic)
+    const {
+        setStateFilter,
+        setAuthor,
+        setRepo,
+        setCiStatusFilter,
+        setSearch,
+        resetFilters,
+        applyCardFilter,
+        setCostLensEnabled,
+        refresh,
+    } = useActions(engineeringAnalyticsLogic)
 
-    if (loadFailed) {
+    // A 400 means no GitHub source is connected — prompt to connect. A non-400 failure of this
+    // scene's data (cards or the PR list) is shown as a generic, retryable error, never the
+    // misleading "connect" state, and never because an endpoint this scene doesn't render failed.
+    if (notConnected) {
         return <ConnectGitHubSource />
+    }
+    if (pullRequestsLoadError) {
+        return <CIAnalyticsLoadError onRetry={refresh} />
     }
 
     const failingPct =
         cards && cards.openPrs > 0 ? `${humanFriendlyNumber((cards.failingCi / cards.openPrs) * 100)}% of open` : '—'
-
-    const columns: LemonTableColumns<PullRequestRow> = [
-        {
-            title: 'Pull request',
-            key: 'title',
-            render: (_, row) => (
-                <div className="flex flex-col gap-0.5">
-                    <Link
-                        to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
-                        target="_blank"
-                        className="font-medium"
-                    >
-                        {row.title}
-                    </Link>
-                    <div className="flex items-center gap-1.5 text-xs text-secondary">
-                        <span className="font-mono">
-                            {row.repoOwner}/{row.repoName} #{row.number}
-                        </span>
-                        {row.isDraft && <LemonTag type="muted">draft</LemonTag>}
-                        {row.labels.slice(0, 3).map((label) => (
-                            <LemonTag key={label} type="option">
-                                {label}
-                            </LemonTag>
-                        ))}
-                    </div>
-                </div>
-            ),
-        },
-        {
-            title: 'CI',
-            key: 'ci',
-            width: 190,
-            render: (_, row) => <CIStatusTag rollup={row} />,
-        },
-        {
-            title: 'Author',
-            key: 'author',
-            width: 190,
-            render: (_, row) => (
-                <div className="flex items-center gap-1.5">
-                    {row.authorAvatarUrl && (
-                        <img src={row.authorAvatarUrl} alt="" className="h-5 w-5 shrink-0 rounded-full" />
-                    )}
-                    <span className="text-xs">{row.authorHandle}</span>
-                    {row.isBot && <LemonTag type="muted">bot</LemonTag>}
-                </div>
-            ),
-        },
-        {
-            title: 'Opened',
-            key: 'age',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap">
-                    <TZLabel time={row.createdAt} />
-                </span>
-            ),
-        },
-        {
-            title: 'Open→merge',
-            key: 'openToMerge',
-            width: 130,
-            align: 'right',
-            sorter: (a, b) => (a.openToMergeSeconds ?? -1) - (b.openToMergeSeconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap text-secondary">
-                    {row.openToMergeSeconds == null ? '—' : humanFriendlyDuration(row.openToMergeSeconds)}
-                </span>
-            ),
-        },
-    ]
 
     return (
         <div className="flex flex-col gap-4">
@@ -217,44 +147,21 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                         data-attr="engineering-analytics-author-filter"
                     />
                 </div>
+                <LemonSwitch
+                    label="Cost & performance lens"
+                    checked={costLensEnabled}
+                    onChange={setCostLensEnabled}
+                    size="small"
+                    bordered
+                    data-attr="engineering-analytics-cost-lens"
+                />
             </div>
 
-            <LemonTable
-                data-attr="engineering-analytics-pr-table"
-                size="small"
-                columns={columns}
-                dataSource={filteredPullRequests}
-                rowKey={prKeyOf}
+            <PullRequestTable
+                rows={filteredPullRequests}
                 loading={pullRequestsLoading}
-                onRow={(row) => {
-                    // Carry the selected source so the PR's detail page reads the same one.
-                    const detailUrl = combineUrl(
-                        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
-                        sourceId ? { source: sourceId } : {}
-                    ).url
-                    return {
-                        // Inner links (PR title → GitHub) keep their own behavior.
-                        onClick: (e: React.MouseEvent) => {
-                            if ((e.target as HTMLElement).closest('a, button')) {
-                                return
-                            }
-                            if (e.metaKey || e.ctrlKey) {
-                                e.preventDefault()
-                                newInternalTab(detailUrl)
-                            } else {
-                                router.actions.push(detailUrl)
-                            }
-                        },
-                        onAuxClick: (e: React.MouseEvent) => {
-                            if (e.button === 1 && !(e.target as HTMLElement).closest('a, button')) {
-                                e.preventDefault()
-                                newInternalTab(detailUrl)
-                            }
-                        },
-                    }
-                }}
-                useURLForSorting={false}
-                pagination={{ pageSize: 50 }}
+                sourceId={sourceId}
+                costLensEnabled={costLensEnabled}
                 emptyState={
                     hasActiveFilters ? (
                         <div className="flex flex-col items-center gap-2">
@@ -267,7 +174,6 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
                         'No pull requests yet — they show up as soon as CI events arrive.'
                     )
                 }
-                nouns={['pull request', 'pull requests']}
             />
 
             <div className="text-xs text-tertiary">

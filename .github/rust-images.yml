@@ -31,10 +31,6 @@
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
 
-- image: cymbal-resolution
-  dockerfile: ./rust/Dockerfile
-  project: 8dq0xkk0ck
-
 - image: embedding-worker
   dockerfile: ./rust/Dockerfile
   project: 8dq0xkk0ck
@@ -58,6 +54,14 @@
   features: flags-cache-builder
 
 - image: flags-consumer
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
+- image: cohort-event-shuffler
+  dockerfile: ./rust/Dockerfile
+  project: vglf58qgzw
+
+- image: cohort-stream-processor
   dockerfile: ./rust/Dockerfile
   project: vglf58qgzw
 

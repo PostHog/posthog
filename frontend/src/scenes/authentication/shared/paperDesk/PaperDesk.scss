@@ -1,0 +1,129 @@
+// Paper-desk auth variant — light mode only (unauthenticated auth scenes are forced light).
+// Only rules that cannot be expressed in Tailwind utilities live here:
+// pseudo-elements, interactive pseudo-class combinators, child selectors, keyframes.
+
+// Dotted paper grid + faint accent glow — multi-layer background (per-layer size/repeat), not achievable via Tailwind
+.PaperDesk {
+    --primary-3000-button-bg: var(--warning);
+    --primary-3000-frame-bg: var(--primary-3000-button-border-light);
+    --primary-3000-button-border: var(--primary-3000-button-border-light);
+    --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
+
+    // Links use the bright brand amber, not the darker text-contrast warning token.
+    --color-text-warning: var(--warning);
+
+    // Accent glow over the dotted grid. Layered onto the element itself rather than absolutely
+    // positioned pseudo-elements so the texture stays fixed to the viewport while the scene scrolls
+    // (a card taller than the viewport scrolls inside .PaperDesk; pseudo-elements would scroll away).
+    // background-color stays on the Tailwind `bg-[#eef0e7]` utility — only the image layers live here.
+    background-image:
+        radial-gradient(72% 72% at 50% 38%, rgb(247 165 1 / 5%), transparent 70%),
+        radial-gradient(rgb(17 17 17 / 5.5%) 1.4px, transparent 1.4px);
+    background-repeat: no-repeat, repeat;
+    background-size:
+        auto,
+        16px 16px;
+}
+
+// Child SVG sizing — child selector, no Tailwind equivalent
+.PaperDesk__logo {
+    svg {
+        display: block;
+        width: auto;
+        height: 28px;
+
+        @media (min-width: 576px) {
+            height: 40px;
+        }
+    }
+}
+
+// Invite header mark SVG sizing
+.PaperDesk__inviteHeader-mark {
+    svg {
+        width: auto;
+        height: 30px;
+    }
+}
+
+// Sub paragraph — code and mono spans inside it share styles
+.PaperDesk__sub {
+    code,
+    .PaperDesk__mono {
+        font-family: var(--font-mono);
+        font-size: 13px;
+        color: #111;
+    }
+}
+
+// Terms text — nested link style
+.PaperDesk__terms {
+    a {
+        font-weight: 600;
+        color: rgb(17 17 17 / 58%);
+        text-decoration: underline;
+        text-underline-offset: 2px;
+    }
+}
+
+// Note callout — bold inside it is darker
+.PaperDesk__note {
+    b {
+        color: #111;
+    }
+}
+
+// Blink animation for typewriter caret
+.PaperDesk__caret {
+    animation: PaperDesk__blink 1.05s steps(1) infinite;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .PaperDesk__column {
+        animation: PaperDesk__rise 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .PaperDesk__progress-fill {
+        animation: PaperDesk__progress 2.2s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .PaperDesk__caret {
+        animation: none;
+    }
+}
+
+@keyframes PaperDesk__blink {
+    0%,
+    50% {
+        opacity: 1;
+    }
+
+    50.01%,
+    100% {
+        opacity: 0;
+    }
+}
+
+@keyframes PaperDesk__rise {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: none;
+    }
+}
+
+@keyframes PaperDesk__progress {
+    from {
+        width: 0%;
+    }
+
+    to {
+        width: 100%;
+    }
+}

@@ -13,7 +13,6 @@
 
 .react-grid-layout {
     position: relative;
-    margin-bottom: 2rem;
     transition: height 100ms ease;
 
     /* remove initial loading animation, animations are only needed in edit mode */
@@ -32,6 +31,9 @@
 
 .react-grid-item.resizing {
     z-index: 1;
+
+    // Snap to the pointer — without this the cssTransforms transition eases the move and the tile trails the cursor.
+    transition: none;
     will-change: width, height;
 }
 
