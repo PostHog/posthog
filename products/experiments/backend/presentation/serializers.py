@@ -472,7 +472,34 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate(self, data):
         ExperimentService.validate_experiment_date_range(data.get("start_date"), data.get("end_date"))
+        data = self._normalize_feature_flag_input(data)
         return super().validate(data)
+
+    def _normalize_feature_flag_input(self, data: dict) -> dict:
+        """Accept feature-flag config (variants/rollout/aggregation/payloads/continuity) via a
+        ``feature_flag`` object on create/update, folding it into the internal ``parameters`` input
+        the service still consumes to build/sync the flag. The explicit ``feature_flag`` object wins
+        over the legacy ``parameters`` keys.
+
+        Read from ``initial_data`` because the serializer's ``feature_flag`` field is read-only output
+        (the linked flag). This is its write counterpart during the window where ``parameters`` is
+        still the internal input shape; callers can stop sending flag config under ``parameters``.
+        """
+        feature_flag_input = (getattr(self, "initial_data", None) or {}).get("feature_flag")
+        if not isinstance(feature_flag_input, dict):
+            return data
+        # On a partial update that omits ``parameters``, DRF drops it from ``data``. Seed the merge
+        # from the instance so non-flag params (minimum_detectable_effect, variant_notes, ...) survive.
+        if "parameters" in data:
+            base_parameters = data.get("parameters")
+        elif self.instance is not None:
+            base_parameters = self.instance.parameters
+        else:
+            base_parameters = None
+        merged = ExperimentService.feature_flag_config_to_parameters(feature_flag_input, base_parameters)
+        ExperimentService.validate_experiment_parameters(merged)
+        data["parameters"] = merged
+        return data
 
     def validate_parameters(self, value):
         ExperimentService.validate_experiment_parameters(value)

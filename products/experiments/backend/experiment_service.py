@@ -531,6 +531,37 @@ class ExperimentService:
         return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
 
     @staticmethod
+    def feature_flag_config_to_parameters(feature_flag_input: dict, parameters: dict | None) -> dict:
+        """Translate a ``feature_flag`` config object (the flag's native write shape:
+        ``filters.multivariate.variants``, ``filters.groups``, ``filters.aggregation_group_type_index``,
+        ``filters.payloads``, ``ensure_experience_continuity``) into the legacy ``parameters`` input
+        keys the service still consumes to build/sync the flag.
+
+        The explicit ``feature_flag`` object wins over any matching keys already in ``parameters``.
+        This is the create/update write counterpart to the read projection (see
+        ``ExperimentBaseSerializer``): callers send config through the flag object instead of
+        ``parameters``, and this normalizes it while ``parameters`` remains the internal input shape.
+        Returns a new dict, leaving the caller's input untouched.
+        """
+        params = dict(parameters or {})
+        filters = feature_flag_input.get("filters") or {}
+        multivariate = filters.get("multivariate") or {}
+        if isinstance(multivariate.get("variants"), list):
+            params["feature_flag_variants"] = multivariate["variants"]
+        groups = filters.get("groups")
+        if isinstance(groups, list) and groups:
+            rollout_percentage = groups[0].get("rollout_percentage")
+            if rollout_percentage is not None:
+                params["rollout_percentage"] = rollout_percentage
+        if "aggregation_group_type_index" in filters:
+            params["aggregation_group_type_index"] = filters["aggregation_group_type_index"]
+        if "payloads" in filters:
+            params["feature_flag_payloads"] = filters["payloads"]
+        if "ensure_experience_continuity" in feature_flag_input:
+            params["ensure_experience_continuity"] = feature_flag_input["ensure_experience_continuity"]
+        return params
+
+    @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
         """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
         return [variant["key"] for variant in (variants or []) if isinstance(variant, dict)]

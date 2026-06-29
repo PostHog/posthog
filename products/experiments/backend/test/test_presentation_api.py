@@ -2310,6 +2310,116 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertNotIn("feature_flag_variants", experiment.parameters)
         self.assertEqual(experiment.parameters["variant_notes"], {"control": "still baseline"})
 
+    def test_create_experiment_with_feature_flag_config_object(self):
+        """Variant/rollout config can be sent via a `feature_flag` object (the flag's native write
+        shape) instead of `parameters`. The service builds the flag from it; the column stays clean
+        and the response projects variants from the flag.
+        """
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF object create",
+                "feature_flag_key": "ff-object-create",
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "name": "Control", "rollout_percentage": 50},
+                                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                            ]
+                        },
+                        "groups": [{"properties": [], "rollout_percentage": 80}],
+                    },
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+
+        flag = FeatureFlag.objects.get(key="ff-object-create", team_id=self.team.id)
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "test"])
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 80)
+
+        experiment = Experiment.objects.get(id=response.json()["id"])
+        self.assertNotIn("feature_flag_variants", experiment.parameters or {})
+        self.assertEqual(
+            [v["key"] for v in response.json()["parameters"]["feature_flag_variants"]],
+            ["control", "test"],
+        )
+
+    def test_update_draft_experiment_with_feature_flag_config_object(self):
+        """A draft update can change variants via the `feature_flag` object; the service syncs the
+        linked flag from it, no `parameters.feature_flag_variants` needed."""
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF object update",
+                "feature_flag_key": "ff-object-update",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ],
+                    "minimum_detectable_effect": 30,
+                },
+            },
+        )
+        self.assertEqual(create.status_code, status.HTTP_201_CREATED, create.json())
+        experiment_id = create.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 34},
+                                {"key": "test", "rollout_percentage": 33},
+                                {"key": "test_2", "rollout_percentage": 33},
+                            ]
+                        }
+                    }
+                }
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        flag = FeatureFlag.objects.get(key="ff-object-update", team_id=self.team.id)
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "test", "test_2"])
+
+        # A feature_flag-only PATCH must not clobber unrelated parameters.
+        experiment = Experiment.objects.get(id=experiment_id)
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 30)
+
+    def test_feature_flag_object_takes_precedence_over_parameters(self):
+        """When both inputs are sent, the explicit `feature_flag` object wins over the legacy
+        `parameters.feature_flag_variants`."""
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "FF precedence",
+                "feature_flag_key": "ff-precedence",
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "ignored", "rollout_percentage": 50},
+                    ]
+                },
+                "feature_flag": {
+                    "filters": {
+                        "multivariate": {
+                            "variants": [
+                                {"key": "control", "rollout_percentage": 50},
+                                {"key": "winner", "rollout_percentage": 50},
+                            ]
+                        }
+                    }
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        flag = FeatureFlag.objects.get(key="ff-precedence", team_id=self.team.id)
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "winner"])
+
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
         response = self.client.post(
