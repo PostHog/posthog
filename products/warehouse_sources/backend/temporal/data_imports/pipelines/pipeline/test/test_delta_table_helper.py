@@ -437,6 +437,69 @@ class TestIncrementalBatchDeduplication:
         assert final.column("name").to_pylist() == ["second_copy"]
 
 
+class TestUnpartitionedTableWithPartitionKeyColumn:
+    """A Delta table can carry `_ph_partition_key` in its schema while its
+    partition_columns metadata is empty `[]` — e.g. the SchemaMismatchError fallback in
+    write_to_deltalake rewrites with partition_by=None while the column is still in the
+    data, or evolve_pyarrow_schema re-adds the column to a batch headed for an
+    unpartitioned table. write_to_deltalake derives partitioning from column *presence*,
+    so it then passes partition_by=_ph_partition_key against a table delta-rs considers
+    unpartitioned and raises:
+        "Specified table partitioning does not match table partitioning: expected: [], got: [_ph_partition_key]"
+    """
+
+    def _seed_unpartitioned_table_with_partition_column(self, delta_path: str) -> None:
+        # _ph_partition_key is a plain column; the table is NOT partitioned by it.
+        deltalake.write_deltalake(
+            delta_path,
+            pa.table({"id": pa.array([1, 2]), PARTITION_KEY: pa.array(["p0", "p0"])}),
+            partition_by=None,
+        )
+        dt = deltalake.DeltaTable(delta_path)
+        assert dt.metadata().partition_columns == []
+        assert PARTITION_KEY in dt.schema().to_arrow().names
+
+    @pytest.mark.parametrize(
+        "write_type,primary_keys,should_overwrite,expected_ids",
+        [
+            # append/incremental keep the existing rows; full_refresh overwrites them. Each
+            # routes through a distinct write branch, all of which previously raised against
+            # the unpartitioned-but-column-present table.
+            ("append", None, False, {1, 2, 3, 4}),
+            ("incremental", ["id"], False, {1, 2, 3, 4}),
+            ("full_refresh", None, True, {2, 3, 4}),
+        ],
+        ids=["append", "incremental_merge", "full_refresh_overwrite"],
+    )
+    @pytest.mark.asyncio
+    async def test_write_does_not_partition_unpartitioned_table(
+        self,
+        write_type: str,
+        primary_keys: list[str] | None,
+        should_overwrite: bool,
+        expected_ids: set[int],
+        tmp_path: Path,
+    ) -> None:
+        delta_path = str(tmp_path / "table")
+        self._seed_unpartitioned_table_with_partition_column(delta_path)
+
+        helper = _make_local_helper(delta_path)
+        # id=2 already exists (merge updates it); id=3,4 are new.
+        batch = pa.table({"id": pa.array([2, 3, 4]), PARTITION_KEY: pa.array(["p0", "p0", "p0"])})
+
+        result = await helper.write_to_deltalake(
+            data=batch,
+            write_type=write_type,  # type: ignore[arg-type]
+            should_overwrite_table=should_overwrite,
+            primary_keys=primary_keys,
+        )
+
+        final = result.to_pyarrow_table()
+        assert set(final.column("id").to_pylist()) == expected_ids
+        # The table stays unpartitioned — we don't fight its existing layout.
+        assert result.metadata().partition_columns == []
+
+
 class TestRealignDecimalBuffers:
     """delta-rs aborts the worker on 8-byte-aligned Decimal128 buffers; we realign them
     to pyarrow's 64-byte allocator before any Delta write. See delta-io/delta-rs#3884."""

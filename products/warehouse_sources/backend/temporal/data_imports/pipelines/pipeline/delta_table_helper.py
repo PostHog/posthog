@@ -284,6 +284,16 @@ class DeltaTableHelper:
             use_partitioning = True
             await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
 
+        # The column can exist without the table being partitioned by it; defer to the
+        # table's real partition_columns or delta-rs rejects the write as a mismatch.
+        if use_partitioning and delta_table is not None:
+            existing_partition_columns = getattr(delta_table.metadata(), "partition_columns", None) or []
+            if PARTITION_KEY not in existing_partition_columns:
+                use_partitioning = False
+                await self._logger.adebug(
+                    f"Existing table is not partitioned by {PARTITION_KEY}; skipping partitioning to match its layout"
+                )
+
         commit_properties: deltalake.CommitProperties | None = (
             deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None
         )

@@ -8,6 +8,7 @@ from django.http import HttpResponse, StreamingHttpResponse
 import httpx
 import structlog
 
+from posthog.api.streaming import _release_request_connections
 from posthog.security.url_validation import is_url_allowed
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 
@@ -403,6 +404,7 @@ def proxy_mcp_request(request: Any, installation: MCPServerInstallation) -> Http
     content_type = upstream_response.headers.get("content-type", "")
 
     if "text/event-stream" in content_type:
+        _release_request_connections()
         return _build_sse_response(upstream_response, client)
 
     # Read body then close to avoid memory leaks from buffered responses
