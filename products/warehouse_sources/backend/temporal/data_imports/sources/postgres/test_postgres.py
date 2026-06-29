@@ -95,6 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_unsupported_function_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
+    _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
     _rls_active_from_conn,
@@ -787,6 +788,18 @@ class TestPostgresSourceNonRetryableErrors:
         # The class-name key can't catch the raw message (str(e) carries no class name); the
         # dedicated message fragment is what recognises it at the activity layer.
         assert "QueryTimeoutException" not in matching_keys
+        assert "has an appropriate index" in matching_keys
+
+    def test_pk_uniqueness_probe_timeout_is_non_retryable_and_points_at_primary_key(self, source):
+        # A statement_timeout in the fallback `id` uniqueness probe used to surface the generic
+        # "index your incremental field" message, which won't fix this full-table GROUP BY. The
+        # message must point at the assumed primary key while staying non-retryable at the raw
+        # activity-level layer (where str(e) carries no class name).
+        error_msg = str(_pk_uniqueness_probe_timeout_error())
+        assert "primary key" in error_msg
+        assert "incremental field" not in error_msg
+        non_retryable = source.get_non_retryable_errors()
+        matching_keys = [pattern for pattern in non_retryable if pattern in error_msg]
         assert "has an appropriate index" in matching_keys
 
     def test_ssh_handshake_eof_is_non_retryable(self, source):
