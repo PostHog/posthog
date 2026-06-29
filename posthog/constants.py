@@ -26,6 +26,7 @@ class AvailableFeature(StrEnum):
     BEHAVIORAL_COHORT_FILTERING = "behavioral_cohort_filtering"
     WHITE_LABELLING = "white_labelling"
     SUBSCRIPTIONS = "subscriptions"
+    SUBSCRIPTION_INSIGHTS = "subscription_insights"
     APP_METRICS = "app_metrics"
     RECORDINGS_PLAYLISTS = "recordings_playlists"
     ROLE_BASED_ACCESS = "role_based_access"

@@ -69,7 +69,24 @@ describe('InsightSelector', () => {
         expect(screen.getByText(`2 of ${FREE_TIER_MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
     })
 
-    it('uses the paid-tier limit when the org has product features', () => {
+    it('uses the subscription_insights entitlement limit when present', () => {
+        initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            available_product_features: [
+                { key: AvailableFeature.SUBSCRIPTION_INSIGHTS, name: 'Insights per subscription', limit: 10 },
+            ],
+        })
+
+        renderInsightSelector({
+            tiles: createMockTiles() as DashboardTile[],
+            selectedInsightIds: [101, 102],
+            onChange: jest.fn(),
+        })
+
+        expect(screen.getByText('2 of 10 insights selected')).toBeInTheDocument()
+    })
+
+    it('falls back to the paid-tier limit when the org has other product features', () => {
         initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
             ...MOCK_DEFAULT_ORGANIZATION,
             available_product_features: [{ key: AvailableFeature.SUBSCRIPTIONS, name: 'Subscriptions' }],

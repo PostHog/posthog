@@ -185,6 +185,7 @@ export enum AvailableFeature {
     PATHS = 'paths',
     INSIGHTS = 'insights',
     SUBSCRIPTIONS = 'subscriptions',
+    SUBSCRIPTION_INSIGHTS = 'subscription_insights',
     ADVANCED_PERMISSIONS = 'advanced_permissions', // TODO: Remove this once access_control is propagated
     ACCESS_CONTROL = 'access_control',
     PROPERTY_ACCESS_CONTROL = 'property_access_control',

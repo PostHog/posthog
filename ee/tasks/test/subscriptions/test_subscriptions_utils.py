@@ -43,13 +43,19 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
 
     @parameterized.expand(
         [
-            # Free orgs are capped at FREE_TIER_MAX_ASSET_COUNT even though the dashboard has more tiles.
-            ("free_tier", [], FREE_TIER_MAX_ASSET_COUNT),
-            # Paid orgs render every tile (10 here, well under the paid cap).
-            ("paid_tier", [{"key": AvailableFeature.SUBSCRIPTIONS, "name": "Subscriptions"}], 10),
+            # The subscription_insights entitlement's limit wins when present (3 of 10 tiles here).
+            (
+                "explicit_entitlement",
+                [{"key": AvailableFeature.SUBSCRIPTION_INSIGHTS, "name": "Insights per subscription", "limit": 3}],
+                3,
+            ),
+            # No entitlement + no features → free fallback, capped below the 10 tiles.
+            ("free_fallback", [], FREE_TIER_MAX_ASSET_COUNT),
+            # No entitlement but other paid features present → paid fallback, renders all 10 tiles.
+            ("paid_fallback", [{"key": AvailableFeature.SUBSCRIPTIONS, "name": "Subscriptions"}], 10),
         ]
     )
-    def test_generate_assets_for_dashboard_respects_plan_tier(
+    def test_generate_assets_for_dashboard_respects_plan_limit(
         self,
         _name: str,
         available_product_features: list,

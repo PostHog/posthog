@@ -7,6 +7,7 @@ import structlog
 from celery import chain
 from prometheus_client import Histogram
 
+from posthog.constants import AvailableFeature
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.tasks import exporter
 from posthog.utils import wait_for_parallel_celery_group
@@ -21,8 +22,9 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
-# Per-subscription insight caps, gated by billing plan. Free orgs get FREE_TIER_MAX_ASSET_COUNT;
-# paid plans get DEFAULT_MAX_ASSET_COUNT. Keep both in sync with FREE_TIER_MAX_INSIGHTS and
+# Per-subscription insight caps. The live cap comes from the `subscription_insights` billing
+# entitlement; these are the fallbacks used until billing emits it (see
+# get_max_asset_count_for_organization). Keep in sync with FREE_TIER_MAX_INSIGHTS and
 # PAID_TIER_MAX_INSIGHTS in frontend/src/lib/components/Subscriptions/insightSelectorLogic.ts
 DEFAULT_MAX_ASSET_COUNT = 25
 FREE_TIER_MAX_ASSET_COUNT = 6
@@ -38,11 +40,18 @@ SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
 
 
 def get_max_asset_count_for_organization(organization: "Organization") -> int:
-    """Resolve the per-subscription insight cap for an organization's billing plan.
+    """Resolve the per-subscription insight cap for an organization from billing.
 
-    Free orgs are limited to FREE_TIER_MAX_ASSET_COUNT; any paid plan gets the full
-    DEFAULT_MAX_ASSET_COUNT.
+    The cap is driven by the ``subscription_insights`` billing entitlement: orgs get the
+    ``limit`` their plan grants (an absent ``limit`` on a present entitlement means unlimited,
+    bounded to DEFAULT_MAX_ASSET_COUNT for operational safety). Until billing emits the
+    entitlement, fall back to the plan tier so paid orgs aren't regressed to the free cap.
     """
+    feature = organization.get_available_feature(AvailableFeature.SUBSCRIPTION_INSIGHTS)
+    if feature is not None:
+        limit = feature.get("limit")
+        return limit if limit is not None else DEFAULT_MAX_ASSET_COUNT
+
     return FREE_TIER_MAX_ASSET_COUNT if organization.get_plan_tier() == "free" else DEFAULT_MAX_ASSET_COUNT
 
 

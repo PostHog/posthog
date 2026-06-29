@@ -2,13 +2,14 @@ import { actions, connect, kea, path, props, reducers, selectors } from 'kea'
 
 import { userLogic } from 'scenes/userLogic'
 
-import { DashboardTile, InsightModel } from '~/types'
+import { AvailableFeature, DashboardTile, InsightModel } from '~/types'
 
 import type { insightSelectorLogicType } from './insightSelectorLogicType'
 
-// Per-subscription insight caps, gated by billing plan. Keep in sync with FREE_TIER_MAX_ASSET_COUNT
-// and DEFAULT_MAX_ASSET_COUNT in ee/tasks/subscriptions/subscription_utils.py — the backend enforces
-// these; this is the matching UX cap.
+// Per-subscription insight caps. The live cap comes from the `subscription_insights` billing
+// entitlement; these are the fallbacks used until billing emits it. Keep in sync with
+// FREE_TIER_MAX_ASSET_COUNT and DEFAULT_MAX_ASSET_COUNT in
+// ee/tasks/subscriptions/subscription_utils.py — the backend enforces, this is the matching UX cap.
 export const FREE_TIER_MAX_INSIGHTS = 6
 export const PAID_TIER_MAX_INSIGHTS = 25
 
@@ -21,7 +22,7 @@ export const insightSelectorLogic = kea<insightSelectorLogicType>([
     path(['lib', 'components', 'Subscriptions', 'insightSelectorLogic']),
 
     connect(() => ({
-        values: [userLogic, ['user']],
+        values: [userLogic, ['user', 'availableFeature']],
     })),
 
     actions({
@@ -35,14 +36,20 @@ export const insightSelectorLogic = kea<insightSelectorLogicType>([
     }),
 
     selectors({
-        // Mirrors the backend Organization.get_plan_tier() free check: no available product
-        // features means a free org, which is capped at the lower limit.
+        // Driven by the `subscription_insights` billing entitlement (mirrors the backend
+        // get_max_asset_count_for_organization). Until billing emits it, fall back to the plan
+        // tier — paid orgs (any product feature present) get the higher cap, free orgs the lower.
         maxInsights: [
-            (s) => [s.user],
-            (user): number =>
-                user?.organization?.available_product_features?.length
+            (s) => [s.availableFeature, s.user],
+            (availableFeature, user): number => {
+                const feature = availableFeature(AvailableFeature.SUBSCRIPTION_INSIGHTS)
+                if (feature) {
+                    return feature.limit ?? PAID_TIER_MAX_INSIGHTS
+                }
+                return user?.organization?.available_product_features?.length
                     ? PAID_TIER_MAX_INSIGHTS
-                    : FREE_TIER_MAX_INSIGHTS,
+                    : FREE_TIER_MAX_INSIGHTS
+            },
         ],
         insightTiles: [
             (_, p) => [p.tiles],
