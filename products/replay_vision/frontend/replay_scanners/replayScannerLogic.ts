@@ -230,7 +230,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         appendClassifierTags: (tags: string[]) => ({ tags }),
         loadTagSuggestions: true,
         loadTagSuggestionsSuccess: (suggestions: TagSuggestionApi[]) => ({ suggestions }),
-        loadTagSuggestionsFailure: (error: string | null = null) => ({ error }),
+        loadTagSuggestionsFailure: true,
         acceptTagSuggestion: (tag: string) => ({ tag }),
         acceptAllTagSuggestions: true,
         dismissTagSuggestions: true,
@@ -419,14 +419,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadTagSuggestions: () => true,
                 loadTagSuggestionsSuccess: () => false,
                 loadTagSuggestionsFailure: () => false,
-            },
-        ],
-        tagSuggestionsError: [
-            null as string | null,
-            {
-                loadTagSuggestions: () => null,
-                loadTagSuggestionsSuccess: () => null,
-                loadTagSuggestionsFailure: (_, { error }) => error,
             },
         ],
         observations: [
@@ -772,8 +764,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     })
                     actions.loadTagSuggestionsSuccess(response.suggestions ?? [])
                 } catch (error: any) {
-                    const detail = typeof error?.detail === 'string' ? error.detail : null
-                    actions.loadTagSuggestionsFailure(detail ?? 'Could not generate suggestions. Please try again.')
+                    lemonToast.error(`Couldn't generate suggestions${error?.detail ? `: ${error.detail}` : ''}`)
+                    actions.loadTagSuggestionsFailure()
                 }
             },
             acceptTagSuggestion: ({ tag }) => actions.appendClassifierTags([tag]),

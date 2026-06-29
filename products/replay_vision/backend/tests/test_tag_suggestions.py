@@ -6,9 +6,9 @@ from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.tag_suggestions import (
     _MAX_SUGGESTIONS,
     SuggestionError,
+    TagSuggestion,
     _build_user_content,
     _finalize,
-    _LlmSuggestion,
     _LlmSuggestions,
     _sibling_vocabularies,
 )
@@ -25,7 +25,7 @@ def _access_control(*, allow: bool) -> MagicMock:
 
 
 def _llm(*items: tuple[str, str, str]) -> _LlmSuggestions:
-    return _LlmSuggestions(suggestions=[_LlmSuggestion(tag=t, rationale=r, source=s) for t, r, s in items])
+    return _LlmSuggestions(suggestions=[TagSuggestion(tag=t, rationale=r, source=s) for t, r, s in items])
 
 
 class TestBuildUserContent:

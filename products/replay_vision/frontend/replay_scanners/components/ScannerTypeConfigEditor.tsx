@@ -10,7 +10,6 @@ import {
     LemonSwitch,
     LemonTag,
     LemonTextArea,
-    Spinner,
 } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -100,20 +99,9 @@ const SUGGESTION_SOURCE_META: Record<string, { label: string; type: 'success' | 
 /** Grounded tag suggestions, each shown with the evidence it came from and a one-click add. */
 function ClassifierTagSuggestions({ scannerId }: { scannerId: string }): JSX.Element | null {
     const logic = replayScannerLogic({ id: scannerId })
-    const { tagSuggestions, tagSuggestionsLoading, tagSuggestionsError } = useValues(logic)
+    const { tagSuggestions } = useValues(logic)
     const { acceptTagSuggestion, acceptAllTagSuggestions, dismissTagSuggestions } = useActions(logic)
 
-    if (tagSuggestionsLoading) {
-        return (
-            <div className="flex items-center gap-2 text-sm text-muted">
-                <Spinner />
-                Reading this scanner's recordings and your product to suggest tags…
-            </div>
-        )
-    }
-    if (tagSuggestionsError) {
-        return <div className="text-xs text-danger">{tagSuggestionsError}</div>
-    }
     if (tagSuggestions.length === 0) {
         return null
     }

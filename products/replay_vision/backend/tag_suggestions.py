@@ -9,7 +9,6 @@ categories.
 """
 
 import uuid
-from dataclasses import dataclass
 from typing import Literal
 
 from django.conf import settings
@@ -46,18 +45,13 @@ _OBSERVATION_RECENT_DAYS = 30
 SourceKind = Literal["observed", "product", "prompt"]
 
 
-@dataclass(frozen=True)
-class TagSuggestion:
-    tag: str
-    rationale: str
-    source: SourceKind
-
-
 class SuggestionError(Exception):
     """Raised when the model call fails or returns nothing usable."""
 
 
-class _LlmSuggestion(BaseModel):
+class TagSuggestion(BaseModel):
+    """One suggested tag — the model's structured output shape and the endpoint's response shape."""
+
     tag: str = Field(description="Short lowercase snake_case tag (<= 4 words), e.g. 'abandoned_checkout'.")
     rationale: str = Field(
         description="One sentence citing the specific evidence this tag is grounded in (a freeform-tag count, "
@@ -70,7 +64,7 @@ class _LlmSuggestion(BaseModel):
 
 
 class _LlmSuggestions(BaseModel):
-    suggestions: list[_LlmSuggestion] = Field(
+    suggestions: list[TagSuggestion] = Field(
         description="Up to 8 tags to ADD, most relevant first, none duplicating the current vocabulary."
     )
 
