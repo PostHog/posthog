@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -59,12 +60,21 @@ async def _add_inputs_to_capture_kwargs(
         capture_exception(e, **capture_kwargs)
 
 
+def _is_cancellation(exc: BaseException) -> bool:
+    """Temporal cancelling an activity (worker shutdown, workflow cancellation, or
+    start_to_close_timeout) surfaces as a CancelledError. That's control flow, not a failure —
+    capturing it creates misleading error-tracking issues for a normal, retryable cancellation."""
+    return isinstance(exc, temporalio.exceptions.CancelledError | asyncio.CancelledError)
+
+
 class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
     async def execute_activity(self, input: ExecuteActivityInput) -> Any:
         _tag_team_id_on_current_span(input)
         try:
             return await super().execute_activity(input)
         except Exception as e:
+            if _is_cancellation(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -97,6 +107,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
+            if _is_cancellation(e):
+                raise  # Cancellation is control flow, not a failure to report
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {

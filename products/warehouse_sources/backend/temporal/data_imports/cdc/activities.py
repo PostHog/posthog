@@ -14,6 +14,7 @@ from __future__ import annotations
 import time
 import uuid
 import typing
+import asyncio
 import datetime as dt
 import dataclasses
 from collections.abc import Callable
@@ -23,6 +24,7 @@ from django.db import close_old_connections
 import pyarrow as pa
 import structlog
 import posthoganalytics
+import temporalio.exceptions
 from temporalio import activity
 
 from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
@@ -695,6 +697,18 @@ class CDCExtractActivity:
             self._advance_slot_after_run()
             self._update_log_positions()
 
+        except (temporalio.exceptions.CancelledError, asyncio.CancelledError):
+            # Temporal cancelled this activity (worker shutdown, workflow cancellation, or
+            # start_to_close_timeout) while a blocking psycopg query was parked in wait_c — the
+            # cancellation surfaces here as a CancelledError out of psycopg. That's control flow,
+            # not a CDC failure: re-raise cleanly so Temporal retries, skipping the
+            # cdc_extract_failed log, the FAILED-schema marking, and classification (which would
+            # otherwise treat it as a retryable UNKNOWN and ship noise to error tracking). The
+            # connection sources document this same wait_c-on-cancel pattern (redshift.py,
+            # google_sheets.py).
+            self.log.info("cdc_extract_cancelled")
+            self._emit_run_duration("cancelled")
+            raise
         except Exception as exc:
             if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
                 try:

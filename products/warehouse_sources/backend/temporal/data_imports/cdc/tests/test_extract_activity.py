@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import psycopg.errors
+import temporalio.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
@@ -882,6 +883,61 @@ class TestCDCExtractActivity:
 
         # Slot should NOT have been advanced
         mock_reader.confirm_position.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.S3BatchWriter")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_cancellation_reraises_without_marking_failed(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        MockS3Writer,
+        MockProducer,
+        mock_activity,
+    ):
+        """Temporal cancelling the activity mid-query surfaces a CancelledError out of psycopg.
+        That's control flow, not a CDC failure: it must re-raise as-is without classification or
+        marking the schema FAILED, so it never becomes a misclassified retryable-UNKNOWN error or
+        an error-tracking issue."""
+        source = _make_source()
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        events = [_make_event(op="I", table="users", position="0/100")]
+
+        mock_reader, mock_s3, mock_producer, mock_job = _setup_mocks(
+            mock_activity,
+            MockProducer,
+            MockS3Writer,
+            mock_get_adapter,
+            mock_get_schemas,
+            MockSourceModel,
+            MockJob,
+            mock_close_conns,
+            source,
+            [schema],
+            events,
+        )
+
+        # Cancellation lands while a blocking query is parked in wait_c during the final flush.
+        mock_s3.write_batch.side_effect = temporalio.exceptions.CancelledError("Cancelled")
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        # Re-raised unchanged — not wrapped in NonRetryableException, not swapped for a friendly error.
+        with pytest.raises(temporalio.exceptions.CancelledError):
+            cdc_extract_activity(inputs)
+
+        # Schema is left RUNNING, not flipped to FAILED with a bogus "unknown error".
+        assert schema.status != "Failed"
+        # Connection still cleaned up by the finally block.
+        mock_reader.close.assert_called_once()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.PostgresProducer")
