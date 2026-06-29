@@ -247,6 +247,7 @@ const visionScannersObservationsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
+                recording_subject: params.recording_subject,
                 session_id: params.session_id,
                 status: params.status,
                 tags: params.tags,

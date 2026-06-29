@@ -13,11 +13,8 @@ import { HogQLFilters, HogQLQueryResponse, MCPHarnessBreakdownItem, NodeKind } f
 import { AnyPropertyFilter, IntervalType, TeamType } from '~/types'
 
 import { mcpClusteringLogic } from './clustering/mcpClusteringLogic'
-import { categorizeHarness } from './dashboard/harnessRegistry'
 import type { MCPIntentClusterApi } from './generated/api.schemas'
 import type { mcpDashboardOverviewLogicType } from './mcpDashboardOverviewLogicType'
-
-export { categorizeHarness }
 
 export interface DateFilter {
     dateFrom: string | null

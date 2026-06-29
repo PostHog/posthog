@@ -551,7 +551,7 @@ build:
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
+        description: Generate HogQL grammar definitions (C++)
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files

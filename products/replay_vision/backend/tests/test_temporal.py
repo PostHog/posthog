@@ -1710,17 +1710,16 @@ async def test_emit_classifier_tags_produces_kafka_payload() -> None:
         team_id=99, session_id="sess-classify", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
     )
     session_start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
-    fake_metadata = {"distinct_id": "user-77", "start_time": session_start}
 
     with (
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
-        ) as mock_se_cls,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags._load_session_identity",
+            return_value=("user-77", session_start),
+        ),
         patch(
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
         ) as mock_producer_scope,
     ):
-        mock_se_cls.return_value.get_metadata.return_value = fake_metadata
         producer = mock_producer_scope.return_value.__enter__.return_value
 
         await emit_classifier_tags_activity(inputs)
@@ -1745,10 +1744,10 @@ async def test_emit_classifier_tags_raises_when_metadata_missing() -> None:
         team_id=99, session_id="sess-missing", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
     )
     with patch(
-        "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
-    ) as mock_se_cls:
-        mock_se_cls.return_value.get_metadata.return_value = None
-        with pytest.raises(ApplicationError, match="No replay metadata"):
+        "products.replay_vision.backend.temporal.activities.emit_classifier_tags._load_session_identity",
+        return_value=None,
+    ):
+        with pytest.raises(ApplicationError, match="No persisted session metadata"):
             await emit_classifier_tags_activity(inputs)
 
 
@@ -1777,19 +1776,18 @@ async def test_emit_classifier_tags_raises_when_kafka_delivery_fails() -> None:
         team_id=99, session_id="sess-classify", observation_id=uuid.uuid4(), classifier_output=_classifier_output()
     )
     session_start = dt.datetime(2026, 5, 12, 10, 0, 0, tzinfo=dt.UTC)
-    fake_metadata = {"distinct_id": "user-77", "start_time": session_start}
     failed_result = MagicMock()
     failed_result.get.side_effect = RuntimeError("broker timeout")
 
     with (
         patch(
-            "products.replay_vision.backend.temporal.activities.emit_classifier_tags.SessionReplayEvents"
-        ) as mock_se_cls,
+            "products.replay_vision.backend.temporal.activities.emit_classifier_tags._load_session_identity",
+            return_value=("user-77", session_start),
+        ),
         patch(
             "products.replay_vision.backend.temporal.activities.emit_classifier_tags.producer_scope"
         ) as mock_producer_scope,
     ):
-        mock_se_cls.return_value.get_metadata.return_value = fake_metadata
         producer = mock_producer_scope.return_value.__enter__.return_value
         producer.produce.return_value = failed_result
 

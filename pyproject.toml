@@ -14,7 +14,6 @@ dependencies = [
     "aiohttp==3.13.5",
     "aiokafka~=0.12.0",
     "anthropic==0.80.0",
-    "antlr4-python3-runtime==4.13.1",
     "asyncstdlib==3.13.1",
     "beautifulsoup4==4.12.3",
     "boto3==1.40.49",

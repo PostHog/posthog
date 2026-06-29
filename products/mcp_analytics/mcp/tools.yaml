@@ -131,3 +131,162 @@ wrappers:
             - version
             - tags
         feature_flag: mcp-analytics
+    query-mcp-tool-stats:
+        schema_ref: MCPToolStatsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Summarise one MCP tool
+        description: >
+            Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95
+            latency, unique users, unique sessions, and how many calls carried an intent. Pass toolName (the effective
+            tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the tool-detail
+            UI). Use to answer "how is tool X doing overall?" before drilling into failures, users, or neighbours.
+        system_prompt_hint: One MCP tool's headline stats — calls, errors, p50/p95, users, sessions, intents
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-daily-stats:
+        schema_ref: MCPToolDailyStatsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Daily trend for one MCP tool
+        description: >
+            Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and
+            unique sessions per day. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to
+            answer "how has tool X trended?" — spotting error spikes, latency regressions, or adoption changes over
+            time.
+        system_prompt_hint: One MCP tool's day-by-day series — calls, errors, p50/p95, users, sessions
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-failures:
+        schema_ref: MCPToolFailuresQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Top errors for one MCP tool
+        description: >
+            Return the most common error messages for a single MCP tool, each with the resolved client harness it came
+            from. Pass toolName as the raw $mcp_tool_name (the registered tool name) — failures are matched on
+            $exception events, which don't carry the new-SDK effective-tool markers, so unlike the other tool-detail
+            tools this one does NOT resolve the inner tool of a single-exec wrapper call. Also pass a dateRange. Use to
+            answer "why is tool X failing?" or "what errors does tool X throw, and on which clients?".
+        system_prompt_hint: One MCP tool's top error messages, by harness (scoped by raw tool name)
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-top-users:
+        schema_ref: MCPToolTopUsersQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Top callers of one MCP tool
+        description: >
+            Return the top callers of a single MCP tool: per caller, the call count, error rate, resolved harness
+            labels, last-seen time, and the caller's display name and email. Pass toolName (effective tool name,
+            resolved server-side) and a dateRange. Use to answer "who uses tool X the most, and how reliably for them?".
+        system_prompt_hint: One MCP tool's top callers — calls, error rate, harnesses, person email/name
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-neighbors:
+        schema_ref: MCPToolNeighborsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Tools called alongside one MCP tool
+        description: >
+            Return the tools most often called immediately before or after a single MCP tool within the same
+            conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection
+            ('before' or 'after'). Use to answer "what does an agent call around tool X?" — revealing common tool
+            sequences and which tools pair up.
+        system_prompt_hint: Tools co-occurring before/after one MCP tool in a conversation
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-sample-intents:
+        schema_ref: MCPToolSampleIntentsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Sample intents for one MCP tool
+        description: >
+            Return recent sample agent intents recorded for a single MCP tool, each with its resolved client harness.
+            Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer "what are agents
+            actually trying to do when they call tool X?" — qualitative context behind the usage numbers.
+        system_prompt_hint: Recent sample agent intents for one MCP tool, with harness
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics
+    query-mcp-tool-descriptions:
+        schema_ref: MCPToolDescriptionsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - mcp_analytics:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Descriptions seen for one MCP tool
+        description: >
+            Return the distinct effective tool-description strings seen for a single MCP tool over the window. Pass
+            toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a
+            tool registered with more than one description across clients or versions.
+        system_prompt_hint: Distinct effective descriptions seen for one MCP tool
+        exclude_properties:
+            - response
+            - modifiers
+            - version
+            - tags
+        feature_flag: mcp-analytics

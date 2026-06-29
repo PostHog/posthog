@@ -177,6 +177,7 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
             "status": self.status or self.computed_status,
             "metrics_count": len(self.metrics or []),
             "secondary_metrics_count": len(self.metrics_secondary or []),
+            "saved_metrics_count": self.saved_metrics.count(),
             "has_description": bool(self.description),
             "has_conclusion_comment": bool(self.conclusion_comment),
             "variant_count": len(variants),

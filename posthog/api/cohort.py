@@ -14,7 +14,6 @@ import requests
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from loginas.utils import is_impersonated_session
 from prometheus_client import Counter, Histogram
 from pydantic import (
     BaseModel,
@@ -45,6 +44,7 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
@@ -1608,7 +1608,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=str(cohort.id),
             scope="Cohort",
             activity="persons_added_manually",
@@ -1649,7 +1649,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             organization_id=cast(UUIDT, self.organization_id),
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=str(cohort.id),
             scope="Cohort",
             activity="person_removed_manually",
@@ -1763,7 +1763,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            was_impersonated=is_impersonated(serializer.context["request"]),
             item_id=instance.id,
             scope="Cohort",
             activity="created",
@@ -1798,7 +1798,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            was_impersonated=is_impersonated(serializer.context["request"]),
             item_id=instance_id,
             scope="Cohort",
             activity=activity,
