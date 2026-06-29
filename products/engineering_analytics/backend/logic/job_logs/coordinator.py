@@ -3,10 +3,10 @@
 Per-job workflow id (``gh-logs-{team}-{job}``, reuse ``ALLOW_DUPLICATE_FAILED_ONLY``) means each
 job's log is fetched and emitted at most once, re-running only after a failed attempt.
 
-NOT WIRED LIVE: discovery works (it queries the raw ``{prefix}github_workflow_jobs`` table, since the
-curated read layer doesn't expose jobs yet), but the schedule and worker stay unregistered until the
-Logs lane is confirmed — ``OTLP_LOGS_INGEST_ENDPOINT`` set and the destination team trusted/unsampled.
-No end-to-end test yet.
+Discovery queries the raw ``{prefix}github_workflow_jobs`` table (the curated read layer doesn't
+expose jobs yet). The coordinator is registered on the schedule but no-ops until
+``OTLP_LOGS_INGEST_ENDPOINT`` is set (see ``_discover_failed_jobs``), so it activates automatically
+once the Logs endpoint is deployed, regardless of deploy order.
 """
 
 import re
@@ -14,6 +14,8 @@ import json
 import dataclasses
 from datetime import timedelta
 from typing import Any
+
+from django.conf import settings
 
 import structlog
 from temporalio import activity, workflow
@@ -97,6 +99,11 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
 
 
 def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
+    if not settings.OTLP_LOGS_INGEST_ENDPOINT:
+        # No Logs sink configured yet (charts sets the endpoint per region): discover nothing so the
+        # registered schedule is inert until the sink exists, then activates automatically. Mirrors
+        # the activity's fail-closed guard, but here it also skips the per-source warehouse queries.
+        return []
     found: list[dict[str, Any]] = []
     sources = (
         ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB)

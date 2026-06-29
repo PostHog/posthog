@@ -1,6 +1,11 @@
+from django.test import override_settings
+
 from parameterized import parameterized
 
-from products.engineering_analytics.backend.logic.job_logs.coordinator import _github_source_params
+from products.engineering_analytics.backend.logic.job_logs.coordinator import (
+    _discover_failed_jobs,
+    _github_source_params,
+)
 
 
 class TestGithubSourceParams:
@@ -28,3 +33,12 @@ class TestGithubSourceParams:
     )
     def test_returns_none_for_unusable_source(self, _name, job_inputs):
         assert _github_source_params(job_inputs) is None
+
+
+class TestDiscoverFailedJobs:
+    @override_settings(OTLP_LOGS_INGEST_ENDPOINT="")
+    def test_discovers_nothing_when_logs_endpoint_unset(self):
+        # The coordinator schedule is registered but must stay inert until the Logs endpoint is
+        # deployed: discovery returns [] (without querying the warehouse) so no child workflows fan
+        # out. Drops the guard and this fails by hitting the DB and returning rows.
+        assert _discover_failed_jobs("2026-06-29T00:00:00+00:00") == []

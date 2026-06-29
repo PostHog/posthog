@@ -1,8 +1,7 @@
 """Temporal schedule for the GitHub job-logs coordinator (~2 min, SKIP overlap).
 
-NOT yet registered in ``posthog/temporal/schedule.py`` — see ``coordinator.py`` for why (the
-``github_workflow_jobs`` metadata source has to land first). To wire it live, import
-``create_github_job_logs_coordinator_schedule`` there and append it to the ``schedules`` list.
+Registered in ``posthog/temporal/schedule.py`` via the product facade. The coordinator no-ops until
+``OTLP_LOGS_INGEST_ENDPOINT`` is set, so registering the schedule is inert until the Logs sink exists.
 """
 
 from datetime import timedelta
