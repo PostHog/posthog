@@ -24,7 +24,7 @@
             "outputs": [],
             "cache": true,
             "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"],
-            "passThroughEnv": ["PYTEST_ADDOPTS"]
+            "passThroughEnv": ["PYTEST_ADDOPTS", "PYTHONPATH", "RESOURCE_PROFILE_OUT"]
         },
         "backend:lint": {
             "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],

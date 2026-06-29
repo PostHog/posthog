@@ -808,13 +808,28 @@ jobs:
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
+                  # -p tools.pytest_resource_profiler: report-only per-test resource profiler.
                   # On master, also collect timing data for pytest-split sharding.
                   PYTEST_ADDOPTS: >-
                       --reuse-db
                       --durations-path ../../.test_durations
+                      -p tools.pytest_resource_profiler
                       ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
                       ${{ github.ref == 'refs/heads/master' && '--store-durations' || '' }}
+                  # PYTHONPATH so `tools` imports from the products/<name>/ CWD; absolute out path
+                  # so every product in the shard appends to one file. Both need turbo passThroughEnv.
+                  PYTHONPATH: ${{ github.workspace }}
+                  RESOURCE_PROFILE_OUT: ${{ github.workspace }}/resource-profile/profile.jsonl
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
+
+            - name: Upload resource profile
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: resource-profile-product-${{ matrix.group }}
+                  path: resource-profile/
+                  if-no-files-found: ignore
+                  retention-days: 2
 
             - name: Upload timing data
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
@@ -2083,6 +2098,13 @@ jobs:
         # Runner type is performance-critical — consult #team-devex before changing
         runs-on: depot-ubuntu-latest
 
+        env:
+            # Per-test resource profiler (report-only): counts DB/CH usage to find wasted setup.
+            # PYTEST_ADDOPTS is read by pytest automatically; the plugin is passive.
+            PYTEST_ADDOPTS: -p tools.pytest_resource_profiler
+            PYTHONPATH: ${{ github.workspace }}
+            RESOURCE_PROFILE_OUT: ${{ github.workspace }}/resource-profile/profile.jsonl
+
         strategy:
             fail-fast: false
             matrix:
@@ -2624,6 +2646,15 @@ jobs:
               with:
                   name: junit-results-backend-${{ matrix.artifact_key }}
                   path: junit-*.xml
+
+            - name: Upload resource profile
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: always()
+              with:
+                  name: resource-profile-${{ matrix.artifact_key }}
+                  path: resource-profile/
+                  if-no-files-found: ignore
+                  retention-days: 2
 
     # Aggregate and commit snapshot changes from all matrix jobs
 
