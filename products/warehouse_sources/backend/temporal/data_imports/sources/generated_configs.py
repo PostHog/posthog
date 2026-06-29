@@ -409,7 +409,7 @@ class BigCommerceSourceConfig(config.Config):
 
 @config.config
 class BigMailerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -947,7 +947,8 @@ class DockerhubSourceConfig(config.Config):
 
 @config.config
 class DocusealSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -1069,7 +1070,7 @@ class EventzillaSourceConfig(config.Config):
 
 @config.config
 class EverhourSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1127,17 +1128,21 @@ class FinageSourceConfig(config.Config):
 
 @config.config
 class FinancialModellingSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
 class FinnhubSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str | None = None
+    exchange: str | None = None
 
 
 @config.config
 class FinnworldsSourceConfig(config.Config):
-    pass
+    api_key: str
+    tickers: str
 
 
 @config.config

@@ -1900,6 +1900,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
                 # creation paths reject the same inputs instead of silently dropping null/float values.
                 lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                # When the caller didn't set a lookback, fall back to the source-defined default
+                # (e.g. Google Ads stats tables, whose recent rows Google keeps revising for days).
+                # This loop is the single creation choke point, so the default reaches both the
+                # wizard and one-shot flows; it's then validated by the bounds check just below.
+                if lookback_seconds is None and source_schema is not None:
+                    lookback_seconds = source_schema.default_incremental_lookback_seconds
                 if lookback_seconds is not None:
                     # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
                     if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
