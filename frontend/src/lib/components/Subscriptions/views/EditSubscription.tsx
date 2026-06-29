@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { IconChevronLeft } from '@posthog/icons'
+import { IconChevronLeft, IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
@@ -581,41 +581,44 @@ function EditSubscriptionForm({
                                                         help="Posts every insight as a grouped image gallery in the main Slack message."
                                                     >
                                                         {({ value, onChange }) => (
-                                                            <>
+                                                            <div className="border rounded">
                                                                 <LemonSwitch
+                                                                    className="py-2"
                                                                     checked={value && hasFilesWrite}
                                                                     onChange={onChange}
                                                                     disabledReason={
                                                                         !hasFilesWrite
-                                                                            ? 'Needs the Slack file-upload permission — reconnect Slack below to enable'
+                                                                            ? 'Needs the Slack file-upload permission — reconnect below to enable'
                                                                             : undefined
                                                                     }
-                                                                    bordered
                                                                     fullWidth
                                                                     label="Post all insights in the main message"
                                                                 />
                                                                 {!hasFilesWrite && (
-                                                                    <LemonBanner
-                                                                        type="info"
-                                                                        className="mt-2"
-                                                                        action={{
-                                                                            children: 'Reconnect Slack',
-                                                                            disableClientSideRouting: true,
-                                                                            to: api.integrations.authorizeUrl({
+                                                                    <div className="flex items-center gap-2 border-t px-2 py-2">
+                                                                        <IconInfo className="text-base text-secondary shrink-0" />
+                                                                        <span className="flex-1 text-xs text-secondary">
+                                                                            Posting all insights as one grouped gallery
+                                                                            needs the Slack file-upload permission (
+                                                                            <code>files:write</code>). Reconnect Slack
+                                                                            to grant it — you will return to this page
+                                                                            when done.
+                                                                        </span>
+                                                                        <LemonButton
+                                                                            type="secondary"
+                                                                            size="xsmall"
+                                                                            to={api.integrations.authorizeUrl({
                                                                                 kind: selectedIntegration.kind,
                                                                                 next: window.location.pathname,
-                                                                            }),
-                                                                            disabledReason: slackReconnectRestriction,
-                                                                        }}
-                                                                    >
-                                                                        Posting all insights as one grouped gallery
-                                                                        needs the Slack file-upload permission (
-                                                                        <code>files:write</code>). Reconnect Slack to
-                                                                        grant it — you will return to this page when
-                                                                        done.
-                                                                    </LemonBanner>
+                                                                            })}
+                                                                            disableClientSideRouting
+                                                                            disabledReason={slackReconnectRestriction}
+                                                                        >
+                                                                            Reconnect Slack
+                                                                        </LemonButton>
+                                                                    </div>
                                                                 )}
-                                                            </>
+                                                            </div>
                                                         )}
                                                     </LemonField>
                                                 )
