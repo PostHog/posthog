@@ -93,6 +93,7 @@ The symbol-keyed tables (company profiles, financial statements, historical pric
         return {
             "401 Client Error: Unauthorized for url: https://financialmodelingprep.com": "Your Financial Modeling Prep API key is invalid or has been revoked. Generate a new key in your Financial Modeling Prep dashboard, then reconnect.",
             "403 Client Error: Forbidden for url: https://financialmodelingprep.com": "Your Financial Modeling Prep plan does not grant access to this data. Upgrade your plan or deselect the affected tables, then reconnect.",
+            "Financial Modeling Prep API returned an error response": "Financial Modeling Prep returned an error for this table — usually because your plan does not include this data or your API key is invalid. Upgrade your plan or deselect the affected tables, then reconnect.",
         }
 
     def get_schemas(

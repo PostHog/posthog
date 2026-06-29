@@ -82,10 +82,15 @@ def _fetch_page(
         )
 
     if not response.ok:
-        # `raise_for_status` produces the stable "401/403 Client Error: ... for url: <base>" text that
-        # get_non_retryable_errors matches on. The query string carries the key, so don't log the URL.
         logger.error(f"Financial Modeling Prep API error: status={response.status_code}, path={path}")
-        response.raise_for_status()
+        # `raise_for_status` would embed the full request URL — which carries the apikey — in the
+        # exception text, leaking the credential into stored error state. Re-raise with a sanitized
+        # URL that preserves the stable "<status> Client Error: <reason> for url: <base>/<path>" text
+        # get_non_retryable_errors matches on (this path only handles 4xx; 429/5xx are handled above).
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {FINANCIAL_MODELLING_BASE_URL}/{path}",
+            response=response,
+        )
 
     return response.json()
 
@@ -101,7 +106,12 @@ def _extract_rows(data: Any, response_key: str | None) -> list[dict[str, Any]]:
         return data
     if isinstance(data, dict):
         if "Error Message" in data:
-            raise FinancialModellingError(str(data["Error Message"]))
+            # FMP returns HTTP 200 with this body for plan restrictions and invalid keys, which a
+            # retry can't fix. The stable prefix lets get_non_retryable_errors match it so the schema
+            # is disabled with a friendly message instead of looping on every scheduled run.
+            raise FinancialModellingError(
+                f"Financial Modeling Prep API returned an error response: {data['Error Message']}"
+            )
         if response_key and isinstance(data.get(response_key), list):
             return data[response_key]
         return [data]
@@ -112,7 +122,9 @@ def validate_credentials(api_key: str) -> bool:
     # `profile` is a cheap, free-tier endpoint; a genuine key returns 200, a bad one returns 401.
     url = _build_url("profile", {"symbol": "AAPL"}, api_key)
     try:
-        response = make_tracked_session().get(url, headers={"Accept": "application/json"}, timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, headers={"Accept": "application/json"}, timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -167,7 +179,7 @@ def get_rows(
 ) -> Iterator[Any]:
     config = FINANCIAL_MODELLING_ENDPOINTS[endpoint]
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
     window = _window_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
     if config.fan_out_over_symbols:

@@ -5,6 +5,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock
 
+import requests
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.financial_modelling import financial_modelling
@@ -13,6 +14,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.financial_
     FinancialModellingResumeConfig,
     _build_url,
     _extract_rows,
+    _fetch_page,
     _to_date,
     _window_params,
     financial_modelling_source,
@@ -54,6 +56,25 @@ class TestBuildUrl:
         assert "to=2024-12-31" in url
 
 
+class TestFetchPage:
+    def test_client_error_does_not_leak_api_key(self) -> None:
+        response = MagicMock()
+        response.status_code = 401
+        response.ok = False
+        response.reason = "Unauthorized"
+
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _fetch_page(session, "profile", {"symbol": "AAPL"}, "super_secret_key", MagicMock())
+
+        message = str(exc_info.value)
+        assert "super_secret_key" not in message
+        # Still carries the stable text get_non_retryable_errors matches on.
+        assert message.startswith("401 Client Error: Unauthorized for url: https://financialmodelingprep.com")
+
+
 class TestExtractRows:
     def test_bare_array_returned_as_is(self) -> None:
         assert _extract_rows([{"a": 1}, {"a": 2}], None) == [{"a": 1}, {"a": 2}]
@@ -68,6 +89,13 @@ class TestExtractRows:
     def test_error_body_raises(self) -> None:
         with pytest.raises(FinancialModellingError):
             _extract_rows({"Error Message": "Invalid API KEY"}, None)
+
+    def test_error_body_message_is_non_retryable_matchable(self) -> None:
+        # The raised message must carry the stable prefix get_non_retryable_errors keys on, otherwise
+        # plan-restriction bodies loop forever instead of disabling the schema.
+        with pytest.raises(FinancialModellingError) as exc_info:
+            _extract_rows({"Error Message": "Exclusive Endpoint"}, None)
+        assert str(exc_info.value).startswith("Financial Modeling Prep API returned an error response")
 
     def test_unexpected_type_returns_empty(self) -> None:
         assert _extract_rows(None, None) == []

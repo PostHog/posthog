@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -54,10 +54,13 @@ class TestFinancialModellingSourceConfig:
     def test_fields(self) -> None:
         fields = {f.name: f for f in FinancialModellingSource().get_source_config.fields}
         assert set(fields) == {"api_key", "symbols"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["symbols"].required is True
-        assert fields["symbols"].secret is False
+        api_key, symbols = fields["api_key"], fields["symbols"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(symbols, SourceFieldInputConfig)
+        assert api_key.required is True
+        assert api_key.secret is True
+        assert symbols.required is True
+        assert symbols.secret is False
 
 
 class TestGetSchemas:
@@ -118,6 +121,10 @@ class TestNonRetryableErrors:
             (
                 "forbidden",
                 "403 Client Error: Forbidden for url: https://financialmodelingprep.com/stable/income-statement?symbol=AAPL",
+            ),
+            (
+                "error_body",
+                "Financial Modeling Prep API returned an error response: Exclusive Endpoint: This endpoint is only for premium subscribers.",
             ),
         ]
     )
