@@ -116,25 +116,23 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                 </SceneMenuBarCheckboxItem>
             </SceneMenuBarMenu>
             <SceneMenuBarMenu label="View" dataAttr={`${RESOURCE_TYPE}-menubar-view`}>
-                {/* Table of contents and width toggle only apply to rich (non-markdown) notebooks. */}
+                {/* Table of contents only applies to rich (non-markdown) notebooks. */}
                 {!isMarkdownNotebook && (
-                    <>
-                        <SceneMenuBarCheckboxItem
-                            checked={showTableOfContents}
-                            onCheckedChange={(checked) => setShowTableOfContents(checked)}
-                            data-attr={`${RESOURCE_TYPE}-menubar-toc`}
-                        >
-                            Table of contents
-                        </SceneMenuBarCheckboxItem>
-                        <SceneMenuBarCheckboxItem
-                            checked={isExpanded}
-                            onCheckedChange={(checked) => setIsExpanded(checked)}
-                            data-attr={`${RESOURCE_TYPE}-menubar-fill-width`}
-                        >
-                            Fill content width
-                        </SceneMenuBarCheckboxItem>
-                    </>
+                    <SceneMenuBarCheckboxItem
+                        checked={showTableOfContents}
+                        onCheckedChange={(checked) => setShowTableOfContents(checked)}
+                        data-attr={`${RESOURCE_TYPE}-menubar-toc`}
+                    >
+                        Table of contents
+                    </SceneMenuBarCheckboxItem>
                 )}
+                <SceneMenuBarCheckboxItem
+                    checked={isExpanded}
+                    onCheckedChange={(checked) => setIsExpanded(checked)}
+                    data-attr={`${RESOURCE_TYPE}-menubar-fill-width`}
+                >
+                    Fill content width
+                </SceneMenuBarCheckboxItem>
                 {showKernelToggle && (
                     <SceneMenuBarCheckboxItem
                         checked={showKernelInfo}
@@ -144,8 +142,7 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
                         Kernel info
                     </SceneMenuBarCheckboxItem>
                 )}
-                {/* Only divide when a display toggle actually rendered above. */}
-                {(!isMarkdownNotebook || showKernelToggle) && <SceneMenuBarSeparator />}
+                <SceneMenuBarSeparator />
                 <SceneMenuBarItem
                     opensFloatingUi
                     onClick={() => selectNotebook(shortId)}
