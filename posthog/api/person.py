@@ -1577,8 +1577,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for person in persons:
                         person._distinct_ids = ids
 
+        serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
         results: dict[str, Any] = {
-            distinct_id: MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            distinct_id: MinimalPersonSerializer(person, context=serializer_context).data
             for distinct_id, person in persons_by_distinct_id.items()
         }
         return response.Response({"results": results})
@@ -1602,9 +1603,10 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         with personhog_caller_tag("persons/batch-by-uuids"):
             persons = get_persons_by_uuids(self.team_id, uuids, distinct_id_limit=10)
 
+        serializer_context = {**self.get_serializer_context(), "get_team": lambda: self.team}
         results: dict[str, Any] = {}
         for person in persons:
-            results[str(person.uuid)] = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
+            results[str(person.uuid)] = MinimalPersonSerializer(person, context=serializer_context).data
 
         return response.Response({"results": results})
 
