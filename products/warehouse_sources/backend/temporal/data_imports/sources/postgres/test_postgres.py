@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
@@ -1716,7 +1716,7 @@ class TestServerCursorCloseStatementTimeout:
         def __exit__(self, *args):
             return False
 
-    def _open(self, *, should_use_incremental_field: bool) -> tuple[Iterator[Any], Any]:
+    def _open(self, *, should_use_incremental_field: bool) -> tuple[Generator[Any], Any]:
         from contextlib import contextmanager
 
         @contextmanager
@@ -1760,7 +1760,7 @@ class TestServerCursorCloseStatementTimeout:
                 incremental_field="updated_at" if should_use_incremental_field else None,
                 incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
             )
-            gen = cast(Iterator[Any], response.items())
+            gen = cast(Generator[Any], response.items())
             next(gen)  # one chunk; generator now suspended at the yield inside `with cursor`
             return gen, connection
 
