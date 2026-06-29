@@ -61,14 +61,16 @@ def _fire_auto_action(team: Team, ws: CodeWorkstream, action: dict) -> Optional[
     workstream (PR-by-branch resolution) on the next rebuild cycle.
     """
     title = str(action.get("label") or "").strip() or "Auto action"
+    # Build the prompt before the try: it's a pure function, so a failure here is a
+    # bug to surface, not an action-creation failure to swallow.
+    description = build_auto_run_prompt(
+        action,
+        repo_full_path=ws.repo_full_path,
+        branch=ws.branch,
+        pr_url=ws.pr_url,
+        pr=ws.pr,
+    )
     try:
-        description = build_auto_run_prompt(
-            action,
-            repo_full_path=ws.repo_full_path,
-            branch=ws.branch,
-            pr_url=ws.pr_url,
-            pr=ws.pr,
-        )
         task = Task.create_and_run(
             team=team,
             user_id=ws.user_id,
@@ -153,7 +155,7 @@ def auto_run_workstream_actions(input: AutoRunWorkstreamActionsInput) -> AutoRun
 
         # Dedup gate: never pile a second cloud run onto a workstream that's already
         # working (a manual run, or an earlier auto run still in flight).
-        task_ids = [t.get("id") for t in (ws.tasks or []) if isinstance(t, dict) and t.get("id")]
+        task_ids = [str(t["id"]) for t in (ws.tasks or []) if isinstance(t, dict) and t.get("id")]
         if _has_running_task(input.team_id, task_ids):
             continue
 

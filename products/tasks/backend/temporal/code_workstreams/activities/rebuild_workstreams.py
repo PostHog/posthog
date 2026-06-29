@@ -259,6 +259,9 @@ def _persist_workstream(
     snapshot_id_by_url: dict[str, str],
     generated_at: datetime,
 ) -> None:
+    # NB: `auto_run_state` is intentionally absent from `defaults` — it's owned by the
+    # auto_run_actions activity. Adding it here would reset the re-fire suppression
+    # markers every cycle and relaunch auto actions repeatedly.
     CodeWorkstream.objects.update_or_create(
         team_id=team_id,
         user_id=user_id,

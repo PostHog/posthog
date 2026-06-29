@@ -15,7 +15,7 @@ def select_auto_actions(bindings: Mapping[str, Any], primary_situation: Optional
     """
     if not primary_situation:
         return []
-    actions = bindings.get(primary_situation) or []
+    actions = bindings.get(primary_situation)
     if not isinstance(actions, list):
         return []
     return [

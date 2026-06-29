@@ -449,7 +449,7 @@ class Task(FileSystemSyncMixin, DeletedMetaFields, models.Model):
 
         # Records which Home quick action started this run (shown on the workstream)
         # and tags the run's origin (e.g. an auto-fired quick action). Mirrors the
-        # warm run-create path in `facade/api.bootstrap_task_run`.
+        # run-create path in `facade/api.bootstrap_task_run`.
         if home_quick_action:
             extra_state["home_quick_action"] = home_quick_action
         if run_source:
