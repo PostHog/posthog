@@ -787,6 +787,54 @@ class TestS3CompatibleIntegration:
         assert response.json()["detail"] == expected_error_message
 
 
+class TestBatchExportIntegrationMemberAccess:
+    @pytest.fixture(autouse=True)
+    def setup_integration(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.team = Team.objects.create(organization=self.organization, name="Test Team")
+        self.member = User.objects.create_and_join(
+            self.organization, "member@posthog.com", "test", level=OrganizationMembership.Level.MEMBER
+        )
+
+    @pytest.mark.parametrize(
+        "kind",
+        ["databricks", "google-cloud-service-account", "azure-blob", "postgresql", "aws-s3", "s3-compatible"],
+    )
+    def test_member_is_permitted_to_create_batch_export_kinds(self, kind, client: HttpClient):
+        # The permission check runs before serializer validation, so an incomplete body resolves to a
+        # 400 (permitted, but invalid) rather than a 403 (forbidden). This isolates the permission grant
+        # from each kind's external credential validation.
+        client.force_login(self.member)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": kind, "config": {}},
+            content_type="application/json",
+        )
+
+        assert response.status_code != status.HTTP_403_FORBIDDEN, response.json()
+
+    @pytest.mark.parametrize("kind", ["slack", "email", "twilio"])
+    def test_member_cannot_create_non_batch_export_kinds(self, kind, client: HttpClient):
+        client.force_login(self.member)
+
+        response = client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {"kind": kind, "config": {}},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_member_cannot_destroy_batch_export_integration(self, client: HttpClient):
+        integration = Integration.objects.create(team=self.team, kind="databricks", config={}, sensitive_config={})
+        client.force_login(self.member)
+
+        response = client.delete(f"/api/environments/{self.team.pk}/integrations/{integration.id}")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
 class TestIntegrationAPIKeyAccess:
     @pytest.fixture(autouse=True)
     def setup_integration(self, db):

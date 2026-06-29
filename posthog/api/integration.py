@@ -802,6 +802,19 @@ class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
     oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
 
 
+# Integration kinds that back batch export destinations. Creating these is allowed at project
+# member level (matching batch-export creation) rather than admin — their credentials live in
+# sensitive_config, which is never serialized back, so there is no info-disclosure risk.
+BATCH_EXPORT_INTEGRATION_KINDS = {
+    Integration.IntegrationKind.DATABRICKS,
+    Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+    Integration.IntegrationKind.AZURE_BLOB,
+    Integration.IntegrationKind.POSTGRESQL,
+    Integration.IntegrationKind.AWS_S3,
+    Integration.IntegrationKind.S3_COMPATIBLE,
+}
+
+
 @extend_schema(extensions={"x-product": "integrations"})
 class IntegrationViewSet(
     TeamAndOrgViewSetMixin,
@@ -858,6 +871,15 @@ class IntegrationViewSet(
             ]
         # Any project member may ask an admin to connect an integration — connecting still requires admin.
         if self.action == "request_access":
+            return [
+                IsAuthenticated(),
+                APIScopePermission(),
+                AccessControlPermission(),
+                TeamMemberAccessPermission(),
+            ]
+        # Batch-export-destination integrations are creatable at member level (matching batch-export
+        # creation).
+        if self.action == "create" and self.request.data.get("kind") in BATCH_EXPORT_INTEGRATION_KINDS:
             return [
                 IsAuthenticated(),
                 APIScopePermission(),
