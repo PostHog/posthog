@@ -70,9 +70,10 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
     )
     def list(self, request: Request, **kwargs) -> Response:
         register_missing_perspective_configs(self.team_id, request.user.id)
+        # Prefix-scope: validators share this table, so only join perspective rows to the menu.
         enabled_by_name = dict(
             ReviewSkillConfig.objects.for_team(self.team_id)
-            .filter(user_id=request.user.id)
+            .filter(user_id=request.user.id, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
             .values_list("skill_name", "enabled")
         )
         skills = LLMSkill.objects.filter(
@@ -117,9 +118,11 @@ class ReviewPerspectiveConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         if not enabled:
             # Best-effort floor (count + write, no lock) — same as scouts. The loader's
             # NoEnabledPerspectivesError is the backstop if a rare concurrent double-disable slips through.
+            # Prefix-scope: the floor counts only perspectives — an enabled validator (same table)
+            # must not let a user disable their last perspective.
             others_enabled = (
                 ReviewSkillConfig.objects.for_team(self.team_id)
-                .filter(user_id=request.user.id, enabled=True)
+                .filter(user_id=request.user.id, enabled=True, skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX)
                 .exclude(skill_name=skill_name)
                 .count()
             )
