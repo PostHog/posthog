@@ -106,6 +106,7 @@
         "@posthog/products-messaging": "workspace:*",
         "@posthog/products-metrics": "workspace:*",
         "@posthog/products-notebooks": "workspace:*",
+        "@posthog/products-notifications": "workspace:*",
         "@posthog/products-persons": "workspace:*",
         "@posthog/products-platform-features": "workspace:*",
         "@posthog/products-posthog-ai": "workspace:*",
