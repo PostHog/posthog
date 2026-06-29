@@ -149,12 +149,13 @@ def test_refresh_raises_transient_token_request_after_exhausting_retries():
         ),
         unittest.mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.salesforce.auth.time.sleep"
-        ),
+        ) as mock_sleep,
         pytest.raises(auth.SalesforceAuthRequestError) as exc,
     ):
         _ = auth.salesforce_refresh_access_token("something", "https://login.salesforce.com")
 
     assert "token request is already being processed" in str(exc.value)
+    assert mock_sleep.call_count == auth._MAX_TOKEN_REFRESH_ATTEMPTS - 1
 
 
 def test_refresh_does_not_retry_non_transient_error():
