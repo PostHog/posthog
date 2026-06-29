@@ -18,13 +18,17 @@ that may have succeeded.
 
 from __future__ import annotations
 
+import uuid
 import logging
 from dataclasses import dataclass
 from typing import Any
 
+from django.conf import settings
+
 import posthoganalytics
 from asgiref.sync import async_to_sync
 
+from posthog.api.capture import capture_internal
 from posthog.event_usage import groups
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -343,6 +347,62 @@ def _report_event_base(run: SignalScoutRun) -> dict[str, Any]:
     }
 
 
+# Customer-facing copies of the report-channel lifecycle events, captured into the scout's *own team*
+# project (via `capture_internal`) — distinct from the `signals_scout_report_*` events above, which go to
+# PostHog's internal analytics via the `posthoganalytics` SDK. Landing them in the team's own event stream
+# lets a team act on its scout reports with no PostHog-side wiring: HogQL/insights/alerts over the events,
+# or a CDP destination (e.g. the Slack destination) filtering on the event and templating off `report_url`
+# / `title` / `summary`. The `$` prefix marks a PostHog-generated event (cf. `$session_summary_ready`,
+# `$ai_tag`), keeping them out of a customer's own custom-event namespace.
+CUSTOMER_REPORT_EMITTED_EVENT = "$scout_report_emitted"
+CUSTOMER_REPORT_EDITED_EVENT = "$scout_report_edited"
+_REPORT_EVENT_SOURCE = "signals_scout_report"
+
+
+def _report_url(team_id: int, report_id: str | None) -> str | None:
+    """Inbox deep link for an authored report, or None when no report exists yet (gate-skipped emit). The
+    canonical form used by the Slack inbox notifications (`slack_inbox_notifications.py`)."""
+    if not report_id:
+        return None
+    return f"{settings.SITE_URL}/project/{team_id}/inbox/reports/{report_id}"
+
+
+def _report_event_uuid(*parts: object) -> str:
+    """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
+    same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
+    double-firing a destination — `emit_report`/`edit_report` are non-idempotent, so the same logical action
+    can reach this path more than once. Distinct actions (a different report, a different edit) differ in
+    the parts and stay separate events."""
+    key = "|".join("" if part is None else str(part) for part in parts)
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report:{key}"))
+
+
+def _forward_report_event_to_team(
+    *, team: Team, event_name: str, distinct_id: str, event_uuid: str, properties: dict[str, Any]
+) -> None:
+    """Mirror a report-channel lifecycle event into the scout's own team project through the sanctioned
+    `capture_internal` path, so the team can drive HogQL / alerts / CDP destinations off its reports.
+    Person processing is OFF with a synthetic per-scout `distinct_id` — a report is the scout's output, not
+    an end-user action, so it must never create or merge a person profile. Best-effort: a forward failure
+    must never fail or mask the emit/edit (it only feeds downstream automation)."""
+    try:
+        capture_internal(
+            token=team.api_token,
+            event_name=event_name,
+            event_source=_REPORT_EVENT_SOURCE,
+            distinct_id=distinct_id,
+            properties=properties,
+            event_uuid=event_uuid,
+            process_person_profile=False,
+        ).raise_for_status()
+    except Exception:
+        logger.warning(
+            "signals_scout: failed to forward report event %s to team project",
+            event_name,
+            extra={"team_id": team.id, "distinct_id": distinct_id},
+        )
+
+
 def _capture_report_emitted(
     *,
     team: Team,
@@ -388,6 +448,7 @@ def _capture_report_emitted(
         "priority": priority,
         "repository": repository,
         "safety_explanation": _clip(result.safety_explanation, _MAX_TELEMETRY_TEXT_LEN),
+        "report_url": _report_url(team.id, result.report_id),
     }
     try:
         posthoganalytics.capture(
@@ -401,6 +462,13 @@ def _capture_report_emitted(
             "signals_scout: failed to capture report-emitted analytics event",
             extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
         )
+    _forward_report_event_to_team(
+        team=team,
+        event_name=CUSTOMER_REPORT_EMITTED_EVENT,
+        distinct_id=f"signals_scout:{run.skill_name}",
+        event_uuid=_report_event_uuid("emit", run.id, result.report_id, title),
+        properties=properties,
+    )
 
 
 def _capture_report_edited(
@@ -426,6 +494,7 @@ def _capture_report_edited(
         "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
         "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
         "note": _clip(note, _MAX_TELEMETRY_TEXT_LEN),
+        "report_url": _report_url(team.id, result.report_id),
     }
     try:
         posthoganalytics.capture(
@@ -439,6 +508,13 @@ def _capture_report_edited(
             "signals_scout: failed to capture report-edited analytics event",
             extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
         )
+    _forward_report_event_to_team(
+        team=team,
+        event_name=CUSTOMER_REPORT_EDITED_EVENT,
+        distinct_id=f"signals_scout:{run.skill_name}",
+        event_uuid=_report_event_uuid("edit", run.id, result.report_id, result.updated_fields, title, summary, note),
+        properties=properties,
+    )
 
 
 async def emit_report(

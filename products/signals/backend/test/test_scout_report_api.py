@@ -18,6 +18,8 @@ EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_r
 # Patched at its source module so the lazy import inside `_maybe_autostart_report` picks up the mock.
 AUTOSTART_PATH = "products.signals.backend.auto_start.maybe_autostart_from_report_artefacts"
 CAPTURE_PATH = "products.signals.backend.scout_harness.tools.report.posthoganalytics.capture"
+# The customer-facing copy lands in the scout's own team project via capture_internal (a network boundary).
+CAPTURE_INTERNAL_PATH = "products.signals.backend.scout_harness.tools.report.capture_internal"
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
@@ -48,6 +50,11 @@ class TestScoutReportAPI(APIBaseTest):
         # The report channel requires `signal_scout_report:write`, granted only by the
         # `signals_scout_reports` posture (mirrors the runner's opt-in posture selection).
         _authenticate_as_scout(self, scopes="signals_scout_reports")
+        # The customer-facing event fans out through capture_internal (a network call to capture-rs).
+        # Keep it inert by default so emit/edit tests don't hit the network; the two dedicated tests
+        # assert against this mock.
+        self.capture_internal_mock = patch(CAPTURE_INTERNAL_PATH).start()
+        self.addCleanup(patch.stopall)
 
     def _emit_url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/{run_id}/emit-report/"
@@ -264,6 +271,19 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["title"] == "Checkout p99 regressed after 4.2"
         assert props["summary"] == "The /checkout endpoint p99 doubled after the 4.2 deploy."
         assert props["actionability"] == "immediately_actionable"
+        # The customer-facing copy must land in the team's *own* project (their token), never create a
+        # person (it's the scout's output, not a user action), and carry a report deep link when a report
+        # exists — that link is what a CDP Slack destination templates the message from.
+        forward = next(
+            c for c in self.capture_internal_mock.call_args_list if c.kwargs["event_name"] == "$scout_report_emitted"
+        )
+        assert forward.kwargs["token"] == self.team.api_token
+        assert forward.kwargs["process_person_profile"] is False
+        expected_url = None if expected_outcome == "gate_skipped" else f"/inbox/reports/{body['report_id']}"
+        if expected_url is None:
+            assert forward.kwargs["properties"]["report_url"] is None
+        else:
+            assert forward.kwargs["properties"]["report_url"].endswith(expected_url)
 
     def test_edit_report_captures_edited_event(self) -> None:
         run = _make_run(self.team)
@@ -283,6 +303,12 @@ class TestScoutReportAPI(APIBaseTest):
         assert props["title"] == "new title"
         assert props["note"] == "re-validated"
         assert props["summary"] is None
+        # The edit also fans out to the team's own project, deep-linking the edited report.
+        forward = next(
+            c for c in self.capture_internal_mock.call_args_list if c.kwargs["event_name"] == "$scout_report_edited"
+        )
+        assert forward.kwargs["token"] == self.team.api_token
+        assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
 
     @parameterized.expand(
         [
