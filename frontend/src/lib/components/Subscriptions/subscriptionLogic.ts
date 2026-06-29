@@ -16,7 +16,7 @@ import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, Subscript
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, integrationHasFilesWrite, SubscriptionBaseProps, urlForSubscription } from './utils'
+import { AI_PROMPT_MAX_LENGTH, coerceDeliveryConfigForScope, SubscriptionBaseProps, urlForSubscription } from './utils'
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -168,25 +168,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 const isAi = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
                 const insightId = !isAi && props.insightShortId ? await getInsightId(props.insightShortId) : undefined
 
-                // A subscription can have post_all_insights_in_main_message=true saved and later lose
-                // the Slack files:write scope (reconnect without it). The disabled toggle can't clear
-                // the stale value, so coerce it off here — otherwise every save re-submits true and the
-                // backend rejects it with a 400 the user can't resolve from the form.
-                const selectedIntegration = subscription.integration_id
-                    ? integrationsLogic
-                          .findMounted()
-                          ?.values.integrations?.find((i) => i.id === subscription.integration_id)
-                    : undefined
-                const galleryAllowed =
-                    subscription.target_type === 'slack' && integrationHasFilesWrite(selectedIntegration?.config?.scope)
-                const deliveryConfig =
-                    subscription.delivery_config?.post_all_insights_in_main_message && !galleryAllowed
-                        ? { ...subscription.delivery_config, post_all_insights_in_main_message: false }
-                        : subscription.delivery_config
-
                 const payload = {
                     ...subscription,
-                    delivery_config: deliveryConfig,
+                    delivery_config: coerceDeliveryConfigForScope(
+                        subscription,
+                        integrationsLogic.findMounted()?.values.integrations
+                    ),
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would

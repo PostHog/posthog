@@ -8,7 +8,7 @@ import { range } from 'lib/utils/arrays'
 import { urls } from 'scenes/urls'
 
 import { SubscriptionAIPromptMaxLength } from '~/queries/schema/schema-general'
-import { InsightShortId, SubscriptionType } from '~/types'
+import { InsightShortId, IntegrationType, SubscriptionType } from '~/types'
 
 export const AI_PROMPT_MAX_LENGTH = SubscriptionAIPromptMaxLength.CHARACTERS
 
@@ -184,4 +184,24 @@ export function integrationHasFilesWrite(scope: string | null | undefined): bool
     return String(scope ?? '')
         .split(',')
         .includes('files:write')
+}
+
+// A subscription can have post_all_insights_in_main_message=true saved and later lose
+// the Slack files:write scope (reconnect without it). The disabled toggle can't clear
+// the stale value, so coerce it off at submit — otherwise every save re-submits true and
+// the backend rejects it with a 400 the user can't resolve from the form.
+export function coerceDeliveryConfigForScope(
+    subscription: SubscriptionType,
+    integrations: IntegrationType[] | null | undefined
+): SubscriptionType['delivery_config'] {
+    const selectedIntegration = subscription.integration_id
+        ? integrations?.find((i) => i.id === subscription.integration_id)
+        : undefined
+    const galleryAllowed =
+        subscription.target_type === 'slack' && integrationHasFilesWrite(selectedIntegration?.config?.scope)
+
+    if (subscription.delivery_config?.post_all_insights_in_main_message && !galleryAllowed) {
+        return { ...subscription.delivery_config, post_all_insights_in_main_message: false }
+    }
+    return subscription.delivery_config
 }
