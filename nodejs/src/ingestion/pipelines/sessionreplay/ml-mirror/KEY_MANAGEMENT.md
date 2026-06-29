@@ -29,7 +29,7 @@ and needs no key.
      --query CiphertextBlob --output text   # base64 — the CIPHERTEXT value
    ```
 
-3. **Compute the fingerprint** of the *plaintext* key (non-reversible, safe to
+3. **Compute the fingerprint** of the _plaintext_ key (non-reversible, safe to
    store/log) so you can pin it. It is
    `HMAC-SHA256(key, "pseudonym-key-fingerprint:v1")` truncated to 16 hex
    chars — call `pseudonymKeyFingerprint(fs.readFileSync("pseudonym.key"))`
@@ -37,7 +37,6 @@ and needs no key.
 
 4. **Configure the mirror ingester** with the wrapped key + region + pinned
    fingerprint:
-
    - `SESSION_RECORDING_ML_PSEUDONYM_KEY_CIPHERTEXT` = base64 ciphertext (2)
    - `SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION` = the CMK's region (empty →
      SDK default chain)
