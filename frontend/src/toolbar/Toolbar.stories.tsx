@@ -24,12 +24,15 @@ function useToolbarStyles(): void {
     useOnMountEffect(() => {
         const head = document.getElementsByTagName('head')[0]
         const shadowRoot = window.document.getElementById(TOOLBAR_ID)?.shadowRoot
-        const styleTags: HTMLStyleElement[] = Array.from(head.getElementsByTagName('style'))
-        styleTags.forEach((tag) => {
-            const style = document.createElement('style')
-            const text = tag.innerText
-            style.appendChild(document.createTextNode(text))
-            shadowRoot?.appendChild(style)
+        if (!shadowRoot) {
+            return
+        }
+        // Mirror the document's stylesheets into the toolbar's isolated shadow root.
+        // style-loader (webpack, and vite dev) emits inline <style> tags, but a vite
+        // production build extracts CSS into files loaded via <link rel="stylesheet"> —
+        // so clone both, otherwise the toolbar renders unstyled in the built storybook.
+        head.querySelectorAll('style, link[rel="stylesheet"]').forEach((node) => {
+            shadowRoot.appendChild(node.cloneNode(true))
         })
     })
 }
