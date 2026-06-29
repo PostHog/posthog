@@ -400,11 +400,7 @@ def team_api_test_factory():
             )
 
         @freeze_time("2022-02-08")
-        @mock.patch(
-            "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-            return_value="test",
-        )
-        def test_delete_team_activity_log(self, _mock_variant):
+        def test_delete_team_activity_log(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -515,7 +511,7 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
-            # create_with_data fires a starter-dashboard exposure capture; only assert delete-time events
+            # create_with_data fires capture events; clear them so we only assert delete-time events
             mock_capture.reset_mock()
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
