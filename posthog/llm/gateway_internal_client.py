@@ -100,10 +100,15 @@ def get_wallet(team_id: int) -> Wallet:
 
 
 def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str) -> CreditResult:
+    # Team-keyed top-up: funds the team wallet that admission draws down and
+    # get_wallet() reads, so the credit is spendable today. The gateway's
+    # org-scoped /internal/accounts/{org_id}/credits is the billing path but is
+    # not yet drawn down at admission.
+    # TODO(billing-entrypoint): revisit once credits are org-keyed end to end.
     url, token = _config()
     try:
         response = httpx.post(
-            f"{url}/internal/accounts/{team_id}/credits",
+            f"{url}/internal/teams/{team_id}/credits",
             headers=_auth_headers(token, {IDEMPOTENCY_KEY_HEADER: idempotency_key}),
             json={"amount_usd": amount_usd, "reason": reason},
             timeout=INTERNAL_API_TIMEOUT_SECONDS,

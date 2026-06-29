@@ -32,6 +32,8 @@ pub struct RequestContext {
     pub created_at: Option<String>,
     pub capture_internal: bool,
     pub historical_migration: bool,
+    /// AI-gateway provenance signature parsed from the request headers, if present.
+    pub gateway_signature: Option<super::gateway_provenance::GatewaySignature>,
 }
 
 /// Extracts a required header as &str, assuming presence was already checked.
@@ -159,6 +161,8 @@ impl RequestContext {
         let user_agent = header_str(headers, "user-agent")?.to_string();
         let sdk_info = header_str(headers, POSTHOG_SDK_INFO)?.to_string();
 
+        let gateway_signature = super::gateway_provenance::parse_signature(headers);
+
         Ok(Self {
             api_token,
             user_agent,
@@ -176,6 +180,7 @@ impl RequestContext {
             created_at: None,
             capture_internal: false,
             historical_migration: false,
+            gateway_signature,
         })
     }
 

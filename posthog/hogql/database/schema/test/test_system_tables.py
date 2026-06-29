@@ -19,10 +19,8 @@ from posthog.models import Group, GroupTypeMapping, GroupUsageMetric, Organizati
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.project import Project
 from posthog.models.scoping import team_scope
-from posthog.test.persons import (
-    create_group as _create_group_helper,
-    create_group_type_mapping,
-)
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_group, insert_seed_group_type_mapping
 
 from products.actions.backend.models.action import Action
 from products.ai_observability.backend.models.review_queues import ReviewQueue, ReviewQueueItem
@@ -359,11 +357,28 @@ def _create_feature_flag(team: Team, label: str) -> FeatureFlag:
 
 
 def _create_group(team: Team, label: str) -> Group:
-    return _create_group_helper(team=team, group_key=f"group_{label}", group_type_index=0, version=0)
+    # Seed straight into the persons DB (off-Django psycopg) — the federated system table reads
+    # it back from there. The personhog fake stays active for the HogQL Database build, so this
+    # bypasses it deliberately via the low-level insert.
+    with persons_db_connection(writer=True, autocommit=True) as conn:
+        group_id = insert_seed_group(
+            conn, team_id=team.id, group_key=f"group_{label}", group_type_index=0, group_properties={}, version=0
+        )
+    group = Group(team_id=team.id, group_key=f"group_{label}", group_type_index=0, group_properties={})
+    group.id = group_id
+    return group
 
 
 def _create_group_type_mapping(team: Team, label: str) -> GroupTypeMapping:
-    return create_group_type_mapping(team=team, project=team.project, group_type=f"type_{label}", group_type_index=0)
+    with persons_db_connection(writer=True, autocommit=True) as conn:
+        mapping_id = insert_seed_group_type_mapping(
+            conn, project_id=team.project_id, team_id=team.id, group_type=f"type_{label}", group_type_index=0
+        )
+    mapping = GroupTypeMapping(
+        project_id=team.project_id, team_id=team.id, group_type=f"type_{label}", group_type_index=0
+    )
+    mapping.id = mapping_id
+    return mapping
 
 
 def _create_integration(team: Team, label: str):
@@ -669,12 +684,22 @@ SYSTEM_TABLE_FACTORIES = [
 
 class TestSystemTablesTeamIsolation(NonAtomicBaseTest):
     """Create entities in two teams and query via ClickHouse's postgresql() function
-    to verify each team only sees its own data."""
+    to verify each team only sees its own data.
+
+    Group/group_type_mapping rows are seeded straight into the persons DB via psycopg (what the
+    federated system table reads), while the personhog fake stays active so the HogQL Database
+    build's group-type lookup resolves. setUp truncates those persons tables because the psycopg
+    writes commit outside Django's per-test transaction."""
 
     CLASS_DATA_LEVEL_SETUP = False
 
     def setUp(self):
         super().setUp()
+        # The group factories commit to the persons DB outside Django's transaction, so clear them
+        # here for per-test isolation (this class isn't persons_db_direct, so the autouse truncate
+        # fixture doesn't run).
+        with persons_db_connection(writer=True, autocommit=True) as conn, conn.cursor() as cursor:
+            cursor.execute("TRUNCATE TABLE posthog_group, posthog_grouptypemapping RESTART IDENTITY CASCADE")
         other_org = Organization.objects.create(name="other_org")
         other_project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=other_org)
         self.other_team = Team.objects.create(id=other_project.id, project=other_project, organization=other_org)

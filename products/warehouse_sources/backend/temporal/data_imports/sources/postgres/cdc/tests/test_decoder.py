@@ -1,8 +1,12 @@
 import struct
 from datetime import UTC, datetime
 
+import pytest
+
+import pyarrow as pa
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCTransactionTooLargeError
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder import (
     _OID_BOOL,
     _OID_FLOAT8,
@@ -14,6 +18,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.c
     PgOutputDecoder,
     _pg_timestamp_to_datetime,
 )
+
+_DECODER_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.decoder"
 
 
 def _make_cstring(s: str) -> bytes:
@@ -250,6 +256,35 @@ class TestPgOutputDecoder:
         assert events[0].columns["name"] is None
         assert events[0].columns["email"] == "test@example.com"
 
+    def test_event_carries_column_arrow_types(self):
+        # Events expose the Arrow type per column from the relation OIDs, so the batcher
+        # can type a column the same way even in a micro-batch where it's all-null.
+        decoder = self._setup_decoder_with_relation(
+            columns=[
+                ("id", _OID_INT8, -1),
+                ("seats", _OID_INT4, -1),
+                ("price", _OID_FLOAT8, -1),
+                ("active", _OID_BOOL, -1),
+                ("payload", _OID_JSONB, -1),
+                ("name", _OID_TEXT, -1),
+            ]
+        )
+
+        decoder.decode_message(_make_begin(), "0/100")
+        decoder.decode_message(
+            _make_insert(1, [("t", "1"), ("t", "5"), ("t", "9.5"), ("t", "t"), ("t", "{}"), ("t", "x")]), "0/150"
+        )
+        events = decoder.decode_message(_make_commit(), "0/200")
+
+        assert events[0].column_types == {
+            "id": pa.int64(),
+            "seats": pa.int64(),
+            "price": pa.float64(),
+            "active": pa.bool_(),
+            "payload": pa.string(),
+            "name": pa.string(),
+        }
+
     def test_unchanged_toast_column(self):
         decoder = self._setup_decoder_with_relation(columns=[("id", _OID_INT4, -1), ("big_text", _OID_TEXT, -1)])
 
@@ -465,3 +500,38 @@ class TestPgTimestamp:
     def test_pg_epoch(self):
         result = _pg_timestamp_to_datetime(0)
         assert result == datetime(2000, 1, 1, tzinfo=UTC)
+
+
+class TestTransactionBufferGuard:
+    """A single transaction is buffered fully in memory until COMMIT; the decoder caps it so one
+    pathological transaction can't OOM the worker."""
+
+    def _decoder_with_relation(self) -> PgOutputDecoder:
+        decoder = PgOutputDecoder()
+        decoder.decode_message(_make_relation(1, "public", "users", [("id", _OID_INT4, -1)]), "0/1")
+        return decoder
+
+    def test_raises_when_transaction_exceeds_buffer_cap(self, monkeypatch):
+        monkeypatch.setattr(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 3)
+        decoder = self._decoder_with_relation()
+        decoder.decode_message(_make_begin(), "0/1")
+
+        # Up to the cap buffers without yielding (events flush only on COMMIT).
+        for i in range(3):
+            assert decoder.decode_message(_make_insert(1, [("t", str(i))]), "0/1") == []
+
+        # The change past the cap aborts decoding instead of growing the buffer unbounded.
+        with pytest.raises(CDCTransactionTooLargeError):
+            decoder.decode_message(_make_insert(1, [("t", "99")]), "0/1")
+
+    def test_cap_is_per_transaction(self, monkeypatch):
+        # The buffer clears at each COMMIT, so a long stream of small transactions never trips the cap.
+        monkeypatch.setattr(f"{_DECODER_MODULE}.MAX_TX_BUFFER_EVENTS", 2)
+        decoder = self._decoder_with_relation()
+
+        for _ in range(3):
+            decoder.decode_message(_make_begin(), "0/1")
+            decoder.decode_message(_make_insert(1, [("t", "1")]), "0/1")
+            decoder.decode_message(_make_insert(1, [("t", "2")]), "0/1")
+            events = decoder.decode_message(_make_commit(), "0/1")
+            assert len(events) == 2
