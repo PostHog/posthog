@@ -626,6 +626,30 @@ export const externalDataSourcesJobsRetrieve = async (
     })
 }
 
+export const getExternalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateUrl = (
+    projectId: string,
+    id: string
+) => {
+    return `/api/projects/${projectId}/external_data_sources/${id}/migrate_google_service_account_to_integrations/`
+}
+
+/**
+ * Create, Read, Update and Delete External data Sources.
+ */
+export const externalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreate = async (
+    projectId: string,
+    id: string,
+    externalDataSourceSerializersApi: NonReadonly<ExternalDataSourceSerializersApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getExternalDataSourcesMigrateGoogleServiceAccountToIntegrationsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(externalDataSourceSerializersApi),
+    })
+}
+
 export const getExternalDataSourcesRefreshSchemasCreateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/external_data_sources/${id}/refresh_schemas/`
 }
