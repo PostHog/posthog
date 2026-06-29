@@ -5,7 +5,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
-import type { _LogPatternApi, _LogsPatternsResponseApi } from 'products/logs/frontend/generated/api.schemas'
+import type {
+    _LogPatternApi,
+    _LogPropertyFilterApi,
+    _LogsPatternsResponseApi,
+} from 'products/logs/frontend/generated/api.schemas'
 
 import type { logsPatternsLogicType } from './logsPatternsLogicType'
 
@@ -33,11 +37,20 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             teamLogic,
             ['currentTeamId'],
             logsViewerFiltersLogic({ id: props.id }),
-            ['utcDateRange', 'severityLevels', 'serviceNames', 'searchTerm'],
+            ['filters', 'utcDateRange', 'queryFilterGroup'],
         ],
         actions: [
             logsViewerFiltersLogic({ id: props.id }),
-            ['setDateRange', 'zoomDateRange', 'setSeverityLevels', 'setServiceNames', 'setSearchTerm', 'setFilters'],
+            [
+                'setDateRange',
+                'zoomDateRange',
+                'setSeverityLevels',
+                'setServiceNames',
+                'setSearchTerm',
+                'setFilters',
+                'setFilterGroup',
+                'setPinnedFilters',
+            ],
         ],
     })),
 
@@ -50,9 +63,13 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
                     return await logsPatternsCreate(String(values.currentTeamId), {
                         query: {
                             dateRange: values.utcDateRange,
-                            severityLevels: values.severityLevels,
-                            serviceNames: values.serviceNames,
-                            searchTerm: values.searchTerm || undefined,
+                            severityLevels: values.filters.severityLevels,
+                            serviceNames: values.filters.serviceNames,
+                            searchTerm: values.filters.searchTerm || undefined,
+                            // Scope mining to the same filters the Logs/sparkline queries use —
+                            // `queryFilterGroup` folds in any pinned filters from an embedded viewer
+                            // (person/trace logs), so a scoped viewer can't mine project-wide patterns.
+                            filterGroup: values.queryFilterGroup as unknown as _LogPropertyFilterApi[],
                         },
                     })
                 },
@@ -78,6 +95,8 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             setServiceNames: reload,
             setSearchTerm: reload,
             setFilters: reload,
+            setFilterGroup: reload,
+            setPinnedFilters: reload,
         }
     }),
 
