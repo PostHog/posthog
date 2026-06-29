@@ -33584,6 +33584,34 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `hogql` - hogql
+     */
+    export type QueryTypeEnum = typeof QueryTypeEnum[keyof typeof QueryTypeEnum];
+
+
+    export const QueryTypeEnum = {
+      Hogql: 'hogql',
+    } as const;
+
+    export interface QueryPlanStep {
+      /** One-sentence rationale for running this query step. */
+      description: string;
+      /** Query language for this step. MVP: always 'hogql'.
+       *
+       * * `hogql` - hogql */
+      query_type?: QueryTypeEnum;
+      /** The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor substitutes with the run's window, so the plan stays window-agnostic. */
+      hogql: string;
+    }
+
+    export interface QueryPlan {
+      /** Plain-English summary of what the report will tell the user. */
+      overall_intent: string;
+      /** Ordered query steps (1-3) the report runs and synthesizes. */
+      steps: QueryPlanStep[];
+    }
+
+    /**
      * Standard Subscription serializer.
      */
     export interface Subscription {
@@ -33694,6 +33722,8 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
+      /** Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt. */
+      query_plan?: QueryPlan | null;
     }
 
     export interface PaginatedSubscriptionList {
@@ -40805,6 +40835,8 @@ export namespace Schemas {
          * @maxLength 500
          */
       summary_prompt_guide?: string;
+      /** Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt. */
+      query_plan?: QueryPlan | null;
     }
 
     /**
@@ -50735,6 +50767,13 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    export interface SubscriptionPreviewResponse {
+      /** The report markdown the subscription would deliver, rendered in-band. */
+      report: string;
+      /** Per-step query diagnostics (generated HogQL + ok/error) for this preview run. */
+      diagnostics: AIReportQueryDiagnostic[];
     }
 
     /**

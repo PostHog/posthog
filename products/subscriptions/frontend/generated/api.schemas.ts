@@ -124,6 +124,33 @@ export interface UserBasicApi {
 }
 
 /**
+ * * `hogql` - hogql
+ */
+export type QueryTypeEnumApi = (typeof QueryTypeEnumApi)[keyof typeof QueryTypeEnumApi]
+
+export const QueryTypeEnumApi = {
+    Hogql: 'hogql',
+} as const
+
+export interface QueryPlanStepApi {
+    /** One-sentence rationale for running this query step. */
+    description: string
+    /** Query language for this step. MVP: always 'hogql'.
+     *
+     * * `hogql` - hogql */
+    query_type?: QueryTypeEnumApi
+    /** The HogQL SELECT for this step. Uses the {{date_range}} placeholder the executor substitutes with the run's window, so the plan stays window-agnostic. */
+    hogql: string
+}
+
+export interface QueryPlanApi {
+    /** Plain-English summary of what the report will tell the user. */
+    overall_intent: string
+    /** Ordered query steps (1-3) the report runs and synthesizes. */
+    steps: QueryPlanStepApi[]
+}
+
+/**
  * Standard Subscription serializer.
  */
 export interface SubscriptionApi {
@@ -234,6 +261,8 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt. */
+    query_plan?: QueryPlanApi | null
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -378,6 +407,29 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Frozen query plan for an AI (prompt) subscription: the steps (description + HogQL) the report runs deterministically. Null until the first delivery plans it. Scrubbed to null for callers without query access. Writable only by callers with query:editor access — editing it overrides the AI-generated plan; clear it (or use the re-plan action) to re-plan from the prompt. */
+    query_plan?: QueryPlanApi | null
+}
+
+export interface AIReportQueryDiagnosticApi {
+    /** What this query step was meant to compute. */
+    description: string
+    /** The HogQL the assistant generated for this step. */
+    hogql: string
+    /** Whether the query ran successfully. */
+    ok: boolean
+    /**
+     * Exception class name when the query failed; null on success.
+     * @nullable
+     */
+    error_type: string | null
+}
+
+export interface SubscriptionPreviewResponseApi {
+    /** The report markdown the subscription would deliver, rendered in-band. */
+    report: string
+    /** Per-step query diagnostics (generated HogQL + ok/error) for this preview run. */
+    diagnostics: AIReportQueryDiagnosticApi[]
 }
 
 /**
@@ -395,20 +447,6 @@ export const SubscriptionDeliveryStatusEnumApi = {
     Failed: 'failed',
     Skipped: 'skipped',
 } as const
-
-export interface AIReportQueryDiagnosticApi {
-    /** What this query step was meant to compute. */
-    description: string
-    /** The HogQL the assistant generated for this step. */
-    hogql: string
-    /** Whether the query ran successfully. */
-    ok: boolean
-    /**
-     * Exception class name when the query failed; null on success.
-     * @nullable
-     */
-    error_type: string | null
-}
 
 export interface SubscriptionDeliveryApi {
     /** Primary key for this delivery row. */

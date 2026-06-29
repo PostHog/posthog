@@ -14,6 +14,7 @@ import type {
     PatchedSubscriptionApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
+    SubscriptionPreviewResponseApi,
     SubscriptionsDeliveriesListParams,
     SubscriptionsListParams,
     SubscriptionsSummaryQuotaRetrieve200,
@@ -142,6 +143,36 @@ export const subscriptionsDestroy = async (projectId: string, id: number, option
     return apiMutator<unknown>(getSubscriptionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSubscriptionsPreviewCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/preview/`
+}
+
+export const subscriptionsPreviewCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<SubscriptionPreviewResponseApi> => {
+    return apiMutator<SubscriptionPreviewResponseApi>(getSubscriptionsPreviewCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getSubscriptionsRePlanCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/subscriptions/${id}/re-plan/`
+}
+
+export const subscriptionsRePlanCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getSubscriptionsRePlanCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 
