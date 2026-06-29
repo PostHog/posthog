@@ -1818,6 +1818,9 @@ class ExternalDataSourceType(StrEnum):
     LEMON_SQUEEZY = "LemonSqueezy"
     IKAS = "Ikas"
     TALKWALKER = "Talkwalker"
+    NEXTDOOR_ADS = "NextdoorAds"
+    APP_LOVIN = "AppLovin"
+    BASEROW = "Baserow"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -2295,6 +2298,11 @@ class LogsSparklineBreakdownBy(StrEnum):
     SERVICE = "service"
 
 
+class NeighborDirection(StrEnum):
+    BEFORE = "before"
+    AFTER = "after"
+
+
 class MarketingAnalyticsBaseColumns(StrEnum):
     ID = "ID"
     CAMPAIGN = "Campaign"
@@ -2563,6 +2571,13 @@ class NodeKind(StrEnum):
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
     MCP_HARNESS_BREAKDOWN_QUERY = "MCPHarnessBreakdownQuery"
+    MCP_TOOL_TOP_USERS_QUERY = "MCPToolTopUsersQuery"
+    MCP_TOOL_FAILURES_QUERY = "MCPToolFailuresQuery"
+    MCP_TOOL_STATS_QUERY = "MCPToolStatsQuery"
+    MCP_TOOL_DAILY_STATS_QUERY = "MCPToolDailyStatsQuery"
+    MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
+    MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
+    MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
     PROPERTY_VALUES_QUERY = "PropertyValuesQuery"
 
 
@@ -2744,6 +2759,7 @@ class ProductKey(StrEnum):
     LOGS = "logs"
     MARKETING_ANALYTICS = "marketing_analytics"
     MAX = "max"
+    MCP_ANALYTICS = "mcp_analytics"
     MOBILE_REPLAY = "mobile_replay"
     NOTEBOOKS = "notebooks"
     PERSONS = "persons"

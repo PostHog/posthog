@@ -260,12 +260,6 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -317,7 +311,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
             ),
         running_time_calculation: zod
             .union([
@@ -380,7 +374,7 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -494,6 +488,12 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -2648,12 +2648,6 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -2705,7 +2699,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
             ),
         running_time_calculation: zod
             .union([
@@ -2768,7 +2762,7 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -2879,6 +2873,12 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])
@@ -5095,12 +5095,6 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
         parameters: zod
             .union([
                 zod.object({
-                    excluded_variants: zod
-                        .union([zod.array(zod.string()), zod.null()])
-                        .optional()
-                        .describe(
-                            'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.'
-                        ),
                     feature_flag_variants: zod
                         .union([
                             zod.array(
@@ -5152,7 +5146,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             ])
             .optional()
             .describe(
-                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key).'
+                'Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here.'
             ),
         running_time_calculation: zod
             .union([
@@ -5215,7 +5209,7 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
             .array(zod.string())
             .nullish()
             .describe(
-                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`; kept in sync with `parameters` during the deprecation window.'
+                'Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.'
             ),
         secondary_metrics: zod.unknown().optional(),
         saved_metrics_ids: zod
@@ -5329,6 +5323,12 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                         ])
                         .optional(),
                     filterTestAccounts: zod.union([zod.boolean(), zod.null()]).optional(),
+                    multiple_variant_handling: zod
+                        .union([zod.enum(['exclude', 'first_seen']), zod.null()])
+                        .optional()
+                        .describe(
+                            "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
+                        ),
                 }),
                 zod.null(),
             ])

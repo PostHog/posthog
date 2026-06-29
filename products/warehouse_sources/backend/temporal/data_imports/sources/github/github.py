@@ -6,6 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 from typing import Any, Literal, Optional
 from urllib.parse import urlencode
 
+import pyarrow as pa
 import requests
 from asgiref.sync import async_to_sync
 from dateutil import parser as dateutil_parser
@@ -350,7 +351,16 @@ def _github_retry_wait(state: RetryCallState) -> float:
 
 @retry(
     retry=retry_if_exception_type(
-        (GithubRetryableError, GitHubRateLimitError, requests.ReadTimeout, requests.ConnectionError)
+        (
+            GithubRetryableError,
+            GitHubRateLimitError,
+            requests.ReadTimeout,
+            requests.ConnectionError,
+            # GitHub can break the connection mid-body on a chunked response, which surfaces as a
+            # ChunkedEncodingError (a direct RequestException subclass, not a ConnectionError). It's
+            # transient — a fresh GET re-fetches the page — so retry it instead of failing the sync.
+            requests.exceptions.ChunkedEncodingError,
+        )
     ),
     stop=stop_after_attempt(5),
     wait=_github_retry_wait,
@@ -614,6 +624,47 @@ def get_rows(
         yield py_table
 
 
+def _make_webhook_dedupe_transformer(primary_key: str, version_keys: list[str]) -> Callable[[pa.Table], pa.Table]:
+    """Collapse a webhook batch to one row per ``primary_key`` — the one ranking newest by
+    ``version_keys`` (newest first, NULLs last). GitHub emits a single run/job as separate
+    queued -> in_progress -> completed events sharing an id, and the delta merge doesn't dedupe
+    within a source batch, so without this it keeps whichever event landed last in batch order and
+    freezes rows pre-completion. Same problem and same fix as the Stripe webhook source."""
+
+    def transform(table: pa.Table) -> pa.Table:
+        present_version_keys = [key for key in version_keys if key in table.column_names]
+        if table.num_rows == 0 or primary_key not in table.column_names or not present_version_keys:
+            return table
+
+        ids = table.column(primary_key).to_pylist()
+        version_columns = [table.column(key).to_pylist() for key in present_version_keys]
+
+        def rank(row_index: int) -> tuple[tuple[int, Any], ...]:
+            # A present value beats NULL (NULLS LAST); among present values a larger one is newer
+            # (ISO-8601 timestamps compare correctly as strings). The leading flag keeps NULLs from
+            # ever being order-compared against a real value.
+            return tuple(
+                (1, column[row_index]) if column[row_index] is not None else (0, "") for column in version_columns
+            )
+
+        best_index_by_id: dict[Any, int] = {}
+        for index, object_id in enumerate(ids):
+            if object_id is None:
+                continue
+            best = best_index_by_id.get(object_id)
+            # On a tie (>=, not >) the later-arriving row wins. GitHub timestamps are second-coarse,
+            # so a fast in_progress -> completed transition can share an updated_at; rows arrive in
+            # chronological order (files read oldest-first), so the later index is the newer event.
+            if best is None or rank(index) >= rank(best):
+                best_index_by_id[object_id] = index
+
+        # Preserve input order among the survivors so the batch stays in arrival order. The indices
+        # are an explicit int64 array so an empty result doesn't infer a null-typed index array.
+        return table.take(pa.array(sorted(best_index_by_id.values()), type=pa.int64()))
+
+    return transform
+
+
 def github_source(
     personal_access_token: str,
     repository: str,
@@ -656,7 +707,16 @@ def github_source(
             # job and workflow-run objects once: the "list jobs for a workflow run" REST
             # response object is the same schema as the workflow_job webhook event's nested
             # workflow_job object (same for workflow_run), so the rows are interchangeable.
-            return webhook_source_manager.get_items()
+            #
+            # Each event for an id arrives as its own row (queued -> in_progress -> completed);
+            # collapse them to the latest per id here, since the delta merge doesn't dedupe a
+            # source batch. Same pattern as the Stripe webhook source.
+            transformer = (
+                _make_webhook_dedupe_transformer(endpoint_config.primary_key, endpoint_config.version_keys)
+                if endpoint_config.version_keys
+                else None
+            )
+            return webhook_source_manager.get_items(table_transformer=transformer)
 
         return get_rows(
             personal_access_token=personal_access_token,

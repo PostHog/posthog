@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import type { SandboxToolCallMessage } from '../../types/sandboxToolTypes'
+import type { ToolCallMessage } from '../../types/toolTypes'
 import { EditDiffRenderer } from './EditDiffRenderer'
 
 // Monaco can't render in jsdom — stand it in for a marker that echoes the diff props we care about.
@@ -42,7 +42,7 @@ jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: mockDarkMode }),
 }))
 
-function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxToolCallMessage {
+function makeMessage(overrides: Partial<ToolCallMessage> = {}): ToolCallMessage {
     return {
         id: 'tc-1',
         resolvedKey: 'Edit',
@@ -57,7 +57,7 @@ function makeMessage(overrides: Partial<SandboxToolCallMessage> = {}): SandboxTo
 
 // The diff lives in the Activity's collapsible body, which auto-collapses once the call completes —
 // expand it so the editor + stats render.
-function renderExpanded(message: SandboxToolCallMessage): void {
+function renderExpanded(message: ToolCallMessage): void {
     render(<EditDiffRenderer message={message} displayName="Edit" isLastInGroup />)
     fireEvent.click(screen.getByRole('button'))
 }

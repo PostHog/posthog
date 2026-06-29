@@ -4,12 +4,12 @@ from django.db.models import Q, QuerySet
 from django.utils.timezone import now
 
 from django_filters.rest_framework import DjangoFilterBackend
-from loginas.utils import is_impersonated_session
 from rest_framework import serializers, viewsets
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, Detail, changes_between, log_activity
 from posthog.models.utils import UUIDT
@@ -91,7 +91,7 @@ class WebAnalyticsFilterPresetSerializer(serializers.ModelSerializer):
             organization_id=request.user.current_organization_id,
             team_id=team.id,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
 
         return preset
@@ -119,7 +119,7 @@ class WebAnalyticsFilterPresetSerializer(serializers.ModelSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             changes=changes,
         )
 

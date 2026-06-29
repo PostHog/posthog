@@ -736,7 +736,6 @@ const ExperimentUpdateSchema = ExperimentsPartialUpdateParams.omit({ project_id:
             start_date: true,
             end_date: true,
             feature_flag_key: true,
-            excluded_variants: true,
             secondary_metrics: true,
             filters: true,
             deleted: true,
@@ -777,6 +776,9 @@ const experimentUpdate = (): ToolBase<typeof ExperimentUpdateSchema, WithPostHog
             }
             if (params.running_time_calculation !== undefined) {
                 body['running_time_calculation'] = params.running_time_calculation
+            }
+            if (params.excluded_variants !== undefined) {
+                body['excluded_variants'] = params.excluded_variants
             }
             if (params.saved_metrics_ids !== undefined) {
                 body['saved_metrics_ids'] = params.saved_metrics_ids

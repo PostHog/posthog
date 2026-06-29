@@ -5,6 +5,7 @@ from typing import Any
 
 import pytest
 
+from hogql_parser_rs import parse_string_literal_text
 from hypothesis import (
     assume,
     given,
@@ -21,7 +22,6 @@ from posthog.hogql.escape_sql import (
     escape_hogql_string,
     escape_postgres_identifier,
 )
-from posthog.hogql.parse_string import parse_string_literal_text
 from posthog.hogql.test._pbt_corpus_db import shared_corpus_database
 
 # These tests are too slow for CI. Run manually with:
@@ -30,6 +30,7 @@ pytestmark = pytest.mark.skipif(
     not os.environ.get("RUN_PBT"),
     reason="PBT tests are slow; set RUN_PBT=1 to run",
 )
+
 
 # Replay the per-developer local seed read-only + write new examples to the
 # default `.hypothesis/examples` (see _pbt_corpus_db). Applied to the
@@ -42,17 +43,20 @@ _BASE = settings(database=shared_corpus_database())
 # Reusable strategies
 # ---------------------------------------------------------------------------
 
-# Strings that are expected to round-trip through escape → parse.
+# Strings that are expected to round-trip through escape → unescape.
 # NUL is excluded because parse_string_literal_text maps \0 → "" (lossy).
+# Lone surrogates (category Cs) are excluded because the rust unescaper
+# crosses an FFI boundary requiring valid UTF-8, so they can't be passed at
+# all (the old pure-Python unescaper tolerated them).
 _roundtrip_safe_text = st.text(
-    alphabet=st.characters(blacklist_characters="\0"),
+    alphabet=st.characters(blacklist_characters="\0", blacklist_categories=["Cs"]),
 )
 
 # Like _roundtrip_safe_text but also excludes '%' (rejected by
 # escape_hogql_identifier / escape_clickhouse_identifier).
 _roundtrip_safe_identifier_text = st.text(
     min_size=1,
-    alphabet=st.characters(blacklist_characters="\0%"),
+    alphabet=st.characters(blacklist_characters="\0%", blacklist_categories=["Cs"]),
 )
 
 # Strings guaranteed to contain at least one '%' — built by

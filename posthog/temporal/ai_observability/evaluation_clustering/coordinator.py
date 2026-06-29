@@ -46,7 +46,6 @@ with temporalio.workflow.unsafe.imports_passed_through():
         DISCOVERY_ACTIVITY_RETRY_POLICY,
         DISCOVERY_ACTIVITY_TIMEOUT,
         GUARANTEED_TEAM_IDS,
-        SAMPLE_PERCENTAGE,
         TeamDiscoveryInput,
         get_team_ids_for_ai_observability,
     )
@@ -94,7 +93,7 @@ async def _discover_teams_and_jobs() -> tuple[list[int], dict[int, list[JobConfi
     try:
         team_ids = await workflow.execute_activity(
             get_team_ids_for_ai_observability,
-            TeamDiscoveryInput(sample_percentage=SAMPLE_PERCENTAGE),
+            TeamDiscoveryInput(),
             start_to_close_timeout=DISCOVERY_ACTIVITY_TIMEOUT,
             retry_policy=DISCOVERY_ACTIVITY_RETRY_POLICY,
         )

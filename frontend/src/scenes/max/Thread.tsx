@@ -1,5 +1,5 @@
 // Side-effect: registers Max's product-specific tool renderers (insight/dashboard/recordings/etc.) into
-// the shared sandboxToolRegistry. Imported here so they're registered whenever the Max thread renders.
+// the shared toolRegistry. Imported here so they're registered whenever the Max thread renders.
 import './messages/adapters/registerMaxToolRenderers'
 
 import clsx from 'clsx'
@@ -68,18 +68,17 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
+import { getThinkingMessageFromResponse, runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import {
     AssistantFailureMessage,
-    getThinkingMessageFromResponse,
+    ContextUsageBar,
     MarkdownMessage,
     MessageTemplate,
     ReasoningAnswer,
-    SandboxContextUsage,
-    SandboxResourcesBar,
-    sandboxStreamLogic,
-    SandboxThreadView,
-} from 'products/posthog_ai/frontend'
-import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
+    ResourcesBar,
+    ThreadView,
+} from 'products/posthog_ai/frontend/api/primitives'
+import { LogEntry } from 'products/posthog_ai/frontend/lib/parse-logs'
 
 import { LangGraphActivity, ShimmeringContent } from './components/Activity'
 import { FeedbackDisplay } from './components/FeedbackDisplay'
@@ -139,11 +138,11 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
             <div className={containerClassName}>
                 {/* Same key maxThreadLogic's connect() uses, so both resolve the same instance */}
                 <BindLogic
-                    logic={sandboxStreamLogic}
+                    logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
                     {/* The live Max column owns scroll via ThreadAutoScroller — render rows in flow, not virtualized. */}
-                    <SandboxThreadView virtualized={false} />
+                    <ThreadView virtualized={false} />
                 </BindLogic>
             </div>
         )
@@ -160,10 +159,10 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                 <LegacyThread showTrailers={false} />
                 <LemonDivider dashed label="Message history was converted to the new format" className="my-3" />
                 <BindLogic
-                    logic={sandboxStreamLogic}
+                    logic={runStreamLogic}
                     props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
                 >
-                    <SandboxThreadView virtualized={false} />
+                    <ThreadView virtualized={false} />
                 </BindLogic>
             </div>
         )
@@ -345,7 +344,7 @@ function LegacyThread({ showTrailers }: { showTrailers: boolean }): JSX.Element 
 
 /**
  * Persistent sandbox surfaces mounted between the thread and the sticky composer: the
- * "PostHog resources used" bar and the context-usage indicator. Both read `sandboxStreamLogic`
+ * "PostHog resources used" bar and the context-usage indicator. Both read `runStreamLogic`
  * values directly, so this binds the same logic instance `Thread`'s sandbox path uses. Renders
  * nothing for non-sandbox conversations; the inner components hide themselves when empty.
  */
@@ -359,12 +358,12 @@ export function SandboxComposerSurfaces(): JSX.Element | null {
 
     return (
         <BindLogic
-            logic={sandboxStreamLogic}
+            logic={runStreamLogic}
             props={{ streamKey: sandboxConversationKey, conversationId: sandboxConversationKey }}
         >
             <div className="w-full max-w-180 self-center mx-auto">
-                <SandboxResourcesBar />
-                <SandboxContextUsage />
+                <ResourcesBar />
+                <ContextUsageBar />
             </div>
         </BindLogic>
     )

@@ -670,6 +670,7 @@ describe('sqlLineGraphAdapter', () => {
             const ctx = (rawValue: number): ValueLabelContext => ({
                 rawValue,
                 bandValues: [rawValue],
+                previousBandValues: [],
                 isPercent: false,
             })
             // The label reads context.rawValue (not the percent-fraction `value` arg) with each series' settings.

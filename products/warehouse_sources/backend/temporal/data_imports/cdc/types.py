@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Literal, Protocol, Self
+
+import pyarrow as pa
 
 ManagementMode = Literal["posthog", "self_managed"]
 
@@ -48,6 +50,12 @@ class ChangeEvent:
     position_serialized: str
     timestamp: datetime
     columns: dict[str, Any]
+    # Authoritative Arrow type per source column, from the engine's schema metadata
+    # (e.g. Postgres relation OIDs). Lets the batcher type a column the same way in
+    # every micro-batch even when one flush sees it all-null — without it, an all-null
+    # flush is inferred as string while a concrete flush is int64, and the two Parquet
+    # schemas fail to merge. Shared across all events of one relation; None when unknown.
+    column_types: Mapping[str, pa.DataType] | None = None
 
 
 class CDCStreamReader(Protocol):

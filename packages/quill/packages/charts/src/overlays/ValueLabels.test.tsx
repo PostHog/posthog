@@ -332,6 +332,23 @@ describe('ValueLabels', () => {
             ).toEqual(['-10|30,-10', '25|25,75', '30|30,-10', '75|25,75'])
         })
 
+        it('passes the preceding band as previousBandValues (empty at the first index)', () => {
+            const series: ResolvedSeries[] = [
+                { key: 'a', label: 'A', color: '#a00', data: [30, 25] },
+                { key: 'b', label: 'B', color: '#0a0', data: [-10, 75] },
+            ]
+            const ctx = makeContext(series, { labels: ['Mon', 'Tue'] })
+            const { container } = renderInChart(
+                ctx,
+                <ValueLabels valueFormatter={(_v, _si, _di, c) => `${c.rawValue}|${c.previousBandValues.join(',')}`} />
+            )
+            expect(
+                labelDivs(container)
+                    .map((d) => d.textContent)
+                    .sort()
+            ).toEqual(['-10|', '25|30,-10', '30|', '75|30,-10'])
+        })
+
         it('marks the context isPercent in percent layout and passes the segment fraction as value', () => {
             const series: ResolvedSeries[] = [
                 { key: 'a', label: 'A', color: '#a00', data: [20, 60] },
