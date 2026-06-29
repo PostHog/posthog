@@ -1,7 +1,7 @@
 import json
 import time
-from typing import Any
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
@@ -11,25 +11,20 @@ import fakeredis
 from rest_framework import status
 
 from posthog import redis as redis_module
+from posthog.constants import AvailableFeature
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.notebooks.backend import presence
 from products.notebooks.backend.collab import SubmitResult, submit_steps
 from products.notebooks.backend.models import Notebook
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 SAMPLE_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type": "text", "text": "Test"}]}]}
 UPDATED_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type": "text", "text": "Updated"}]}]}
-
-
-class _FakeHogQLResponse:
-    def __init__(self, payload: dict[str, Any]) -> None:
-        self.payload = payload
-
-    def dict(self, exclude_none: bool = False) -> dict[str, Any]:
-        return self.payload
 
 
 class TestNotebookCollabSaveAPI(APIBaseTest):
@@ -771,18 +766,79 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
+@pytest.mark.ee
 class TestNotebookHogQLExecuteAPI(APIBaseTest):
-    def test_hogql_execute_passes_request_user(self) -> None:
-        notebook = Notebook.objects.create(team=self.team, created_by=self.user, last_modified_by=self.user)
+    def setUp(self) -> None:
+        super().setUp()
 
-        with patch("products.notebooks.backend.presentation.views.notebook.execute_hogql_query") as mock_execute:
-            mock_execute.return_value = _FakeHogQLResponse({"results": [[1]], "columns": ["count"]})
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/hogql/execute/",
-                data={"query": "select * from warehouse_table"},
-                format="json",
-            )
+        from ee.models.rbac.access_control import AccessControl
 
-        assert response.status_code == status.HTTP_200_OK
-        mock_execute.assert_called_once()
-        assert mock_execute.call_args.kwargs["user"] == self.user
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
+        self.allowed_table = DataWarehouseTable.objects.create(
+            name="notebook_allowed_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/notebook/allowed/*",
+            columns={"id": "String"},
+        )
+        self.denied_table = DataWarehouseTable.objects.create(
+            name="notebook_denied_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=self.team,
+            credential=credential,
+            url_pattern="s3://bucket/notebook/denied/*",
+            columns={"id": "String"},
+        )
+        AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="warehouse_table",
+            resource_id=str(self.allowed_table.id),
+            access_level="viewer",
+            organization_member=self.membership,
+        )
+
+        self.notebook = Notebook.objects.create(team=self.team, created_by=self.user, last_modified_by=self.user)
+
+    @staticmethod
+    def _feature_enabled(feature_key: str, *args, **kwargs) -> bool:
+        return feature_key == "hogql-warehouse-access-control"
+
+    @patch("posthog.hogql.query.sync_execute")
+    @patch("posthog.hogql.database.database.feature_enabled_or_false")
+    def test_hogql_execute_uses_request_user_warehouse_permissions(
+        self, mock_feature_enabled_or_false, mock_sync_execute
+    ) -> None:
+        mock_feature_enabled_or_false.side_effect = self._feature_enabled
+        mock_sync_execute.return_value = ([("value",)], [("id", "String")])
+
+        allowed_response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/hogql/execute/",
+            data={"query": f"select id from {self.allowed_table.name}"},
+            format="json",
+        )
+
+        assert allowed_response.status_code == status.HTTP_200_OK, allowed_response.json()
+        mock_sync_execute.assert_called_once()
+
+        mock_sync_execute.reset_mock()
+        denied_response = self.client.post(
+            f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/hogql/execute/",
+            data={"query": f"select id from {self.denied_table.name}"},
+            format="json",
+        )
+
+        assert denied_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "don't have access" in denied_response.json()["error"]
+        mock_sync_execute.assert_not_called()
