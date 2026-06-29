@@ -282,3 +282,89 @@ async def test_run_steps_breaks_early_when_fix_returns_same_query(
     # Executor ran exactly once (no rerun of the identical fixed query); the fix was requested once.
     assert mock_executor_cls.return_value.arun_and_format_query.await_count == 1
     mock_fix.assert_awaited_once()
+
+
+def _frozen_plan() -> dict:
+    return QueryPlan(
+        overall_intent="count events",
+        steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+    ).model_dump()
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_frozen_prompt")
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_frozen_plan_reused_skips_planner_and_event_selection(
+    mock_bep: MagicMock, mock_frozen: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+) -> None:
+    # The determinism guarantee: when a plan is frozen, the run reconstructs the spec from it and runs
+    # NEITHER LLM pass the live path uses — build_enriched_prompt wraps both the planner and the
+    # event-selection model, so asserting it's never called proves both are skipped.
+    mock_frozen.return_value = _spec(steps=1)
+    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(
+        team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), query_plan=_frozen_plan()
+    )
+
+    mock_bep.assert_not_called()  # planner + event-selection LLMs never run on a frozen sub
+    mock_frozen.assert_called_once()
+    # Nothing new to freeze on a reused run — the caller must not re-persist the same plan.
+    assert result.plan_to_persist is None
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_unfrozen_run_returns_plan_to_persist(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+) -> None:
+    # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
+    # so the next delivery is deterministic. The shape must equal QueryPlan.model_dump() — that exact
+    # dict is what build_frozen_prompt validates back on reuse, so this guards the persist↔reuse contract.
+    spec = _spec(steps=1)
+    mock_bep.return_value = spec
+    mock_run.return_value = (["### s0\n\nok"], 0, [QueryStepDiagnostic("s0", "SELECT 1", True, None)])
+    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+
+    assert result.plan_to_persist == spec.plan.model_dump()
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_executor_cls: MagicMock) -> None:
+    # The frozen HogQL keeps the {{date_range}} placeholder; the executor substitutes THIS run's bounds.
+    # Two runs of the same frozen step at different `now` must execute different window literals (so the
+    # window advances) while the rest of the SQL is byte-identical (so the metric structure is frozen).
+    captured: list[str] = []
+
+    async def _capture(query: object) -> tuple[str, None]:
+        captured.append(query.query)  # type: ignore[attr-defined]
+        return ("formatted", None)
+
+    mock_executor_cls.return_value.arun_and_format_query = AsyncMock(side_effect=_capture)
+    spec = EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(
+            overall_intent="i",
+            steps=[QueryPlanStep(description="s", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+        ),
+    )
+    early = ReportWindow(start=_WINDOW_END - timedelta(days=1), end=_WINDOW_END)
+    later = ReportWindow(start=_WINDOW_END, end=_WINDOW_END + timedelta(days=1))
+
+    await _run_steps(spec, MagicMock(), MagicMock(), early, None)
+    await _run_steps(spec, MagicMock(), MagicMock(), later, None)
+
+    assert "{{date_range}}" not in captured[0]  # placeholder fully resolved before execution
+    assert captured[0] != captured[1]  # window advanced run-to-run
+    # Same structure: only the substituted bounds differ. Stripping the window predicate makes them equal.
+    skeleton_0 = captured[0].replace(early.window_filter_sql, "")
+    skeleton_1 = captured[1].replace(later.window_filter_sql, "")
+    assert skeleton_0 == skeleton_1

@@ -28,6 +28,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _pinned_event_names,
     _select_relevant_events,
     build_context_blob,
+    build_frozen_prompt,
     compute_report_window,
     generate_query_plan,
     sanitize_prompt,
@@ -526,3 +527,42 @@ class TestGenerateQueryPlanSubstitution(APIBaseTest):
 
         with pytest.raises(PromptRejectedError, match="malformed"):
             generate_query_plan(cleaned_prompt="p", context_blob="c", team=self.team, user=self.user)
+
+
+class TestBuildFrozenPrompt(APIBaseTest):
+    """The deterministic reuse path: reconstruct the spec from a persisted plan with NO LLM calls."""
+
+    def _stored_plan(self) -> dict:
+        return QueryPlan(
+            overall_intent="count events",
+            steps=[QueryPlanStep(description="counts", hogql="SELECT count() FROM events WHERE {{date_range}}")],
+        ).model_dump()
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    @patch(f"{_SG}._select_relevant_events")
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_reconstructs_plan_without_calling_any_llm(
+        self, _mock_top: object, _mock_groups: object, mock_select: MagicMock, mock_chat: MagicMock
+    ) -> None:
+        stored = self._stored_plan()
+
+        spec = build_frozen_prompt(
+            team=self.team, prompt="how are exports doing?", window=_window(7), query_plan=stored
+        )
+
+        # Neither the event-selection model nor the planner runs on the frozen path...
+        mock_select.assert_not_called()
+        mock_chat.assert_not_called()
+        # ...and the plan round-trips byte-for-byte (persist shape == reuse shape), HogQL placeholder intact.
+        assert spec.plan.model_dump() == stored
+        assert "{{date_range}}" in spec.plan.steps[0].hogql
+
+    @patch(f"{_SG}.get_group_types_for_project", return_value=[])
+    @patch(f"{_SG}._top_event_names", return_value=[])
+    def test_rejects_structurally_invalid_stored_plan(self, _mock_top: object, _mock_groups: object) -> None:
+        # A corrupted persisted plan (no steps) is a permanent failure, surfaced like a malformed live plan.
+        with pytest.raises(PromptRejectedError, match="malformed"):
+            build_frozen_prompt(
+                team=self.team, prompt="p", window=_window(7), query_plan={"overall_intent": "i", "steps": []}
+            )
