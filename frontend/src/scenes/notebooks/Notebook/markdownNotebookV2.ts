@@ -533,11 +533,16 @@ function isNotebookObjectProp(value: NotebookPropValue | undefined): value is Re
 function serializeUnknownRichContentNode(node: JSONContent): string {
     // An unmapped leaf node must not vanish on upgrade — preserve it as a component the
     // editor renders with its unknown-tag fallback
+    const props = getSerializableAttrs(node.attrs)
+    if (node.type) {
+        props.nodeType = node.type
+    }
+
     return serializeNode({
         id: '',
         type: 'component',
         tagName: 'UnknownNode',
-        props: { nodeType: node.type, ...getSerializableAttrs(node.attrs) },
+        props,
     })
 }
 
