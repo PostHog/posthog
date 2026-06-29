@@ -1016,7 +1016,7 @@ class EasypostSourceConfig(config.Config):
 
 @config.config
 class EasypromosSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
