@@ -24,6 +24,7 @@ Usage:
 
 from __future__ import annotations
 
+import re
 import sys
 import html
 import json
@@ -207,6 +208,54 @@ def stats(rows: list[dict]) -> dict:
     }
 
 
+def key_findings(rows: list[dict], buckets: dict) -> list[str]:
+    """Auto-generated narrative — the few things worth acting on, in priority order."""
+    s = stats(rows)
+    out: list[str] = []
+    nodb, ch, txn = buckets["no_db"], buckets["ch_unused"], buckets["txn_downgrade"]
+    red, heavy, over = buckets["redundant_setup"], buckets["setup_heavy"], buckets["over_provisioned"]
+
+    if not nodb:
+        out.append(
+            f"**The no-DB vein is exhausted.** Of {s['db_enabled']:,} DB-enabled tests, none issue zero "
+            "Postgres+ClickHouse queries — the SimpleTestCase conversions already caught the easy wins. "
+            "The remaining waste is in ClickHouse over-provisioning and fixture setup, not in DB-marked tests."
+        )
+    else:
+        out.append(f"**{len(nodb):,} DB-enabled tests issue zero queries** → convert to SimpleTestCase.")
+    if ch:
+        out.append(
+            f"**{len(ch):,} tests provision a ClickHouse mixin but never query ClickHouse** "
+            f"({fmt_dur(bucket_time(ch))} of call time) → drop the mixin. The biggest conversion lever here."
+        )
+    if red:
+        dup_counts = Counter(r.get("setup_max_dup", 0) for r in red)
+        val, n = dup_counts.most_common(1)[0]
+        out.append(
+            f"**Systemic N+1 in a shared fixture:** {n} test classes each run one identical query **{val}×** "
+            "during setup (row-by-row inserts a bulk_create would collapse). One fixture fix, broad payoff."
+        )
+    if heavy:
+        out.append(
+            f"**{len(heavy):,} tests are setup-heavy** (≥70% of their queries are fixture setup, not the test "
+            "body) → hoist read-only data to setUpTestData or use lighter factories (build() over create())."
+        )
+    if over:
+        top = top_classes(over, "pg_total", 1)
+        if top:
+            k, n, m, _su = top[0]
+            out.append(
+                f"**{len(over):,} tests are over-provisioned** (≥{OVERPROVISIONED_MIN_Q} queries each); the "
+                f"heaviest class fires {m:,} queries across {n} tests — `{short_path(k)}`."
+            )
+    if txn:
+        out.append(
+            f"**{len(txn):,} TransactionTestCase tests** show no on_commit / FOR UPDATE / second connection → "
+            "likely downgradable to TestCase (verify each by swap-and-rerun)."
+        )
+    return out
+
+
 # ---------------------------------------------------------------- markdown
 
 
@@ -217,6 +266,12 @@ def format_markdown(rows: list[dict], buckets: dict) -> str:
     out.append(f"- Postgres queries: **{s['pg_total']:,}** ({s['pg_setup']:,} in setup)")
     out.append(f"- ClickHouse queries: **{s['ch_total']:,}** · call wall-time **{fmt_dur(s['wall'])}**")
     out.append("- No junit/coverage correlation — the profiler records timing + status itself\n")
+
+    findings = key_findings(rows, buckets)
+    if findings:
+        out.append("## Key findings\n")
+        out.extend(f"- {f}" for f in findings)
+        out.append("")
 
     out.append("## Conversion opportunities\n")
     out.append("| candidate | tests | call wall-time | fix |")
@@ -277,11 +332,28 @@ code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:#334155}
 .pill{display:inline-block;padding:1px 8px;border-radius:999px;font-size:12px;font-weight:600}
 .pill.go{background:#dcfce7;color:#166534}
 .note{color:var(--muted);font-size:12.5px;margin:6px 0 0}
+.findings{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:4px 20px;margin:10px 0}
+.findings li{margin:9px 0}
 """
 
 
 def _esc(s: str) -> str:
     return html.escape(str(s))
+
+
+def _md_inline(s: str) -> str:
+    """Render the limited markdown used in findings (**bold**, `code`) to HTML, escaping the rest."""
+    parts: list[str] = []
+    pos = 0
+    for m in re.finditer(r"\*\*(.+?)\*\*|`(.+?)`", s):
+        parts.append(_esc(s[pos : m.start()]))
+        if m.group(1) is not None:
+            parts.append(f"<strong>{_esc(m.group(1))}</strong>")
+        else:
+            parts.append(f"<code>{_esc(m.group(2))}</code>")
+        pos = m.end()
+    parts.append(_esc(s[pos:]))
+    return "".join(parts)
 
 
 def _table(headers: list[str], rows: list[list], aligns: list[str]) -> str:
@@ -318,6 +390,13 @@ def format_html(rows: list[dict], buckets: dict) -> str:
     for k, v in cards:
         parts.append(f"<div class='card'><div class='k'>{_esc(k)}</div><div class='v'>{_esc(v)}</div></div>")
     parts.append("</div>")
+
+    findings = key_findings(rows, buckets)
+    if findings:
+        parts.append("<h2>Key findings</h2><ul class='findings'>")
+        for f in findings:
+            parts.append(f"<li>{_md_inline(f)}</li>")
+        parts.append("</ul>")
 
     # Conversion opportunities summary
     parts.append("<h2>Conversion opportunities</h2>")
