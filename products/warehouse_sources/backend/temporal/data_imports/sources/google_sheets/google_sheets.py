@@ -64,10 +64,8 @@ def _oauth_credentials(integration_id: int, team_id: int) -> OAuthCredentials:
     return OAuthCredentials(
         token=None,
         refresh_token=integration.refresh_token,
-        # Must be the same app the integration kind authorized with (see `oauth_config_for_kind`),
-        # otherwise the refresh-token grant fails with invalid_client.
-        client_id=settings.GOOGLE_SHEETS_APP_CLIENT_ID,
-        client_secret=settings.GOOGLE_SHEETS_APP_CLIENT_SECRET,
+        client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+        client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
         token_uri="https://oauth2.googleapis.com/token",
         # No `scopes=` on purpose: a refresh-token grant must request a subset of the originally
         # consented scopes or Google returns `invalid_scope`. Omitting it refreshes with the

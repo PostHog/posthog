@@ -28,12 +28,6 @@ GOOGLE_ANALYTICS_APP_CLIENT_SECRET = get_from_env("GOOGLE_ANALYTICS_APP_CLIENT_S
 SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY", "")
 SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = get_from_env("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET", "")
 
-# Google Sheets integration (data warehouse source + destination) OAuth app. Like the other Google
-# sources it has its own client, but defaults to the shared Google sign-in app so existing
-# connections keep working until a dedicated app is provisioned.
-GOOGLE_SHEETS_APP_CLIENT_ID = get_from_env("GOOGLE_SHEETS_APP_CLIENT_ID", SOCIAL_AUTH_GOOGLE_OAUTH2_KEY)
-GOOGLE_SHEETS_APP_CLIENT_SECRET = get_from_env("GOOGLE_SHEETS_APP_CLIENT_SECRET", SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET)
-
 LINEAR_APP_CLIENT_ID = get_from_env("LINEAR_APP_CLIENT_ID", "")
 LINEAR_APP_CLIENT_SECRET = get_from_env("LINEAR_APP_CLIENT_SECRET", "")
 

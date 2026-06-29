@@ -524,7 +524,7 @@ class OauthIntegration:
                 name_path="email",
             )
         elif kind == "google-sheets":
-            if not settings.GOOGLE_SHEETS_APP_CLIENT_ID or not settings.GOOGLE_SHEETS_APP_CLIENT_SECRET:
+            if not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY or not settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET:
                 raise NotImplementedError("Google Sheets app not configured")
 
             return OauthConfig(
@@ -534,8 +534,8 @@ class OauthIntegration:
                 token_info_url="https://openidconnect.googleapis.com/v1/userinfo",
                 token_info_config_fields=["sub", "email"],
                 token_url="https://oauth2.googleapis.com/token",
-                client_id=settings.GOOGLE_SHEETS_APP_CLIENT_ID,
-                client_secret=settings.GOOGLE_SHEETS_APP_CLIENT_SECRET,
+                client_id=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_KEY,
+                client_secret=settings.SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET,
                 scope="https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.email",
                 id_path="sub",
                 name_path="email",
