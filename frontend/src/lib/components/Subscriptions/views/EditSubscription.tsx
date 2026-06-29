@@ -48,6 +48,7 @@ import {
     frequencyOptionsSingular,
     getAiSubscriptionGate,
     getNextDeliveryDate,
+    integrationHasFilesWrite,
     intervalOptions,
     monthlyWeekdayOptions,
     targetTypeOptions,
@@ -104,14 +105,6 @@ interface EditSubscriptionProps {
 // A null count (loading or fetch failed) fails open — the backend POST check is the hard limit.
 export function isFreeTierCreateAtLimit(subscriptionCount: number | null): boolean {
     return subscriptionCount !== null && subscriptionCount >= SubscriptionFreeTierLimit.COUNT
-}
-
-// Returns whether the connected Slack integration has the files:write scope granted.
-// Used to gate the "post all insights in main message" toggle.
-export function integrationHasFilesWrite(scope: string | null | undefined): boolean {
-    return String(scope ?? '')
-        .split(',')
-        .includes('files:write')
 }
 
 export function EditSubscription(props: EditSubscriptionProps): JSX.Element {

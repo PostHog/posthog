@@ -176,3 +176,12 @@ export function getAiSubscriptionGate(inputs: AiSubscriptionGateInputs): AiSubsc
         submitBlocked: isAiPrompt && !isEditing && !aiAllowed,
     }
 }
+
+// Whether a connected Slack integration has the files:write scope granted (gates the
+// "post all insights in main message" gallery option). Shared by the editor (toggle gate)
+// and subscriptionLogic (submit coercion when the scope was revoked after enabling).
+export function integrationHasFilesWrite(scope: string | null | undefined): boolean {
+    return String(scope ?? '')
+        .split(',')
+        .includes('files:write')
+}

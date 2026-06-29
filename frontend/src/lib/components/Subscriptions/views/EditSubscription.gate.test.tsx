@@ -1,6 +1,7 @@
 import { SubscriptionFreeTierLimit } from '~/queries/schema/schema-general'
 
-import { integrationHasFilesWrite, isFreeTierCreateAtLimit } from './EditSubscription'
+import { integrationHasFilesWrite } from '../utils'
+import { isFreeTierCreateAtLimit } from './EditSubscription'
 
 const LIMIT = SubscriptionFreeTierLimit.COUNT
 
