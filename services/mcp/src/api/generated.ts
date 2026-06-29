@@ -35269,8 +35269,11 @@ export namespace Schemas {
       readonly observation_count: number;
       /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
       readonly synthesized_markdown: string;
-      /** Short human-readable reason a run skipped or failed; null on success. */
-      readonly error_reason: string;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
       readonly created_at: string;
       readonly updated_at: string;
     }

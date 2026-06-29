@@ -290,6 +290,17 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         self.assertEqual(resp.status_code, 200, resp.content)
         self.assertEqual(resp.json()["error_reason"], "over budget")
 
+    def test_failed_run_error_reason_does_not_leak_raw_exception(self) -> None:
+        # The engine stamps error["message"] with raw exception text (str(e)[:500]); the API must not
+        # echo it to callers — a failed run surfaces a generic reason instead.
+        run = self._create_run(
+            status=VisionActionRunStatus.FAILED,
+            error={"message": "Traceback: KeyError 'secret_token' in synthesize at line 42"},
+        )
+        resp = self.client.get(f"{self.runs_url()}{run.id}/")
+        self.assertEqual(resp.status_code, 200, resp.content)
+        self.assertEqual(resp.json()["error_reason"], "Run failed")
+
     def test_runs_scoped_to_their_action(self) -> None:
         other_action = VisionAction.all_teams.create(team=self.team, scanner=self.scanner, name="other-action")
         mine = self._create_run(self.action)

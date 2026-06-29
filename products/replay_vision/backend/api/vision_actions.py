@@ -408,17 +408,19 @@ class VisionActionRunSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
 
-    @extend_schema_field(OpenApiTypes.STR)
+    # allow_null so the generated TS/MCP type is `string | null` — get_error_reason returns null for
+    # successful runs, and a non-null hint would crash consumers that dereference it.
+    @extend_schema_field(serializers.CharField(allow_null=True))
     def get_error_reason(self, run: VisionActionRun) -> str | None:
-        error = run.error
-        if not isinstance(error, dict):
-            return None
-        # The engine stamps skip/abort reasons (e.g. {"skip_reason": ...}, {"aborted": ...}) or an
-        # exception summary; surface the first human-readable value rather than the raw payload.
-        for key in ("skip_reason", "aborted", "message", "error"):
+        error = run.error if isinstance(run.error, dict) else {}
+        # Surface only the engine's controlled skip/abort reasons. Failed runs also stamp error["message"]
+        # with raw exception text (str(e)[:500]) — don't echo that to API consumers; show a generic reason.
+        for key in ("skip_reason", "aborted"):
             value = error.get(key)
             if isinstance(value, str) and value.strip():
                 return value
+        if run.status == VisionActionRunStatus.FAILED:
+            return "Run failed"
         return None
 
 
