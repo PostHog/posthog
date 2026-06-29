@@ -116,12 +116,12 @@ resolve it, cheapest source first:
    login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log`
    gives a name + email — both must be resolved to an **individual** GitHub login before you write
    the reviewer (a team slug or an email won't match any user).
-4. **`org-members-list`** — only where the run has organization scope. It needs
-   `organization_member:read`, which **headless scout runs scoped to a single team don't have**, so
-   the tool is typically **absent from a scout's toolset**; don't build a scout's reviewer recipe
-   around it. Where it _is_ available it confirms a person exists and gives their canonical name +
-   account email (useful to **disambiguate or spell** a name) — but it still does **not** return a
-   GitHub login, so treat it as a corroboration aid, never as the source of the handle.
+4. **`org-member-get-github-login`** — the canonical login resolver, available to every scout run
+   (it needs only `organization_member:read`, which scout tokens carry). Once you've identified the
+   owning **person** — by name/email via `org-members-list`, or `@me` for the current user — pass
+   their PostHog user UUID to this tool to get their linked GitHub login (it returns null when the
+   member has no GitHub identity linked). This is the one step that actually hands you a usable
+   handle, so prefer it over guessing when steps 1–3 only give you a person rather than a login.
 
 **If you can't resolve a confident login, leave `suggested_reviewers` empty** — the report still
 surfaces for a human to grab. **Never guess a handle**: a wrong login mis-assigns the report (or
