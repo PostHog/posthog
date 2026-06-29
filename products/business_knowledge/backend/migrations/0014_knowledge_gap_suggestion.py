@@ -1,5 +1,4 @@
 import django.db.models.deletion
-from django.conf import settings
 from django.db import migrations, models
 
 import posthog.models.utils
@@ -9,7 +8,6 @@ class Migration(migrations.Migration):
     dependencies = [
         ("business_knowledge", "0013_bk_source_always_include_index"),
         ("posthog", "1245_duckgres_sink_schema_state"),
-        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
     operations = [
@@ -37,15 +35,6 @@ class Migration(migrations.Migration):
                         choices=[("pending", "Pending"), ("accepted", "Accepted"), ("dismissed", "Dismissed")],
                         default="pending",
                         max_length=16,
-                    ),
-                ),
-                (
-                    "created_by",
-                    models.ForeignKey(
-                        blank=True,
-                        null=True,
-                        on_delete=django.db.models.deletion.SET_NULL,
-                        to=settings.AUTH_USER_MODEL,
                     ),
                 ),
                 (

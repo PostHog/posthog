@@ -1,13 +1,13 @@
 from django.db import models
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
-from posthog.models.utils import CreatedMetaFields, UUIDModel
+from posthog.models.utils import UUIDModel
 
 from .constants import GapStatus
 from .knowledge_source import KnowledgeSource
 
 
-class KnowledgeGapSuggestion(TeamScopedRootMixin, CreatedMetaFields, UUIDModel):
+class KnowledgeGapSuggestion(TeamScopedRootMixin, UUIDModel):
     """A topic the support AI couldn't answer from the knowledge base.
 
     One row per (ticket, normalized topic). The ticket view filters by ticket_id;
@@ -18,6 +18,9 @@ class KnowledgeGapSuggestion(TeamScopedRootMixin, CreatedMetaFields, UUIDModel):
         "posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="business_knowledge_gap_suggestions"
     )
     ticket_id = models.UUIDField(db_index=True)
+    # Rows are created by the support AI pipeline, not a user, so there's no `created_by` FK
+    # (avoids an FK constraint on the hot posthog_user table). Just track when the gap appeared.
+    created_at = models.DateTimeField(auto_now_add=True)
     topic = models.TextField()
     normalized_topic = models.CharField(max_length=255)
     ticket_type = models.CharField(max_length=32, blank=True, default="")
