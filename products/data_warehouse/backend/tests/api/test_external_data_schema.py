@@ -2336,10 +2336,10 @@ class TestUpdateExternalDataSchema:
 
         with (
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.external_data_workflow_exists"
+                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists"
             ) as mock_external_data_workflow_exists,
             mock.patch(
-                "products.data_warehouse.backend.api.external_data_schema.sync_external_data_job_workflow"
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
             ) as mock_sync_external_data_job_workflow,
         ):
             response = client.patch(
@@ -2403,7 +2403,7 @@ class TestUpdateExternalDataSchema:
             },
         )
 
-        with mock.patch("products.data_warehouse.backend.api.external_data_schema.Database.create_for"):
+        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
             response = client.patch(
                 f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
                 data={
