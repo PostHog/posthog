@@ -107,7 +107,13 @@ export function ArtefactTaskRun({
 
             {expanded && task && runId ? (
                 <div className="mt-2 h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
-                    <RunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
+                    <RunViewer
+                        taskId={task.id}
+                        runId={runId}
+                        interaction={replayOnly ? 'read-only' : 'live'}
+                        threadRowClassName="px-3"
+                        threadListClassName="py-3"
+                    />
                 </div>
             ) : null}
         </div>
