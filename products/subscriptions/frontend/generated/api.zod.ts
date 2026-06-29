@@ -35,7 +35,7 @@ export const SubscriptionsCreateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 25.'
             ),
         prompt: zod
             .string()
@@ -154,7 +154,7 @@ export const SubscriptionsUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 25.'
             ),
         prompt: zod
             .string()
@@ -273,7 +273,7 @@ export const SubscriptionsPartialUpdateBody = /* @__PURE__ */ zod
             .array(zod.number())
             .optional()
             .describe(
-                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.'
+                'List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 25.'
             ),
         prompt: zod
             .string()
