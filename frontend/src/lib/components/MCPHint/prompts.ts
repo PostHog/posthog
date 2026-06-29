@@ -22,6 +22,13 @@ export const SURFACE_KEYS = [
 
 export type SurfaceKey = (typeof SURFACE_KEYS)[number]
 
+// Surfaces the in-product Max AI assistant has no tool for. The MCP hint promotes the *external*
+// MCP agent (PostHog Code, Claude, Cursor, …), but when the Max chat is open the suggestion reads
+// as Max contradicting itself — Max correctly says it can't do these, then a toast pops up urging
+// the user to ask an "agent" to do exactly that. Suppress the hint for these surfaces while Max is
+// open. Remove a key here once Max gains a matching tool (e.g. a `create_cohort` tool).
+export const MAX_UNSUPPORTED_SURFACES = new Set<SurfaceKey>(['cohorts.create'])
+
 export type SurfacePrompts = {
     toast: string
     examples: string[]

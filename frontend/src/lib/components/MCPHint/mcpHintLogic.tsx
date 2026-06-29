@@ -8,13 +8,16 @@ import api from 'lib/api'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { sceneLogic } from 'scenes/sceneLogic'
+import { Scene } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
-import { UserType } from '~/types'
+import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { SidePanelTab, UserType } from '~/types'
 
 import type { mcpHintLogicType } from './mcpHintLogicType'
 import { MCPHintToast } from './MCPHintToast'
-import type { SurfaceKey } from './prompts'
+import { MAX_UNSUPPORTED_SURFACES, type SurfaceKey } from './prompts'
 
 // In production the toast auto-dismisses after a few seconds so it doesn't linger;
 // in development we keep it open so it's easier to inspect.
@@ -44,7 +47,16 @@ export function tryShowMCPHint(surfaceKey: SurfaceKey, options: TryShowMCPHintOp
 export const mcpHintLogic = kea<mcpHintLogicType>([
     path(['lib', 'components', 'MCPHint', 'mcpHintLogic']),
     connect(() => ({
-        values: [userLogic, ['user'], featureFlagLogic, ['featureFlags']],
+        values: [
+            userLogic,
+            ['user'],
+            featureFlagLogic,
+            ['featureFlags'],
+            sidePanelStateLogic,
+            ['sidePanelOpen', 'selectedTab'],
+            sceneLogic,
+            ['sceneId'],
+        ],
         actions: [userLogic, ['updateUser'], eventUsageLogic, ['reportMCPHintShown', 'reportMCPHintDismissed']],
     })),
     actions({
@@ -110,6 +122,13 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             (localOptOut: boolean, user: UserType | null): boolean => Boolean(localOptOut || user?.hide_mcp_hints),
         ],
         userRole: [(s) => [s.user], (user: UserType | null): string | null => user?.role_at_organization ?? null],
+        // Whether the in-product Max AI chat is currently visible — either pinned in the side panel
+        // (the floating Max button also opens it here) or the full-screen Max scene.
+        isMaxOpen: [
+            (s) => [s.sidePanelOpen, s.selectedTab, s.sceneId],
+            (sidePanelOpen: boolean, selectedTab: SidePanelTab | null, sceneId: string | null): boolean =>
+                (sidePanelOpen && selectedTab === SidePanelTab.Max) || sceneId === Scene.Max,
+        ],
     }),
     listeners(({ values, actions }) => ({
         tryShowHint: ({ surfaceKey, derivedPrompt }) => {
@@ -118,6 +137,12 @@ export const mcpHintLogic = kea<mcpHintLogicType>([
             const cooldownActive = values.lastShownAt !== null && sinceLast < COOLDOWN_MS
 
             if (values.effectiveOptOut || Boolean(values.dismissedSurfaces[surfaceKey]) || cooldownActive) {
+                return
+            }
+
+            // Don't suggest asking an agent to do something the in-product Max assistant just said it
+            // can't do — that contradiction only shows up while the Max chat is open.
+            if (values.isMaxOpen && MAX_UNSUPPORTED_SURFACES.has(surfaceKey)) {
                 return
             }
 
