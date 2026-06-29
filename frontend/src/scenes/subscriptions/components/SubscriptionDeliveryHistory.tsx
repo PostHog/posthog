@@ -10,6 +10,7 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 import type {
+    AIReportQueryDiagnosticApi,
     PaginatedSubscriptionDeliveryListApi,
     SubscriptionApi,
     SubscriptionDeliveryApi,
@@ -94,29 +95,17 @@ function deliveryTriggerLabel(triggerType: string): string {
 /** LemonTag and text cells share a row height; middle-align `td` so badges line up with copy. */
 const DELIVERY_TABLE_CELL_CLASS = 'align-middle'
 
-/** One entry of `content_snapshot.ai_report_diagnostics` — a generated query and whether it ran. */
-interface AiReportDiagnostic {
-    description?: string
-    hogql?: string
-    ok?: boolean
-    error_type?: string | null
-}
-
 /**
  * All per-query diagnostics for an AI-prompt delivery (succeeded and failed). The backend scrubs
- * `content_snapshot` to `{}` for callers without `query:viewer` access, so this is empty unless the
- * viewer may see query content. Surfacing the successful queries — not just the failed ones — lets a
- * subscription owner see exactly what the prompt generated and self-recover by tightening it.
+ * this to `null` for callers without `query:viewer` access, so it is empty unless the viewer may see
+ * query content. Surfacing the successful queries — not just the failed ones — lets a subscription
+ * owner see exactly what the prompt generated and self-recover by tightening it.
  */
-function reportDiagnostics(row: SubscriptionDeliveryApi): AiReportDiagnostic[] {
-    const diagnostics = (row.content_snapshot as { ai_report_diagnostics?: unknown } | null)?.ai_report_diagnostics
-    if (!Array.isArray(diagnostics)) {
-        return []
-    }
-    return (diagnostics as AiReportDiagnostic[]).filter((d) => d && typeof d === 'object')
+function reportDiagnostics(row: SubscriptionDeliveryApi): readonly AIReportQueryDiagnosticApi[] {
+    return row.ai_report_diagnostics ?? []
 }
 
-function queryStatusTag(d: AiReportDiagnostic): JSX.Element {
+function queryStatusTag(d: AIReportQueryDiagnosticApi): JSX.Element {
     return d.ok === false ? (
         <LemonTag type="danger">{d.error_type || 'Failed'}</LemonTag>
     ) : (
@@ -124,28 +113,35 @@ function queryStatusTag(d: AiReportDiagnostic): JSX.Element {
     )
 }
 
-function diagnosticsSummary(diagnostics: AiReportDiagnostic[]): string {
+function diagnosticsSummary(diagnostics: readonly AIReportQueryDiagnosticApi[]): string {
     const total = diagnostics.length
     const failed = diagnostics.filter((d) => d.ok === false).length
     const noun = total === 1 ? 'query' : 'queries'
     return failed === 0 ? `${total} ${noun} · all succeeded` : `${total} ${noun} · ${failed} failed`
 }
 
-const failedIndexes = (diagnostics: AiReportDiagnostic[]): number[] =>
+const failedIndexes = (diagnostics: readonly AIReportQueryDiagnosticApi[]): number[] =>
     diagnostics.map((d, i) => (d.ok === false ? i : -1)).filter((i) => i >= 0)
 
-/** The delivered report markdown, when present. Lives in `content_snapshot`, so it is scrubbed away for
- * callers without `query:viewer` access just like the diagnostics. */
+/** The delivered report markdown, when present. Scrubbed to `null` for callers without
+ * `query:viewer` access just like the diagnostics. */
 function reportMarkdown(row: SubscriptionDeliveryApi): string | null {
-    const report = (row.content_snapshot as { ai_report?: unknown } | null)?.ai_report
+    const report = row.ai_report
     return typeof report === 'string' && report ? report : null
+}
+
+/** The subscription prompt captured when this report was generated. User-authored (not query-derived),
+ * so it stays readable even for callers without query access. */
+function reportPrompt(row: SubscriptionDeliveryApi): string | null {
+    const prompt = row.ai_report_prompt
+    return typeof prompt === 'string' && prompt ? prompt : null
 }
 
 /**
  * Per-query accordion: one compact header per generated query (status + description); expand a query for its
  * SQL. Failed queries are open by default so a degraded report stays loud and debuggable.
  */
-function GeneratedQueries({ diagnostics }: { diagnostics: AiReportDiagnostic[] }): JSX.Element {
+function GeneratedQueries({ diagnostics }: { diagnostics: readonly AIReportQueryDiagnosticApi[] }): JSX.Element {
     return (
         <div className="flex flex-col gap-1">
             <div className="text-secondary">{diagnosticsSummary(diagnostics)}</div>
@@ -177,7 +173,8 @@ function GeneratedQueries({ diagnostics }: { diagnostics: AiReportDiagnostic[] }
 function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Element | null {
     const diagnostics = reportDiagnostics(row)
     const report = reportMarkdown(row)
-    if (!row.change_summary && !report && diagnostics.length === 0) {
+    const prompt = reportPrompt(row)
+    if (!row.change_summary && !report && !prompt && diagnostics.length === 0) {
         return null
     }
     return (
@@ -186,6 +183,14 @@ function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Ele
                 <div className="whitespace-pre-wrap">
                     <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">AI summary</div>
                     {row.change_summary}
+                </div>
+            ) : null}
+            {prompt ? (
+                <div className="whitespace-pre-wrap">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1">
+                        Prompt at time of generation
+                    </div>
+                    {prompt}
                 </div>
             ) : null}
             {report ? (
@@ -211,7 +216,10 @@ function ExpandedDeliveryRow({ row }: { row: SubscriptionDeliveryApi }): JSX.Ele
 // Module-scope const keeps the reference stable across parent re-renders.
 const DELIVERY_TABLE_EXPANDABLE = {
     rowExpandable: (row: SubscriptionDeliveryApi) =>
-        Boolean(row.change_summary) || Boolean(reportMarkdown(row)) || reportDiagnostics(row).length > 0,
+        Boolean(row.change_summary) ||
+        Boolean(reportMarkdown(row)) ||
+        Boolean(reportPrompt(row)) ||
+        reportDiagnostics(row).length > 0,
     expandedRowRender: (row: SubscriptionDeliveryApi) => <ExpandedDeliveryRow row={row} />,
 }
 

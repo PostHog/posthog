@@ -1144,6 +1144,21 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
+            return data
+        # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
+        # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
+        # The non-AI scaffold (insights, dashboard, total_insight_count) stays intact.
+        snapshot = data.get("content_snapshot")
+        if isinstance(snapshot, dict) and (
+            AI_REPORT_SNAPSHOT_KEY in snapshot
+            or AI_REPORT_PROMPT_SNAPSHOT_KEY in snapshot
+            or AI_REPORT_DIAGNOSTICS_KEY in snapshot
+        ):
+            data["content_snapshot"] = {
+                key: value
+                for key, value in snapshot.items()
+                if key not in (AI_REPORT_SNAPSHOT_KEY, AI_REPORT_PROMPT_SNAPSHOT_KEY, AI_REPORT_DIAGNOSTICS_KEY)
+            }
         return data
 
 

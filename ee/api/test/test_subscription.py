@@ -1878,6 +1878,11 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 assert data["ai_report"] == "# Weekly report"
                 assert data["ai_report_diagnostics"][0]["hogql"] == generated_hogql
                 assert data["ai_report_prompt"] == "Weekly growth recap"
+                # The typed fields are the contract: the report must not be shipped twice, so the
+                # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
+                assert "ai_report" not in data["content_snapshot"]
+                assert "ai_report_diagnostics" not in data["content_snapshot"]
+                assert "ai_report_prompt" not in data["content_snapshot"]
         # Delivery metadata stays visible regardless — only the query-derived report is scrubbed.
         assert data["status"] == "completed"
         assert data["recipient_results"] == [{"recipient": "ai@posthog.com", "status": "success"}]
@@ -1916,6 +1921,10 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert data["ai_report"] == expected_report
         assert data["ai_report_prompt"] == expected_prompt
         assert data["ai_report_diagnostics"] == expected_diagnostics
+        # The typed fields are the contract — the AI keys are stripped from content_snapshot so the
+        # report is not shipped twice (the snapshot stays a dict, just without the AI keys).
+        for ai_key in ("ai_report", "ai_report_prompt", "ai_report_diagnostics"):
+            assert ai_key not in data["content_snapshot"]
         # The list endpoint serves the delivery history table, so it must expose the same fields.
         list_response = self.client.get(
             f"/api/environments/{self.team.id}/subscriptions/{self.subscription.id}/deliveries/"
@@ -1925,6 +1934,8 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         assert row["ai_report"] == expected_report
         assert row["ai_report_prompt"] == expected_prompt
         assert row["ai_report_diagnostics"] == expected_diagnostics
+        for ai_key in ("ai_report", "ai_report_prompt", "ai_report_diagnostics"):
+            assert ai_key not in row["content_snapshot"]
 
     def test_can_list_deliveries(self):
         d1 = self._create_delivery(idempotency_key="key-1")

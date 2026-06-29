@@ -100,8 +100,10 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         finished_at: null,
     },
     {
-        // AI-prompt delivery: the delivered report markdown and per-query diagnostics (one failed) live in
-        // content_snapshot, gated behind query:viewer (the backend scrubs it to {} otherwise).
+        // AI-prompt delivery: the delivered report markdown, the prompt it was generated from, and the
+        // per-query diagnostics (one failed) ship via the typed fields, gated behind query:viewer (the
+        // backend scrubs them to null and content_snapshot to {} otherwise). content_snapshot no longer
+        // carries the AI keys — the typed fields are the contract.
         id: 'del-ai-report',
         subscription: 1,
         temporal_workflow_id: 'wf-ai-report',
@@ -111,30 +113,31 @@ export const MOCK_SUBSCRIPTION_DELIVERIES: SubscriptionDeliveryApi[] = [
         target_type: 'email',
         target_value: 'matt.p@posthog.com',
         exported_asset_ids: [],
-        content_snapshot: {
-            ai_report:
-                '## Weekly Hedgebox report\n\n| Metric | Value |\n| --- | --- |\n| Daily active users | 89 |\n| New signups | 56 |\n| File uploads | 429 |\n| File downloads | 324 |\n\nEngagement is up week-over-week, led by uploads.',
-            ai_report_diagnostics: [
-                {
-                    description: 'Daily active users (7-day total)',
-                    hogql: 'SELECT count(DISTINCT person_id) AS dau FROM events WHERE timestamp >= now() - INTERVAL 7 DAY',
-                    ok: true,
-                    error_type: null,
-                },
-                {
-                    description: 'New signups',
-                    hogql: "SELECT count() AS signups FROM events WHERE event = 'signed_up' AND timestamp >= now() - INTERVAL 7 DAY",
-                    ok: true,
-                    error_type: null,
-                },
-                {
-                    description: 'First-ever signups per user',
-                    hogql: 'SELECT first_ever(event) OVER (PARTITION BY person_id) FROM events',
-                    ok: false,
-                    error_type: 'SyntaxError',
-                },
-            ],
-        },
+        content_snapshot: {},
+        ai_report:
+            '## Weekly Hedgebox report\n\n| Metric | Value |\n| --- | --- |\n| Daily active users | 89 |\n| New signups | 56 |\n| File uploads | 429 |\n| File downloads | 324 |\n\nEngagement is up week-over-week, led by uploads.',
+        ai_report_prompt:
+            'Summarize weekly Hedgebox engagement: daily active users, new signups, file uploads and downloads, and call out any week-over-week movement.',
+        ai_report_diagnostics: [
+            {
+                description: 'Daily active users (7-day total)',
+                hogql: 'SELECT count(DISTINCT person_id) AS dau FROM events WHERE timestamp >= now() - INTERVAL 7 DAY',
+                ok: true,
+                error_type: null,
+            },
+            {
+                description: 'New signups',
+                hogql: "SELECT count() AS signups FROM events WHERE event = 'signed_up' AND timestamp >= now() - INTERVAL 7 DAY",
+                ok: true,
+                error_type: null,
+            },
+            {
+                description: 'First-ever signups per user',
+                hogql: 'SELECT first_ever(event) OVER (PARTITION BY person_id) FROM events',
+                ok: false,
+                error_type: 'SyntaxError',
+            },
+        ],
         recipient_results: [],
         status: SubscriptionDeliveryStatusEnumApi.Completed,
         error: null,
