@@ -48,6 +48,7 @@ from ee.tasks.subscriptions.auto_disable import (
 )
 from ee.tasks.subscriptions.email_subscriptions import send_email_subscription_report
 from ee.tasks.subscriptions.slack_subscriptions import send_slack_message_with_integration_async
+from ee.tasks.subscriptions.subscription_utils import get_max_asset_count_for_organization
 
 LOGGER = get_logger(__name__)
 
@@ -223,7 +224,12 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
         raise Exception("There are no insights to be sent for this Subscription")
 
     total_insight_count = len(tile_insight_pairs)
-    export_pairs = tile_insight_pairs[: inputs.max_asset_count]
+    # Gate the cap on the org's billing plan, honoring any lower caller-supplied limit.
+    max_asset_count = await database_sync_to_async(
+        lambda: min(inputs.max_asset_count, get_max_asset_count_for_organization(team.organization)),
+        thread_sensitive=False,
+    )()
+    export_pairs = tile_insight_pairs[:max_asset_count]
 
     expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)
     assets = [

@@ -84,8 +84,10 @@ ADMIN_PORTAL_ENABLED = get_from_env("ADMIN_PORTAL_ENABLED", DEMO or DEBUG, type_
 # Fixed personal API key for local development, created by `manage.py setup_local_api_key`
 DEV_API_KEY = "phx_dev_local_test_api_key_1234567890abcdef"
 
+# Generous ceiling for sequential per-insight asset rendering — a full paid dashboard (up to
+# DEFAULT_MAX_ASSET_COUNT insights) can take many minutes, and subscriptions run at most hourly.
 PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES = get_from_env(
-    "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 10.0, type_cast=float
+    "PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES", 45.0, type_cast=float
 )
 TEMPORAL_TASK_TIMEOUT_MINUTES = PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES * 1.5
 

@@ -4,11 +4,13 @@ import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { MOCK_DEFAULT_ORGANIZATION, MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { initKeaTests } from '~/test/init'
-import { DashboardTile } from '~/types'
+import { AvailableFeature, DashboardTile } from '~/types'
 
 import { InsightSelector } from './InsightSelector'
-import { MAX_INSIGHTS } from './insightSelectorLogic'
+import { FREE_TIER_MAX_INSIGHTS, PAID_TIER_MAX_INSIGHTS } from './insightSelectorLogic'
 
 function renderInsightSelector(props: {
     tiles: DashboardTile[]
@@ -64,7 +66,22 @@ describe('InsightSelector', () => {
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText(`2 of ${MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
+        expect(screen.getByText(`2 of ${FREE_TIER_MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
+    })
+
+    it('uses the paid-tier limit when the org has product features', () => {
+        initKeaTests(true, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_PROJECT, {
+            ...MOCK_DEFAULT_ORGANIZATION,
+            available_product_features: [{ key: AvailableFeature.SUBSCRIPTIONS, name: 'Subscriptions' }],
+        })
+
+        renderInsightSelector({
+            tiles: createMockTiles() as DashboardTile[],
+            selectedInsightIds: [101, 102],
+            onChange: jest.fn(),
+        })
+
+        expect(screen.getByText(`2 of ${PAID_TIER_MAX_INSIGHTS} insights selected`)).toBeInTheDocument()
     })
 
     it('calls onChange when selecting an insight', async () => {
@@ -121,7 +138,7 @@ describe('InsightSelector', () => {
     })
 
     it('shows max limit message when at capacity', () => {
-        const maxInsightTiles = Array.from({ length: MAX_INSIGHTS }, (_, i) => ({
+        const maxInsightTiles = Array.from({ length: FREE_TIER_MAX_INSIGHTS }, (_, i) => ({
             id: i + 1,
             insight: { id: 100 + i, name: `Insight ${i}` } as any,
             layouts: { sm: { x: 0, y: i } } as any,
@@ -134,7 +151,9 @@ describe('InsightSelector', () => {
             onChange: jest.fn(),
         })
 
-        expect(screen.getByText(`Maximum ${MAX_INSIGHTS} insights. Deselect one to add another.`)).toBeInTheDocument()
+        expect(
+            screen.getByText(`Maximum ${FREE_TIER_MAX_INSIGHTS} insights. Deselect one to add another.`)
+        ).toBeInTheDocument()
     })
 
     it('shows warning when none selected after user interaction', async () => {

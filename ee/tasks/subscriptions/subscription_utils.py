@@ -1,5 +1,5 @@
 import datetime
-from typing import Union
+from typing import TYPE_CHECKING, Union
 
 from django.conf import settings
 
@@ -15,19 +15,35 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 
+if TYPE_CHECKING:
+    from posthog.models.organization import Organization
+
 logger = structlog.get_logger(__name__)
 
 UTM_TAGS_BASE = "utm_source=posthog&utm_campaign=subscription_report"
-# Keep in sync with MAX_INSIGHTS in frontend/src/lib/components/Subscriptions/insightSelectorLogic.ts
+# Per-subscription insight caps, gated by billing plan. Free orgs get FREE_TIER_MAX_ASSET_COUNT;
+# paid plans get DEFAULT_MAX_ASSET_COUNT. Keep both in sync with FREE_TIER_MAX_INSIGHTS and
+# PAID_TIER_MAX_INSIGHTS in frontend/src/lib/components/Subscriptions/insightSelectorLogic.ts
 DEFAULT_MAX_ASSET_COUNT = 25
+FREE_TIER_MAX_ASSET_COUNT = 6
 ASSET_GENERATION_FAILED_MESSAGE = "Failed to generate content"
-# Prometheus metrics for Temporal workers (web/worker pods)
+# Prometheus metrics for Temporal workers (web/worker pods). Buckets run well past the 600s the
+# old cap implied — a full paid dashboard renders sequentially and routinely lands in the minutes.
 SUBSCRIPTION_ASSET_GENERATION_TIMER = Histogram(
     "subscription_asset_generation_duration_seconds",
     "Time spent generating assets for a subscription",
     labelnames=["execution_path"],
-    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, float("inf")),
+    buckets=(1, 5, 10, 30, 60, 120, 240, 300, 360, 420, 480, 540, 600, 900, 1200, 1800, float("inf")),
 )
+
+
+def get_max_asset_count_for_organization(organization: "Organization") -> int:
+    """Resolve the per-subscription insight cap for an organization's billing plan.
+
+    Free orgs are limited to FREE_TIER_MAX_ASSET_COUNT; any paid plan gets the full
+    DEFAULT_MAX_ASSET_COUNT.
+    """
+    return FREE_TIER_MAX_ASSET_COUNT if organization.get_plan_tier() == "free" else DEFAULT_MAX_ASSET_COUNT
 
 
 def _has_asset_failed(asset: ExportedAsset) -> bool:
@@ -55,6 +71,9 @@ def generate_assets(
             insights = [resource.insight]
         else:
             raise Exception("There are no insights to be sent for this Subscription")
+
+        # Gate the cap on the org's billing plan, honoring any lower caller-supplied limit.
+        max_asset_count = min(max_asset_count, get_max_asset_count_for_organization(resource.team.organization))
 
         # Create all the assets we need
         expiry = ExportedAsset.compute_expires_after(ExportedAsset.ExportFormat.PNG)

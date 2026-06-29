@@ -62,7 +62,7 @@ from products.product_analytics.backend.models.insight import Insight
 
 from ee.billing.quota_limiting import QuotaLimitingCaches, QuotaResource, is_team_limited
 from ee.tasks.subscriptions.auto_disable import validate_re_enable
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT
+from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, get_max_asset_count_for_organization
 
 SUMMARY_QUOTA_CACHE_TTL_SECONDS = 60
 SUMMARY_CAP_HIT_DEDUPE_TTL_SECONDS = 600
@@ -569,9 +569,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insights:
             selected_ids = set(dashboard_export_insights)
 
-            if len(selected_ids) > DEFAULT_MAX_ASSET_COUNT:
+            # Gate selection on the org's billing plan so a free org can't save more than it can deliver.
+            max_asset_count = get_max_asset_count_for_organization(dashboard.team.organization)
+            if len(selected_ids) > max_asset_count:
                 raise ValidationError(
-                    {"dashboard_export_insights": [f"Cannot select more than {DEFAULT_MAX_ASSET_COUNT} insights."]}
+                    {"dashboard_export_insights": [f"Cannot select more than {max_asset_count} insights."]}
                 )
 
             # Ensure all selected insights belong to the team

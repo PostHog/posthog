@@ -2,12 +2,16 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.product_analytics.backend.models.insight import Insight
 
-from ee.tasks.subscriptions.subscription_utils import DEFAULT_MAX_ASSET_COUNT, generate_assets
+from ee.tasks.subscriptions.subscription_utils import FREE_TIER_MAX_ASSET_COUNT, generate_assets
 from ee.tasks.test.subscriptions.subscriptions_test_factory import create_subscription
 
 
@@ -37,15 +41,32 @@ class TestSubscriptionsTasksUtils(APIBaseTest):
             assert len(assets) == 1
             assert mock_export_task.si.call_count == 1
 
-    def test_generate_assets_for_dashboard(self, mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            # Free orgs are capped at FREE_TIER_MAX_ASSET_COUNT even though the dashboard has more tiles.
+            ("free_tier", [], FREE_TIER_MAX_ASSET_COUNT),
+            # Paid orgs render every tile (10 here, well under the paid cap).
+            ("paid_tier", [{"key": AvailableFeature.SUBSCRIPTIONS, "name": "Subscriptions"}], 10),
+        ]
+    )
+    def test_generate_assets_for_dashboard_respects_plan_tier(
+        self,
+        _name: str,
+        available_product_features: list,
+        expected_asset_count: int,
+        mock_export_task: MagicMock,
+        _mock_group: MagicMock,
+    ) -> None:
+        self.organization.available_product_features = available_product_features
+        self.organization.save()
         subscription = create_subscription(team=self.team, dashboard=self.dashboard, created_by=self.user)
 
         with self.settings(PARALLEL_ASSET_GENERATION_MAX_TIMEOUT_MINUTES=1):
             insights, assets = generate_assets(subscription)
 
         assert len(insights) == len(self.tiles)
-        assert len(assets) == DEFAULT_MAX_ASSET_COUNT
-        assert mock_export_task.si.call_count == DEFAULT_MAX_ASSET_COUNT
+        assert len(assets) == expected_asset_count
+        assert mock_export_task.si.call_count == expected_asset_count
 
     def test_raises_if_missing_resource(self, _mock_export_task: MagicMock, _mock_group: MagicMock) -> None:
         subscription = create_subscription(team=self.team, created_by=self.user)
