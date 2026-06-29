@@ -388,6 +388,10 @@ urlpatterns = [
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
     ),
     path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
+    ),
+    path(
         "api/projects/<str:team_id>/internal/signals/emit",
         csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
     ),
@@ -548,6 +552,8 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    r"code/canvas/[^/]+/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

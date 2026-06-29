@@ -196,7 +196,7 @@ def _warehouse_metadata(
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
     from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation  # noqa: PLC0415
 
@@ -669,18 +669,40 @@ _DATA_TYPES: list[tuple[str, str]] = [
 ]
 
 
-def _string_field(name: str, nullable: bool = False) -> StringDatabaseField:
-    return StringDatabaseField(name=name, nullable=nullable)
+def _string_field(name: str, nullable: bool = False, description: Optional[str] = None) -> StringDatabaseField:
+    return StringDatabaseField(name=name, nullable=nullable, description=description)
 
 
 class InformationSchemaTablesTable(LazyTable):
+    description: str = (
+        "SQL-standard catalog of every table, view, system table, and data warehouse table visible "
+        "to the caller; one row per table. Start here to discover what is queryable."
+    )
     fields: dict[str, FieldOrTable] = {
-        "table_catalog": _string_field("table_catalog", nullable=False),
-        "table_schema": _string_field("table_schema", nullable=False),
-        "table_name": _string_field("table_name", nullable=False),
-        "table_type": _string_field("table_type", nullable=False),
-        "description": _string_field("description", nullable=True),
-        "row_count": IntegerDatabaseField(name="row_count", nullable=True),
+        "table_catalog": _string_field(
+            "table_catalog",
+            nullable=False,
+            description="Table name (same as table_name); PostHog does not use a separate catalog identifier.",
+        ),
+        "table_schema": _string_field(
+            "table_schema",
+            nullable=False,
+            description="Schema bucket the table sits in: 'public', 'system', 'information_schema', 'warehouse', or 'views'.",
+        ),
+        "table_name": _string_field("table_name", nullable=False, description="The table's name, used to query it."),
+        "table_type": _string_field(
+            "table_type",
+            nullable=False,
+            description="Origin of the table: 'posthog', 'system', 'information_schema', 'data_warehouse', or 'view'.",
+        ),
+        "description": _string_field(
+            "description", nullable=True, description="Human/agent-facing description of what the table holds."
+        ),
+        "row_count": IntegerDatabaseField(
+            name="row_count",
+            nullable=True,
+            description="Approximate row count; only populated for data warehouse tables and views, NULL otherwise.",
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -696,16 +718,44 @@ class InformationSchemaTablesTable(LazyTable):
 
 
 class InformationSchemaColumnsTable(LazyTable):
+    description: str = (
+        "SQL-standard catalog of every column on every visible table; one row per column. Filter by "
+        "table_name to inspect a table's columns, their types, and descriptions."
+    )
     fields: dict[str, FieldOrTable] = {
-        "table_schema": _string_field("table_schema", nullable=False),
-        "table_name": _string_field("table_name", nullable=False),
-        "column_name": _string_field("column_name", nullable=False),
-        "ordinal_position": IntegerDatabaseField(name="ordinal_position", nullable=False),
-        "data_type": _string_field("data_type", nullable=False),
-        "is_nullable": BooleanDatabaseField(name="is_nullable", nullable=False),
-        "is_array": BooleanDatabaseField(name="is_array", nullable=False),
-        "field_kind": _string_field("field_kind", nullable=False),
-        "description": _string_field("description", nullable=True),
+        "table_schema": _string_field(
+            "table_schema", nullable=False, description="Schema bucket the column's table belongs to."
+        ),
+        "table_name": _string_field(
+            "table_name", nullable=False, description="Name of the table the column belongs to."
+        ),
+        "column_name": _string_field(
+            "column_name",
+            nullable=False,
+            description="Column name; nested virtual-table columns appear as 'parent.child'.",
+        ),
+        "ordinal_position": IntegerDatabaseField(
+            name="ordinal_position", nullable=False, description="1-based position of the column within its table."
+        ),
+        "data_type": _string_field(
+            "data_type",
+            nullable=False,
+            description="HogQL data type, e.g. String, Integer, DateTime, JSON; see information_schema.data_types.",
+        ),
+        "is_nullable": BooleanDatabaseField(
+            name="is_nullable", nullable=False, description="Whether the column can hold NULL values."
+        ),
+        "is_array": BooleanDatabaseField(
+            name="is_array", nullable=False, description="Whether the column is an array type."
+        ),
+        "field_kind": _string_field(
+            "field_kind",
+            nullable=False,
+            description="How the column is backed: 'column', 'expression' (computed), or 'virtual_table'.",
+        ),
+        "description": _string_field(
+            "description", nullable=True, description="Human/agent-facing description of what the column holds."
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -721,13 +771,27 @@ class InformationSchemaColumnsTable(LazyTable):
 
 
 class InformationSchemaRelationshipsTable(LazyTable):
+    description: str = (
+        "Joinable relationships between tables (lazy joins and field traversers); one row per "
+        "relationship. Use it to discover how to join from one table to another in HogQL."
+    )
     fields: dict[str, FieldOrTable] = {
-        "source_table": _string_field("source_table", nullable=False),
-        "source_column": _string_field("source_column", nullable=False),
-        "target_table": _string_field("target_table", nullable=False),
-        "target_column": _string_field("target_column", nullable=True),
-        "relationship_kind": _string_field("relationship_kind", nullable=False),
-        "via": _string_field("via", nullable=True),
+        "source_table": _string_field(
+            "source_table", nullable=False, description="Table the relationship is defined on."
+        ),
+        "source_column": _string_field(
+            "source_column", nullable=False, description="Column (or field path) on the source table that joins out."
+        ),
+        "target_table": _string_field("target_table", nullable=False, description="Table the relationship points to."),
+        "target_column": _string_field(
+            "target_column", nullable=True, description="Column (or field path) on the target table that is joined to."
+        ),
+        "relationship_kind": _string_field(
+            "relationship_kind", nullable=False, description="Kind of relationship: 'lazy_join' or 'field_traverser'."
+        ),
+        "via": _string_field(
+            "via", nullable=True, description="Internal resolver backing a lazy join, NULL for field traversers."
+        ),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
@@ -743,9 +807,15 @@ class InformationSchemaRelationshipsTable(LazyTable):
 
 
 class InformationSchemaDataTypesTable(LazyTable):
+    description: str = (
+        "Reference list of the HogQL data types reported in information_schema.columns, with a short "
+        "explanation of each; one row per type."
+    )
     fields: dict[str, FieldOrTable] = {
-        "type_name": _string_field("type_name", nullable=False),
-        "description": _string_field("description", nullable=False),
+        "type_name": _string_field(
+            "type_name", nullable=False, description="Type name as it appears in columns.data_type."
+        ),
+        "description": _string_field("description", nullable=False, description="What values of this type represent."),
     }
 
     def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:

@@ -390,6 +390,12 @@ tools:
     warehouse-column-annotations-update:
         operation: warehouse_column_annotations_update
         enabled: false
+    warehouse-column-statistics-list:
+        operation: warehouse_column_statistics_list
+        enabled: false
+    warehouse-column-statistics-retrieve:
+        operation: warehouse_column_statistics_retrieve
+        enabled: false
     warehouse-dag-list:
         operation: warehouse_dag_list
         enabled: false

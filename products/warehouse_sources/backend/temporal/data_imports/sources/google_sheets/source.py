@@ -45,15 +45,16 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
         return {
             "the header row in the worksheet contains duplicates": "Import failed: There exists duplicate column headers. Please make sure all column headers have values and aren't duplicated.",
             "can't be found": None,
-            "SpreadsheetNotFound": None,
             "must be real number, not str": "Import failed: a numeric column contains a non-numeric value. Ensure every cell in numeric columns is stored as a plain number.",
             "Spreadsheet access denied": "Import failed: PostHog does not have access to this spreadsheet. Please share it with our service account as described at https://posthog.com/docs/cdp/sources/google-sheets",
             # OAuth path: sharing with the service account wouldn't help — the connected account itself
             # lacks access. Tell the user to reconnect or have the owner share it with that account.
             "connected Google account can't access this spreadsheet": "Import failed: the connected Google account can't access this spreadsheet. Reconnect the account, or have the sheet's owner share it with that account.",
-            # gspread raises APIError "[404]: Requested entity was not found." when the
-            # spreadsheet has been deleted or is otherwise unreachable. Retrying cannot recover.
-            "Requested entity was not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
+            # gspread surfaces the Sheets API 404 (deleted/moved sheet, or access removed) as a
+            # `SpreadsheetNotFound`, which `google_sheets.py` re-raises with this stable message —
+            # `str(SpreadsheetNotFound)` is otherwise just `<Response [404]>`, with nothing to match.
+            # Retrying cannot recover.
+            "Spreadsheet not found": "Import failed: the Google Sheet could not be found. It may have been deleted or moved. Please check the spreadsheet URL and that it is shared with our service account.",
             # OAuth auth failures: the stored refresh token has been revoked/expired, or its consent
             # is missing the Sheets scope. google-auth raises these while refreshing the access token
             # — retrying can't recover, so ask the user to reconnect.

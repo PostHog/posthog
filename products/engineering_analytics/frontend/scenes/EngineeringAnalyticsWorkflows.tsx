@@ -8,6 +8,7 @@ import { dateFilterToText, dateMapping } from 'lib/utils/dateFilters'
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
+import { WorkflowsHealthHeader } from '../components/WorkflowsHealthHeader'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 
 // The endpoint caps the window at 366 days, so "All time" and week/month snaps are out.
@@ -35,6 +36,8 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
         branchInput,
         appliedBranch,
         sourceId,
+        fleetSummary,
+        fleetTruncated,
     } = useValues(engineeringAnalyticsLogic)
     const { setWorkflowDateRange, setBranchFilter, applyBranchFilter, refresh } = useActions(engineeringAnalyticsLogic)
 
@@ -86,6 +89,7 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     </LemonButton>
                 ))}
             </div>
+            {workflowHealth.length > 0 && <WorkflowsHealthHeader summary={fleetSummary} truncated={fleetTruncated} />}
             <WorkflowHealthTable
                 rows={workflowHealth}
                 loading={workflowHealthLoading}

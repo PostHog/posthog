@@ -127,6 +127,17 @@ def _permission_denied_message(integration_id: int | None) -> str:
     return _OAUTH_PERMISSION_DENIED_MESSAGE if integration_id else _PERMISSION_DENIED_MESSAGE
 
 
+# gspread converts the Sheets API 404 into `SpreadsheetNotFound` — see gspread/client.py
+# `open_by_key`: `raise SpreadsheetNotFound(ex.response) from ex`. Its `str()` is just the bare
+# response repr (`<Response [404]>`); the "Requested entity was not found" text lives only on the
+# chained APIError cause. The non-retryable matcher does a substring match over `str(e)`, so it has
+# nothing to match on and a deleted/moved/unshared sheet gets retried indefinitely. Re-raise with a
+# stable, descriptive message (mirroring `_PERMISSION_DENIED_MESSAGE` above) so it stops retrying.
+_SPREADSHEET_NOT_FOUND_MESSAGE = (
+    "Spreadsheet not found. The Google Sheet could not be found — it may have been deleted or "
+    "moved, or is no longer shared with the PostHog service account."
+)
+
 T = TypeVar("T")
 
 
@@ -192,6 +203,8 @@ def _get_worksheet(
             spreadsheet = client.open_by_url(spreadsheet_url)
         except PermissionError as e:
             raise PermissionError(_permission_denied_message(integration_id)) from e
+        except gspread.exceptions.SpreadsheetNotFound as e:
+            raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
         return spreadsheet.get_worksheet_by_id(worksheet_id)
 
     return _retry_on_transient_api_error(execute)
@@ -209,6 +222,8 @@ def get_schemas(config: GoogleSheetsSourceConfig, team_id: int) -> list[tuple[st
             spreadsheet = client.open_by_url(config.spreadsheet_url)
         except PermissionError as e:
             raise PermissionError(_permission_denied_message(_integration_id(config))) from e
+        except gspread.exceptions.SpreadsheetNotFound as e:
+            raise gspread.exceptions.SpreadsheetNotFound(_SPREADSHEET_NOT_FOUND_MESSAGE) from e
         return spreadsheet.worksheets()
 
     worksheets = _retry_on_transient_api_error(execute)

@@ -16,7 +16,7 @@ from structlog.types import FilteringBoundLogger
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_warehouse.backend.s3 import aget_s3_client, ensure_bucket_exists
+from products.data_warehouse.backend.facade.api import aget_s3_client, ensure_bucket_exists
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
@@ -283,6 +283,16 @@ class DeltaTableHelper:
         if PARTITION_KEY in data.column_names:
             use_partitioning = True
             await self._logger.adebug(f"Using partitioning on {PARTITION_KEY}")
+
+        # The column can exist without the table being partitioned by it; defer to the
+        # table's real partition_columns or delta-rs rejects the write as a mismatch.
+        if use_partitioning and delta_table is not None:
+            existing_partition_columns = getattr(delta_table.metadata(), "partition_columns", None) or []
+            if PARTITION_KEY not in existing_partition_columns:
+                use_partitioning = False
+                await self._logger.adebug(
+                    f"Existing table is not partitioned by {PARTITION_KEY}; skipping partitioning to match its layout"
+                )
 
         commit_properties: deltalake.CommitProperties | None = (
             deltalake.CommitProperties(custom_metadata=commit_metadata) if commit_metadata else None

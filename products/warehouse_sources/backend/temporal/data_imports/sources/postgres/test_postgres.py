@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
@@ -53,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _MAX_SETUP_CONNECTION_DROPPED_RETRIES,
     _MAX_SETUP_RECOVERY_CONFLICT_RETRIES,
     _MIN_RECOVERY_CONFLICT_CHUNK_SIZE,
+    _SSH_HANDSHAKE_EOF_ERROR,
     FORCE_UTF8_CLIENT_ENCODING,
     METADATA_STATEMENT_TIMEOUT_MS,
     SSL_REQUIRED_AFTER_DATE,
@@ -85,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _get_table_chunk_size,
     _has_duplicate_primary_keys,
     _is_connection_dropped_error,
+    _is_connection_limit_error,
     _is_dropped_or_connect_timeout,
     _is_invalid_ssl_negotiation_response,
     _is_options_startup_param_unsupported,
@@ -93,6 +95,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _is_unsupported_function_error,
     _next_recovery_conflict_chunk_size,
     _normalize_function_names,
+    _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
     _rls_active_from_conn,
@@ -100,6 +103,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _safe_close_connection,
     _schemas_from_conn,
     _statement_timeout_as_non_retryable,
+    _tunnel_with_handshake_translation,
     _xmin_capable_tables_from_conn,
     filter_postgres_incremental_fields,
     get_foreign_keys,
@@ -293,6 +297,10 @@ class TestPostgresSourceNonRetryableErrors:
             'OperationalError: connection failed: connection to server at "44.216.29.125", port 5432 failed: FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: remaining connection slots are reserved for roles with the SUPERUSER attribute',
             'OperationalError: connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL: too many connections for role "user"',
+            # Server-wide max_connections reached. Transient capacity on the customer's DB — a slot
+            # frees as soon as another connection closes — so it's retried in-process on connect and
+            # must stay out of NonRetryableErrors.
+            'OperationalError: connection failed: connection to server at "142.93.153.201", port 25060 failed: FATAL:  sorry, too many clients already',
             # Mid-stream SSL/connection drops during schema discovery — the pooler culled an idle
             # connection or the socket died. A fresh attempt reconnects, so these must stay retryable.
             "consuming input failed: SSL connection has been closed unexpectedly",
@@ -626,6 +634,26 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw activity-level message (what `_handle_import_error` sees via str(e)) — no class name.
+            # Raised by get_rows when a recovery conflict forces offset chunking and a chunk then hits
+            # the 10-minute statement timeout.
+            "Reading from your read replica timed out: Postgres canceled the initial read with a "
+            "recovery conflict, and the chunked fallback read still couldn't finish within the 10 "
+            "minute statement timeout. Increase max_standby_streaming_delay or enable "
+            "hot_standby_feedback on the replica, or sync from the primary database instead.",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "QueryTimeoutException: Reading from your read replica timed out: Postgres canceled the "
+            "initial read with a recovery conflict",
+        ],
+    )
+    def test_read_replica_timeout_query_timeout_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Read-replica timeout error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) — no class name.
             "permission denied for table brand",
             "permission denied for view posthog_areas",
@@ -761,6 +789,60 @@ class TestPostgresSourceNonRetryableErrors:
         # dedicated message fragment is what recognises it at the activity layer.
         assert "QueryTimeoutException" not in matching_keys
         assert "has an appropriate index" in matching_keys
+
+    def test_pk_uniqueness_probe_timeout_is_non_retryable_and_points_at_primary_key(self, source):
+        # A statement_timeout in the fallback `id` uniqueness probe used to surface the generic
+        # "index your incremental field" message, which won't fix this full-table GROUP BY. The
+        # message must point at the assumed primary key while staying non-retryable at the raw
+        # activity-level layer (where str(e) carries no class name).
+        error_msg = str(_pk_uniqueness_probe_timeout_error())
+        assert "primary key" in error_msg
+        assert "incremental field" not in error_msg
+        non_retryable = source.get_non_retryable_errors()
+        matching_keys = [pattern for pattern in non_retryable if pattern in error_msg]
+        assert "has an appropriate index" in matching_keys
+
+    def test_ssh_handshake_eof_is_non_retryable(self, source):
+        # `_tunnel_with_handshake_translation` turns paramiko's bare, empty-message handshake
+        # EOFError into this stable message; without the entry it would match no rule and retry forever.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
+
+def _raise_eof() -> None:
+    # Indirection so the `yield` below stays reachable under mypy's warn_unreachable — at runtime
+    # this raises before the generator yields, standing in for paramiko's handshake EOFError.
+    raise EOFError()
+
+
+@contextmanager
+def _handshake_eof_tunnel() -> Iterator[tuple[str, int]]:
+    _raise_eof()
+    yield ("127.0.0.1", 5432)
+
+
+@contextmanager
+def _body_eof_tunnel() -> Iterator[tuple[str, int]]:
+    yield ("127.0.0.1", 5432)
+
+
+class TestTunnelWithHandshakeTranslation:
+    def test_bare_handshake_eof_is_translated_with_cause(self):
+        # The translated message (verified non-retryable in `test_ssh_handshake_eof_is_non_retryable`)
+        # replaces the bare EOFError while preserving it as the cause.
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with _tunnel_with_handshake_translation(_handshake_eof_tunnel):
+                pass
+
+        assert isinstance(exc_info.value.__cause__, EOFError)
+
+    def test_body_eof_is_not_translated(self):
+        # A failure raised by the body (not the handshake) must surface as the original EOFError,
+        # never the translated handshake message — guards the `yield`-outside-`except` invariant.
+        with pytest.raises(EOFError):
+            with _tunnel_with_handshake_translation(_body_eof_tunnel):
+                raise EOFError()
 
 
 class TestPostgresSourceSetupRecoveryConflictRetry:
@@ -921,6 +1003,13 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "SSL connection has been closed unexpectedly"
             ),
+            # libpq's lower-level form of the same TLS drop — a socket-level EOF/reset during the
+            # SSL handshake or read. Transient (pooler/firewall idle cull, failover, network blip),
+            # not the permanent no-SSL-support case, so the in-process reconnect must catch it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "SSL SYSCALL error: EOF detected"
+            ),
             psycopg.OperationalError("terminating connection due to administrator command"),
             # psycopg's message when libpq finds the socket already gone (raised from
             # PGconn.socket inside the commit at the end of get_connection). A transient
@@ -1009,6 +1098,43 @@ class TestDroppedOrConnectTimeout:
         assert _is_dropped_or_connect_timeout(error) is False
 
 
+class TestIsConnectionLimitError:
+    @pytest.mark.parametrize(
+        "error",
+        [
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  sorry, too many clients already"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+            ),
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                'FATAL:  too many connections for role "reader"'
+            ),
+        ],
+    )
+    def test_connection_limit_errors_are_detected(self, error):
+        assert _is_connection_limit_error(error) is True
+
+    @pytest.mark.parametrize(
+        "error",
+        [
+            # A connection that was established then dropped is a different class — not a limit.
+            psycopg.OperationalError("server closed the connection unexpectedly"),
+            psycopg.OperationalError(
+                'connection to server at "10.0.0.1" failed: FATAL: password authentication failed'
+            ),
+            psycopg.errors.QueryCanceled("statement timeout"),
+            ValueError("sorry, too many clients already"),
+        ],
+    )
+    def test_unrelated_errors_are_not_detected(self, error):
+        assert _is_connection_limit_error(error) is False
+
+
 class TestRaiseIfSetupConnectionBroken:
     """A connection dropped mid-discovery must surface as a retryable error, not the masked
     `ProgrammingError: Explicit commit() forbidden within a Transaction context` that psycopg's
@@ -1075,6 +1201,31 @@ class TestConnectWithDroppedRetry:
 
         assert result is good_conn
         assert connect.call_count == 2
+
+    def test_retries_connection_limit_error_then_succeeds(self, logger):
+        good_conn = mock.MagicMock()
+        connect = mock.MagicMock(
+            side_effect=[
+                # The source is momentarily at its connection limit; slots free up by a
+                # later attempt, so the reconnect succeeds rather than failing the whole sync.
+                # Two consecutive refusals lock in that the loop keeps retrying past one attempt.
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  sorry, too many clients already"
+                ),
+                psycopg.OperationalError(
+                    'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                    "FATAL:  remaining connection slots are reserved for roles with the SUPERUSER attribute"
+                ),
+                good_conn,
+            ]
+        )
+
+        with patch("products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.time.sleep"):
+            result = _connect_with_dropped_retry(connect, logger, max_attempts=5)
+
+        assert result is good_conn
+        assert connect.call_count == 3
 
     def test_permanent_error_is_not_retried(self, logger):
         connect = mock.MagicMock(
@@ -1317,6 +1468,33 @@ class TestInvalidSSLNegotiationResponse:
                 _connect_to_postgres(
                     host="db", port=5432, database="db", user="postgres", password="x", require_ssl=True
                 )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "SSL connection has been closed unexpectedly",
+            "SSL SYSCALL error: EOF detected",
+        ],
+    )
+    def test_transient_ssl_drop_is_not_wrapped_as_ssl_required(self, message):
+        # require_ssl=True, but the message is a transient TLS drop (pooler/firewall idle cull,
+        # failover, network blip) — it must surface raw so the connect-retry / Temporal can treat
+        # it as retryable, not as the non-retryable SSLRequiredError, which would permanently stop
+        # the sync with a misleading "enable SSL on your server" message.
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError(
+                f'connection failed: connection to server at "10.0.0.1", port 5432 failed: {message}'
+            )
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
+            with pytest.raises(psycopg.OperationalError) as exc_info:
+                _connect_to_postgres(
+                    host="db", port=5432, database="db", user="postgres", password="x", require_ssl=True
+                )
+        assert not isinstance(exc_info.value, SSLRequiredError)
 
 
 class TestStatementTimeoutAsNonRetryable:

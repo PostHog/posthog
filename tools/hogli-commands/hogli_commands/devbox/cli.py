@@ -35,10 +35,12 @@ from .coder import (
     _diagnose_unreachable_coder,
     _fail,
     _start_app_param,
+    clone_workspace,
     coder_authenticated,
     coder_installed,
     coder_reachable,
     coder_ssh_alias_configured,
+    create_clone_image,
     create_task,
     create_workspace,
     delete_user_secret,
@@ -56,6 +58,7 @@ from .coder import (
     get_default_git_identity,
     get_shared_users,
     get_sharing_status,
+    get_username,
     get_workspace,
     get_workspace_name,
     get_workspace_region,
@@ -1392,6 +1395,75 @@ def devbox_start(
     )
     click.echo("Created.")
     _print_connection_info(name)
+
+
+@click.command(
+    name="devbox:clone",
+    help="Clone a running devbox into a new one, carrying its full disk state",
+)
+@workspace_argument
+@click.option(
+    "--as",
+    "new_label",
+    default="clone",
+    show_default=True,
+    help="Label for the new devbox (becomes devbox-<you>-<label>)",
+)
+@click.option("-y", "--yes", is_flag=True, help="Skip the confirmation prompt")
+@click.option("-v", "--verbose", is_flag=True, help="Show full Coder/Terraform build output")
+def devbox_clone(workspace: str | None, new_label: str, yes: bool, verbose: bool) -> None:
+    """Duplicate a running devbox, disk and all.
+
+    Captures the source box's root volume into a private, short-lived AMI and
+    boots a new devbox from it, so the clone comes up with the source's full
+    disk state -- uncommitted work, local databases, installed tooling -- not
+    just the settings that dotfiles and user secrets already carry. The source
+    must be running; quiesce its dev stack first for an application-consistent
+    copy. The capture image is private to you and auto-expires.
+    """
+    ensure_runtime_ready()
+    source_name, workspaces = resolve_workspace_name(workspace)
+    ws = _get_workspace_or_fail(source_name, workspaces)
+
+    owner = get_username()
+    if str(ws.get("owner_name") or "").lower() not in ("", owner):
+        _fail("You can only clone your own devbox.")
+
+    template = ws.get("template_name") or DEFAULT_TEMPLATE
+    if template != DEFAULT_TEMPLATE:
+        _fail(f"Clone supports the '{DEFAULT_TEMPLATE}' template only (this devbox uses '{template}').")
+
+    region = region_from_workspace_name(source_name)
+    if region != DEFAULT_REGION:
+        _fail("Clone is us-east-1 only for now (an AMI is region-scoped). EU clone is not wired yet.")
+
+    status = get_workspace_status(ws)
+    if status != "running":
+        suffix = _workspace_arg_suffix(source_name)
+        _fail(
+            f"The source devbox must be running to clone it (status: {status}). Start it: `hogli devbox:start{suffix}`."
+        )
+
+    target_name = get_workspace_name(new_label, region=region)
+    if get_workspace(target_name, workspaces) is not None:
+        _fail(f"A devbox named '{target_name}' already exists. Pass `--as <label>` to pick another name.")
+
+    if not yes:
+        click.echo(f"Clone '{source_name}' -> '{target_name}'.")
+        click.echo(
+            "This images the source box's entire disk (including any on-disk secrets) into a\n"
+            "private AMI and boots the new box from it. The image auto-expires after a few days."
+        )
+        if not click.confirm("Proceed?"):
+            click.echo("Cancelled.")
+            return
+
+    click.echo("Capturing a clone image from the source devbox (this takes a few minutes)...")
+    ami = create_clone_image(source_name, owner=owner, source_label=source_name)
+    click.echo(f"Captured {ami}. Creating '{target_name}'...")
+    clone_workspace(source_name, target_name, base_ami=ami, template=template, verbose=verbose)
+    click.echo("Cloned.")
+    _print_connection_info(target_name)
 
 
 @click.command(name="devbox:stop", help="Stop your devbox (preserves disk, stops billing)")

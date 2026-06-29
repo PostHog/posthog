@@ -16,6 +16,7 @@ import {
     DEFAULT_ORDER_BY,
     DEFAULT_ORDER_DIRECTION,
     DEFAULT_SERVICE_NAMES,
+    DEFAULT_VIEW_MODE,
     tracingFiltersLogic,
 } from './tracingFiltersLogic'
 import type { tracingSceneLogicType } from './tracingSceneLogicType'
@@ -30,12 +31,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             [
                 'spans',
                 'spansLoading',
-                'rootSpans',
+                'listRows',
                 'sparklineData',
                 'sparklineLoading',
                 'hasMoreToLoad',
                 'hasRunQuery',
-                'totalSpansMatchingFilters',
+                'totalMatchingFilters',
                 'traceSpans',
                 'traceSpansLoading',
                 'traceSpansLoadingMore',
@@ -70,6 +71,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 'setServiceNames',
                 'setFilterGroup',
                 'setSort',
+                'setViewMode',
                 'setCompareMode',
                 'setOverlayWindows',
                 'setFilters',
@@ -90,6 +92,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         closeCompareFlame: true,
         syncUrlAndRunQuery: true,
         handleFilterChange: (filterType: string, extraProps?: Record<string, unknown>) => ({ filterType, extraProps }),
+        setActiveTracingTab: (tab: 'traces' | 'operations') => ({ tab }),
     }),
 
     reducers({
@@ -145,6 +148,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             {
                 openCompareFlame: (_, { serviceName }) => serviceName,
                 closeCompareFlame: () => null,
+            },
+        ],
+        activeTracingTab: [
+            'traces' as 'traces' | 'operations',
+            {
+                setActiveTracingTab: (_, { tab }) => tab,
             },
         ],
     }),
@@ -211,12 +220,17 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         handleFilterChange: ({ filterType, extraProps }) => {
             posthog.capture('tracing filter changed', { filter_type: filterType, ...extraProps })
             actions.syncUrlAndRunQuery()
+            // Keep the Operations aggregate in sync with filters/date while that tab is active.
+            if (values.activeTracingTab === 'operations') {
+                actions.fetchAggregation()
+            }
         },
         setDateRange: () => actions.handleFilterChange('date_range'),
         setServiceNames: () => actions.handleFilterChange('service_names'),
         setFilterGroup: () => actions.handleFilterChange('filter_group'),
         setSort: ({ orderBy, orderDirection }) =>
             actions.handleFilterChange('sort', { column: orderBy, direction: orderDirection }),
+        setViewMode: ({ viewMode }) => actions.handleFilterChange('view_mode', { mode: viewMode }),
         setCompareMode: ({ compareMode }) => actions.handleFilterChange('compare_mode', { enabled: compareMode }),
         setOverlayWindows: () => {
             // Overlay drags only refetch the aggregation — the sparkline canvas range
@@ -232,6 +246,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         },
         setFilters: () => {
             actions.syncUrlAndRunQuery()
+        },
+        setActiveTracingTab: ({ tab }) => {
+            if (tab === 'operations') {
+                actions.fetchAggregation()
+            }
         },
     })),
 
@@ -304,6 +323,12 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 hasChanges = true
             }
 
+            const viewModeFromUrl = searchParams.view === 'spans' ? 'spans' : DEFAULT_VIEW_MODE
+            if (viewModeFromUrl !== values.filters.viewMode) {
+                filtersFromUrl.viewMode = viewModeFromUrl
+                hasChanges = true
+            }
+
             if (hasChanges) {
                 actions.setFilters(filtersFromUrl)
             } else if (!values.hasRunQuery) {
@@ -367,6 +392,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             }
             if (values.filters.compareMode) {
                 searchParams.compare = 'true'
+            }
+            if (values.filters.viewMode !== DEFAULT_VIEW_MODE) {
+                searchParams.view = values.filters.viewMode
             }
 
             actions.runQuery()

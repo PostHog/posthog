@@ -28,16 +28,13 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.utils import convert_property_value, flatten
 
-from products.batch_exports.backend.models.batch_export import BatchExportRun
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState, HogFunctionType
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
+from products.batch_exports.backend.facade.models import BatchExportRun
+from products.cdp.backend.facade.models import HogFunction, HogFunctionState, HogFunctionType
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.models import TeamDataWarehouseConfig
 from products.data_warehouse.backend.presentation.views import managed_warehouse
-from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.models import ExternalDataJob, ExternalDataSchema, ExternalDataSource
 
 from ee.billing.billing_manager import BillingManager
 
@@ -137,7 +134,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
 
             tag_queries(product=Product.WAREHOUSE, feature=Feature.QUERY)
-            result = execute_hogql_query(query, team=self.team)
+            result = execute_hogql_query(query, team=self.team, user=request.user)
 
             values = [row[0] for row in result.results]
             span.set_attribute("result_count", len(values))

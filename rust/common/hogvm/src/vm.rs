@@ -692,11 +692,13 @@ impl<'a> HogVM<'a> {
     {
         let next = self.context.get_bytecode(self.ip, &self.current_symbol)?;
         self.ip += 1;
-        let next_type_name = next_type_name(next);
-        let expected = std::any::type_name::<T>();
-
-        serde_json::from_value(next.clone())
-            .map_err(|_| VmError::InvalidValue(next_type_name, expected.to_string()))
+        // Borrow-deserialize straight from the &JsonValue (serde_json implements Deserializer for
+        // &Value) instead of cloning the whole value and deserializing an owned copy on every
+        // single instruction fetch. The error type-name strings are built lazily, only on an actual
+        // mismatch, rather than allocating one per token read on the hot path.
+        T::deserialize(next).map_err(|_| {
+            VmError::InvalidValue(next_type_name(next), std::any::type_name::<T>().to_string())
+        })
     }
 
     fn pop_stack(&mut self) -> Result<HogValue, VmError> {

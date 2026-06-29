@@ -3755,7 +3755,7 @@
     },
     "events": {
         "$$heatmap": {
-            "description": "Heatmap events carry heatmap data to the backend, they do not contribute to event counts.",
+            "description": "Internal carrier for heatmap data. Routed to a separate heatmaps store during ingestion and do not contribute to event counts.",
             "ignored_in_assistant": true,
             "label": "Heatmap"
         },
@@ -8238,7 +8238,8 @@
     "replay": {
         "click_count": {
             "description": "Number of clicks during the session",
-            "label": "Clicks"
+            "label": "Clicks",
+            "type": "Numeric"
         },
         "comment_text": {
             "description": "Search for text within comments on the recording",
@@ -8246,7 +8247,8 @@
         },
         "console_error_count": {
             "description": "Number of console errors during the session",
-            "label": "Errors"
+            "label": "Errors",
+            "type": "Numeric"
         },
         "console_log_level": {
             "description": "Level of console logs captured",
@@ -8263,7 +8265,13 @@
         },
         "keypress_count": {
             "description": "Number of key presses during the session",
-            "label": "Key presses"
+            "label": "Key presses",
+            "type": "Numeric"
+        },
+        "mouse_activity_count": {
+            "description": "Number of mouse activity events during the session",
+            "label": "Mouse activity",
+            "type": "Numeric"
         },
         "snapshot_source": {
             "description": "Platform the session was recorded on",

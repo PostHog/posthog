@@ -53,6 +53,10 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
 const ALICE: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-alice' }
 const BOB: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-bob' }
 
+// Slack-trigger sessions must carry full metadata (workspace/channel/ts/thread_ts);
+// `bareTriggerMetadata` no longer accepts a bare `{ kind: 'slack' }`.
+const SLACK_META = { kind: 'slack' as const, workspace_id: 'T1', channel: 'C01', ts: '1', thread_ts: '4' }
+
 describe('enqueueOrResume', () => {
     it('creates a fresh session without externalKey', async () => {
         const queue = new PgSessionQueue(pool)
@@ -177,6 +181,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'alice opens thread', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         const second = await enqueueOrResume(
@@ -188,6 +193,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'bob replies', timestamp: Date.now() },
                 principal: BOB,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         expect(second.kind).toBe('elevation_required')
@@ -230,6 +236,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'live opens thread', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         const preview = await enqueueOrResume(
@@ -241,6 +248,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'preview author tests draft', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         expect(preview.kind).toBe('created')
@@ -262,6 +270,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'live follow-up', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         expect(liveAgain.kind).toBe('resumed')
@@ -278,6 +287,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'other draft', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         expect(otherPreview.kind).toBe('created')
@@ -296,6 +306,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'alice opens', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         // Six denials — the seventh would also fit if we ever lift the cap,
@@ -310,6 +321,7 @@ describe('enqueueOrResume', () => {
                     seed: { role: 'user', content: `bob #${i}`, timestamp: Date.now() + i },
                     principal: { ...BOB, slack_user_id: `bob-${i}` },
                     trigger: 'slack',
+                    triggerMetadata: SLACK_META,
                 }
             )
         }
@@ -564,6 +576,47 @@ describe('enqueueOrResume', () => {
                     }
                 )
             ).rejects.toThrow('boom')
+        })
+    })
+
+    describe('bareTriggerMetadata exhaustiveness', () => {
+        it('throws if a slack trigger is enqueued without triggerMetadata', async () => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            await expect(
+                enqueueOrResume(
+                    { queue },
+                    {
+                        application: app,
+                        revision: rev,
+                        externalKey: null,
+                        trigger: 'slack',
+                        seed: { role: 'user', content: 'hi', timestamp: Date.now() },
+                    }
+                )
+            ).rejects.toThrow(/slack trigger requires explicit triggerMetadata/)
+        })
+
+        it.each([
+            ['webhook', 'webhook'],
+            ['mcp', 'mcp'],
+            ['chat', 'chat'],
+        ] as const)('stamps bare {kind:%s} when trigger=%s and no triggerMetadata', async (kind, trigger) => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            const out = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    trigger,
+                    seed: { role: 'user', content: 'hi', timestamp: Date.now() },
+                }
+            )
+            expect(out.kind).toBe('created')
+            const session = await queue.get(out.sessionId)
+            expect(session!.trigger_metadata).toEqual({ kind })
         })
     })
 })

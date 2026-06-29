@@ -374,9 +374,14 @@ async def setup_partitioning(
     # source silently re-derives its own count — discarding the operator's choice.
     partition_count = schema.partition_count_override or schema.partition_count or resource.partition_count
     partition_size = schema.partition_size_override or schema.partition_size or resource.partition_size
-    partition_keys = schema.partitioning_keys or resource.partition_keys or resource.primary_keys
+    partition_keys = (
+        schema.partitioning_keys_override
+        or schema.partitioning_keys
+        or resource.partition_keys
+        or resource.primary_keys
+    )
     partition_format = schema.partition_format or resource.partition_format
-    partition_mode = schema.partition_mode or resource.partition_mode
+    partition_mode = schema.partition_mode_override or schema.partition_mode or resource.partition_mode
 
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")
@@ -624,6 +629,14 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
+def _quantize_to_scale(value: decimal.Decimal, scale: int) -> decimal.Decimal:
+    quantum = decimal.Decimal(1).scaleb(-scale)
+    with decimal.localcontext() as ctx:
+        # Hold decimal256's full 76 digits while rounding so the quantize itself can't overflow.
+        ctx.prec = 76
+        return value.quantize(quantum, rounding=decimal.ROUND_HALF_EVEN)
+
+
 def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array:
     non_null = [v for v in values if v is not None]
     if non_null:
@@ -632,10 +645,19 @@ def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array
             return pa.array(values, type=optimal_type)
         except pa.ArrowInvalid:
             pass
+
+    fallback_type = pa.decimal256(76, MAX_NUMERIC_SCALE)
     try:
-        return pa.array(values, type=pa.decimal256(76, MAX_NUMERIC_SCALE))
-    except Exception as exc:
-        raise ValueError("Cannot build decimal array from values") from exc
+        return pa.array(values, type=fallback_type)
+    except Exception:
+        # A value carries more decimal places than Delta Lake's max scale (e.g. an unconstrained
+        # Postgres `numeric`). pyarrow refuses to silently truncate, so round to the max scale
+        # ourselves rather than failing the whole sync.
+        try:
+            quantized = [None if v is None else _quantize_to_scale(v, MAX_NUMERIC_SCALE) for v in values]
+            return pa.array(quantized, type=fallback_type)
+        except Exception as exc:
+            raise ValueError("Cannot build decimal array from values") from exc
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):

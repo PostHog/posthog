@@ -262,7 +262,16 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.NON_INTEGRATED_CONVERSIONS_TABLE_QUERY
         ):
             return {"product": Product.MARKETING_ANALYTICS}
-        case NodeKind.MCP_HARNESS_BREAKDOWN_QUERY:
+        case (
+            NodeKind.MCP_HARNESS_BREAKDOWN_QUERY
+            | NodeKind.MCP_TOOL_TOP_USERS_QUERY
+            | NodeKind.MCP_TOOL_FAILURES_QUERY
+            | NodeKind.MCP_TOOL_STATS_QUERY
+            | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
+            | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+            | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
+            | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
+        ):
             return {"product": Product.MCP_ANALYTICS}
         case (
             # not attributable on their own

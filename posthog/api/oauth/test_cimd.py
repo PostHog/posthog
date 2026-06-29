@@ -30,6 +30,7 @@ from posthog.api.oauth.cimd import (
     get_or_create_cimd_provisioning_application,
     is_cimd_client_id,
     refresh_cimd_metadata_task,
+    register_cimd_provisioning_application_task,
     validate_cimd_url,
 )
 from posthog.models.oauth import OAuthApplication, create_cimd_verification_token
@@ -372,6 +373,36 @@ class TestGetOrCreateCimdApplication(APIBaseTest):
 
         app = OAuthApplication.objects.get(cimd_metadata_url=VALID_CIMD_URL)
         self.assertEqual(app.name, "Original Name")
+
+    @parameterized.expand(
+        [
+            ("refresh", refresh_cimd_metadata_task),
+            ("registration", register_cimd_provisioning_application_task),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.capture_exception")
+    @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
+    def test_background_task_does_not_capture_expected_validation_error(
+        self, _name, task_fn, mock_fetch, mock_capture, _url_mock
+    ):
+        # Rejecting a non-compliant partner document is expected, so it must not surface as an error-tracking issue.
+        mock_fetch.side_effect = CIMDValidationError("document exceeds the 5120 byte limit")
+        task_fn(VALID_CIMD_URL)
+        mock_capture.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("refresh", refresh_cimd_metadata_task),
+            ("registration", register_cimd_provisioning_application_task),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.capture_exception")
+    @patch("posthog.api.oauth.cimd.fetch_and_upsert_cimd_application")
+    def test_background_task_captures_unexpected_fetch_error(self, _name, task_fn, mock_fetch, mock_capture, _url_mock):
+        error = CIMDFetchError("connection reset")
+        mock_fetch.side_effect = error
+        task_fn(VALID_CIMD_URL)
+        mock_capture.assert_called_once_with(error)
 
 
 class TestGetApplicationByClientId(APIBaseTest):
