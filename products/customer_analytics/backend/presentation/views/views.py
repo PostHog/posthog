@@ -17,7 +17,6 @@ from typing import cast
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -26,6 +25,7 @@ from rest_framework.response import Response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import TaggedItemViewSetMixin
 from posthog.exceptions import Conflict
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.user import User
 from posthog.permissions import is_service_auth
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -130,7 +130,7 @@ class CustomerProfileConfigViewSet(
             sidebar=data.sidebar,
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         return Response(CustomerProfileConfigSerializer(instance=config).data, status=status.HTTP_201_CREATED)
 
@@ -144,7 +144,7 @@ class CustomerProfileConfigViewSet(
             fields=_profile_config_write_fields(serializer.validated_data, request.data),
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         if config is None:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -160,7 +160,7 @@ class CustomerProfileConfigViewSet(
             config_id=self.kwargs["pk"],
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -222,7 +222,7 @@ class CustomPropertyDefinitionViewSet(
                 is_big_number=data.is_big_number,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -239,7 +239,7 @@ class CustomPropertyDefinitionViewSet(
                 fields=_custom_property_definition_write_fields(serializer.validated_data, request.data),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomPropertyDefinitionConflictError as e:
             raise Conflict(str(e))
@@ -257,7 +257,7 @@ class CustomPropertyDefinitionViewSet(
             definition_id=self.kwargs["pk"],
             organization_id=self.organization.id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
         )
         if not deleted:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -331,7 +331,7 @@ class CustomerJourneyViewSet(
                 description=data.description,
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourneyConflictError as e:
             raise Conflict(str(e))
@@ -353,7 +353,7 @@ class CustomerJourneyViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -374,7 +374,7 @@ class CustomerJourneyViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.CustomerJourney_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -539,7 +539,7 @@ class AccountViewSet(
                 ),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.AccountPropertiesValidationError as e:
             raise ValidationError({"properties": e.messages})
@@ -569,7 +569,7 @@ class AccountViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
@@ -596,7 +596,7 @@ class AccountViewSet(
                 required_level=_object_required_level(request, write=True),
                 organization_id=self.organization.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
             )
         except api.Account_DoesNotExist:
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)

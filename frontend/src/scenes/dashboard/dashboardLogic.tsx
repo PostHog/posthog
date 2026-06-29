@@ -2776,10 +2776,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 }
 
                 const count = createdTiles.length
-                // Fire once per add action (not per tile) to stay consistent with the other tile types.
-                if (count > 0) {
-                    eventUsageLogic.actions.reportDashboardTileAdded('widget')
-                }
                 if (count > 1) {
                     lemonToast.success(`Added ${count} widgets`)
                 }

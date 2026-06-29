@@ -435,7 +435,8 @@ function getEmbedComponentTitle(node: NotebookComponentBlockNode): string | null
 }
 
 function getCodeComponentTitle(node: NotebookComponentBlockNode, fallback: string): string | null {
-    return getStringProp(node.props.title) ?? summarizeText(getStringProp(node.props.code)) ?? fallback
+    // Never suggest the code/SQL body itself as a title — fall back to the language label
+    return getStringProp(node.props.title) ?? fallback
 }
 
 function getQueryComponentTitle(node: NotebookComponentBlockNode): string | null {
@@ -453,7 +454,8 @@ function getQueryComponentTitle(node: NotebookComponentBlockNode): string | null
         return getStringProp(query?.name) ?? getStringProp(query?.shortId) ?? 'Saved insight'
     }
     if (sourceKind === 'HogQLQuery') {
-        return summarizeText(getStringProp(source?.query)) ?? 'SQL query'
+        // Leave SQL queries untitled initially — never suggest the SQL body or a generic label
+        return null
     }
     if (sourceKind === 'TrendsQuery') {
         return source ? (getSeriesSummary(source) ?? 'Trend') : 'Trend'
@@ -464,8 +466,12 @@ function getQueryComponentTitle(node: NotebookComponentBlockNode): string | null
     if (sourceKind === 'EventsQuery') {
         return 'Events'
     }
+    if (sourceKind === 'ActorsQuery') {
+        return 'People'
+    }
 
-    return queryKind ?? sourceKind ?? getDefaultComponentTitle(node)
+    // Don't suggest raw schema kinds (e.g. "DataTableNode") as a title
+    return getDefaultComponentTitle(node)
 }
 
 function getSeriesSummary(query: Record<string, NotebookPropValue>): string | null {

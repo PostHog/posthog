@@ -14,7 +14,6 @@ from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from pydantic import TypeAdapter
 from pydantic_core import ValidationError as PydanticValidationError
@@ -31,6 +30,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import is_impersonated
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
@@ -834,7 +834,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
-        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
         from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
@@ -1464,7 +1464,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=team.organization_id,
             team_id=team.pk,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="created",
@@ -1516,7 +1516,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     organization_id=cast(UUIDT, instance.organization_id),
                     team_id=instance.pk,
                     user=cast(User, self.context["request"].user),
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(self.context["request"]),
                     scope="Survey",
                     item_id="",
                     activity="updated",
@@ -1594,7 +1594,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=cast(UUIDT, instance.organization_id),
             team_id=instance.pk,
             user=cast(User, self.context["request"].user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(self.context["request"]),
             scope="Team",
             item_id=instance.pk,
             activity="updated",
@@ -1635,7 +1635,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+            from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
             from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1764,7 +1764,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id=cast(UUIDT, instance.organization_id),
                 team_id=instance.pk,
                 user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(self.context["request"]),
                 scope="Team",
                 item_id=instance.pk,
                 activity="updated",
@@ -1957,7 +1957,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             organization_id=cast(UUIDT, organization_id),
             team_id=team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team_id,
             activity="deleted",
@@ -1974,7 +1974,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -1985,7 +1985,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -1996,9 +1996,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.delete_secret_token_backup_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
-        )
+        team.delete_secret_token_backup_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -2010,7 +2008,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.generate_conversations_public_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 

@@ -7,10 +7,9 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,7 +18,6 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { addTilePickerModalLogic, DashboardAddTileType } from './addTilePickerModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function getAddTileMenuItems({
@@ -29,7 +27,6 @@ export function getAddTileMenuItems({
     push,
     setAddWidgetModalOpen,
     onBeforeSelect,
-    reportTileClick,
 }: {
     dashboardId: number
     dashboardWidgetsEnabled: boolean
@@ -37,12 +34,10 @@ export function getAddTileMenuItems({
     push: (url: string) => void
     setAddWidgetModalOpen: (open: boolean) => void
     onBeforeSelect?: () => void
-    reportTileClick?: (tileType: DashboardAddTileType) => void
 }): LemonMenuItem[] {
     const withBeforeSelect =
-        (tileType: DashboardAddTileType, onClick: () => void): (() => void) =>
+        (onClick: () => void): (() => void) =>
         () => {
-            reportTileClick?.(tileType)
             onBeforeSelect?.()
             onClick()
         }
@@ -50,31 +45,31 @@ export function getAddTileMenuItems({
     return [
         {
             label: 'Insight',
-            onClick: withBeforeSelect('insight', showAddInsightToDashboardModal),
+            onClick: withBeforeSelect(showAddInsightToDashboardModal),
             'data-attr': 'dashboard-add-insight',
         },
         {
             label: 'Text card',
-            onClick: withBeforeSelect('text_card', () => push(urls.dashboardTextTile(dashboardId, 'new'))),
+            onClick: withBeforeSelect(() => push(urls.dashboardTextTile(dashboardId, 'new'))),
             'data-attr': 'dashboard-add-text-tile',
         },
         {
             label: 'Button',
-            onClick: withBeforeSelect('button', () => push(urls.dashboardButtonTile(dashboardId, 'new'))),
+            onClick: withBeforeSelect(() => push(urls.dashboardButtonTile(dashboardId, 'new'))),
             'data-attr': 'dashboard-add-button-tile',
         },
         dashboardWidgetsEnabled
             ? {
                   label: 'Widget',
                   tag: 'new' as const,
-                  onClick: withBeforeSelect('widget', () => setAddWidgetModalOpen(true)),
+                  onClick: withBeforeSelect(() => setAddWidgetModalOpen(true)),
                   'data-attr': 'dashboard-add-widget',
               }
             : {
                   label: 'Widget',
                   tag: 'beta' as const,
                   tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                  onClick: withBeforeSelect('widget', () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
+                  onClick: withBeforeSelect(() => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))),
                   'data-attr': 'dashboard-add-widget-preview',
               },
     ]
@@ -84,21 +79,11 @@ export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
     const { loadDashboard, setAddWidgetModalOpen, setPendingInsertion } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { showAddTilePickerModal } = useActions(addTilePickerModalLogic)
-    const { reportDashboardAddTileOptionClicked } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-
-    const showPickerModal = useFeatureFlag('DASHBOARD_ADD_TILE_PICKER_MODAL', 'test')
 
     if (!dashboard) {
         return null
     }
-
-    const addButton = (
-        <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
-            Add
-        </LemonButton>
-    )
 
     return (
         <MaxTool
@@ -125,33 +110,21 @@ export function DashboardAddTileButton(): JSX.Element | null {
                 minAccessLevel={AccessControlLevel.Editor}
                 userAccessLevel={dashboard.user_access_level}
             >
-                {showPickerModal ? (
-                    <LemonButton
-                        type="primary"
-                        data-attr="dashboard-add-tile"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        onClick={showAddTilePickerModal}
-                    >
+                <LemonMenu
+                    items={getAddTileMenuItems({
+                        dashboardId: dashboard.id,
+                        dashboardWidgetsEnabled,
+                        showAddInsightToDashboardModal,
+                        push,
+                        setAddWidgetModalOpen,
+                        // Adding from the header appends at the bottom; drop any stale inline-insertion target.
+                        onBeforeSelect: () => setPendingInsertion(null),
+                    })}
+                >
+                    <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
                         Add
                     </LemonButton>
-                ) : (
-                    <LemonMenu
-                        items={getAddTileMenuItems({
-                            dashboardId: dashboard.id,
-                            dashboardWidgetsEnabled,
-                            showAddInsightToDashboardModal,
-                            push,
-                            setAddWidgetModalOpen,
-                            reportTileClick: (tileType) =>
-                                reportDashboardAddTileOptionClicked(tileType, 'control', 'header'),
-                            // Adding from the header appends at the bottom; drop any stale inline-insertion target.
-                            onBeforeSelect: () => setPendingInsertion(null),
-                        })}
-                    >
-                        {addButton}
-                    </LemonMenu>
-                )}
+                </LemonMenu>
             </AccessControlAction>
         </MaxTool>
     )

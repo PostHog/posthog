@@ -339,9 +339,15 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 actions.setOauthAuthorizationValue('access_type', 'organizations')
             } else if (requiredAccessLevel === 'team') {
                 actions.setOauthAuthorizationValue('access_type', 'teams')
-                const user = userLogic.values.user
-                if (user?.organization?.id) {
-                    actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                // With a team_id hint pending, let it drive org+project selection once
+                // teams load — don't pre-select the user's current org/team, or a CTA
+                // link could authorize the wrong project before the hint resolves. The
+                // empty project keeps the submit blocked until the hint fills it in.
+                if (!values.teamHint) {
+                    const user = userLogic.values.user
+                    if (user?.organization?.id) {
+                        actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                    }
                 }
             }
         },
@@ -360,23 +366,36 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         },
         loadAllTeamsSuccess: () => {
             const teams = values.sortedTeams
+            if (!teams) {
+                return
+            }
             // A team_id hint from the authorize URL (e.g. the wizard's --project-id) wins:
             // pre-select that project and its org so the user just clicks Authorize. We only
             // honor it if the user has access to that team (it's in their loaded teams), and
             // consume it once — so it can't override a later manual change or a project the
             // user creates here (both also re-fire this listener).
-            if (values.teamHint && teams && values.requiredAccessLevel === 'team') {
+            if (values.teamHint) {
                 const hinted = teams.find((t) => t.id === values.teamHint)
                 actions.setTeamHint(null)
-                if (hinted) {
+                if (hinted && values.requiredAccessLevel === 'team') {
                     actions.setSelectedOrganization(hinted.organization, hinted.id)
                     return
+                }
+                // Hint didn't resolve (inaccessible team, or not a team-level grant). Fall
+                // back to the user's current org/team — setRequiredAccessLevel skipped this
+                // while the hint was pending, so without it the screen would be left empty.
+                if (values.requiredAccessLevel === 'team' && !values.selectedOrganization) {
+                    const user = userLogic.values.user
+                    if (user?.organization?.id) {
+                        actions.setSelectedOrganization(user.organization.id, user?.team?.id)
+                        return
+                    }
                 }
             }
             // After teams load, auto-select first project if org is set but no project selected
             const orgId = values.selectedOrganization
             const currentTeams = values.oauthAuthorization.scoped_teams
-            if (orgId && (!currentTeams || currentTeams.length === 0) && teams) {
+            if (orgId && (!currentTeams || currentTeams.length === 0)) {
                 const orgTeams = teams.filter((t) => t.organization === orgId)
                 if (orgTeams.length > 0) {
                     actions.setOauthAuthorizationValue('scoped_teams', [orgTeams[0].id])

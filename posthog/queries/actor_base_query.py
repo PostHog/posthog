@@ -2,8 +2,7 @@ import uuid
 from datetime import datetime
 from typing import Any, Literal, Optional, TypedDict, Union
 
-from django.db.models import OuterRef, Subquery
-from django.db.models.query import Prefetch, QuerySet
+from django.db.models.query import QuerySet
 
 import structlog
 
@@ -11,13 +10,12 @@ from posthog.schema import ActorsQuery
 
 from posthog.hogql_queries.actor_strategies import PersonStrategy
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
-from posthog.models import PersonDistinctId, Team
+from posthog.models import Team
 from posthog.models.group import Group
 from posthog.models.person import Person
-from posthog.models.person.person import READ_DB_FOR_PERSONS
 from posthog.models.person.util import _batched_get_distinct_ids_for_persons, _batched_get_persons_by_uuids
+from posthog.personhog_client.client import personhog_call
 from posthog.personhog_client.converters import proto_person_to_model
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 
 logger = structlog.get_logger(__name__)
 
@@ -96,48 +94,13 @@ def get_people(
     people_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
     distinct_id_limit: int | None = 1000,
-) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
+) -> tuple[list[Person], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
-    from posthog.personhog_client.gate import use_personhog
-
-    if use_personhog():
-        try:
-            persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)
-            PERSONHOG_ROUTING_TOTAL.labels(
-                operation="get_people", source="personhog", client_name=get_client_name()
-            ).inc()
-            return persons, serialize_people(team, persons, value_per_actor_id)
-        except Exception:
-            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_people", source="personhog", error_type="grpc_error", client_name=get_client_name()
-            ).inc()
-            logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
-
-    distinct_id_subquery = Subquery(
-        PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-        .filter(team_id=team.pk, person_id=OuterRef("person_id"))
-        .values_list("id", flat=True)[:distinct_id_limit]
+    persons = personhog_call(
+        "get_people",
+        lambda: _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit),
     )
-    persons_qs: QuerySet[Person] = (
-        Person.objects.db_manager(READ_DB_FOR_PERSONS)  # nosemgrep: no-direct-persons-db-orm
-        .filter(team_id=team.pk, uuid__in=people_ids)
-        .prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                to_attr="distinct_ids_cache",
-                # nosemgrep: no-direct-persons-db-orm
-                queryset=PersonDistinctId.objects.db_manager(
-                    READ_DB_FOR_PERSONS
-                ).filter(  # nosemgrep: no-direct-persons-db-orm
-                    id__in=distinct_id_subquery
-                ),  # nosemgrep: no-direct-persons-db-orm
-            )
-        )
-        .order_by("-created_at", "uuid")
-        .only("id", "is_identified", "created_at", "properties", "uuid", "team_id")
-    )
-    PERSONHOG_ROUTING_TOTAL.labels(operation="get_people", source="django_orm", client_name=get_client_name()).inc()
-    return persons_qs, serialize_people(team, persons_qs, value_per_actor_id)
+    return persons, serialize_people(team, persons, value_per_actor_id)
 
 
 # A faster get_people if you don't need the Person objects
