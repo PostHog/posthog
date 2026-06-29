@@ -194,7 +194,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
             return level
         return MarketingAnalyticsDrillDownLevel.CAMPAIGN
 
-    def _build_costs_from_precompute(self, date_range: QueryDateRange) -> Optional[ast.SelectQuery]:
+    def _build_costs_from_precompute(
+        self, date_range: QueryDateRange
+    ) -> Optional[ast.SelectQuery | ast.SelectSetQuery]:
         """Native-table cost source: ensure each source's cost rows are materialized at the grain
         matching the current drill-down (one lazy job per source), then read them with the SAME column
         contract `build_union_query_ast` produces — so `_build_campaign_cost_select` is unchanged.
@@ -237,6 +239,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         for adapter in mat_adapters:
             insert_query = adapter.build_materialization_query(adapter.get_source_id())
             if insert_query is None:
+                logger.info(
+                    "marketing_costs_precompute",
+                    outcome="source_fallback_unmaterializable",
+                    team_id=self.team.pk,
+                    grain=grain_value,
+                    source_id=adapter.get_source_id(),
+                )
                 s3_fallback_adapters.append(adapter)
                 continue
             result = ensure_precomputed(
@@ -248,6 +257,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
                 table=LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
             )
             if not result.ready:
+                logger.info(
+                    "marketing_costs_precompute",
+                    outcome="source_fallback_jobs_not_ready",
+                    team_id=self.team.pk,
+                    grain=grain_value,
+                    source_id=adapter.get_source_id(),
+                )
                 s3_fallback_adapters.append(adapter)
                 continue
             job_ids.extend(result.job_ids)
