@@ -68,7 +68,7 @@ export function GitHubBranchCombobox({
     // Offer "Use <typed> as branch name" when the search doesn't match an existing branch — lets the agent
     // work on a brand-new branch.
     const createSentinel = CREATE_BRANCH_PREFIX + trimmedSearchQuery
-    const showCreateItem = trimmedSearchQuery.length > 0 && !branches.includes(trimmedSearchQuery)
+    const showCreateItem = trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
     const items = showCreateItem ? [...branches, createSentinel] : branches
 
     return (
