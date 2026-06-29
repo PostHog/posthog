@@ -13,8 +13,8 @@
 #   and setup-sqlx-cli are byte-equivalent mirrors of the canonical composites)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, PR comment posters, snapshot
-#   auto-commit (handle-snapshots), app-token issuance, posthog-github-action
-#   telemetry, --store-durations write, test-selection verdict
+#   auto-commit (handle-snapshots), posthog-github-action telemetry,
+#   --store-durations write, test-selection verdict
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -25,11 +25,9 @@
 #   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER
 # - Service launch via `nohup ... --down` (survives Depot's step-shell teardown) and
 #   waits on a superset (objectstorage, Temporal) with an explicit 900s timeout
-# - Path-filter persons-SQL folded into migrations; product_yamls dropped (no
-#   validate-product-yamls job). check-migrations.if also gates on openapi_types
-#   so an OpenAPI-only PR still runs the folded check
-# - Snapshots always run in update mode (--snapshot-update): the shadow never commits,
-#   so it cannot catch snapshot regressions — that gate stays on canonical
+# - Path-filter persons-SQL folded into migrations. check-migrations.if also gates
+#   on openapi_types so an OpenAPI-only PR still runs the folded check
+# - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped
 # - Test-duration cache restore omitted: there is no Depot timing-update writer, so
 #   the shadow shards from the committed .test_durations (canonical refreshes from a
 #   daily cache) and the file-granularity split-plan probe stays dormant
@@ -179,6 +177,8 @@ jobs:
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
+            product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
+            product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
             # True only when every backend-relevant changed file is a data
             # warehouse import source — lets build_django_matrix drop the
             # Core/CorePOE/compat segments. Defaults false (full matrix).
@@ -331,6 +331,8 @@ jobs:
                         - 'rust/bin/migrate-persons'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
+                      product_yamls:
+                        - 'products/*/product.yaml'
                       openapi_types:
                         # Generated OpenAPI types - validate they match schema
                         - 'frontend/src/generated/**/*'
@@ -398,6 +400,42 @@ jobs:
                   fi
                   echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
                   echo "Only data warehouse import sources changed: $only_sources"
+
+    detect-snapshot-mode:
+        name: Detect snapshot mode
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 5
+        needs: [changes]
+        if: needs.changes.outputs.backend == 'true'
+        outputs:
+            mode: ${{ steps.detect.outputs.mode }}
+        steps:
+            - name: Detect mode
+              id: detect
+              env:
+                  PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+                  REPO: ${{ github.repository }}
+                  HAS_NO_SNAPSHOT_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'no-snapshot-update') }}
+                  AUTHOR: ${{ github.actor }}
+              run: |
+                  if [ "$PR_REPO" != "$REPO" ] && [ -n "$PR_REPO" ]; then
+                    echo "mode=check" >> "$GITHUB_OUTPUT"
+                    echo "Fork detected - running in check mode"
+                  elif [ "$HAS_NO_SNAPSHOT_LABEL" == "true" ]; then
+                    echo "mode=check" >> "$GITHUB_OUTPUT"
+                    echo "No-snapshot label detected - running in check mode"
+                  else
+                    echo "Workflow triggered by: $AUTHOR"
+                    if [[ "$AUTHOR" != "dependabot[bot]" ]] && \
+                       { [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; }; then
+                      echo "mode=check" >> "$GITHUB_OUTPUT"
+                      echo "Bot actor detected - running in check mode"
+                    else
+                      echo "mode=update" >> "$GITHUB_OUTPUT"
+                      echo "Running in update mode"
+                    fi
+                  fi
+
     # Fast pre-job: determines which products need testing and if Django should run
     # Only needs pnpm + node — no Python, Docker, or services
     # Runs on depot for turbo remote cache access (cache status drives Django gating)
@@ -647,7 +685,7 @@ jobs:
     # Each job gets its own runner + Docker stack, so no shared DB conflicts
     # Small products (< 50 tests) are grouped into a single job to avoid setup overhead
     turbo-tests:
-        needs: [changes, turbo-discover]
+        needs: [changes, turbo-discover, detect-snapshot-mode]
         if: >-
             always() && (github.event.pull_request.draft != true || contains(github.event.pull_request.labels.*.name, 'run-ci-backend')) && needs.turbo-discover.result == 'success' && needs.turbo-discover.outputs.matrix != '[]' && needs.turbo-discover.outputs.matrix != ''
         runs-on: depot-ubuntu-latest
@@ -767,8 +805,10 @@ jobs:
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
                   # needs an explicit path back to the repo-root durations file for balanced sharding.
-                  # Shadow trial: no snapshot-update / store-durations side effects.
-                  PYTEST_ADDOPTS: --reuse-db --durations-path ../../.test_durations
+                  PYTEST_ADDOPTS: >-
+                      --reuse-db
+                      --durations-path ../../.test_durations
+                      ${{ needs.detect-snapshot-mode.outputs.mode == 'update' && '--snapshot-update --snapshot-warn-unused' || '' }}
               run: pnpm turbo run backend:test ${{ matrix.filters }} --concurrency=1 --output-logs=full --force --log-order=stream ${{ matrix.pytest_args }}
     # Lightweight repo-wide checks that only need Python + uv (no Docker/DB).
     # Consolidates checks that previously each spun up their own runner.
@@ -804,6 +844,53 @@ jobs:
               run: tach check --dependencies --interfaces
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+
+    validate-product-yamls:
+        needs: [changes]
+        if: >
+            needs.changes.outputs.product_yamls == 'true' &&
+            github.event_name == 'pull_request' &&
+            github.event.pull_request.head.repo.full_name == github.repository
+        timeout-minutes: 5
+        name: Validate product.yaml owners (depot-ubuntu-latest)
+        runs-on: depot-ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_ASSIGN_REVIEWERS_PRIVATE_KEY }}
+                  owner: ${{ github.repository_owner }}
+                  repositories: ${{ github.event.repository.name }}
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14'
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Validate changed product.yaml owners
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  CHANGED_FILES: ${{ needs.changes.outputs.product_yamls_files }}
+              run: |
+                  mapfile -t names < <(echo "$CHANGED_FILES" | tr ' ' '\n' | sed -n 's|^products/\([^/]*\)/product.yaml$|\1|p')
+                  existing=()
+                  for n in "${names[@]}"; do
+                    [ -f "products/$n/product.yaml" ] && existing+=("$n")
+                  done
+                  if [ "${#existing[@]}" -eq 0 ]; then
+                    echo "No existing product.yaml files in diff after filtering"
+                    exit 0
+                  fi
+                  ./bin/hogli product:lint:owners "${existing[@]}"
+
     # Migration validation and OpenAPI type generation.
     # This job needs Docker + DB — it checks out master first to run baseline
     # migrations, then checks out the PR branch. All steps after the PR checkout
@@ -1160,7 +1247,8 @@ jobs:
                   echo "include=$include" >> "$GITHUB_OUTPUT"
                   echo "Django matrix size: $(jq -r 'length' <<< "$include") (mode=$MODE)"
     django:
-        needs: [changes, turbo-discover, get_clickhouse_versions, build_django_matrix, select-tests]
+        needs:
+            [changes, turbo-discover, detect-snapshot-mode, get_clickhouse_versions, build_django_matrix, select-tests]
         # Run legacy pytest if:
         # 1. Legacy code directly changed (ee/, posthog/)
         # 2. OR product changes affect legacy code (turbo-discover outputs run_legacy=true)
@@ -1195,6 +1283,9 @@ jobs:
                   ref: ${{ github.event.pull_request.head.ref }}
                   lfs: true
                   clean: false
+            - name: Install signal-fanout
+              shell: bash
+              run: sudo install -m 0755 .github/scripts/signal-fanout /usr/local/bin/signal-fanout
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers
@@ -1362,6 +1453,18 @@ jobs:
                       echo "::warning::Schema restore failed (stale/incompatible cached dump?) — pytest --reuse-db will run a full migrate"
                   fi
             # Tests
+            - name: Set snapshot update flags
+              if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
+              shell: bash
+              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> "$GITHUB_ENV"
+            - name: Set compat snapshot flags
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.compat }}
+              shell: bash
+              run: echo "PYTEST_ARGS=--snapshot-update --snapshot-warn-unused" >> "$GITHUB_ENV"
+            - name: Set check-mode snapshot flags
+              if: ${{ needs.changes.outputs.backend == 'true' && needs.detect-snapshot-mode.outputs.mode != 'update' && !matrix.person-on-events && !matrix.compat }}
+              shell: bash
+              run: echo "PYTEST_ARGS=--snapshot-warn-unused" >> "$GITHUB_ENV"
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash
@@ -1392,7 +1495,7 @@ jobs:
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
-              shell: bash
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: | # async_migrations covered in ci-async-migrations.yml
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
                   set +e
@@ -1416,7 +1519,7 @@ jobs:
                       # Selected mode: run only the test files chosen by the snob shadow selector.
                       # No --splits/--group (no sharding), no --reruns (selected runs should fail
                       # loud so flaky tests get fixed instead of masked; the ready-for-review full
-                      # run has reruns). Snapshot flags kept to match the depot shadow's full branch.
+                      # run has reruns).
                       if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
@@ -1424,9 +1527,9 @@ jobs:
                       fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
-                          --snapshot-update --snapshot-warn-unused \
                           -r fEsxX \
-                          --junitxml=junit-core.xml
+                          --junitxml=junit-core.xml \
+                          $PYTEST_ARGS
                   else
                     pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
                         matrix.compat
@@ -1442,7 +1545,6 @@ jobs:
                         --ignore=common/hogvm/python/test \
                         ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
                         ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
-                        --snapshot-update --snapshot-warn-unused \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 \
                         --pytest-durations=100 \
@@ -1450,7 +1552,8 @@ jobs:
                         "${SPLIT_GRANULARITY[@]}" \
                         --reruns 2 --reruns-delay 1 \
                         -r fEsxX \
-                        --junitxml=junit-core.xml
+                        --junitxml=junit-core.xml \
+                        $PYTEST_ARGS
                   fi
                   exit_code=$?
                   set -e
@@ -1488,7 +1591,7 @@ jobs:
             - name: Run Temporal tests
               id: run-temporal-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
-              shell: bash
+              shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               env:
                   AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
@@ -1516,16 +1619,15 @@ jobs:
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: no sharding, no --reruns (fail loud; the ready full
-                      # run still reruns). See the core selected branch for the rationale. Snapshot
-                      # flags kept to match the depot shadow's full branch.
+                      # run still reruns). See the core selected branch for the rationale.
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
-                          --snapshot-update --snapshot-warn-unused \
                           -r fEsxX \
-                          --junitxml=junit-temporal.xml
+                          --junitxml=junit-temporal.xml \
+                          $PYTEST_ARGS
                   else
                       # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
                       # safety net (matches canonical — the per-test guillotine added nothing over it,
@@ -1534,7 +1636,6 @@ jobs:
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
-                          --snapshot-update --snapshot-warn-unused \
                           --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                           --durations=100 --durations-min=1.0 \
                           --pytest-durations=100 \
@@ -1542,7 +1643,8 @@ jobs:
                           "${SPLIT_GRANULARITY[@]}" \
                           --reruns 2 --reruns-delay 1 \
                           -r fEsxX \
-                          --junitxml=junit-temporal.xml
+                          --junitxml=junit-temporal.xml \
+                          $PYTEST_ARGS
                   fi
                   exit_code=$?
                   set -e
