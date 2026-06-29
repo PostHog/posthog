@@ -1,4 +1,3 @@
-import * as fs from 'fs'
 import type { Plugin } from 'vite'
 
 /**
@@ -9,12 +8,11 @@ import type { Plugin } from 'vite'
 export function sqlRawPlugin(): Plugin {
     return {
         name: 'posthog-storybook-sql-raw',
-        transform(_code, id) {
+        transform(code, id) {
             if (!id.split('?')[0].endsWith('.sql')) {
                 return null
             }
-            const source = fs.readFileSync(id.split('?')[0], 'utf-8')
-            return { code: `export default ${JSON.stringify(source)}`, map: null }
+            return { code: `export default ${JSON.stringify(code)}`, map: null }
         },
     }
 }
