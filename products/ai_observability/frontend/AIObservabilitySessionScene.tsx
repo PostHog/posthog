@@ -90,7 +90,6 @@ function SessionTraceSentimentBar({ sentiment }: { sentiment?: LLMTrace['sentime
 function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: boolean }): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
-    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
     const {
         traces,
@@ -169,9 +168,7 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         }
     }, [playing, revealedTurnCount])
 
-    const showSessionSummarization =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
+    const showSessionSummarization = featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     // Calculate session aggregates
     const sessionStats = traces.reduce(
@@ -253,7 +250,7 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
                         rootRef={i === shown.length - 1 ? latestTurnRef : undefined}
                         turn={turn}
                         phase={isScrubbing ? phaseOf(i) : 'complete'}
-                        showSentiment={showSentiment}
+                        showSentiment
                         showSessionSummarization={!!showSessionSummarization}
                         traceSearchParams={traceSearchParams}
                     />
