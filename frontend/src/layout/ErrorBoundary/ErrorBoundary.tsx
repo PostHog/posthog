@@ -13,9 +13,14 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { teamLogic } from 'scenes/teamLogic'
 
 const DOM_MUTATION_PATTERNS = [
+    // React 18 / DOMException phrasing
     "Failed to execute 'removeChild' on 'Node'",
     "Failed to execute 'insertBefore' on 'Node'",
     "Failed to execute 'appendChild' on 'Node'",
+    // React 19 phrasing — the node's parentNode is already null when React mutates the DOM
+    "Cannot read properties of null (reading 'removeChild')",
+    "Cannot read properties of null (reading 'insertBefore')",
+    "Cannot read properties of null (reading 'appendChild')",
 ]
 
 function isDOMModificationError(error: Error): boolean {
