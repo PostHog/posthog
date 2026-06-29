@@ -15,7 +15,7 @@ from posthog.models.user_integration import ReauthorizationRequired, UserGitHubI
 from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, has_write_scopes
 
 from products.mcp_store.backend.facade.api import get_active_installations
-from products.tasks.backend.constants import InitialPermissionMode
+from products.tasks.backend.constants import InitialPermissionMode, filter_user_sandbox_env_vars
 from products.tasks.backend.redis import get_tasks_cache
 
 if TYPE_CHECKING:
@@ -312,13 +312,18 @@ def get_user_mcp_server_configs(
 def _resolve_mcp_consumer(interaction_origin: str | None) -> str:
     """Map the task's interaction origin to the `x-posthog-mcp-consumer` value.
 
-    Slack-launched runs send `"slack"`; everything else (the PostHog Code UI,
-    API callers, missing origin) is treated as PostHog Code. The MCP server
-    gates UI-apps payloads on the literal `"posthog-code"` — keep in sync with
-    `POSTHOG_CODE_CONSUMER` in `services/mcp/src/lib/client-detection.ts`.
+    Slack-launched runs send `"slack"` and posthog_ai (Max) runs send
+    `"posthog_ai"`; everything else (the PostHog Code UI, API callers, missing
+    origin) is treated as PostHog Code. Only `"posthog-code"` is a UI-apps host
+    on the MCP server — it gates UI-apps payload emission, so `"posthog_ai"` and
+    `"slack"` deliberately don't get UI apps. Keep the `"posthog-code"` literal
+    in sync with `POSTHOG_CODE_CONSUMER` in
+    `services/mcp/src/lib/client-detection.ts`.
     """
     if interaction_origin == "slack":
         return "slack"
+    if interaction_origin == "posthog_ai":
+        return "posthog_ai"
     return "posthog-code"
 
 
@@ -689,7 +694,8 @@ def build_sandbox_environment_variables(
     env_vars: dict[str, str] = {}
 
     if sandbox_environment and sandbox_environment.environment_variables:
-        env_vars.update(sandbox_environment.environment_variables)
+        safe_vars, _ = filter_user_sandbox_env_vars(sandbox_environment.environment_variables)
+        env_vars.update(safe_vars)
 
     if github_token:
         env_vars["GITHUB_TOKEN"] = github_token

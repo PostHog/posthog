@@ -1,4 +1,5 @@
 from .column_annotation import WarehouseColumnAnnotation
+from .column_statistics import WarehouseColumnStatistics
 from .credential import DataWarehouseCredential
 from .external_data_job import ExternalDataJob
 from .external_data_schema import ExternalDataSchema
@@ -14,4 +15,5 @@ __all__ = [
     "ExternalDataSource",
     "PendingSourceCredential",
     "WarehouseColumnAnnotation",
+    "WarehouseColumnStatistics",
 ]

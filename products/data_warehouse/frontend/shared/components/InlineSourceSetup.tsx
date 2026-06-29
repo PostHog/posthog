@@ -9,6 +9,7 @@ import { ExternalDataSourceType, SourceConfig } from '~/queries/schema/schema-ge
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
 import { NewSourcesWizard } from '../../scenes/NewSourceScene/NewSourceScene'
 import { sourceWizardLogic } from '../../scenes/NewSourceScene/sourceWizardLogic'
+import { DataWarehouseWizardBlock } from './DataWarehouseWizardBlock'
 import { SourceIcon } from './SourceIcon'
 
 export type InlineSourceSetupView = 'selection' | 'connecting'
@@ -27,6 +28,8 @@ export interface InlineSourceSetupProps {
     title?: string
     /** Custom subtitle for the source selection */
     subtitle?: string
+    /** When true, show the CLI wizard block as a fast path above the source grid (cloud/dev only) */
+    showWizard?: boolean
 }
 
 function InternalInlineSourceSetup({
@@ -34,6 +37,7 @@ function InternalInlineSourceSetup({
     featured = false,
     title = 'Connect a data source',
     subtitle = 'Choose a source to import data from',
+    showWizard = false,
 }: InlineSourceSetupProps): JSX.Element {
     const { connectors } = useValues(sourceWizardLogic)
     const { onClear } = useActions(sourceWizardLogic)
@@ -86,6 +90,8 @@ function InternalInlineSourceSetup({
                                 <p className="text-sm text-muted-alt">{subtitle}</p>
                             </div>
                         </div>
+
+                        {showWizard && <DataWarehouseWizardBlock />}
 
                         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                             {sourceItems.map((source) => (

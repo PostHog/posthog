@@ -79,7 +79,7 @@ const SECTION_NOTES: Record<string, string[]> = {
     ],
     tools: [
         '`tools[]` is a discriminated union on `kind` (`native` | `custom` | `client`). For valid `native` ids call `@posthog/agent-applications-native-tools-list` — the validator rejects unknown ids.',
-        'Skill and custom-tool *content* is uploaded via the bundle file tools (`-skills-update` / `-tools-update`), not inline in the spec.',
+        'Skills come from the llma-skill store: author/find with `@posthog/llm-skills-create` / `@posthog/llm-skills-search`, then reference them with `@posthog/agent-applications-revisions-skill-refs-set` (they are NOT authored inline). Custom-tool *content* is uploaded via `-tools-update`, not inline in the spec.',
     ],
     secrets: [
         '`secrets[]` entries are a bare string (resolvable, no egress authority) or `{ name, allowed_hosts }` (required to let `@posthog/http-request` send the secret to those hosts).',

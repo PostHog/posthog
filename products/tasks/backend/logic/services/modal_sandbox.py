@@ -5,6 +5,7 @@ import time
 import uuid
 import shlex
 import shutil
+import asyncio
 import logging
 import tempfile
 import threading
@@ -23,10 +24,15 @@ if TYPE_CHECKING:
 
 import modal
 import requests
+from modal.exception import (
+    ConnectionError as ModalConnectionError,
+    TimeoutError as ModalTimeoutError,
+)
 
 from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
+from products.tasks.backend.constants import SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS
 from products.tasks.backend.exceptions import (
     SandboxCleanupError,
     SandboxExecutionError,
@@ -35,6 +41,7 @@ from products.tasks.backend.exceptions import (
     SandboxProvisionError,
     SandboxTimeoutError,
     SnapshotCreationError,
+    SnapshotTimeoutError,
 )
 from products.tasks.backend.logic.services.agentsh import (
     AGENTSH_DAEMON_PORT,
@@ -85,6 +92,17 @@ SANDBOX_STREAMLIT_IMAGE = "ghcr.io/posthog/posthog-sandbox-streamlit"
 SANDBOX_IMAGE = SANDBOX_BASE_IMAGE
 AGENT_SERVER_PORT = 8080  # Modal connect tokens require port 8080
 AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
+
+# Recoverable infra errors Modal surfaces when filesystem snapshotting times out or loses its
+# connection (e.g. the command router's "Deadline exceeded"). These usually succeed on retry, so
+# Temporal should retry them rather than treating them as hard snapshot failures.
+TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
+    ModalTimeoutError,
+    ModalConnectionError,
+    TimeoutError,
+    ConnectionError,
+    asyncio.CancelledError,
+)
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -231,15 +249,20 @@ def _get_sandbox_image_reference(image: str = SANDBOX_IMAGE) -> str:
     )
 
 
+# Templates whose image bundles the agent-server at /scripts and can therefore
+# take a live local dist overlay in DEBUG. Add new agent-server-bearing templates here.
+AGENT_SERVER_TEMPLATES = frozenset({SandboxTemplate.DEFAULT_BASE, SandboxTemplate.VM_BASE})
+
+
 def _attach_local_package_mounts(image: modal.Image, template: SandboxTemplate) -> modal.Image:
     """Overlay each local package's built `dist/` dir onto the installed package
-    via add_local_dir(copy=False). No-op unless `template` is DEFAULT_BASE and
-    local packages are available.
+    via add_local_dir(copy=False). No-op unless `template` bundles the agent-server
+    and local packages are available.
 
     Transitive deps are resolved from the baked /scripts/node_modules/ tree;
     only compiled output is swapped live.
     """
-    if template != SandboxTemplate.DEFAULT_BASE:
+    if template not in AGENT_SERVER_TEMPLATES:
         return image
     packages = get_local_posthog_code_packages()
     if not packages:
@@ -670,6 +693,7 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
             interaction_origin=interaction_origin,
@@ -684,15 +708,17 @@ class ModalSandbox(SandboxBase):
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         domains_flag = f" --allowedDomains {shlex.quote(','.join(allowed_domains))}" if allowed_domains else ""
+        repo_ready_flag = f" --repoReadyFile {shlex.quote(repo_ready_file)}" if repo_ready_file else ""
         # Scope BASH_ENV to the agent-server process (not the container env) so only the
         # agent's per-command tool shells re-source the refreshed token. Backend maintenance
         # execs (clone/checkout/token injection) must not source it — the script could be
         # persisted in a resume snapshot, so sourcing it from a backend exec is a trust hole.
+        unset_flags = "".join(f"-u {name} " for name in SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS)
         server_cmd = (
-            f"env BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
+            f"env {unset_flags}BASH_ENV={shlex.quote(BASH_ENV_SCRIPT)} "
             f"{env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT}{repo_flag} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
-            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}"
+            f"{create_pr_flag}{branch_flag}{mcp_servers_arg}{domains_flag}{repo_ready_flag}"
         )
 
         inner = f"cd /scripts && {server_cmd} > /tmp/agent-server.log 2>&1"
@@ -704,13 +730,6 @@ class ModalSandbox(SandboxBase):
             )
         else:
             return f"cd /scripts && env -0 > {ENV_FILE} && nohup {server_cmd} > /tmp/agent-server.log 2>&1 &"
-
-    def _launch_and_check(self, command: str) -> bool:
-        result = self.execute(command, timeout_seconds=30)
-        if result.exit_code != 0:
-            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {result.stderr}")
-            return False
-        return self._wait_for_health_check()
 
     def _diagnose_startup_failure(self, allowed_domains: list[str] | None) -> dict[str, str]:
         diagnostics: dict[str, str] = {}
@@ -776,6 +795,8 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        repo_ready_file: str | None = None,
+        wait_for_health: bool = True,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -822,18 +843,35 @@ class ModalSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            repo_ready_file=repo_ready_file,
         )
 
         logger.info(f"Starting agent-server in sandbox {self.id} for {repository or 'no-repo'}")
-        if not self._launch_and_check(command):
-            diagnostics = self._diagnose_startup_failure(allowed_domains)
+        launch_result = self.execute(command, timeout_seconds=30)
+        if launch_result.exit_code != 0:
+            logger.warning(f"Agent-server process failed to launch in sandbox {self.id}: {launch_result.stderr}")
             raise SandboxExecutionError(
                 "Agent-server failed to start",
-                {"sandbox_id": self.id, **diagnostics},
-                cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+                {"sandbox_id": self.id, "stderr": launch_result.stderr, "exit_code": str(launch_result.exit_code)},
+                cause=RuntimeError(launch_result.stderr or "launch command returned non-zero exit"),
             )
 
-        logger.info(f"Agent-server started in sandbox {self.id}")
+        if wait_for_health:
+            self.wait_for_agent_server_ready(allowed_domains)
+
+    def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
+        if self._wait_for_health_check():
+            logger.info(f"Agent-server ready in sandbox {self.id}")
+            return
+        diagnostics = self._diagnose_startup_failure(allowed_domains)
+        raise SandboxExecutionError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, **diagnostics},
+            cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+        )
+
+    def mark_repo_ready(self, repo_ready_file: str) -> None:
+        self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
 
     def _setup_agentsh(self, workspace_path: str, allowed_domains: list[str] | None = None) -> None:
         if allowed_domains is not None:
@@ -916,6 +954,9 @@ class ModalSandbox(SandboxBase):
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
+    def read_agent_server_boot_ms(self) -> int | None:
+        return self._read_health_boot_ms(AGENT_SERVER_PORT)
+
     def _free_agent_server_port(self) -> None:
         self.execute(
             "pkill -TERM -f agent-server 2>/dev/null || true; "
@@ -943,6 +984,17 @@ class ModalSandbox(SandboxBase):
             logger.info(f"Created snapshot for sandbox {self.id}, snapshot ID: {snapshot_id}")
 
             return snapshot_id
+
+        except TRANSIENT_SNAPSHOT_ERRORS as e:
+            # Transient Modal infra timeout — Temporal retries the activity, so log at warning and
+            # skip error-tracking capture to avoid a fresh issue for every recoverable deadline.
+            logger.warning(f"Transient error creating snapshot for sandbox {self.id}, will retry: {e}")
+            raise SnapshotTimeoutError(
+                f"Transient error creating snapshot: {e}",
+                {"sandbox_id": self.id, "error": str(e)},
+                cause=e,
+                capture=False,
+            )
 
         except Exception as e:
             logger.exception(f"Failed to create snapshot: {e}")

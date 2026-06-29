@@ -316,6 +316,14 @@ export const isTriggerFunction = (
     return ['webhook', 'tracking_pixel', 'manual'].includes(trigger.config.type)
 }
 
+export const isScheduleTrigger = (action: HogFlowAction): boolean => {
+    if (action.type !== 'trigger') {
+        return false
+    }
+    const trigger = action as Extract<HogFlowAction, { type: 'trigger' }>
+    return trigger.config.type === 'schedule'
+}
+
 export interface HogflowTestResult {
     status: 'success' | 'error' | 'skipped'
     logs?: LogEntry[]

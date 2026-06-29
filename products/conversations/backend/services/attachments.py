@@ -13,6 +13,8 @@ from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_
 
 logger = structlog.get_logger(__name__)
 
+CONVERSATIONS_MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MiB
+
 
 def is_valid_image(content: bytes) -> bool:
     """Verify bytes are a real image (prevents serving disguised malicious content).

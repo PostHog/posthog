@@ -1,1 +1,1 @@
-1237_alter_integration_kind
+1245_duckgres_sink_schema_state

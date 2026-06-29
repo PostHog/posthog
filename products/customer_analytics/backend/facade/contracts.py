@@ -327,3 +327,15 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValue:
+    """An account's value for a custom property."""
+
+    id: UUID
+    account_id: UUID
+    definition_id: UUID
+    value: float | bool | str | datetime | None
+    created_at: datetime
+    created_by_id: int | None

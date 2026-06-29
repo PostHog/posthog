@@ -713,7 +713,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            await breakpoint(300)
+            // When an external save handler is wired (dashboard card), skip the debounce so
+            // rapid successive toggle clicks don't cancel each other and lose earlier changes.
+            if (!props.setQuery) {
+                await breakpoint(300)
+            }
 
             if (isWebAnalyticsInsightQuery(values.localQuerySource)) {
                 return

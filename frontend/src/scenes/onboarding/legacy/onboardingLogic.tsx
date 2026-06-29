@@ -185,12 +185,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (billing, productKey) => billing?.products?.find((p) => p.type === productKey) ?? null,
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
-            (_product, subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct): boolean => {
+            (s) => [s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct, s.stepId],
+            (subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct, stepId): boolean => {
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                return !billingProduct?.subscribed || subscribedDuringOnboarding
+                // Keep the plans step in the flow whenever the URL explicitly targets it — otherwise an
+                // already-subscribed user landing here (e.g. after a trial cancel reloads without
+                // `?success=true`) would drop the step from the flow and get stuck on a spinner.
+                const onPlansStep =
+                    stepId === OnboardingStepKey.PLANS || stepId.startsWith(`${OnboardingStepKey.PLANS}:`)
+                return !billingProduct?.subscribed || subscribedDuringOnboarding || onPlansStep
             },
         ],
         flow: [

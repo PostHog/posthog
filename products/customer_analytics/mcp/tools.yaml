@@ -37,6 +37,12 @@ tools:
                     Tag names to attach to the account. Tags are created on demand if they do not already exist for the
                     team.
         feature_flag: customer-analytics-csp
+    accounts-custom-property-values-create:
+        operation: accounts_custom_property_values_create
+        enabled: false
+    accounts-custom-property-values-list:
+        operation: accounts_custom_property_values_list
+        enabled: false
     accounts-destroy:
         operation: accounts_destroy
         enabled: true

@@ -17,7 +17,7 @@ import { getFunnelDatasetKey, getFunnelResultCustomizationColorToken } from 'sce
 import { Noun, groupsModel } from '~/models/groupsModel'
 import { seriesNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelExclusionSteps, InsightQueryNode } from '~/queries/schema/schema-general'
-import { FunnelsFilter, FunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
+import { FunnelsFilter, FunnelsQuery, FunnelsQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { isFunnelsQuery, isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'
 import {
     FlattenedFunnelStepByBreakdown,
@@ -651,12 +651,12 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
         ],
 
         conversionMetrics: [
-            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults],
-            (steps, funnelsFilter, timeConversionResults): FunnelTimeConversionMetrics => {
+            (s) => [s.steps, s.funnelsFilter, s.timeConversionResults, s.insightData],
+            (steps, funnelsFilter, timeConversionResults, insightData): FunnelTimeConversionMetrics => {
                 // steps should be empty in time conversion view. Return metrics precalculated on backend
                 if (funnelsFilter?.funnelVizType === FunnelVizType.TimeToConvert) {
                     return {
-                        averageTime: timeConversionResults?.average_conversion_time ?? 0,
+                        medianTime: timeConversionResults?.median_conversion_time ?? null,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -665,7 +665,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // Handle metrics for trends
                 if (funnelsFilter?.funnelVizType === FunnelVizType.Trends) {
                     return {
-                        averageTime: 0,
+                        medianTime: null,
                         stepRate: 0,
                         totalRate: average((steps?.[0] as unknown as TrendResult)?.data ?? []) / 100,
                     }
@@ -675,7 +675,7 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 // no concept of funnel_from_step and funnel_to_step here
                 if (steps.length <= 1) {
                     return {
-                        averageTime: 0,
+                        medianTime: null,
                         stepRate: 0,
                         totalRate: 0,
                     }
@@ -685,10 +685,9 @@ export const funnelDataLogic = kea<funnelDataLogicType>([
                 const fromStep = getReferenceStep(steps, FunnelStepReference.total)
 
                 return {
-                    averageTime: steps.reduce(
-                        (conversion_time, step) => conversion_time + (step.average_conversion_time || 0),
-                        0
-                    ),
+                    // The median of the total funnel time isn't the sum of per-step medians, so it's
+                    // computed breakdown-agnostically on the backend and carried as a top-level field.
+                    medianTime: (insightData as Partial<FunnelsQueryResponse>).total_median_conversion_time ?? null,
                     stepRate: fromStep.count === 0 ? 0 : toStep.count / fromStep.count,
                     totalRate: steps[0].count === 0 ? 0 : steps[steps.length - 1].count / steps[0].count,
                 }

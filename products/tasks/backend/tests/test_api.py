@@ -795,8 +795,6 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertIsNone(task2_data["latest_run"])
 
     def test_list_tasks_latest_run_no_per_task_query(self):
-        # The list endpoint prefetches "runs"; latest_run must reuse that cache so the
-        # query count does not scale with the number of tasks (or runs per task).
         url = "/api/projects/@current/tasks/"
         task1 = self.create_task("Task 1")
         TaskRun.objects.create(task=task1, team=self.team, status=TaskRun.Status.QUEUED)
@@ -819,6 +817,115 @@ class TestTaskAPI(BaseTaskAPITest):
             response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_list_tasks_latest_run_fetches_only_one_run_per_task(self):
+        task = self.create_task("Run-heavy task")
+        for _ in range(5):
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        latest_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/api/projects/@current/tasks/?limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["results"][0]["latest_run"]["id"], str(latest_run.id))
+
+        task_run_sql = "\n".join(query["sql"] for query in ctx.captured_queries)
+        self.assertIn('FROM "posthog_task_run"', task_run_sql)
+        self.assertIn('LIMIT 1) AS "_latest_run_id"', task_run_sql)
+        self.assertNotIn("DISTINCT ON", task_run_sql)
+
+    def test_latest_run_tiebreaks_by_id(self):
+        task = self.create_task("Tie-break task")
+        created_at = django_timezone.now()
+        older_run_id = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        latest_run_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
+        TaskRun.objects.create(
+            id=older_run_id,
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            created_at=created_at,
+        )
+        TaskRun.objects.create(
+            id=latest_run_id,
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            created_at=created_at,
+        )
+
+        list_response = self.client.get("/api/projects/@current/tasks/?limit=1")
+        detail_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.json()["results"][0]["latest_run"]["id"], str(latest_run_id))
+        self.assertEqual(detail_response.json()["latest_run"]["id"], str(latest_run_id))
+
+    def test_latest_run_ignores_mismatched_run_team(self):
+        task = self.create_task("Team-scoped latest run")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        valid_run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        TaskRun.objects.create(task=task, team=other_team, status=TaskRun.Status.IN_PROGRESS)
+
+        list_response = self.client.get("/api/projects/@current/tasks/?limit=1")
+        detail_response = self.client.get(f"/api/projects/@current/tasks/{task.id}/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(list_response.json()["results"][0]["latest_run"]["id"], str(valid_run.id))
+        self.assertEqual(detail_response.json()["latest_run"]["id"], str(valid_run.id))
+
+    def test_list_tasks_stage_filter_uses_exists_without_distinct(self):
+        matching_task = self.create_task("Matching stage")
+        other_task = self.create_task("Other stage")
+        TaskRun.objects.create(task=matching_task, team=self.team, stage="building")
+        TaskRun.objects.create(task=matching_task, team=self.team, stage="building")
+        TaskRun.objects.create(task=other_task, team=self.team, stage="planning")
+
+        response = self.client.get("/api/projects/@current/tasks/?stage=building&limit=1")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual(response.json()["results"][0]["id"], str(matching_task.id))
+
+        query_sql = str(
+            tasks_facade._list_tasks_queryset(
+                self.team.id,
+                self.user.id,
+                filters={"stage": "building"},
+                is_debug_or_staff=False,
+            ).query
+        ).upper()
+        self.assertIn("EXISTS", query_sql)
+        self.assertNotIn("SELECT DISTINCT", query_sql)
+
+    def test_list_tasks_count_matches_queryset(self):
+        for i in range(4):
+            self.create_task(f"Task {i}")
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get("/api/projects/@current/tasks/?limit=2")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 4)
+        self.assertEqual(len(response.json()["results"]), 2)
+        self.assertIsNotNone(response.json()["next"])
+        self.assertTrue(any("COUNT(" in query["sql"].upper() for query in ctx.captured_queries))
+
+    @patch.object(object_storage, "get_presigned_url", return_value="https://signed.example/log")
+    def test_list_tasks_per_row_work_bounded_to_page(self, mock_presign):
+        page_size = 50
+        for i in range(page_size + 5):
+            task = self.create_task(f"Task {i}")
+            TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.get(f"/api/projects/@current/tasks/?limit={page_size}")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), page_size)
+        self.assertLessEqual(mock_presign.call_count, page_size)
 
     def test_retrieve_task(self):
         task = self.create_task("Test Task")
@@ -881,6 +988,26 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(data["title"], "New Task")
         self.assertEqual(data["description"], "New Description")
         self.assertEqual(data["repository"], "posthog/posthog")
+
+    def test_create_task_accepts_null_runtime_fields(self):
+        # The Code app's cloud-task flows (e.g. Discuss) send the write-only
+        # runtime hints as explicit `null` when nothing is selected. `default=None`
+        # alone rejects an explicit null ("This field may not be null."), so these
+        # fields carry allow_null=True. Regression for that 400.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "repository": "posthog/posthog",
+                "runtime_adapter": None,
+                "model": None,
+                "reasoning_effort": None,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_create_task_defaults_origin_product(self):
         response = self.client.post(
@@ -2890,6 +3017,31 @@ class TestTaskSummariesAPI(BaseTaskAPITest):
         response = self.post_summaries([str(internal_task.id)])
 
         self.assertReturnsTaskIds(response, [internal_task.id])
+
+    def test_summaries_latest_run_ignores_mismatched_run_team(self):
+        task = self.create_task("Team-scoped summary run")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        valid_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            environment=TaskRun.Environment.LOCAL,
+        )
+        TaskRun.objects.create(
+            task=task,
+            team=other_team,
+            status=TaskRun.Status.IN_PROGRESS,
+            environment=TaskRun.Environment.CLOUD,
+        )
+
+        response = self.post_summaries([str(task.id)])
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        [payload] = response.json()["results"]
+        self.assertEqual(
+            payload["latest_run"],
+            {"status": valid_run.status, "environment": valid_run.environment},
+        )
 
     @parameterized.expand(
         [
@@ -7002,6 +7154,49 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
                 "name": "Bad Env Vars",
                 "network_access_level": "full",
                 "environment_variables": {"123invalid": "value"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("NODE_OPTIONS",),
+            ("LD_PRELOAD",),
+            ("LD_LIBRARY_PATH",),
+            ("DYLD_INSERT_LIBRARIES",),
+            ("BASH_ENV",),
+            ("GIT_SSH_COMMAND",),
+            ("GIT_CONFIG_KEY_0",),
+            ("GIT_CONFIG_VALUE_0",),
+        ]
+    )
+    def test_blocked_process_control_env_var_key_rejected(self, key):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Dangerous Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {key: "value"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @parameterized.expand(
+        [
+            ("GITHUB_TOKEN",),
+            ("POSTHOG_PERSONAL_API_KEY",),
+            ("JWT_PUBLIC_KEY",),
+        ]
+    )
+    def test_reserved_env_var_key_rejected(self, key):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Reserved Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {key: "value"},
             },
             format="json",
         )

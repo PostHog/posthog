@@ -70,7 +70,6 @@ function session(label: string, state: AgentSession['state'], updatedAt: string)
         usage_total: { ...EMPTY_USAGE_TOTAL },
         acl: [],
         pending_elevation_requests: [],
-        is_preview: false,
         created_at: updatedAt,
         updated_at: updatedAt,
     }

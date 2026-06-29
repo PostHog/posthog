@@ -1,5 +1,18 @@
 # posthog-cli
 
+## 0.7.33 — 2026-06-25
+
+### Patch changes
+
+- [c334e9f9c3](https://github.com/PostHog/posthog/commit/c334e9f9c3c5f733de8b531c9854412ad253cc4d) Mention Go's `-ldflags=-B=gobuildid` when `symbol-sets upload` finds ELF files without a GNU build id, since Go binaries don't emit one by default. — Thanks @cat-ph!
+- [b9097541d4](https://github.com/PostHog/posthog/commit/b9097541d446587f1ad9374b77d2c3e78773f60c) Allow explicit sourcemap release uploads to continue when optional Git metadata cannot be read — Thanks @cat-ph!
+
+## 0.7.32 — 2026-06-24
+
+### Patch changes
+
+- [6fb4456e8f](https://github.com/PostHog/posthog/commit/6fb4456e8f9a5048b3db6ceb6d873241e14fe6b8) Fix the CLI release workflow so the Windows (`x86_64-pc-windows-msvc`) build succeeds and ships with each release. — Thanks @cat-ph!
+
 ## 0.7.31 — 2026-06-24
 
 ### Patch changes

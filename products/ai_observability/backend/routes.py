@@ -4,7 +4,6 @@ from posthog.settings import CLOUD_DEPLOYMENT, DEBUG, TEST
 from products.ai_observability.backend.api import (
     AIObservabilityClusteringRunViewSet,
     AIObservabilityOfflineEvaluationsViewSet,
-    AIObservabilitySentimentViewSet,
     AIObservabilitySummarizationViewSet,
     AIObservabilityTextReprViewSet,
     AIObservabilityTranslateViewSet,
@@ -96,9 +95,6 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.register_legacy_dual_route(
         r"llm_analytics/clustering_jobs", ClusteringJobViewSet, "project_llm_analytics_clustering_jobs", ["team_id"]
-    )
-    routers.register_legacy_dual_route(
-        r"llm_analytics/sentiment", AIObservabilitySentimentViewSet, "project_llm_analytics_sentiment", ["team_id"]
     )
     routers.register_legacy_dual_route(
         r"llm_analytics/offline_evaluations",

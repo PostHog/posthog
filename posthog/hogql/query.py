@@ -236,10 +236,13 @@ class HogQLQueryExecutor:
                 bypass_warehouse_access_control=self.context.bypass_warehouse_access_control,
             )
 
-        # Reset between executions: the resolver appends per query, and dataclasses.replace below
-        # shares this dict by reference. Without reset, callers reusing a HogQLContext across
-        # executors would see warnings from prior runs.
+        # Reset between executions: the resolver/printer append per query, and dataclasses.replace
+        # below shares these by reference. Without reset, callers reusing a HogQLContext across
+        # executors would see warnings from prior runs — and a stale external_tables entry would skip
+        # re-registering the hidden table against the rebuilt database, leaving a dangling reference.
         self.context.data_warehouse_sync_warnings.clear()
+        self.context.external_tables.clear()
+        self.context.information_schema_introspection = None
 
         self.hogql_context = dataclasses.replace(
             self.context,
@@ -632,6 +635,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
             except Exception as e:
                 if self.debug:
@@ -653,6 +657,7 @@ class HogQLQueryExecutor:
                     workload=workload,
                     team_id=self.team.pk,
                     readonly=True,
+                    external_tables=list(clickhouse_context.external_tables.values()) or None,
                 )
                 self.explain = [str(r[0]) for r in explain_results[0]]
             with self.timings.measure("metadata"):

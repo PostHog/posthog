@@ -9,7 +9,10 @@ use crate::{
     memory::{HeapReference, VmHeap},
     ops::Operation,
     util::{get_json_nested, like, regex_match},
-    values::{Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable, Num, NumOp},
+    values::{
+        compare_values, Callable, Closure, FromHogLiteral, HogLiteral, HogValue, LocalCallable,
+        Num, NumOp,
+    },
 };
 
 pub const MAX_JSON_SERDE_DEPTH: usize = 64;
@@ -218,28 +221,18 @@ impl<'a> HogVM<'a> {
             }
             Operation::Eq => {
                 let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.equals(&b, &self.heap)?)?;
+                let result = self.eq_op(&a, &b)?;
+                self.push_stack(result)?;
             }
             Operation::NotEq => {
                 let (a, b) = (self.pop_stack()?, self.pop_stack()?);
-                self.push_stack(a.not_equals(&b, &self.heap)?)?;
+                let result = self.eq_op(&a, &b)?.not()?;
+                self.push_stack(result)?;
             }
-            Operation::Gt => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Gt, &a, &b)?)?;
-            }
-            Operation::GtEq => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Gte, &a, &b)?)?;
-            }
-            Operation::Lt => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Lt, &a, &b)?)?;
-            }
-            Operation::LtEq => {
-                let (a, b) = (self.pop_stack_as()?, self.pop_stack_as()?);
-                self.push_stack(Num::binary_op(NumOp::Lte, &a, &b)?)?;
-            }
+            Operation::Gt => self.compare_op(NumOp::Gt)?,
+            Operation::GtEq => self.compare_op(NumOp::Gte)?,
+            Operation::Lt => self.compare_op(NumOp::Lt)?,
+            Operation::LtEq => self.compare_op(NumOp::Lte)?,
             Operation::Like => {
                 let (val, pat): (String, String) = (self.pop_stack_as()?, self.pop_stack_as()?);
                 self.push_stack(like(val, pat, true)?)?;
@@ -699,11 +692,13 @@ impl<'a> HogVM<'a> {
     {
         let next = self.context.get_bytecode(self.ip, &self.current_symbol)?;
         self.ip += 1;
-        let next_type_name = next_type_name(next);
-        let expected = std::any::type_name::<T>();
-
-        serde_json::from_value(next.clone())
-            .map_err(|_| VmError::InvalidValue(next_type_name, expected.to_string()))
+        // Borrow-deserialize straight from the &JsonValue (serde_json implements Deserializer for
+        // &Value) instead of cloning the whole value and deserializing an owned copy on every
+        // single instruction fetch. The error type-name strings are built lazily, only on an actual
+        // mismatch, rather than allocating one per token read on the hot path.
+        T::deserialize(next).map_err(|_| {
+            VmError::InvalidValue(next_type_name(next), std::any::type_name::<T>().to_string())
+        })
     }
 
     fn pop_stack(&mut self) -> Result<HogValue, VmError> {
@@ -723,6 +718,47 @@ impl<'a> HogVM<'a> {
             HogValue::Lit(lit) => lit.try_into(), // Purely an optimisation to skip a clone
             other => other.deref(&self.heap)?.clone().try_into(),
         }
+    }
+
+    /// `Gt`/`GtEq`/`Lt`/`LtEq` arm. The default (legacy) path requires numeric operands and errors
+    /// otherwise — the behavior `cymbal` and every other existing shared-crate consumer relies on
+    /// (a non-number operand erroring is what lets cymbal auto-disable a malformed rule). Only when
+    /// the context opts into coercing comparisons (the realtime-cohort evaluator, via
+    /// [`ExecutionContext::with_coercing_comparisons`](crate::ExecutionContext::with_coercing_comparisons))
+    /// does a non-`Number` operand reach [`compare_values`]' coercion instead of erroring. `a` is the
+    /// top of the stack.
+    fn compare_op(&mut self, op: NumOp) -> Result<(), VmError> {
+        if !self.context.coerce_comparisons {
+            // Legacy/reference path: both operands must be `Number` or this errors.
+            let (a, b): (Num, Num) = (self.pop_stack_as()?, self.pop_stack_as()?);
+            return self.push_stack(Num::binary_op(op, &a, &b)?);
+        }
+        let a = self.pop_stack()?;
+        let b = self.pop_stack()?;
+        // Scope the immutable heap borrows so the result is owned before the `&mut self` push.
+        let result = {
+            let a_lit = a.deref(&self.heap)?;
+            let b_lit = b.deref(&self.heap)?;
+            compare_values(op, a_lit, b_lit, &self.heap)?
+        };
+        self.push_stack(result)
+    }
+
+    /// `Eq`/`NotEq` core. The default path is the legacy structural equality every existing
+    /// shared-crate consumer relies on. Only when the context opts into coercing comparisons (the
+    /// realtime-cohort evaluator) do two Hog temporals compare by epoch seconds to match ClickHouse
+    /// (`is_date_exact`); every non-temporal pair is unchanged either way.
+    fn eq_op(&self, a: &HogValue, b: &HogValue) -> Result<HogLiteral, VmError> {
+        if self.context.coerce_comparisons {
+            let (lhs, rhs) = (a.deref(&self.heap)?, b.deref(&self.heap)?);
+            if let (Some(x), Some(y)) = (
+                lhs.as_temporal_seconds(&self.heap),
+                rhs.as_temporal_seconds(&self.heap),
+            ) {
+                return Ok((x == y).into());
+            }
+        }
+        a.equals(b, &self.heap)
     }
 
     // Move a value from the stack onto the heap, replacing it with a reference to the heap value,

@@ -4,6 +4,7 @@ import { useEffect } from 'react'
 
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
@@ -14,6 +15,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
+import { ActivityScope } from '~/types'
 
 import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
@@ -136,6 +138,12 @@ function SchemaSceneContent({ sourceId, schemaId }: SchemaSceneProps): JSX.Eleme
             content: <MetricsTab sourceId={cleanedSourceId} schemaId={schema.id} />,
         })
     }
+
+    tabs.push({
+        label: 'History',
+        key: 'history',
+        content: <ActivityLog id={schema.id} scope={ActivityScope.EXTERNAL_DATA_SCHEMA} />,
+    })
 
     const activeTab = !showMetrics && currentTab === 'metrics' ? 'configuration' : currentTab
 

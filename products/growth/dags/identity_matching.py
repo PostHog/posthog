@@ -212,6 +212,14 @@ class IdentityMatchingConfig(dagster.Config):
     )
     prob_tier_high: float = pydantic.Field(default=0.9, description="Probability at or above which tier is 'high'.")
     prob_tier_medium: float = pydantic.Field(default=0.7, description="Probability at or above which tier is 'medium'.")
+    logreg_min_prob: float = pydantic.Field(
+        default=0.5,
+        description="Minimum predicted probability for a logreg link to be kept (the logreg analogue of rule_min_score).",
+    )
+    logreg_min_margin: float = pydantic.Field(
+        default=0.0,
+        description="Minimum probability margin over the runner-up anchor for a logreg link to be kept.",
+    )
     query_max_execution_time_seconds: int = pydantic.Field(
         default=60 * 60,
         gt=0,
@@ -450,6 +458,26 @@ def prepare_run(
         f"edges from {run.edges_start}, eval until {run.eval_end}; "
         f"writing to s3 prefix {identity_matching_run_prefix(config.team_id, run.job_id)}/"
     )
+    # Training labels come from merges in [date_end, eval_end). If that horizon has not elapsed,
+    # those merges have not happened yet, so the logistic regression sees no labels and skips —
+    # which reads as a silent failure. Warn rather than fail: the rule model needs no labels.
+    now = datetime.datetime.now(datetime.UTC)
+    eval_end = datetime.datetime.fromisoformat(run.eval_end).replace(tzinfo=datetime.UTC)
+    if eval_end > now:
+        window_end = datetime.datetime.fromisoformat(run.date_end).replace(tzinfo=datetime.UTC)
+        if window_end >= now:
+            context.log.warning(
+                f"Evaluation horizon [{run.date_end}, {run.eval_end}) is entirely in the future "
+                f"(today is {now.date().isoformat()}): no post-window merges exist yet, so the logistic "
+                f"regression will have no training labels and will skip. Re-run with date_end at least "
+                f"eval_horizon_days ({config.eval_horizon_days}) in the past to train it."
+            )
+        else:
+            context.log.warning(
+                f"Evaluation horizon ends {run.eval_end}, after today ({now.date().isoformat()}): labels "
+                f"are only partially observed, so logistic regression will undercount positives. Re-run "
+                f"after {run.eval_end} for a complete evaluation."
+            )
     return run
 
 
@@ -562,6 +590,56 @@ class _UnionFind:
         return groups
 
 
+def _fetch_identity_edges(
+    context: dagster.OpExecutionContext,
+    cluster: ClickhouseCluster,
+    run: "MatchingRun",
+    *,
+    start: str,
+    end: str,
+    order: str,
+) -> list[tuple[str, str, datetime.datetime]]:
+    """Deduped (other_id, target_id, first_seen) identity edges with timestamp in [start, end).
+
+    Capped at config.max_identity_edges to bound the in-memory union-find. ``order`` ('ASC' or
+    'DESC', a trusted literal — never request input) decides which edges survive truncation:
+    anchor edges keep the most recent (DESC, closest to window end), eval edges keep the earliest
+    (ASC, each orphan's first post-window merge).
+    """
+    query = f"""
+        SELECT other_id, target_id, min(ts) AS first_seen
+        FROM (
+            SELECT
+                if(event = '$identify', {_prop("$anon_distinct_id")}, {_prop("alias")}) AS other_id,
+                distinct_id AS target_id,
+                timestamp AS ts
+            FROM {settings.CLICKHOUSE_DATABASE}.events
+            WHERE team_id = %(team_id)s
+              AND event IN %(identity_events)s
+              AND timestamp >= toDateTime(%(start)s)
+              AND timestamp < toDateTime(%(end)s)
+        )
+        WHERE other_id != '' AND other_id != target_id
+        GROUP BY other_id, target_id
+        ORDER BY first_seen {order}, other_id, target_id
+        LIMIT %(max_edges)s
+    """
+    return cluster.any_host(
+        partial(
+            _execute,
+            query=query,
+            parameters={
+                "team_id": run.config.team_id,
+                "identity_events": tuple(IDENTITY_EVENTS),
+                "start": start,
+                "end": end,
+                "max_edges": run.config.max_identity_edges,
+            },
+            query_settings=_read_settings(context, run),
+        )
+    ).result()
+
+
 @dagster.op
 def extract_person_timeline(
     context: dagster.OpExecutionContext,
@@ -574,60 +652,31 @@ def extract_person_timeline(
     window end; state tables (person.is_identified, overrides) have no time-travel semantics.
     """
     config = run.config
-    edges_query = f"""
-        SELECT other_id, target_id, min(ts) AS first_seen
-        FROM (
-            SELECT
-                if(
-                    event = '$identify',
-                    {_prop("$anon_distinct_id")},
-                    {_prop("alias")}
-                ) AS other_id,
-                distinct_id AS target_id,
-                timestamp AS ts
-            FROM {settings.CLICKHOUSE_DATABASE}.events
-            WHERE team_id = %(team_id)s
-              AND event IN %(identity_events)s
-              AND timestamp >= toDateTime(%(edges_start)s)
-              AND timestamp < toDateTime(%(eval_end)s)
+    # Anchor edges (identity events strictly before window end) classify anchors "as of" window
+    # end; eval edges (merges in [date_end, eval_end)) are the ONLY source of training labels.
+    # They are fetched as two separate capped queries on purpose: folding both into one query and
+    # truncating oldest-first let the high-volume anchor edges silently drop the recent eval edges,
+    # which on a large team zeroed out the labels (logreg then skips on 0 positives).
+    anchor_edges = _fetch_identity_edges(context, cluster, run, start=run.edges_start, end=run.date_end, order="DESC")
+    if len(anchor_edges) >= config.max_identity_edges:
+        context.log.warning(
+            f"Anchor identity edges truncated at {len(anchor_edges)} (kept the most recent); anchor "
+            "classification is incomplete — raise max_identity_edges for full coverage on large teams"
         )
-        WHERE other_id != '' AND other_id != target_id
-        GROUP BY other_id, target_id
-        ORDER BY first_seen
-        LIMIT %(max_edges)s
-    """
-    edges: list[tuple[str, str, datetime.datetime]] = cluster.any_host(
-        partial(
-            _execute,
-            query=edges_query,
-            parameters={
-                "team_id": config.team_id,
-                "identity_events": tuple(IDENTITY_EVENTS),
-                "edges_start": run.edges_start,
-                "eval_end": run.eval_end,
-                "max_edges": config.max_identity_edges,
-            },
-            query_settings=_read_settings(context, run),
-        )
-    ).result()
-    if len(edges) >= config.max_identity_edges:
-        context.log.warning(f"Identity edges truncated at {len(edges)}; anchor classification is incomplete")
+    # Earliest-first so the per-orphan dedup below keeps each orphan's first post-window merge.
+    eval_edges = _fetch_identity_edges(context, cluster, run, start=run.date_end, end=run.eval_end, order="ASC")
+    if len(eval_edges) >= config.max_identity_edges:
+        context.log.warning(f"Eval identity edges truncated at {len(eval_edges)}; some training labels are missing")
 
-    # ClickHouse returns timezone-aware datetimes for DateTime64(..., 'UTC') columns.
-    window_end = datetime.datetime.fromisoformat(run.date_end).replace(tzinfo=datetime.UTC)
     union_find = _UnionFind()
     first_seen_by_id: dict[str, datetime.datetime] = {}
-    eval_edges: list[tuple[str, str, datetime.datetime]] = []
     identified_ids: set[str] = set()
-    for other_id, target_id, first_seen in edges:
-        if first_seen < window_end:
-            union_find.union(target_id, other_id)
-            identified_ids.add(target_id)
-            for member in (other_id, target_id):
-                if member not in first_seen_by_id or first_seen < first_seen_by_id[member]:
-                    first_seen_by_id[member] = first_seen
-        else:
-            eval_edges.append((other_id, target_id, first_seen))
+    for other_id, target_id, first_seen in anchor_edges:
+        union_find.union(target_id, other_id)
+        identified_ids.add(target_id)
+        for member in (other_id, target_id):
+            if member not in first_seen_by_id or first_seen < first_seen_by_id[member]:
+                first_seen_by_id[member] = first_seen
 
     # The canonical key prefers identified-side ids (merge targets): a bare lexicographic
     # minimum could crown an anonymous device id, which then surfaces as the matched person
@@ -666,7 +715,8 @@ def extract_person_timeline(
     anchor_persons = len(set(person_key_by_id.values()))
     context.add_output_metadata(
         {
-            "identity_edges": dagster.MetadataValue.int(len(edges)),
+            "anchor_edges": dagster.MetadataValue.int(len(anchor_edges)),
+            "eval_edges": dagster.MetadataValue.int(len(eval_edges)),
             "anchor_distinct_ids": dagster.MetadataValue.int(len(person_key_by_id)),
             "anchor_persons": dagster.MetadataValue.int(anchor_persons),
             "eval_labeled_orphans": dagster.MetadataValue.int(labeled),
@@ -1093,6 +1143,10 @@ def train_logreg_and_score(
                 best_by_orphan[orphan_id] = (best[0], best[1], prob)
         computed_at = datetime.datetime.now(datetime.UTC)
         for orphan_id, (prob, anchor_key, runner_up) in best_by_orphan.items():
+            # Mirror the rule model's min-score / min-margin gate so logreg emits confident links
+            # instead of one row per orphan-with-candidates regardless of predicted probability.
+            if prob < config.logreg_min_prob or (prob - runner_up) < config.logreg_min_margin:
+                continue
             tier = "high" if prob >= config.prob_tier_high else "medium" if prob >= config.prob_tier_medium else "low"
             link_rows.append(
                 (
@@ -1308,8 +1362,18 @@ def evaluate_and_report(
         ).result()
 
         if not link_rows:
-            summary_lines.append(f"\n{model_version}: no links")
-            model_headlines.append(f"*{model_version}*: no links")
+            note = ""
+            if model_version == LOGREG_MODEL_VERSION:
+                # logreg writes no links when it skips training; surface the likely reason rather
+                # than a bare "no links" (see the label-count gate in train_logreg_and_score).
+                note = (
+                    f" — logreg needs ≥{config.min_training_positives} positive / "
+                    f"≥{config.min_training_negatives} negative labels; this run had {gradable_orphans} "
+                    f"gradable labeled orphans. If that is ~0, the eval horizon has not elapsed "
+                    f"(eval until {run.eval_end}) or identity edges were truncated."
+                )
+            summary_lines.append(f"\n{model_version}: no links{note}")
+            model_headlines.append(f"*{model_version}*: no links{note}")
             continue
 
         table_lines = [

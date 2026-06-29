@@ -1,0 +1,12 @@
+One more pass — a different job from the work above. You're looking for a genuine product defect this recording caught: a bug, a crash, or a design flaw that clearly broke or blocked the user. Put each in the `signals` list. The default is an empty list, and for most recordings that is the correct answer.
+
+The bar is deliberately high. Report a finding only when ALL of these hold:
+- **You can point to the exact thing on screen that reveals it** — a real error state, a crash, a broken or overlapping layout, a control that visibly does nothing when used. If you are inferring it, guessing, or it could be normal behavior, leave it out.
+- **It materially hurt the user** — it blocked, broke, or derailed what they were doing. Ordinary slowness, a brief spinner, a loading state that resolves, an empty-state that fills a moment later, or anything you would merely design better are NOT findings.
+- **An engineer opening this recording at that `REC_T` would unambiguously agree it is a defect.** If there is any real chance you are wrong, do not report it — a missed issue is far better than an invented one.
+
+What makes a finding belong here is that you *saw* it: the `description` must lead with the on-screen detail. Corroboration from the event log *raises* your confidence — call `get_events_around` at the finding's `REC_T` to confirm an `$exception`, a failed request, or a `$rageclick`/`$dead_click` backs up what you saw — but never report an issue you only know about from the events.
+
+Write the `description` as plain prose with no timestamp references — no `(t …)` markers, no `REC_T`, no "at N seconds", no event IDs. The timing belongs in `start_time` and `end_time`, not the text.
+
+One recording can surface more than one distinct defect; list each separately. Don't repeat the earlier turns' conclusions. Skip anything below {{ min_signal_confidence }} confidence.

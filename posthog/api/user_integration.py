@@ -11,10 +11,9 @@ Login management is fully handled by ``UserSocialAuth`` (python-social-auth) and
 is not controlled here.
 """
 
+import os
 from typing import Any, cast
 from urllib.parse import urlencode
-
-from django.core.cache import cache
 
 import requests
 import structlog
@@ -26,11 +25,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
-from posthog.api.github_callback.personal_state import github_app_install_url, github_oauth_authorize_url
+from posthog.api.github_callback import state as github_callback_state
 from posthog.api.github_callback.types import (
     APP_CONNECT_FROM_VALUES,
-    GITHUB_INSTALL_STATE_CACHE_PREFIX,
-    GITHUB_INSTALL_STATE_TTL_SECONDS,
+    PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+    FlowKind,
+    GitHubAuthorizeState,
+    github_app_install_url,
+    github_oauth_authorize_url,
 )
 from posthog.api.integration import (
     GitHubBranchesQuerySerializer,
@@ -93,6 +95,10 @@ class UserGitHubIntegrationListResponseSerializer(serializers.Serializer):
         many=True,
         help_text="GitHub personal integrations for the authenticated user.",
     )
+
+
+class UserGitHubPrepareCallbackRequestSerializer(serializers.Serializer):
+    installation_id = serializers.CharField(help_text="GitHub App installation id being managed on github.com.")
 
 
 class UserGitHubLinkStartRequestSerializer(serializers.Serializer):
@@ -210,6 +216,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
         "patch",
         "destroy",
         "github_start",
+        "github_prepare_callback",
         "github_destroy",
         "github_repos_refresh",
         "slack_start",
@@ -453,10 +460,13 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
 
         if connect_from in APP_CONNECT_FROM_VALUES:
             if _team_github_installation_id(team) is None:
-                cache.set(
-                    f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-                    {"user_id": user.id, "connect_from": connect_from, "flow": "oauth_discover"},
-                    timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+                github_callback_state.store_unified_authorize_state(
+                    GitHubAuthorizeState(
+                        token=token,
+                        flow=FlowKind.OAUTH_DISCOVER,
+                        user_id=user.id,
+                        connect_from=connect_from,
+                    ),
                 )
                 return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_discover"})
 
@@ -469,13 +479,13 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "All GitHub App installations accessible to your account are already linked."
             )
 
-        install_state_payload: dict[str, Any] = {"user_id": user.id}
-        if connect_from:
-            install_state_payload["connect_from"] = connect_from
-        cache.set(
-            f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-            install_state_payload,
-            timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_INSTALL,
+                user_id=user.id,
+                connect_from=str(connect_from) if connect_from else None,
+            ),
         )
         return Response(
             {
@@ -483,6 +493,28 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "connect_flow": "app_install",
             }
         )
+
+    @extend_schema(
+        request=UserGitHubPrepareCallbackRequestSerializer, responses={204: OpenApiResponse(description="No content")}
+    )
+    @action(methods=["POST"], detail=False, url_path="github/prepare_callback")
+    def github_prepare_callback(self, request: Request, **_kwargs) -> Response:
+        """Seed personal GitHub manage callback state before opening installation settings on GitHub."""
+        serializer = UserGitHubPrepareCallbackRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        installation_id = str(serializer.validated_data["installation_id"])
+        user = self._get_user()
+        token = os.urandom(33).hex()
+        github_callback_state.store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=token,
+                flow=FlowKind.PERSONAL_UPDATE,
+                user_id=user.id,
+                installation_id=installation_id,
+                next_url=PERSONAL_INTEGRATIONS_SETTINGS_PATH,
+            ),
+        )
+        return Response(status=204)
 
     @extend_schema(
         summary="List Slack workspaces this user could link to",
@@ -728,15 +760,14 @@ def _attempt_app_oauth_fast_path(
         return None
     if UserIntegration.objects.filter(user=user, kind="github", integration_id=team_installation_id).exists():
         return None
-    cache.set(
-        f"{GITHUB_INSTALL_STATE_CACHE_PREFIX}{token}",
-        {
-            "user_id": user.id,
-            "installation_id": team_installation_id,
-            "flow": "oauth_authorize",
-            "connect_from": connect_from,
-        },
-        timeout=GITHUB_INSTALL_STATE_TTL_SECONDS,
+    github_callback_state.store_unified_authorize_state(
+        GitHubAuthorizeState(
+            token=token,
+            flow=FlowKind.PERSONAL_OAUTH,
+            user_id=user.id,
+            installation_id=team_installation_id,
+            connect_from=connect_from,
+        ),
     )
     return Response({"install_url": github_oauth_authorize_url(state), "connect_flow": "oauth_authorize"})
 

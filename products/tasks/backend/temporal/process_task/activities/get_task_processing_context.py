@@ -12,12 +12,12 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
-    BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
 from products.tasks.backend.logic.services.sandbox_config import (
     MAX_SANDBOX_CPU_CORES,
     MAX_SANDBOX_MEMORY_GB,
@@ -74,9 +74,10 @@ class TaskProcessingContext:
     sandbox_event_ingest_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
-    # Captured at workflow start so the provisioned box's resource request is stable across
-    # activity retries (a mid-run flag flip can't change a live sandbox's resources anyway).
-    burstable_sandbox_resources_enabled: bool = False
+    # Burstable by default; the per-run state can opt out to pin a fixed-size box
+    # (request == limit). Captured at workflow start so it's stable across activity retries.
+    burstable_sandbox_resources_enabled: bool = True
+    overlap_clone_boot_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -315,11 +316,10 @@ def _is_modal_vm_sandbox_enabled(
 
 def _is_burstable_sandbox_resources_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
     run_id: str,
     state: dict | None = None,
 ) -> bool:
+    # Burstable by default; the per-run state can pin a fixed-size box (request == limit).
     state_override = (state or {}).get("burstable_sandbox_resources_enabled")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -328,11 +328,29 @@ def _is_burstable_sandbox_resources_enabled(
             burstable_sandbox_resources_enabled=state_override,
         )
         return state_override
+    return True
+
+
+def _is_overlap_clone_boot_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("overlap_clone_boot_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "overlap_clone_boot_state_override",
+            run_id=run_id,
+            overlap_clone_boot_enabled=state_override,
+        )
+        return state_override
 
     try:
         enabled = bool(
             posthoganalytics.feature_enabled(
-                BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG,
+                OVERLAP_CLONE_BOOT_FEATURE_FLAG,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -341,13 +359,13 @@ def _is_burstable_sandbox_resources_enabled(
             )
         )
     except Exception as e:
-        log_with_activity_context("burstable_sandbox_resources_flag_check_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("overlap_clone_boot_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
     log_with_activity_context(
-        "burstable_sandbox_resources_flag_checked",
+        "overlap_clone_boot_flag_checked",
         run_id=run_id,
-        burstable_sandbox_resources_enabled=enabled,
+        overlap_clone_boot_enabled=enabled,
     )
     return enabled
 
@@ -406,8 +424,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             "task__github_integration",
             "task__github_user_integration",
         ).get(id=run_id)
-    except ObjectDoesNotExist as e:
-        raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
+    except ObjectDoesNotExist:
+        # The row may simply not be visible yet (creating transaction not committed) or
+        # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
+        raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})
 
     emit_agent_log(run_id, "debug", "Fetching task details")
 
@@ -516,6 +536,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
     )
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+    )
+    overlap_clone_boot_enabled = _is_overlap_clone_boot_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -524,7 +553,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(
         run_id,
         "debug",
-        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
@@ -558,4 +587,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
+        overlap_clone_boot_enabled=overlap_clone_boot_enabled,
     )
