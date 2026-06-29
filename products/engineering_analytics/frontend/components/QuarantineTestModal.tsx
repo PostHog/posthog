@@ -188,7 +188,6 @@ export function QuarantineTestModal({
                         placeholder="Pick an expiry"
                         clearable={false}
                         selectionPeriod="upcoming"
-                        selectionPeriodLimit={dayjs().add(MAX_QUARANTINE_DAYS, 'day')}
                     />
                     <div className="mt-1 text-xs text-tertiary">
                         At most {MAX_QUARANTINE_DAYS} days out. After this the test gates CI again unless extended.
