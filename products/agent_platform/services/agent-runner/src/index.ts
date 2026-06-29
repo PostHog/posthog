@@ -269,7 +269,7 @@ async function main(): Promise<void> {
     const skillStore = new PgSkillStore(posthogDb)
 
     // Per-session credential broker — same shape ingress writes to.
-    // Required for any non-public auth mode (e.g. the concierge's
+    // Required for any non-public auth mode (e.g. the agent-builder's
     // oauth/pat). Construction throws if encryption isn't configured —
     // fail-fast at boot.
     const credentialBroker = new PgCredentialBroker(agentDb, {

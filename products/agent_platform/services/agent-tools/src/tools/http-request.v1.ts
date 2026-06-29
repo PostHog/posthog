@@ -4,7 +4,7 @@
  * Use this for any HTTP API where the platform doesn't ship a typed native
  * tool: Slack chat.postMessage, GitHub REST, Linear, internal services, etc.
  * The author pastes their bearer/PAT into `spec.secrets[]` (via the
- * concierge's `set_secret` flow) and references it by name as `${TOKEN}` in
+ * agent-builder's `set_secret` flow) and references it by name as `${TOKEN}` in
  * `url` / `headers` / `body`; the substitution happens server-side so the
  * plaintext value never appears in the model's tool-call history.
  *

@@ -106,6 +106,7 @@ describe('per-agent models resolution: real e2e', () => {
             broker: new SecretBroker(),
             approvals: new PgApprovalStore(pool),
             bus,
+            skillStore: { resolve: async () => null },
             resolveSecrets: async () => ({}),
             // Per-agent model resolution — keys off models verbatim. This is
             // the seam the driver streams with, so recording here proves routing.

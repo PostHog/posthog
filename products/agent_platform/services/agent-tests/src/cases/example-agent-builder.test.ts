@@ -41,7 +41,7 @@ describe('example: agent-builder bundle', () => {
     it('ships its 4 platform skills as bundled (source: bundle), each with a SKILL.md', async () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
-        // The concierge's own runtime behaviour ships inline in its bundle (the
+        // The agent-builder's own runtime behaviour ships inline in its bundle (the
         // code-seeded agent owns its skills — they move in lockstep with the
         // platform). Builder playbooks (how to author/edit an agent) are still
         // served by the MCP `agent-resolve-resource`, not here.

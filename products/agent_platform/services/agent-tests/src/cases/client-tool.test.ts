@@ -30,7 +30,7 @@ describe('client-fulfilled tool dispatch: real e2e', () => {
     it('round-trip: model call → SSE event → client posts result → model receives it', async () => {
         c.setScript([fauxCallTool('get_context', {}), fauxText('saw context')])
         await c.deployAgent({
-            slug: 'concierge-like',
+            slug: 'agent-builder-like',
             spec: {
                 tools: [
                     {
@@ -49,7 +49,7 @@ describe('client-fulfilled tool dispatch: real e2e', () => {
         // /client_tool_result endpoint does in production).
         const seenCalls: Array<{ tool_id: string; call_id: string }> = []
         const res = await request(c.ingress)
-            .post('/agents/concierge-like/run')
+            .post('/agents/agent-builder-like/run')
             .send({ message: 'fetch context', supported_client_tools: ['get_context'] })
         const sessionId = res.body.session_id as string
         const unsub = c.bus.subscribe(sessionId, (e) => {

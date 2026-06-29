@@ -42,7 +42,7 @@ export const AuthModeSchema = z.discriminatedUnion('type', [
      * set `acknowledge_public_exposure: true` — the field exists to
      * make the choice deliberate at spec-authoring time and to give
      * the UI a single flag to render a loud warning against. Skill
-     * authoring tools (concierge) treat this as a hard-pause decision
+     * authoring tools (agent-builder) treat this as a hard-pause decision
      * point: confirm with the user before adding it to a spec.
      */
     z.object({
@@ -187,7 +187,7 @@ export const TriggerSchema = z.discriminatedUnion('type', [
              *
              * Set `true` to let ANY user in a `trusted_workspaces` workspace
              * post into the thread and advance the session — a shared/team
-             * concierge thread where colleagues chime in. The `trusted_workspaces`
+             * agent-builder thread where colleagues chime in. The `trusted_workspaces`
              * gate still applies (untrusted workspaces are rejected upstream),
              * and every message still records its real sender for audit; this
              * only waives the "same user as the owner" requirement. Default
@@ -605,13 +605,13 @@ export const SkillRefSchema = z.object({
      *  For store skills it's a freeze-time snapshot (can drift from the live body). */
     description: z.string().optional(),
     /**
-     * Where the body comes from at runtime:
-     *   - `'bundle'` (default): shipped in the agent's bundle at `path`.
+     * Where the body comes from at runtime (always set on a frozen spec):
+     *   - `'bundle'`: shipped in the agent's bundle at `path`.
      *   - `'store'`: NOT baked — `@posthog/load-skill` resolves it LIVE from the
      *     skill store by `from_template` (pinned `version`, else latest), so a
      *     store edit reaches running agents on the next load.
      */
-    source: z.enum(['bundle', 'store']).optional(),
+    source: z.enum(['bundle', 'store']),
     /** Store lineage (`source: 'store'`). `from_template` = the store skill name
      *  the resolver queries by; `version` pins (omit = latest); `source_version_id`
      *  = immutable per-version id stamped at freeze when pinned; `alias` = `id`. */

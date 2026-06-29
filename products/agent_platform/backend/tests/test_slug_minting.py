@@ -47,20 +47,20 @@ class TestSlugMinting(APIBaseTest):
     @override_settings(AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS=set())
     def test_minted_slugs_are_globally_unique_across_teams(self) -> None:
         # Two agents with the same name on the same team still get distinct slugs.
-        _, first = self._create({"name": "Concierge"})
-        _, second = self._create({"name": "Concierge"})
+        _, first = self._create({"name": "Agent Builder"})
+        _, second = self._create({"name": "Agent Builder"})
         self.assertNotEqual(first["slug"], second["slug"])
 
     def test_allowlisted_team_may_set_explicit_slug(self) -> None:
         with override_settings(AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS={self.team.id}):
-            status_code, body = self._create({"name": "Agent concierge", "slug": "agent-concierge"})
+            status_code, body = self._create({"name": "Agent builder", "slug": "agent-builder"})
         self.assertEqual(status_code, status.HTTP_201_CREATED, body)
-        self.assertEqual(body["slug"], "agent-concierge")
+        self.assertEqual(body["slug"], "agent-builder")
 
     def test_explicit_slug_collision_is_a_clean_400(self) -> None:
         with override_settings(AGENT_PLATFORM_EXPLICIT_SLUG_TEAM_IDS={self.team.id}):
-            self._create({"name": "Agent concierge", "slug": "agent-concierge"})
-            status_code, body = self._create({"name": "Imposter", "slug": "agent-concierge"})
+            self._create({"name": "Agent builder", "slug": "agent-builder"})
+            status_code, body = self._create({"name": "Imposter", "slug": "agent-builder"})
         self.assertEqual(status_code, status.HTTP_400_BAD_REQUEST, body)
         self.assertEqual(body["attr"], "slug")
 

@@ -183,6 +183,7 @@ async function run(
         approvals: new PgApprovalStore(pool),
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
+        skillStore: { resolve: async () => null },
         ...over,
     })
 }
@@ -362,7 +363,7 @@ describe('driver runSession', () => {
      * so they never appear in `spec.tools[]` and the native/custom approval
      * lookup misses them. PR 7 added a fallback that decomposes
      * `<prefix>__<remoteName>` against `spec.mcps[].tools[]` — these tests pin
-     * the wrap path for the MCP variant + the `principal` gate the concierge
+     * the wrap path for the MCP variant + the `principal` gate the agent-builder
      * relies on (which always queues — there is no fast-path).
      */
     describe('MCP tool approval gating', () => {
@@ -428,7 +429,7 @@ describe('driver runSession', () => {
         }
 
         it('queues an approval row when the model calls a gated MCP tool', async () => {
-            // Concierge-shape: the model invokes promote-create; the
+            // Agent Builder-shape: the model invokes promote-create; the
             // dispatcher's MCP lookup finds `requires_approval: true` on the
             // matching tools[] entry; the wrap queues instead of running.
             const mcp = makeFakeMcp('posthog', POSTHOG_REF, {

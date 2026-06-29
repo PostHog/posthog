@@ -2,7 +2,7 @@
  * `@posthog/load-skill` — fetches a skill's `SKILL.md` body, or a companion
  * file within the skill folder, on demand. A skill is one of two sources
  * (declared on its `spec.skills[]` entry):
- *   - `bundle` (default): shipped in the agent's own bundle at `path`; read via
+ *   - `bundle`: shipped in the agent's own bundle at `path`; read via
  *     `ctx.readBundleFile`.
  *   - `store`: referenced via `skill_refs`, NOT in the bundle; resolved LIVE
  *     from the PostHog skill store via `ctx.resolveStoreSkill` (latest, or the

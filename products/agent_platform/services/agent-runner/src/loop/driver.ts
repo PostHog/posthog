@@ -187,9 +187,9 @@ export interface RunSessionDeps {
     /**
      * Skill store for `source: 'store'` skills — threaded into `AgentToolDeps`
      * → `ToolContext.resolveStoreSkill` so `@posthog/load-skill` resolves store
-     * skills live. Wired in prod from a `PgSkillStore` over the main PostHog DB.
+     * skills live. A `PgSkillStore` over the main PostHog DB.
      */
-    skillStore?: SkillStore
+    skillStore: SkillStore
     /** Web-search provider chain for @posthog/web-search; empty → tool gated out. */
     webSearchProviders?: readonly WebSearchProvider[]
     /**

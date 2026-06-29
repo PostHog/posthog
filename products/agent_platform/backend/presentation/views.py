@@ -161,7 +161,7 @@ class JanitorUpstreamError(APIException):
         # still see the upstream payload.
         if isinstance(e.body, dict):
             msg = e.body.get("error") or e.body.get("detail") or e.body.get("message")
-            # Append structured upstream errors so the caller + concierge model
+            # Append structured upstream errors so the caller + agent-builder model
             # see the concrete reason, not just the opaque code. Two shapes:
             # custom-tool compile -> top-level errors=[{kind, message, line}];
             # freeze/validate -> report.errors=[{code, message, pointer}] (e.g.
@@ -2412,13 +2412,9 @@ class AgentRevisionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         derived_spec = result.get("derived_spec")
         if derived_spec is not None:
-            # The janitor derived spec.skills[] from the bundle's skill folders —
-            # tag them bundle-sourced.
+            # The janitor already tagged bundle-derived skills source='bundle'.
             bundle_skills = derived_spec.get("skills") or []
-            bundle_skill_ids = set()
-            for s in bundle_skills:
-                s["source"] = "bundle"
-                bundle_skill_ids.add(s.get("id"))
+            bundle_skill_ids = {s.get("id") for s in bundle_skills}
             collisions = sorted(aliases & bundle_skill_ids)
             if collisions:
                 raise ValidationError(

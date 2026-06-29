@@ -76,7 +76,7 @@ import { webSearchV1 } from './tools/web-search/web-search.v1'
 
 /**
  * Lists every native (`@posthog/*`) tool the runner knows — the authoring
- * concierge's ground-truth catalog of what it can wire into an agent's
+ * agent-builder's ground-truth catalog of what it can wire into an agent's
  * `tools[]`, instead of guessing tool ids from its (drift-prone) skill docs.
  * Defined here rather than in `tools/` so it can read `listNativeTools()`
  * without a registry↔tool import cycle; `run` reads the catalog at call time.

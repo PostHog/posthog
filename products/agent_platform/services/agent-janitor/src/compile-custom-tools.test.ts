@@ -52,7 +52,7 @@ describe('compileTypedTool', () => {
 
     it.each([
         {
-            label: 'bare function default — the historical concierge foot-gun',
+            label: 'bare function default — the historical agent-builder foot-gun',
             source: 'export default async function run() { return {} }',
             kind: 'ast_default_not_object',
             fragment: 'bare function',

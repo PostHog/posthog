@@ -141,6 +141,7 @@ describe('Worker', () => {
         await queue.enqueue(session)
 
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -210,6 +211,7 @@ describe('Worker', () => {
 
         const sandboxes = new InProcessSandboxPool()
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -303,6 +305,7 @@ describe('Worker', () => {
         }
 
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -371,6 +374,7 @@ describe('Worker', () => {
         await queue.enqueue(session)
 
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -442,6 +446,7 @@ describe('Worker', () => {
         } as unknown as typeof revisions
 
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -562,6 +567,7 @@ describe('Worker', () => {
             }
 
             const worker = new Worker({
+                skillStore: { resolve: async () => null },
                 http: new HttpClient(),
                 posthogApiBaseUrl: 'http://localhost:8010',
                 queue,
@@ -670,6 +676,7 @@ describe('Worker', () => {
         }
 
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -716,6 +723,7 @@ describe('Worker', () => {
 
         let claimCalls = 0
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,
@@ -751,6 +759,7 @@ describe('Worker', () => {
         const queue = new PgSessionQueue(pool)
 
         const worker = new Worker({
+            skillStore: { resolve: async () => null },
             http: new HttpClient(),
             posthogApiBaseUrl: 'http://localhost:8010',
             queue,

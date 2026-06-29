@@ -18,30 +18,30 @@ Agent-platform instructional content lives in one of three places, chosen by
 
 |                   | **Bundled skills**                                                                                                                                                                            | **MCP playbooks** (here)                                                       | **Skill store**                                                       |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ | -------------------------------------------------------------------- |
-| **What**          | An agent's own runtime behaviour shipped with it — e.g. the concierge's `focus_*` client tools, client-kind modes, principal/safety model, fleet-audit workflow                               | Reusable knowledge about the **authoring tools** — how to build/operate agents | **Team-authored** reusable agent runtime skills                       |
+| **What**          | An agent's own runtime behaviour shipped with it — e.g. the agent-builder's `focus_*` client tools, client-kind modes, principal/safety model, fleet-audit workflow                               | Reusable knowledge about the **authoring tools** — how to build/operate agents | **Team-authored** reusable agent runtime skills                       |
 | **Why this home** | Owned by the agent; for a code-seeded agent, in lockstep with the implementation                                                                                                             | Platform docs of the live tool surface; version with the MCP                   | Content that is _supposed_ to vary per team; edit once, used live     |
 | **Home**          | The agent's own bundle (`skills/<id>/SKILL.md`, `source: 'bundle'`); read via `@posthog/load-skill`                                                                                           | **Code** — this dir; served via `agent-resolve-resource`                       | **DB** — the llma-skill store; `skill_refs` (`source: 'store'`), resolved LIVE at load |
-| **Consumer**      | The agent that ships it                                                                                                                                                                       | Anyone building agents (human, IDE, _or the concierge_)                        | Any team agent                                                        |
+| **Consumer**      | The agent that ships it                                                                                                                                                                       | Anyone building agents (human, IDE, _or the agent-builder_)                        | Any team agent                                                        |
 
 **The discriminator:** _reusable platform knowledge_ → MCP playbook; _this
 agent's own runtime behaviour_ → bundled skill; _content meant to vary per team_
 → store skill.
 
 **Bundled vs store (the drift argument):** a code-seeded agent like the
-concierge ships its safety/console/audit skills **in its own bundle**, so they
+agent-builder ships its safety/console/audit skills **in its own bundle**, so they
 move with the code and can't drift per account. The store is for content meant to
 diverge per team — and is resolved LIVE at load time, so a team edit propagates
 to its agents without a re-freeze (pin a `version` to opt out).
 
-**Why a playbook isn't a bundled skill:** the concierge _builds_ agents, so it
+**Why a playbook isn't a bundled skill:** the agent-builder _builds_ agents, so it
 needs builder knowledge the same way Claude Code does — by fetching it from the
 MCP. Builder playbooks are not bundled into any agent; they're fetched on demand
 with `agent-resolve-resource`, which is also why they can carry a live
 scope-aware tool surface that a static bundled file never could.
 
-## The four concierge bundled skills
+## The four agent-builder bundled skills
 
-These live in the concierge bundle (`examples/agent-builder/skills/`), **not**
+These live in the agent-builder bundle (`examples/agent-builder/skills/`), **not**
 here: `safety-and-boundaries`, `using-the-console-ui`,
 `working-outside-the-console`, `auditing-the-fleet`. A playbook here must not
 tell the reader to "load" one of them (a generic MCP consumer has no such

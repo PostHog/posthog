@@ -13,8 +13,8 @@ const REPO_ROOT = resolve(ROOT_DIR, '../..')
 
 // Single source of truth for the builder playbooks: `services/mcp/playbooks`,
 // one `<id>/SKILL.md` per playbook. These are MCP-owned platform docs about the
-// authoring tools — distinct from the concierge's code-bundled *kernel* skills
-// (in the agent-builder bundle) and from team `skill_refs` store skills.
+// authoring tools — distinct from an agent's own bundled skills (e.g. the
+// agent-builder bundle) and from team `skill_refs` store skills.
 const PLAYBOOKS_DIR = resolve(ROOT_DIR, 'playbooks')
 
 const PROMPTS = [

@@ -223,6 +223,9 @@ async function deriveSpec(args: {
         id: s.id,
         path: skillBodyPath(s.id),
         description: s.description,
+        // Everything derived from the bundle is a bundle skill. Store skills
+        // (source: 'store') are appended by Django at freeze, never here.
+        source: 'bundle' as const,
     }))
     const derivedTools = bundle.tools.map((t) => ({
         kind: 'custom' as const,
@@ -1022,7 +1025,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
 
     // Manually fire one cron job — same execution path the scheduler walks,
     // but on demand. Authoring path: the user clicks "fire now" in the
-    // console (or the concierge MCP tool
+    // console (or the agent-builder MCP tool
     // `agent-applications-revisions-cron-fire-create`) and gets back the
     // session id without having to wait for the next real firing. Without
     // this, "did my cron prompt do the right thing?" is unanswerable until

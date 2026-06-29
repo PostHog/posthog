@@ -280,6 +280,7 @@ describe('validateRevisionBundle', () => {
                     skills: [
                         {
                             id: 'slack',
+                            source: 'bundle',
                             path: 'skills/slack/SKILL.md',
                             description: 'How to call Slack.',
                         },

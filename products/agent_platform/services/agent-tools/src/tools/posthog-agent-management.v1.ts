@@ -1,6 +1,6 @@
 /**
  * Native tools for reading agent-platform state — the agent-management
- * surface the concierge needs to inspect any agent (its own
+ * surface the agent-builder needs to inspect any agent (its own
  * application, other team agents, their revisions, sessions, logs).
  *
  * All tools share the identity auth path (`_posthog-api.ts`): each declares a
@@ -16,7 +16,7 @@
  *
  * **Reads + writes.** Authoring writes (create, partial-update, new-draft,
  * file-update, validate, freeze, promote, archive, set-env) live here too.
- * Server-side approval gating is NOT enforced — the concierge agent.md
+ * Server-side approval gating is NOT enforced — the agent-builder agent.md
  * (hard rules #3 + #5) requires the model to confirm before destructive
  * edits in chat, which matches what users expect from a chat-driven
  * authoring surface. Move sensitive writes back behind the runner's
@@ -64,7 +64,7 @@ const AgentApplicationSchema = Type.Object({
 
 /**
  * Resolve an application by slug OR id. Lookup by slug requires a list
- * call; lookup by id is direct. Lets the concierge accept either form
+ * call; lookup by id is direct. Lets the agent-builder accept either form
  * naturally without forcing slug→id translation upstream.
  */
 async function resolveApplicationId(
@@ -810,7 +810,7 @@ export const posthogAgentApplicationsRevisionsArchiveV1 = defineNativeTool({
  * `skills/secrets-and-integrations`.
  *
  * `set-env-create` (raw API for CI scripts) is wired anyway so the
- * concierge can recover from the rare case where the punch-out form is
+ * agent-builder can recover from the rare case where the punch-out form is
  * broken or unavailable. The model is told to prefer the client tool.
  * ────────────────────────────────────────────────────────────────────── */
 

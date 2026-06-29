@@ -7,7 +7,7 @@
  *
  * The cases below are the floor. Each represents either:
  *   - A real authoring flow the web app or Claude Code-style MCP performs.
- *   - A failure mode we've actually hit in production / past concierge
+ *   - A failure mode we've actually hit in production / past agent-builder
  *     sessions (broken tool shapes, spec drift, frozen-revision writes).
  *
  * If a case fails here, the feature is broken; we don't ship.

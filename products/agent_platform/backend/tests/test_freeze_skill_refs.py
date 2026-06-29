@@ -14,11 +14,13 @@ from ..models import AgentApplication, AgentRevision
 
 
 def _freeze_result(skills: list[dict] | None = None) -> dict:
-    """A janitor freeze response. `skills` are the bundle-derived skills (store
-    refs are NOT here — they're appended by Django, never baked)."""
+    """A janitor freeze response. `skills` are the bundle-derived skills — the
+    janitor tags each `source: 'bundle'` (store refs are NOT here; Django appends
+    them). Mirror that here so the mock matches the real contract."""
+    bundle_skills = [{"source": "bundle", **s} for s in (skills or [])]
     return {
         "bundle_sha256": "a" * 64,
-        "derived_spec": {"model": "x", "triggers": [], "skills": skills or [], "tools": []},
+        "derived_spec": {"model": "x", "triggers": [], "skills": bundle_skills, "tools": []},
     }
 
 

@@ -160,21 +160,25 @@
         {
             "id": "triage-playbook",
             "path": "skills/triage-playbook/SKILL.md",
+            "source": "bundle",
             "description": "Structured triage flow \u2014 phases for context gathering, hypothesis, and reporting. Load when starting an investigation."
         },
         {
             "id": "slack-thread-protocol",
             "path": "skills/slack-thread-protocol/SKILL.md",
+            "source": "bundle",
             "description": "Conventions for replying in Slack \u2014 TL;DR first, evidence next, who to tag, when to start a new top-level message. Load before posting any reply."
         },
         {
             "id": "incident-io-playbook",
             "path": "skills/incident-io-playbook/SKILL.md",
+            "source": "bundle",
             "description": "How to query and update incident.io \u2014 list active incidents, fetch context for an incoming webhook, post triage updates, and (rare) open a new incident. Load when an incident.io webhook fires the agent, when an alert correlates to an active incident, or when recording a resolved outcome."
         },
         {
             "id": "runbook-memory",
             "path": "skills/runbook-memory/SKILL.md",
+            "source": "bundle",
             "description": "The runbook corpus in agent memory \u2014 the folder taxonomy (runbooks/alerts, runbooks/systems, runbooks/procedures), how to read it during triage, how to write a GOOD runbook entry, and the approval-gated flow for proposing a new or updated runbook on a user's behalf. ALWAYS load before reading or proposing any change to a runbook \u2014 i.e. at the start of triage (to consult) and after a resolution (to capture the lesson)."
         }
     ],

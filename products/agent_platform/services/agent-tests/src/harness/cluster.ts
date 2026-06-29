@@ -428,6 +428,10 @@ export async function buildCluster(opts: BuildClusterOpts = {}): Promise<Cluster
         buildApprovalUrl: (requestId) => `/approvals?request=${requestId}`,
         memoryStore,
         tabularStore,
+        // The harness exercises bundle skills (written straight to the bundle);
+        // store skills resolve to "not found". A store-skill case would pass a
+        // seeded SkillStore here.
+        skillStore: { resolve: async () => null },
         mcpTransportFactory: opts.mcpTransportFactory,
         maxConcurrency: 1, // tests prefer serial for deterministic state checks
         // Real HttpClient with no proxy by default — tests that exercise

@@ -45,16 +45,19 @@
         {
             "id": "briefing-template",
             "path": "skills/briefing-template/SKILL.md",
+            "source": "bundle",
             "description": "The output schema — section order, tone, when to omit a section, how to tag items (🔥 stale review, 🆕 new today). Load AT THE START of every briefing build. The model has wide latitude on content; this skill pins the SHAPE so day-to-day briefings look the same."
         },
         {
             "id": "carry-over",
             "path": "skills/carry-over/SKILL.md",
+            "source": "bundle",
             "description": "Pulling unchecked items from yesterday's briefing and filtering out ones that are already resolved. Load whenever you're about to draft a new briefing — it's the first step."
         },
         {
             "id": "slack-post-format",
             "path": "skills/slack-post-format/SKILL.md",
+            "source": "bundle",
             "description": "Slack-flavored condensed version of the briefing — mrkdwn quirks, separator lines, mobile-readable. Load BEFORE the final slack-post-message call, not at briefing start. The local markdown file is the source of truth; this is the projection."
         }
     ],

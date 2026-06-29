@@ -128,11 +128,9 @@ export interface AgentToolDeps {
     /**
      * Skill store for `source: 'store'` skills — `@posthog/load-skill` resolves
      * them live (latest or pinned version) scoped to the session's team. A
-     * `PgSkillStore` over the MAIN PostHog DB in prod; the harness passes a
-     * fake. Absent → `load-skill` surfaces a clear error for store skills
-     * (bundled skills still work).
+     * `PgSkillStore` over the MAIN PostHog DB; the harness passes a fake.
      */
-    skillStore?: SkillStore
+    skillStore: SkillStore
     /**
      * Web-search provider chain for `@posthog/web-search`. Forwarded onto the
      * `ToolContext`; an empty/absent chain also gates the tool out of the
@@ -569,10 +567,8 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
             version: s.version,
         })),
         // Resolve `source: 'store'` skills live from the skill store, scoped to
-        // this session's team. Absent when the runner has no store DB wired.
-        resolveStoreSkill: deps.skillStore
-            ? (name, version, file) => deps.skillStore!.resolve(deps.session.team_id, name, version, file)
-            : undefined,
+        // this session's team.
+        resolveStoreSkill: (name, version, file) => deps.skillStore.resolve(deps.session.team_id, name, version, file),
         readBundleFile: async (path: string): Promise<string | null> => {
             // `null` is the "file genuinely absent" signal (load-skill renders
             // it as "not found in the bundle"). An operational failure —

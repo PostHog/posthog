@@ -172,7 +172,7 @@ export interface WorkerDeps {
     /** Deterministic tabular store for `@posthog/table-*` tools; same S3 config as memory. */
     tabularStore?: TabularStore
     /** Skill store for `source: 'store'` skills; resolved live per session by `@posthog/load-skill`. */
-    skillStore?: SkillStore
+    skillStore: SkillStore
     /**
      * Web-search provider chain for `@posthog/web-search`, built from
      * AGENT_WEB_SEARCH_* config at boot. Threaded onto each session's

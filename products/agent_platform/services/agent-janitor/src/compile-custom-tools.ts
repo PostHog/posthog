@@ -17,7 +17,7 @@
  *
  * Failures bubble up as structured `ToolCompileError` objects. Each carries
  * a `kind` discriminator + a one-line `message` the caller (and the
- * concierge model) can surface verbatim.
+ * agent-builder model) can surface verbatim.
  */
 
 import { transform as esbuildTransform } from 'esbuild'
@@ -103,7 +103,7 @@ function checkExportShape(sf: ts.SourceFile): ToolCompileError[] {
     //   2. `export default function foo() {}` / `export default class Bar {}`
     //      — these are `FunctionDeclaration` / `ClassDeclaration` nodes with
     //      `export` + `default` modifiers, NOT ExportAssignments. Easy to
-    //      miss; the bare-function concierge foot-gun ships exactly this
+    //      miss; the bare-function agent-builder foot-gun ships exactly this
     //      shape.
     const defaultExports: { node: ts.Node; expr: ts.Expression | null }[] = []
     for (const stmt of sf.statements) {

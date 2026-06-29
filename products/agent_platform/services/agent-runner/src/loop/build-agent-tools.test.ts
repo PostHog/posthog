@@ -146,6 +146,7 @@ function makeDeps(rev: AgentRevision, over: Partial<AgentToolDeps> = {}): AgentT
         log: () => undefined,
         http: new HttpClient(),
         posthogApiBaseUrl: 'http://localhost:8010',
+        skillStore: { resolve: async () => null },
         ...over,
     }
 }
@@ -196,7 +197,7 @@ describe('buildAgentTools', () => {
             '@posthog/meta-end-turn',
         ])
 
-        const rev = makeRev([], [{ id: 'research', path: 'skills/research.md', description: 'd' }])
+        const rev = makeRev([], [{ id: 'research', source: 'bundle', path: 'skills/research.md', description: 'd' }])
         const withSkills = await buildAgentTools(rev, makeDeps(rev))
         expect(withSkills.tools.map((t) => t.label)).toContain('@posthog/load-skill')
     })

@@ -39,6 +39,7 @@
         {
             "id": "proposing-changes",
             "path": "skills/proposing-changes/SKILL.md",
+            "source": "bundle",
             "description": "How to react when a tool call returns a synthetic queued-approval envelope. Load on the first turn \u2014 this agent is built around the gate and the model needs to know how to communicate it."
         }
     ],
