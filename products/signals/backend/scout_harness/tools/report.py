@@ -315,6 +315,13 @@ async def _maybe_autostart_report(*, team_id: int, report_id: str) -> None:
 # the same so internal consumers (dashboards, alerts, CDP forwards) can act on a report's substance, not
 # just its ids/status. Summary gets a wider cap than the signal channel's 256 — that limit silently clips
 # real content — while still bounding the event payload.
+#
+# This is a deliberate, scoped exception to the signal channel's `extra`-passthrough policy (see the
+# `_telemetry_props_from_extra` comment in `facade/api.py`). That policy keeps the opaque `extra` blob to
+# truncated scalars because it can nest *uncurated* customer-derived content (raw SQL, replay history) the
+# scout never authored. These fields are the opposite: a curated, scout-authored report title/summary —
+# the deliberate product output — not an arbitrary nested blob. They're forwarded by name (no blob
+# passthrough) and length-capped here, which is what makes carrying them acceptable.
 _MAX_TELEMETRY_SUMMARY_LEN = 2000
 _MAX_TELEMETRY_TEXT_LEN = 1000
 
