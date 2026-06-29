@@ -2,6 +2,7 @@
 paths:
   - '**/test_*.py'
   - '**/*_test.py'
+  - '**/tests.py'
   - '**/*.test.ts'
   - '**/*.test.tsx'
   - '**/*.spec.ts'
