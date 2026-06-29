@@ -11,8 +11,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
-from products.data_modeling.backend.models.datawarehouse_saved_query import (
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
     DataWarehouseSavedQuery,
     aget_saved_query_by_id,
     aget_table_by_saved_query_id,

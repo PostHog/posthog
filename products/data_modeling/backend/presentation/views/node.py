@@ -22,7 +22,7 @@ from posthog.temporal.data_modeling.run_workflow import RunWorkflowInputs, Selec
 from posthog.temporal.data_modeling.workflows.execute_dag import ExecuteDAGInputs
 from posthog.temporal.data_modeling.workflows.materialize_view import MaterializeViewWorkflowInputs
 
-from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
+from products.data_modeling.backend.facade.models import DAG, Edge, Node, NodeType
 from products.warehouse_sources.backend.facade.models import sync_frequency_interval_to_sync_frequency
 
 
@@ -164,7 +164,7 @@ def _node_queryset_with_latest_job() -> models.QuerySet:
     - _latest_job_status: status of the most recent job (any status)
     - _latest_job_run_at: last_run_at of the most recent *successful* job
     """
-    from products.data_modeling.backend.models.data_modeling_job import DataModelingJob
+    from products.data_modeling.backend.facade.models import DataModelingJob
 
     latest_job = DataModelingJob.objects.filter(saved_query_id=OuterRef("saved_query_id")).order_by("-last_run_at")
     latest_completed_job = latest_job.filter(status=DataModelingJob.Status.COMPLETED)
@@ -191,7 +191,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return super().get_serializer_context()
 
     def list(self, request, *args, **kwargs):
-        from products.data_modeling.backend.graph import Graph
+        from products.data_modeling.backend.facade.models import Graph
 
         queryset = self.filter_queryset(self.get_queryset())
         page = self.paginate_queryset(queryset)
@@ -309,7 +309,7 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True)
     def lineage(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Return the subgraph of nodes and edges reachable from this node (upstream + downstream)."""
-        from products.data_modeling.backend.api.edge import EdgeSerializer
+        from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
 
         node = self.get_object()
         upstream_ids = _get_upstream_nodes(node, include_tables=True)

@@ -5,7 +5,7 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.models import DAG
+from products.data_modeling.backend.facade.models import DAG
 from products.warehouse_sources.backend.facade.models import (
     sync_frequency_interval_to_sync_frequency,
     sync_frequency_to_sync_frequency_interval,

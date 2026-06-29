@@ -52,7 +52,7 @@ from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.facade.api import (
     apply_on_refresh as apply_sql_warehouse_refresh_migration,
     apply_on_schema_clear as apply_sql_warehouse_schema_clear_migration,
