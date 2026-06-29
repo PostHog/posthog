@@ -114,6 +114,36 @@ class SourceBatchDuckgresStatus(UUIDModel):
         ]
 
 
+class SourceGroupLease(models.Model):
+    """Lease-based mutual exclusion for processing a (team_id, schema_id) group.
+
+    Replaces the session-scoped Postgres advisory lock that previously gated
+    group claiming. A lease row is claimed via a conditional upsert and renewed
+    by the consumer heartbeat; an abandoned lease (pod SIGKILLed, pgbouncer
+    session lingering, node lost) simply expires, so any surviving pod can
+    reclaim the group once ``expires_at`` passes. All access is via raw SQL in
+    ``postgres_queue/jobs_db.py`` — this model exists for migration/introspection.
+    """
+
+    team_id = models.BigIntegerField()
+    schema_id = models.CharField(max_length=200)
+    owner_token = models.CharField(max_length=64, help_text="Per-pod identity (uuid4) of the current lease holder.")
+    expires_at = models.DateTimeField()
+    acquired_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    __repr__ = sane_repr("team_id", "schema_id", "owner_token", "expires_at")
+
+    class Meta:
+        db_table = "sourcegrouplease"
+        constraints = [
+            models.UniqueConstraint(fields=["team_id", "schema_id"], name="sgl_team_schema_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["expires_at"], name="sgl_expires_at_idx"),
+        ]
+
+
 class SourceBatchDuckgresApply(ProductTeamModel, UUIDModel):
     schema_id = models.CharField(max_length=200)
     run_uuid = models.CharField(max_length=200)
