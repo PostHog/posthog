@@ -639,7 +639,9 @@ class ChurnkeySourceConfig(config.Config):
 
 @config.config
 class CimisSourceConfig(config.Config):
-    pass
+    app_key: str
+    targets: str | None = None
+    unit_of_measure: Literal["E", "M"] | None = config.value(default="E")
 
 
 @config.config
@@ -1014,7 +1016,7 @@ class EasypostSourceConfig(config.Config):
 
 @config.config
 class EasypromosSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1090,7 +1092,7 @@ class FacebookPagesSourceConfig(config.Config):
 
 @config.config
 class FactorialSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

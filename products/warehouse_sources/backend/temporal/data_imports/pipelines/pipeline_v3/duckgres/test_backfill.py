@@ -19,6 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _committed_batch_keys,
     _group_files_into_chunks,
 )
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities import create_job_model
 
 _State = DuckgresSinkSchemaState.State
 
@@ -141,3 +142,33 @@ class TestPlanPendingConcurrencyCaps:
         candidate.refresh_from_db()
         assert candidate.state == _State.BACKFILLING
         assert planned == [candidate.id]
+
+
+@pytest.mark.django_db
+class TestBootstrapV3SourceGate:
+    # warehouse-pipelines-v3 (is_pipeline_v3_enabled) is the network-flag boundary;
+    # stub it so the assertion is on which schemas get a state row.
+    def test_only_v3_sources_are_primed(self, monkeypatch):
+        from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
+
+        monkeypatch.setattr(
+            create_job_model,
+            "is_pipeline_v3_enabled",
+            lambda team_id, source_type: source_type == "Postgres",
+        )
+
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        v3_source = ExternalDataSource.objects.create(
+            team=team, source_id="s1", connection_id="c1", source_type="Postgres", status="Running"
+        )
+        non_v3_source = ExternalDataSource.objects.create(
+            team=team, source_id="s2", connection_id="c2", source_type="Stripe", status="Running"
+        )
+        v3_schema = ExternalDataSchema.objects.create(team=team, name="pg", source=v3_source)
+        non_v3_schema = ExternalDataSchema.objects.create(team=team, name="stripe", source=non_v3_source)
+
+        backfill_module._bootstrap_state_rows([team.id])
+
+        primed = set(DuckgresSinkSchemaState.objects.filter(team=team).values_list("schema_id", flat=True))
+        assert v3_schema.id in primed
+        assert non_v3_schema.id not in primed
