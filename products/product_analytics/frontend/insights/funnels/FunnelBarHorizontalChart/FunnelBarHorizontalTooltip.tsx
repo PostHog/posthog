@@ -6,7 +6,6 @@ import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from '
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
-import { FUNNEL_NOT_PRESENT_TOOLTIP } from '../shared/funnelBarHorizontalShared'
 import type { FunnelBarHorizontalSegmentMeta } from './funnelBarHorizontalTransforms'
 
 interface FunnelBarHorizontalTooltipProps {
@@ -33,15 +32,6 @@ export function FunnelBarHorizontalTooltip({
     const entry = context.seriesData[0]
     if (!entry) {
         return null
-    }
-
-    // The "not present" band has no conversion data — explain the volume gap instead of stats.
-    if (entry.series.meta?.isNotPresent) {
-        return (
-            <div data-attr="funnel-tooltip" className="FunnelTooltip InsightTooltip p-2">
-                {FUNNEL_NOT_PRESENT_TOOLTIP}
-            </div>
-        )
     }
 
     const breakdownIndex = entry.series.meta?.breakdownIndex

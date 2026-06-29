@@ -163,16 +163,18 @@ export function drawBarChartStatic(
         const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
         const beyondColor = barTrackBeyondColor ?? DEFAULT_BAR_NOT_PRESENT_COLOR
         for (const { series: s, bars } of seriesBars) {
-            // Cap the hatched track at the series' `trackMax` (full axis by default), then fill the
-            // headroom above it with a flat "not applicable" band — so a shorter compare period's
+            // A capped series first lays its flat "not applicable" fill across the *whole* column as a
+            // backdrop, so the rounded corners of the (shorter) hatched track and the bar reveal it
+            // rather than the page background. The hatched track is then capped at `trackMax` on top,
+            // leaving the headroom above it showing only the flat fill — a shorter compare period's
             // empty space reads as "fewer entrants", not drop-off.
+            if (s.trackMax != null) {
+                const backdrops = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
+                drawSolidBarTracks(ctx, backdrops, beyondColor, barCornerRadius)
+            }
             const capPixel = s.trackMax != null ? d3Scales.value(s.trackMax) : axisEnd
             const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, capPixel, isHorizontal))
             drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
-            if (s.trackMax != null) {
-                const beyondBands = bars.map((b) => computeBarTrackRect(b, capPixel, axisEnd, isHorizontal))
-                drawSolidBarTracks(ctx, beyondBands, beyondColor, barCornerRadius)
-            }
         }
     }
 

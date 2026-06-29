@@ -67,6 +67,8 @@ describe('funnelBarHorizontalShared', () => {
             expect(band?.data).toEqual(expected)
             expect(band?.color).toBe(FUNNEL_NOT_PRESENT_FILL)
             expect(band?.meta).toEqual({ isDropOff: false, isNotPresent: true, breakdownIndex: 1 })
+            // Hidden from the tooltip like the drop-off filler — the band is inert.
+            expect(band?.visibility).toEqual({ tooltip: false })
         })
 
         it.each([

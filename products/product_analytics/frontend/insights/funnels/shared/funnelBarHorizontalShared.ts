@@ -14,10 +14,6 @@ export const FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY = 'funnel-bar-horizontal-not-
  *  vertical chart's `trackBeyondColor` so both layouts read the "not applicable" zone the same way. */
 export const FUNNEL_NOT_PRESENT_FILL = 'rgba(128, 128, 128, 0.12)'
 
-/** Tooltip copy for the "not present" zone, shared by both step layouts. Orientation-neutral (the
- *  gap is to the right for top-to-bottom bars, above for left-to-right ones). */
-export const FUNNEL_NOT_PRESENT_TOOLTIP = 'Fewer entrants in this period — not a drop-off'
-
 /** Every step's bar is its own single-band chart, so they only line up if they share this
  *  value domain (passed to BarChart as `bars.valueDomain`). Segment data are basis-step
  *  percentages, so the axis is `0–100`. */
@@ -34,8 +30,9 @@ export function funnelConversionRate(count: number, basisCount: number): number 
 export interface FunnelBarHorizontalSegmentMeta {
     isDropOff: boolean
     breakdownIndex: number | null
-    /** The inert "fewer entrants in this period" band (compare mode). The click handler skips it and
-     *  the tooltip explains it; absent/false for real conversion, drop-off, and breakdown segments. */
+    /** The inert volume-gap band (compare mode): the headroom a shorter period leaves below the
+     *  shared baseline. The click handler skips it; absent/false for conversion, drop-off, and
+     *  breakdown segments. */
     isNotPresent?: boolean
 }
 
@@ -70,8 +67,8 @@ export function buildFunnelBarHorizontalFiller(
 
 /** The inert "not present" band from `capPercent` up to 100% — the headroom a shorter compare period
  *  leaves below the shared baseline. Distinct faint fill and its own meta flag so the click handler
- *  skips it (no actors) and the tooltip explains it. Returns null when there's no gap (`capPercent`
- *  at or above 100%, i.e. the larger period or a non-compare bar). */
+ *  skips it (no actors); hidden from the tooltip like the drop-off filler. Returns null when there's
+ *  no gap (`capPercent` at or above 100%, i.e. the larger period or a non-compare bar). */
 export function buildFunnelBarHorizontalNotPresent(
     capPercent: number,
     breakdownIndex: number | null = null
@@ -85,6 +82,7 @@ export function buildFunnelBarHorizontalNotPresent(
         label: 'Not in this period',
         data: [gap],
         color: FUNNEL_NOT_PRESENT_FILL,
+        visibility: { tooltip: false },
         meta: { isDropOff: false, isNotPresent: true, breakdownIndex },
     }
 }
