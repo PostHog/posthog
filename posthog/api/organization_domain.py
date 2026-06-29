@@ -262,9 +262,12 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             for field in IDP_CONFIG_SYNCED_FIELDS:
                 setattr(instance, f"_{field}", getattr(linked_config, field))
 
-        scim_plain_token: str | None = None
+        instance = super().update(instance, validated_data)
 
-        # Generate new token when enabling SCIM, clear when disabling
+        # Enable/disable SCIM only after `super().update()` has applied any newly linked
+        # `identity_provider_config`, so the freshly generated token is mirrored to the
+        # currently-linked config — never to a config the domain was previously linked to.
+        scim_plain_token: str | None = None
         if scim_enabled is not None:
             if scim_enabled:
                 if not instance._scim_enabled:
@@ -272,8 +275,6 @@ class OrganizationDomainSerializer(serializers.ModelSerializer):
             else:
                 if instance._scim_enabled:
                     disable_scim_for_domain(instance)
-
-        instance = super().update(instance, validated_data)
 
         self._scim_plain_token = scim_plain_token
 

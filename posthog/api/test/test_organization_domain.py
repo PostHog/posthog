@@ -17,6 +17,7 @@ from rest_framework import serializers, status
 from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
+from posthog.models.identity_provider_config import IdentityProviderConfig
 
 from ee.api.test.base import APILicensedTest
 from ee.models.scim_request_log import SCIMRequestLog
@@ -553,6 +554,36 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.domain.refresh_from_db()
         self.assertEqual(self.domain._scim_enabled, True)
         self.assertIsNotNone(self.domain._scim_bearer_token)
+
+    def test_enabling_scim_while_linking_new_config_writes_token_to_new_config_only(self):
+        # Regression: enabling SCIM in the same request that links a new config must mirror the
+        # token to the newly linked config, never to the previously linked one.
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization.available_product_features = [{"key": AvailableFeature.SCIM, "name": "SCIM"}]
+        self.organization_membership.save()
+        self.organization.save()
+        self.domain.verified_at = timezone.now()
+        self.domain.save()
+
+        old_config = IdentityProviderConfig.objects.create(organization=self.organization, name="old")
+        new_config = IdentityProviderConfig.objects.create(organization=self.organization, name="new")
+        self.domain.identity_provider_config = old_config
+        self.domain.save()
+
+        response = self.client.patch(
+            f"/api/organizations/@current/domains/{self.domain.id}/",
+            {"identity_provider_config": str(new_config.id), "scim_enabled": True},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        old_config.refresh_from_db()
+        new_config.refresh_from_db()
+        self.domain.refresh_from_db()
+        self.assertEqual(self.domain.identity_provider_config_id, new_config.id)
+        self.assertTrue(new_config.scim_enabled)
+        self.assertIsNotNone(new_config.scim_bearer_token)
+        self.assertFalse(old_config.scim_enabled)
+        self.assertIsNone(old_config.scim_bearer_token)
 
     def test_cannot_enable_scim_without_available_feature(self):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
