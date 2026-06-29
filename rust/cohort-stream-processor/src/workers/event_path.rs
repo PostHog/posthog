@@ -5,6 +5,7 @@
 //! flipped. Transitions are surfaced only after the commit succeeds.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use metrics::counter;
 use uuid::Uuid;
@@ -12,7 +13,7 @@ use uuid::Uuid;
 use crate::consumers::events::CohortStreamEvent;
 use crate::filters::reverse_index::TeamFilters;
 use crate::filters::TeamId;
-use crate::hogvm::{build_behavioral_globals, build_person_property_globals, evaluate};
+use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
 use crate::observability::metrics::{
     STAGE1_ARGMAX_STALE, STAGE1_CONDITIONS_EVALUATED, STAGE1_PERSON_INDEX_APPENDS,
     STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
@@ -166,11 +167,9 @@ pub fn process_event(
         None
     };
 
-    let applies = collect_applies(
-        filters,
-        behavioral_globals.as_ref(),
-        person_globals.as_ref(),
-    );
+    // One evaluator reused across the event's conditions: globals set once per kind, program per condition.
+    let mut evaluator = CohortEvaluator::new();
+    let applies = collect_applies(filters, &mut evaluator, behavioral_globals, person_globals);
     if applies.is_empty() {
         return Ok(EventOutcome::processed(Vec::new(), Vec::new(), 0));
     }
@@ -312,18 +311,20 @@ pub(crate) fn schedule_deadline(state: &Stage1State) -> Option<i64> {
 
 fn collect_applies(
     filters: &TeamFilters,
-    behavioral_globals: Option<&serde_json::Value>,
-    person_globals: Option<&serde_json::Value>,
+    evaluator: &mut CohortEvaluator,
+    behavioral_globals: Option<serde_json::Value>,
+    person_globals: Option<serde_json::Value>,
 ) -> Vec<Apply> {
     let mut applies = Vec::new();
 
     if let Some(globals) = behavioral_globals {
+        evaluator.set_globals(globals);
         for &hash in &filters.behavioral_conditions {
             let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
                 continue;
             };
             counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
-            if !evaluate(bytecode, globals.clone()) {
+            if !evaluator.evaluate(Arc::clone(bytecode)) {
                 continue;
             }
             let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
@@ -352,12 +353,13 @@ fn collect_applies(
     }
 
     if let Some(globals) = person_globals {
+        evaluator.set_globals(globals);
         for &hash in &filters.person_property_conditions {
             let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
                 continue;
             };
             counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "person_property").increment(1);
-            let matches = evaluate(bytecode, globals.clone());
+            let matches = evaluator.evaluate(Arc::clone(bytecode));
             let lsk = LeafStateKey::for_person_property(&hash);
             match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
                 Some(StateVariant::PersonProperty) => {
