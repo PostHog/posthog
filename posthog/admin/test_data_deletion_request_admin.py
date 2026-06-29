@@ -6,6 +6,7 @@ from unittest.mock import patch
 
 from django.contrib.admin.sites import AdminSite
 from django.contrib.auth.models import Group
+from django.contrib.messages import get_messages
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.test import RequestFactory, override_settings
 
@@ -720,7 +721,7 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
         # The guard must short-circuit before any preview is computed or stashed in the session, and
         # surface the rejection — otherwise removing the authz check would still pass this test.
         self.assertNotIn("data_deletion_preview_stats", http_request.session)
-        self.assertIn("Only ClickHouse Team members can preview stats.", [str(m) for m in http_request._messages])
+        self.assertIn("Only ClickHouse Team members can preview stats.", [str(m) for m in get_messages(http_request)])
 
 
 @override_settings(STORAGES={"staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"}})
