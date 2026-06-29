@@ -3,15 +3,7 @@ import { combineUrl } from 'kea-router'
 import { Fragment, ReactNode } from 'react'
 
 import { IconExternal } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonInput,
-    LemonSkeleton,
-    LemonTableColumns,
-    LemonTag,
-    LemonTagType,
-    Link,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSkeleton, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -25,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunJobsTable, RunsTable, formatCost } from '../components/runTables'
 import { StatTile } from '../components/StatTile'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
@@ -48,12 +41,6 @@ export const scene: SceneExport<PullRequestDetailLogicProps> = {
         number: parseInt(number, 10),
         sourceId: source ?? null,
     }),
-}
-
-const STATE_TAG: Record<string, { label: string; type: LemonTagType }> = {
-    open: { label: 'Open', type: 'primary' },
-    merged: { label: 'Merged', type: 'success' },
-    closed: { label: 'Closed', type: 'danger' },
 }
 
 function gapBetween(from: string, to: string): string {
@@ -273,11 +260,9 @@ function LifecycleStrip({ summary, openedAt, commitGroups }: LifecycleStripProps
 }
 
 function MetaRow({ pullRequest, sourceId }: { pullRequest: PullRequestApi; sourceId: string | null }): JSX.Element {
-    const stateTag = STATE_TAG[pullRequest.state] ?? { label: pullRequest.state, type: 'muted' as LemonTagType }
     return (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            <LemonTag type={stateTag.type}>{stateTag.label}</LemonTag>
-            {pullRequest.is_draft && <LemonTag type="muted">draft</LemonTag>}
+            <PullRequestStateTag state={pullRequest.state} isDraft={pullRequest.is_draft} />
             <span className="flex items-center gap-1.5">
                 {pullRequest.author.avatar_url && (
                     <img src={pullRequest.author.avatar_url} alt="" className="h-5 w-5 shrink-0 rounded-full" />

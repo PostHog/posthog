@@ -78,7 +78,7 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
             (repoOwner, repoName, runId): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },

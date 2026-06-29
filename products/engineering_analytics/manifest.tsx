@@ -16,7 +16,7 @@ export const manifest: ProductManifest = {
         EngineeringAnalytics: {
             import: () => import('./frontend/scenes/EngineeringAnalyticsScene'),
             projectBased: true,
-            name: 'CI analytics',
+            name: 'Engineering analytics',
             layout: 'app-container',
             description: 'Pull request and workflow CI health across connected GitHub repos.',
             iconType: 'health',
@@ -93,7 +93,7 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'CI analytics',
+            path: 'Engineering analytics',
             intents: [ProductKey.ENGINEERING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',

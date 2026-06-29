@@ -93,7 +93,7 @@ export const authorLogic = kea<authorLogicType>([
             (handle): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },

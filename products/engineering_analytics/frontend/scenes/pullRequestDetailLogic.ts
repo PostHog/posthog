@@ -357,7 +357,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (repoOwner, repoName, number): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },
