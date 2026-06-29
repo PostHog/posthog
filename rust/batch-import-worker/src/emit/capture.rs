@@ -1,4 +1,5 @@
 use std::{
+    collections::HashSet,
     io::{self, Write},
     sync::Mutex,
     time::{Duration, Instant},
@@ -10,6 +11,7 @@ use common_types::{InternallyCapturedEvent, RawEvent};
 use metrics::counter;
 use posthog_rs::{Client, Event};
 use tracing::{info, warn};
+use uuid::Uuid;
 
 use super::{Emitter, Transaction};
 
@@ -23,6 +25,10 @@ pub struct CaptureTransaction<'a> {
     send_rate: u64,
     start: Instant,
     events: Mutex<Vec<Event>>,
+    // Capture's V1 endpoint rejects a whole batch if two events in one request share a UUID,
+    // and a source export can contain duplicate event UUIDs. Track UUIDs across the whole
+    // transaction so duplicates are dropped before they reach (and poison) a capture request.
+    seen_uuids: Mutex<HashSet<Uuid>>,
 }
 
 impl CaptureEmitter {
@@ -39,6 +45,7 @@ impl Emitter for CaptureEmitter {
             send_rate: self.send_rate,
             start: Instant::now(),
             events: Mutex::new(Vec::new()),
+            seen_uuids: Mutex::new(HashSet::new()),
         }))
     }
 }
@@ -81,12 +88,38 @@ fn convert_event(ice: &InternallyCapturedEvent) -> Result<Event, Error> {
 #[async_trait]
 impl<'a> Transaction<'a> for CaptureTransaction<'a> {
     async fn emit(&self, data: &[InternallyCapturedEvent]) -> Result<(), Error> {
-        let converted: Vec<Event> = data.iter().map(convert_event).collect::<Result<_, _>>()?;
-
-        self.events
+        let mut seen = self
+            .seen_uuids
             .lock()
-            .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?
-            .extend(converted);
+            .map_err(|e| Error::msg(format!("seen_uuids lock poisoned: {e}")))?;
+        let mut events = self
+            .events
+            .lock()
+            .map_err(|e| Error::msg(format!("events lock poisoned: {e}")))?;
+
+        let mut duplicates: u64 = 0;
+        for captured in data {
+            // Drop repeat UUIDs so a source-level duplicate can't make capture reject the batch.
+            if seen.contains(&captured.inner.uuid) {
+                duplicates += 1;
+                continue;
+            }
+            // Record the UUID only after a successful conversion, so a convert error never
+            // leaves a UUID marked seen with no corresponding event.
+            let event = convert_event(captured)?;
+            seen.insert(captured.inner.uuid);
+            events.push(event);
+        }
+        drop(events);
+        drop(seen);
+
+        if duplicates > 0 {
+            warn!(
+                duplicates,
+                "dropped events with duplicate uuids before sending to capture"
+            );
+            counter!("capture_batch_duplicate_uuids_total").increment(duplicates);
+        }
 
         Ok(())
     }
@@ -363,6 +396,7 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(vec![event]),
+            seen_uuids: Mutex::new(HashSet::new()),
         })
     }
 
@@ -426,6 +460,7 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(vec![]),
+            seen_uuids: Mutex::new(HashSet::new()),
         });
 
         let result = txn.commit_write().await;
@@ -627,10 +662,39 @@ mod tests {
             send_rate: 10_000,
             start: Instant::now(),
             events: Mutex::new(events),
+            seen_uuids: Mutex::new(HashSet::new()),
         });
 
         let result = txn.commit_write().await;
         assert!(result.is_ok(), "got {result:?}");
         mock.assert();
+    }
+
+    #[tokio::test]
+    async fn test_emit_drops_duplicate_uuids_within_and_across_batches() {
+        let dup = Uuid::now_v7();
+        let unique = Uuid::now_v7();
+        let mut a = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        let mut b = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        let mut c = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        let mut d = make_internally_captured_event("e", "u", serde_json::json!({}), None, None);
+        a.inner.uuid = dup;
+        b.inner.uuid = dup; // duplicate within the first emit
+        c.inner.uuid = unique;
+        d.inner.uuid = dup; // duplicate across emit calls
+
+        let client = make_client("http://localhost:1").await;
+        let txn = CaptureTransaction {
+            client: &client,
+            send_rate: 10_000,
+            start: Instant::now(),
+            events: Mutex::new(Vec::new()),
+            seen_uuids: Mutex::new(HashSet::new()),
+        };
+        txn.emit(&[a, b]).await.unwrap();
+        txn.emit(&[c, d]).await.unwrap();
+
+        let events = txn.events.lock().unwrap();
+        assert_eq!(events.len(), 2, "only the first event per uuid is kept");
     }
 }

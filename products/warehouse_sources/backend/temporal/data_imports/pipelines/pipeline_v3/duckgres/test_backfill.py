@@ -1,3 +1,15 @@
+import uuid
+
+import pytest
+
+from posthog.models import DuckgresSinkSchemaState, Organization, Team
+
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres import (
+    backfill as backfill_module,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill import (
+    _plan_pending,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.backfill_queue import (
     backfill_run_uuid,
 )
@@ -7,6 +19,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     _committed_batch_keys,
     _group_files_into_chunks,
 )
+
+_State = DuckgresSinkSchemaState.State
+
+
+def _sink_state(team: Team, state: str) -> DuckgresSinkSchemaState:
+    return DuckgresSinkSchemaState.objects.create(team=team, schema_id=uuid.uuid4(), state=state)
 
 
 class TestChunkGrouping:
@@ -67,3 +85,59 @@ def test_committed_batch_keys_filters_to_snapshot_version():
         ("flat-layout", 2),
         ("nested-layout", 3),
     ]
+
+
+@pytest.mark.django_db
+class TestPlanPendingConcurrencyCaps:
+    # Caps are patched to explicit values so these stay deterministic if the
+    # production constants are later tuned. _plan_one is the queue-DB + Delta
+    # boundary; blocked candidates must never reach it, claimed ones must.
+
+    def test_global_cap_blocks_further_claims(self, monkeypatch):
+        monkeypatch.setattr(backfill_module, "MAX_CONCURRENT_BACKFILLS_GLOBAL", 2)
+        monkeypatch.setattr(backfill_module, "_plan_one", lambda state: pytest.fail("planned past the global cap"))
+
+        busy_team = Team.objects.create(organization=Organization.objects.create(name="busy"), name="t")
+        for _ in range(2):
+            _sink_state(busy_team, _State.BACKFILLING)
+
+        candidate = _sink_state(
+            Team.objects.create(organization=Organization.objects.create(name="new"), name="t"), _State.PENDING_BACKFILL
+        )
+
+        _plan_pending(team_ids=[candidate.team_id])
+
+        candidate.refresh_from_db()
+        # Different org, so per-org never blocks it — only the full global budget does.
+        assert candidate.state == _State.PENDING_BACKFILL
+
+    def test_per_org_cap_blocks_same_org(self, monkeypatch):
+        monkeypatch.setattr(backfill_module, "MAX_CONCURRENT_BACKFILLS_PER_ORG", 1)
+        monkeypatch.setattr(backfill_module, "MAX_CONCURRENT_BACKFILLS_GLOBAL", 99)  # global is not the limiter here
+        monkeypatch.setattr(backfill_module, "_plan_one", lambda state: pytest.fail("planned past the per-org cap"))
+
+        team = Team.objects.create(organization=Organization.objects.create(name="org"), name="t")
+        _sink_state(team, _State.BACKFILLING)
+        candidate = _sink_state(team, _State.PENDING_BACKFILL)
+
+        _plan_pending(team_ids=[team.id])
+
+        candidate.refresh_from_db()
+        assert candidate.state == _State.PENDING_BACKFILL
+
+    def test_under_cap_claims_and_plans(self, monkeypatch):
+        monkeypatch.setattr(backfill_module, "MAX_CONCURRENT_BACKFILLS_PER_ORG", 1)
+        monkeypatch.setattr(backfill_module, "MAX_CONCURRENT_BACKFILLS_GLOBAL", 5)
+        planned: list = []
+        monkeypatch.setattr(backfill_module, "_plan_one", lambda state: planned.append(state.id))
+
+        candidate = _sink_state(
+            Team.objects.create(organization=Organization.objects.create(name="org"), name="t"),
+            _State.PENDING_BACKFILL,
+        )
+
+        _plan_pending(team_ids=[candidate.team_id])
+
+        candidate.refresh_from_db()
+        assert candidate.state == _State.BACKFILLING
+        assert planned == [candidate.id]
