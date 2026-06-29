@@ -1128,12 +1128,15 @@ class FinageSourceConfig(config.Config):
 
 @config.config
 class FinancialModellingSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
 class FinnhubSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str | None = None
+    exchange: str | None = None
 
 
 @config.config
