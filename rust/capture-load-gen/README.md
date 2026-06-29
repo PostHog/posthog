@@ -71,7 +71,11 @@ spec:
       restartPolicy: Never
       containers:
         - name: capture-load-gen
-          image: <image>
+          image: ghcr.io/posthog/posthog/capture-load-gen:<tag>
+          # The shared rust image entrypoint is `sh -c "$BIN"` and does not
+          # forward args, so override command to pass flags directly.
+          command: ["/usr/local/bin/capture-load-gen"]
+          args: ["--rate", "50000", "--duration", "3m"]
           env:
             - name: SHARD_TOTAL
               value: "10"
@@ -79,7 +83,6 @@ spec:
               value: "http://capture:8000"
             - name: CAPTURE_TOKEN
               valueFrom: { secretKeyRef: { name: load-gen, key: token } }
-          args: ["--rate", "50000", "--duration", "3m"]
 ```
 
 Scaling to 100k events/s is just bumping `completions`/`parallelism` and
