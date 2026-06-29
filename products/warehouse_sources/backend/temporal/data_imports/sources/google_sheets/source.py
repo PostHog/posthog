@@ -162,6 +162,9 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                         label="Authentication method",
                         required=False,
                         defaultValue="service_account",
+                        # Gated during rollout: until the flag is on, the form shows only the
+                        # spreadsheet URL field (no selector), so existing users see no change.
+                        featureFlag="dwh-google-sheets-oauth",
                         options=[
                             SourceFieldSelectConfigOption(
                                 label="Share with PostHog's service account",

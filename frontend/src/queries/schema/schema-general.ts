@@ -6220,6 +6220,8 @@ export interface SourceFieldSelectConfig {
     defaultValue: string
     options: SourceFieldSelectConfigOption[]
     converter?: SourceFieldSelectConfigConverter
+    /** When set, the field is only rendered for users for whom this feature flag is enabled. */
+    featureFlag?: string
 }
 
 export interface SourceFieldSwitchGroupConfig {
