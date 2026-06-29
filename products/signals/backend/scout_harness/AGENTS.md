@@ -31,7 +31,10 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers`
   to route the report); every other scout gets the signal persona that fires weak
   `emit_signal` findings. The bootstrap, scratchpad, recency, and close-out sections
-  are shared between both.
+  are shared between both. The report persona is further gated per-tool: it names only
+  the report tool(s) actually in `allowed_tools` (emit-only, edit-only, or both), and
+  drops the author-time sections for an edit-only scout — the report endpoints fail
+  closed on the exact tool, so the prompt must never steer a scout toward one it lacks.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
   `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools), plus

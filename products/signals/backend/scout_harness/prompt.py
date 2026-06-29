@@ -42,18 +42,38 @@ and route them to the inbox. You are *one* of several scouts running on this
 project — be selective. Aim for fewer, better signals.
 """
 
-_REPORT_PROMPT_INTRO = """You are a Signals scout agent for PostHog.
+# Intro names only the report tool(s) the scout actually opted into — naming a tool it can't call
+# (the endpoints fail closed on the exact tool) would steer it straight into a PermissionDenied.
+_REPORT_PROMPT_INTRO_TEMPLATE = """You are a Signals scout agent for PostHog.
 
 Your job: explore this PostHog project, decide what is worth surfacing, and deliver
-findings as full inbox **reports** — author new ones with `signals-scout-emit-report`
-and keep existing ones current with `signals-scout-edit-report`. Unlike a
-signal-emitting scout (which fires weak signals for the pipeline to cluster), you own
-the report end to end: you've done the research, so you write the report directly and
-it surfaces in the inbox 1:1. You are *one* of several scouts running on this project
-— be selective. Aim for fewer, better, well-routed reports.
+findings as full inbox **reports** — {action_sentence} Unlike a signal-emitting scout
+(which fires weak signals for the pipeline to cluster), you own the report end to end:
+you've done the research, so you act on the inbox directly rather than feeding the
+pipeline. You are *one* of several scouts running on this project — be selective. Aim
+for fewer, better, well-routed reports.
 """
 
-_HOW_A_RUN_WORKS_SIGNAL = """# How a run works
+_REPORT_INTRO_ACTION_BOTH = (
+    "author new ones with `signals-scout-emit-report` and keep existing ones current with `signals-scout-edit-report`."
+)
+_REPORT_INTRO_ACTION_EMIT_ONLY = "author them with `signals-scout-emit-report`."
+_REPORT_INTRO_ACTION_EDIT_ONLY = "keep existing inbox reports current with `signals-scout-edit-report`."
+
+
+def _report_intro(*, can_emit: bool, can_edit: bool) -> str:
+    if can_emit and can_edit:
+        action = _REPORT_INTRO_ACTION_BOTH
+    elif can_emit:
+        action = _REPORT_INTRO_ACTION_EMIT_ONLY
+    else:
+        action = _REPORT_INTRO_ACTION_EDIT_ONLY
+    return _REPORT_PROMPT_INTRO_TEMPLATE.format(action_sentence=action)
+
+
+# Steps 1-2 are channel-agnostic (read prior context, investigate), so both personas share this head
+# and append their own decide/close-out steps — keep run initialisation defined once.
+_HOW_A_RUN_WORKS_HEAD = """# How a run works
 
 1. **Read prior context.** Call `signals-scout-runs-list` to see what
    other recent runs concluded, and `signals-scout-scratchpad-search` to
@@ -62,8 +82,9 @@ _HOW_A_RUN_WORKS_SIGNAL = """# How a run works
    topic is often more valuable than fresh investigation on a stale one.
 2. **Investigate.** Use the PostHog MCP read tools to gather evidence. Most of
    what you'll need across the project is exposed via the MCP — discover what's
-   available at run time. Your skill body tells you *what* to look at.
-3. **Decide.** For each hypothesis, decide whether to:
+   available at run time. Your skill body tells you *what* to look at."""
+
+_HOW_A_RUN_WORKS_SIGNAL_STEPS = """3. **Decide.** For each hypothesis, decide whether to:
    - **Emit** a finding (call `signals-scout-emit-signal`).
      This includes building on a prior finding when new evidence materially
      advances the picture — emit a fresh finding that cites the prior one's
@@ -79,17 +100,16 @@ _HOW_A_RUN_WORKS_SIGNAL = """# How a run works
    fill space. The harness parses the JSON and writes `summary` to the run row
    as searchable prose."""
 
-_HOW_A_RUN_WORKS_REPORT = """# How a run works
+# Step 5 (close-out) is shared across all three report-capability variants; only steps 3-4 differ.
+_REPORT_CLOSE_OUT_STEP = """5. **Close out.** End your turn by emitting a JSON object matching the schema in
+   the *Output format* section below. The `summary` field is your run close-out
+   — see *Writing the summary* for how to structure it. An empty findings
+   list is a real outcome on a quiet day — "looked but found nothing meaningful"
+   is a genuine, useful summary, not a failure. Don't manufacture reports to
+   fill space. The harness parses the JSON and writes `summary` to the run row
+   as searchable prose."""
 
-1. **Read prior context.** Call `signals-scout-runs-list` to see what
-   other recent runs concluded, and `signals-scout-scratchpad-search` to
-   surface durable team memories ("known noise", "already addressed", "ignore
-   X"). Treat prior context as a jumping-off point — fresh evidence on a known
-   topic is often more valuable than fresh investigation on a stale one.
-2. **Investigate.** Use the PostHog MCP read tools to gather evidence. Most of
-   what you'll need across the project is exposed via the MCP — discover what's
-   available at run time. Your skill body tells you *what* to look at.
-3. **Search the inbox before you author.** A report you'd write may already
+_REPORT_STEPS_BOTH = """3. **Search the inbox before you author.** A report you'd write may already
    exist. ALWAYS check existing inbox reports first (see *Authoring vs. editing*)
    — edit the existing one rather than minting a near-duplicate.
 4. **Author or edit.** For each issue worth surfacing, decide whether to:
@@ -101,14 +121,33 @@ _HOW_A_RUN_WORKS_REPORT = """# How a run works
      report*.
    - **Remember** a learning so you don't redo this work next run
      (call `signals-scout-scratchpad-remember`).
-   - **Skip** with a one-line note in your final summary.
-5. **Close out.** End your turn by emitting a JSON object matching the schema in
-   the *Output format* section below. The `summary` field is your run close-out
-   — see *Writing the summary* for how to structure it. An empty findings
-   list is a real outcome on a quiet day — "looked but found nothing meaningful"
-   is a genuine, useful summary, not a failure. Don't manufacture reports to
-   fill space. The harness parses the JSON and writes `summary` to the run row
-   as searchable prose."""
+   - **Skip** with a one-line note in your final summary."""
+
+_REPORT_STEPS_EMIT_ONLY = """3. **Search the inbox before you author.** A report you'd write may already
+   exist. ALWAYS check existing inbox reports first (`inbox-reports-list` /
+   `inbox-reports-retrieve`). This run can author new reports but cannot edit
+   existing ones — so if a report already covers the issue, do NOT author a
+   near-duplicate; record a scratchpad note and move on.
+4. **Author or skip.** For each issue worth surfacing, decide whether to:
+   - **Author** a fresh report (`signals-scout-emit-report`) when nothing in the
+     inbox covers it. Set `suggested_reviewers` — see *Suggested reviewers route
+     the report*.
+   - **Remember** a learning so you don't redo this work next run
+     (call `signals-scout-scratchpad-remember`).
+   - **Skip** with a one-line note in your final summary."""
+
+_REPORT_STEPS_EDIT_ONLY = """3. **Find the report to update.** Use `inbox-reports-list` /
+   `inbox-reports-retrieve` to locate the report your evidence bears on. This run
+   can update existing reports but cannot author new ones.
+4. **Edit or skip.** For each issue worth surfacing, decide whether to:
+   - **Edit** the existing report (`signals-scout-edit-report`) — `append_note`
+     with your fresh evidence, or rewrite `title`/`summary` on a report you own.
+   - **Remember** a learning so you don't redo this work next run
+     (call `signals-scout-scratchpad-remember`).
+   - **Skip** with a one-line note in your final summary — including when nothing
+     in the inbox matches and there's therefore nothing to update."""
+
+_HOW_A_RUN_WORKS_SIGNAL = f"{_HOW_A_RUN_WORKS_HEAD}\n{_HOW_A_RUN_WORKS_SIGNAL_STEPS}"
 
 _SCRATCHPAD_KEYS = """# Scratchpad keys
 
@@ -199,7 +238,7 @@ skill defines its own description structure (a fixed template, required sections
 a machine-parseable shape), follow that instead — the skill body owns the prose
 contract."""
 
-_AUTHORING_VS_EDITING_REPORT = """# Authoring vs. editing: search the inbox first
+_AUTHORING_VS_EDITING_REPORT_BOTH = """# Authoring vs. editing: search the inbox first
 
 `signals-scout-emit-report` is NOT idempotent — calling it twice authors two
 reports, and there is no dedupe matcher on this channel. Duplicate reports are the
@@ -220,6 +259,42 @@ main failure mode here, so the discipline is **search, then decide**:
   retry an `emit_report` that looked like it failed: a retry that actually
   succeeded the first time silently doubles the report. If unsure whether it
   landed, look it up with `inbox-reports-list` rather than re-emitting."""
+
+_AUTHORING_REPORT_EMIT_ONLY = """# Authoring reports: search the inbox first
+
+`signals-scout-emit-report` is NOT idempotent — calling it twice authors two
+reports, and there is no dedupe matcher on this channel. Duplicate reports are the
+main failure mode here, so the discipline is **search, then decide**:
+
+- **Search first, every time.** Before authoring anything, call
+  `inbox-reports-list` (filter/search by the entity, error, or topic you're about
+  to report on) and read the closest matches with `inbox-reports-retrieve`. Keep a
+  `report:<domain>:<entity>` scratchpad entry per report you author so future runs
+  find it even when the inbox phrasing has drifted.
+- **Don't duplicate an existing report.** This run can't edit reports, so if one
+  already covers the issue, leave it alone — record a `remember(...)` note and
+  skip rather than authoring a near-duplicate.
+- **Author only when it's genuinely new.** A materially new issue warrants a fresh
+  report. Never retry an `emit_report` that looked like it failed: a retry that
+  actually succeeded the first time silently doubles the report. If unsure whether
+  it landed, look it up with `inbox-reports-list` rather than re-emitting."""
+
+_EDITING_REPORT_EDIT_ONLY = """# Editing existing reports
+
+This run updates reports that already exist — it can't author new ones. Find the
+report your evidence bears on, then keep it current:
+
+- **Find it.** `inbox-reports-list` (filter/search by the entity, error, or topic)
+  and `inbox-reports-retrieve` to read the candidate in full. Reuse the
+  `report:<domain>:<entity>` scratchpad entry / `report_id` from a prior run when
+  you have one.
+- **Append, or rewrite.** Prefer `append_note` to add fresh evidence — it's
+  additive, audit-friendly, and works on any report, even one you didn't author.
+  Rewrite `title`/`summary` only on a report you own, and only when the framing is
+  genuinely stale; lead the summary with the verdict (see *Writing the summary*).
+- **Don't retry blindly.** `edit_report` is NOT idempotent — a retried
+  `append_note` appends a second note. If unsure whether an edit landed, re-read
+  the report rather than re-sending."""
 
 _SUGGESTED_REVIEWERS_REPORT = """# Suggested reviewers route the report
 
@@ -357,19 +432,35 @@ _SIGNAL_TAIL_SECTIONS = [
     _OUTPUT_FORMAT,
 ]
 
-_REPORT_TAIL_SECTIONS = [
-    _HOW_A_RUN_WORKS_REPORT,
-    _SCRATCHPAD_KEYS,
-    _RECENCY_LENS,
-    _AUTHORING_VS_EDITING_REPORT,
-    _SUGGESTED_REVIEWERS_REPORT,
-    _WRITING_REPORT,
-    _WRITING_SUMMARY,
-    _BUSINESS_KNOWLEDGE,
-    _GROUND_RULES,
-    _OPERATIONAL_FRICTION,
-    _OUTPUT_FORMAT,
-]
+
+def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
+    """Report-channel tail, tailored to the report tools the scout actually opted into.
+
+    A scout can list `emit_report`, `edit_report`, or both in `allowed_tools`. The report endpoints
+    fail closed on the *exact* tool (`views._assert_report_tool_opted_in`), so the prompt must never
+    steer a scout toward a tool it lacks — an edit-only scout pointed at `emit_report` just earns a
+    PermissionDenied. We therefore pick the run-step / authoring guidance to match, and include the
+    author-time sections (suggested reviewers, writing a report) only when the scout can author."""
+    if can_emit and can_edit:
+        how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
+        channel_sections = [_AUTHORING_VS_EDITING_REPORT_BOTH, _SUGGESTED_REVIEWERS_REPORT, _WRITING_REPORT]
+    elif can_emit:
+        how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
+        channel_sections = [_AUTHORING_REPORT_EMIT_ONLY, _SUGGESTED_REVIEWERS_REPORT, _WRITING_REPORT]
+    else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
+        how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
+        channel_sections = [_EDITING_REPORT_EDIT_ONLY]
+    return [
+        how_a_run_works,
+        _SCRATCHPAD_KEYS,
+        _RECENCY_LENS,
+        *channel_sections,
+        _WRITING_SUMMARY,
+        _BUSINESS_KNOWLEDGE,
+        _GROUND_RULES,
+        _OPERATIONAL_FRICTION,
+        _OUTPUT_FORMAT,
+    ]
 
 
 def _render_tail(sections: list[str], *, schema_json: str) -> str:
@@ -408,10 +499,22 @@ def build_run_prompt(skill: LoadedSkill, *, run_id: str, team_id: int, started_a
     """
     started_at_iso = started_at.replace(microsecond=0).isoformat()
     schema_json = json.dumps(SignalScoutRunSummary.model_json_schema(), indent=2)
+    allowed_tools = skill.allowed_tools or []
+    can_emit_report = "emit_report" in allowed_tools
+    can_edit_report = "edit_report" in allowed_tools
+    # `skill_uses_report_channel` is the shared opt-in predicate (== can_emit_report or can_edit_report);
+    # the per-tool booleans above refine which report guidance/tool references the prompt may name.
     report_channel = skill_uses_report_channel(skill.allowed_tools)
-    intro = _REPORT_PROMPT_INTRO if report_channel else _BASE_PROMPT_INTRO
-    sections = _REPORT_TAIL_SECTIONS if report_channel else _SIGNAL_TAIL_SECTIONS
-    emit_tool = "signals-scout-emit-report" if report_channel else "signals-scout-emit-signal"
+    if report_channel:
+        intro = _report_intro(can_emit=can_emit_report, can_edit=can_edit_report)
+        sections = _report_tail_sections(can_emit=can_emit_report, can_edit=can_edit_report)
+        # Point the run-identity line at a report tool the scout can actually call — prefer authoring,
+        # fall back to editing for an edit-only scout. Never name a tool that would fail closed.
+        emit_tool = "signals-scout-emit-report" if can_emit_report else "signals-scout-edit-report"
+    else:
+        intro = _BASE_PROMPT_INTRO
+        sections = _SIGNAL_TAIL_SECTIONS
+        emit_tool = "signals-scout-emit-signal"
     tail = _render_tail(sections, schema_json=schema_json)
     return f"""{intro}
 # Your run identity
