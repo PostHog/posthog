@@ -12,6 +12,8 @@
         "lodash.uniqby": "^4.7.0"
     },
     "devDependencies": {
+        "@testing-library/jest-dom": "*",
+        "@testing-library/react": "*",
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
