@@ -3,17 +3,11 @@
 """
 CI + pre-commit guard: refuse to delete historical Django migration files.
 
-A migration that already exists on master must never be deleted. Deleting the file
-does not undo its schema change: the table and its constraints stay in every database
-where the migration ran, fresh databases never recreate them, and the Migration Risk
-Analysis job re-flags the file as a phantom new migration on every open PR that
-predates the deletion. Retire a table with a state-only DeleteModel
-(SeparateDatabaseAndState) plus a later DROP TABLE migration instead — both NEW files.
-See docs/published/handbook/engineering/safe-django-migrations.md.
-
-Intentional, reviewed deletions (a product/app move, a revert, a squash) are
-acknowledged in .github/scripts/migration-deletion-allowlist.txt, not by disabling
-this guard.
+Deleting a migration that already exists on master does not undo its schema change and
+diverges fresh databases from deployed ones. The runtime failure message (_GUIDANCE
+below) and docs/published/handbook/engineering/safe-django-migrations.md carry the full
+rationale, the safe way to retire a table, and how to acknowledge an intentional
+deletion via .github/scripts/migration-deletion-allowlist.txt.
 
 Usage:
     python3 .github/scripts/check_no_deleted_migrations.py --staged
@@ -73,15 +67,15 @@ branch added but never merged to master is allowed (this check ignores it)."""
 
 
 def is_django_migration(path: str) -> bool:
-    """True for a numbered Django migration file, e.g. posthog/migrations/0001_initial.py.
+    """True for a Django migration file, e.g. posthog/migrations/0001_initial.py.
 
-    Skips the package __init__.py (not numbered) and the separate ClickHouse and
-    async-migration systems.
+    A migration is any .py module in a migrations/ package other than __init__.py
+    (Django does not require the NNNN_ numeric prefix). Excludes the separate
+    ClickHouse and async-migration systems, which live under <app>/clickhouse/migrations/
+    and <app>/async_migrations/migrations/.
     """
     p = PurePosixPath(path)
-    if p.parent.name != "migrations" or p.suffix != ".py":
-        return False
-    if not p.name[:1].isdigit():  # numbered NNNN_*.py; excludes __init__.py
+    if p.parent.name != "migrations" or p.suffix != ".py" or p.name == "__init__.py":
         return False
     return p.parent.parent.name not in _NON_DJANGO_PARENTS
 
@@ -151,7 +145,7 @@ def main(argv: list[str]) -> int:
         )
         return 1
 
-    print("check-no-deleted-migrations: no historical migration files deleted")
+    print("No historical migration files deleted.")
     return 0
 
 

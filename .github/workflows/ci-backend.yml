@@ -1019,7 +1019,7 @@ jobs:
     # ee/ and posthog/ sub-package migration dirs that the script still flags.
     check-deleted-migrations:
         needs: [changes]
-        if: github.event_name == 'pull_request' && (needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true')
+        if: github.event_name == 'pull_request' && needs.changes.outputs.backend == 'true'
         name: Check deleted migrations
         runs-on: depot-ubuntu-latest
         timeout-minutes: 5
@@ -1046,7 +1046,7 @@ jobs:
                   # Retry transient API errors so a hiccup can't red this required check.
                   removed=""
                   for attempt in 1 2 3; do
-                      if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files" \
+                      if removed=$(gh api --paginate "repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100" \
                             --jq '.[] | select(.status == "removed" or .status == "renamed") | .previous_filename // .filename'); then
                           break
                       fi

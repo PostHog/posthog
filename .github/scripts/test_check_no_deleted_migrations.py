@@ -12,6 +12,7 @@ import check_no_deleted_migrations as guard
         ("ee/migrations/0042_thing.py", True),
         ("products/tasks/backend/migrations/0003_x.py", True),
         ("posthog/rbac/migrations/0005_y.py", True),
+        ("posthog/migrations/manual_fix.py", True),  # Django allows non-numeric names
         ("posthog/migrations/__init__.py", False),
         ("posthog/clickhouse/migrations/0099_x.py", False),
         ("posthog/async_migrations/migrations/0005_y.py", False),
@@ -82,3 +83,17 @@ def test_main_stdin_clean_passes(monkeypatch, tmp_path):
 
 def test_main_rejects_unknown_mode():
     assert guard.main(["check", "--bogus"]) == 2
+
+
+def test_main_staged_blocks_historical(monkeypatch, tmp_path):
+    monkeypatch.setattr(guard, "ALLOWLIST_PATH", tmp_path / "none.txt")
+    monkeypatch.setattr(guard, "staged_deletions", lambda: ["posthog/migrations/0001_initial.py"])
+    monkeypatch.setattr(guard, "exists_on_ref", lambda path, ref: True)  # on master => historical
+    assert guard.main(["check", "--staged"]) == 1
+
+
+def test_main_staged_allows_branch_local(monkeypatch, tmp_path):
+    monkeypatch.setattr(guard, "ALLOWLIST_PATH", tmp_path / "none.txt")
+    monkeypatch.setattr(guard, "staged_deletions", lambda: ["posthog/migrations/0001_initial.py"])
+    monkeypatch.setattr(guard, "exists_on_ref", lambda path, ref: False)  # absent on master => branch-local
+    assert guard.main(["check", "--staged"]) == 0
