@@ -47,7 +47,7 @@ export const everyCampaign: CampaignConfig = {
         },
         {
             title: '$2K PostHog core credits*',
-            description: `New PostHog customers are also eligible for $2K in credits for PostHog core products, such as Product Analytics, Session Replay, Error Tracking, LLM Observability, and Data Warehouse.`,
+            description: `New PostHog customers are also eligible for $2K in credits for PostHog core products, such as product analytics, session replay, error tracking, LLM observability, and data warehouse.`,
         },
         {
             title: '12-month access',
@@ -56,6 +56,7 @@ export const everyCampaign: CampaignConfig = {
     ],
     eligibilityCriteria: [
         'Active EVERY Goodie Bag annual subscriber',
+        'Organization admin or owner in PostHog',
         'Active paid subscription to PostHog',
         `Organizations with a paid PostHog invoice before ${EVERY_CREDIT_ELIGIBILITY_CUTOFF} qualify only for credits toward PostHog's AI products`,
     ],
