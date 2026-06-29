@@ -58,6 +58,7 @@ from posthog.schema import (
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import _release_request_connections
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -1672,6 +1673,7 @@ class SessionRecordingViewSet(
             session_ids=[session_id],
             video_based=True,
         )
+        _release_request_connections()
         response = StreamingHttpResponse(
             self._generate_video_based_summary(
                 session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart
