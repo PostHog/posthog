@@ -39,7 +39,7 @@ REDUNDANT_DUP_MIN = 10
 OVERPROVISIONED_MIN_Q = 100
 
 CONVERSION_LABELS = {
-    "no_db": ("DB set up, 0 queries", "SimpleTestCase"),
+    "no_db": ("DB set up, test body issues no query", "SimpleTestCase (verify fixtures)"),
     "ch_unused": ("ClickHouse mixin, 0 CH queries", "drop CH mixin"),
     "txn_downgrade": ("TransactionTestCase, no txn need", "TestCase"),
     "multi_db_trim": ("`databases` over-declared", "trim databases"),
@@ -80,34 +80,55 @@ def short_path(path: str) -> str:
     return path
 
 
+def _prefer(a: dict, b: dict) -> dict:
+    """Pick the row to keep when a nodeid appears twice (reruns/shards): a passing row always wins
+    over a failing one (so a flaky first attempt can't drop a green test); ties break on more activity."""
+    a_pass, b_pass = is_passing(a), is_passing(b)
+    if a_pass != b_pass:
+        return a if a_pass else b
+    return a if (a.get("pg_total", 0) + a.get("ch_call", 0)) >= (b.get("pg_total", 0) + b.get("ch_call", 0)) else b
+
+
 def load_rows(path: Path) -> list[dict]:
-    """Load JSONL, deduping by nodeid (shards/re-runs) keeping the most-exercised row."""
+    """Load JSONL, deduping by nodeid (shards/reruns). Tolerates torn lines from concurrent writers."""
     by_id: dict[str, dict] = {}
-    dupes = 0
-    for line in path.read_text().splitlines():
+    dupes = bad = 0
+    for line in path.open():  # stream — the merged file can be large
         line = line.strip()
         if not line:
             continue
-        r = json.loads(line)
-        nid = r["nodeid"]
+        try:
+            r = json.loads(line)
+            nid = r["nodeid"]
+        except (json.JSONDecodeError, KeyError):
+            bad += 1  # a torn/interleaved line from parallel appends — skip it, don't crash the report
+            continue
         prev = by_id.get(nid)
         if prev is None:
             by_id[nid] = r
         else:
             dupes += 1
-            # Keep whichever observed more datastore activity (a 0-query re-run must not mask a real one).
-            if (r.get("pg_total", 0) + r.get("ch_call", 0)) > (prev.get("pg_total", 0) + prev.get("ch_call", 0)):
-                by_id[nid] = r
+            by_id[nid] = _prefer(prev, r)
     if dupes:
         sys.stderr.write(f"note: collapsed {dupes} duplicate nodeids (multiple shards/runs)\n")
+    if bad:
+        sys.stderr.write(f"warning: skipped {bad} malformed lines (likely interleaved parallel writes)\n")
     return list(by_id.values())
 
 
 def bucket_no_db(rows: list[dict]) -> list[dict]:
+    # The test BODY never queries (pg_call==0), even though DB setup was paid for. Keyed on the call phase,
+    # not pg_total: a validation test still incurs APIBaseTest setUpTestData/savepoint queries in setup.
+    # Async excluded (needs transaction=True). These are SimpleTestCase candidates IF the body doesn't rely
+    # on the setUp fixtures — a rewrite-and-verify, not a mechanical swap.
     return [
         r
         for r in rows
-        if r.get("db_enabled") and r.get("pg_total", 0) == 0 and r.get("ch_call", 0) == 0 and is_passing(r)
+        if r.get("db_enabled")
+        and r.get("pg_call", 0) == 0
+        and r.get("ch_call", 0) == 0
+        and not r.get("is_async")
+        and is_passing(r)
     ]
 
 
@@ -140,21 +161,22 @@ def bucket_multi_db_trim(rows: list[dict]) -> list[dict]:
 
 
 def bucket_setup_heavy(rows: list[dict]) -> list[dict]:
+    # is_passing on all overuse buckets too: a failed partial run reports truncated, misleading counts.
     out = []
     for r in rows:
         total = r.get("pg_total", 0)
         setup = r.get("pg_setup", 0)
-        if setup >= SETUP_HEAVY_MIN_Q and total > 0 and setup / total >= SETUP_HEAVY_RATIO:
+        if setup >= SETUP_HEAVY_MIN_Q and total > 0 and setup / total >= SETUP_HEAVY_RATIO and is_passing(r):
             out.append(r)
     return out
 
 
 def bucket_redundant_setup(rows: list[dict]) -> list[dict]:
-    return [r for r in rows if r.get("setup_max_dup", 0) >= REDUNDANT_DUP_MIN]
+    return [r for r in rows if r.get("setup_max_dup", 0) >= REDUNDANT_DUP_MIN and is_passing(r)]
 
 
 def bucket_over_provisioned(rows: list[dict]) -> list[dict]:
-    return [r for r in rows if r.get("pg_total", 0) >= OVERPROVISIONED_MIN_Q]
+    return [r for r in rows if r.get("pg_total", 0) >= OVERPROVISIONED_MIN_Q and is_passing(r)]
 
 
 def summarize(rows: list[dict]) -> dict:
@@ -215,14 +237,15 @@ def key_findings(rows: list[dict], buckets: dict) -> list[str]:
     nodb, ch, txn = buckets["no_db"], buckets["ch_unused"], buckets["txn_downgrade"]
     red, heavy, over = buckets["redundant_setup"], buckets["setup_heavy"], buckets["over_provisioned"]
 
-    if not nodb:
+    if nodb:
+        setup_paid = sum(1 for r in nodb if r.get("pg_setup", 0) > 0)
         out.append(
-            f"**The no-DB vein is exhausted.** Of {s['db_enabled']:,} DB-enabled tests, none issue zero "
-            "Postgres+ClickHouse queries — the SimpleTestCase conversions already caught the easy wins. "
-            "The remaining waste is in ClickHouse over-provisioning and fixture setup, not in DB-marked tests."
+            f"**{len(nodb):,} DB-enabled tests never query in their body** (pg_call==0), {setup_paid:,} of which "
+            "still paid for Postgres setup → SimpleTestCase candidates. Note: many are integration tests that hit "
+            "the DB only via setUp fixtures or reach other layers, so each needs a rewrite-and-verify, not a blind swap."
         )
     else:
-        out.append(f"**{len(nodb):,} DB-enabled tests issue zero queries** → convert to SimpleTestCase.")
+        out.append(f"**No test bodies are query-free** across {s['db_enabled']:,} DB-enabled tests.")
     if ch:
         out.append(
             f"**{len(ch):,} tests provision a ClickHouse mixin but never query ClickHouse** "

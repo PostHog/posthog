@@ -18,7 +18,7 @@ Signals captured per test:
   - base, status
 
 Derived waste buckets (computed by tools/test_resource_report.py):
-  - no-DB        : db_enabled & pg_total==0 & ch_call==0      -> SimpleTestCase
+  - no-DB        : db_enabled & pg_call==0 & ch_call==0 & not async -> SimpleTestCase (verify)
   - CH-unused    : ch_provisioned & ch_call==0               -> drop the CH mixin
   - txn-downgrade: TransactionTestCase base & no on_commit & no FOR UPDATE & single conn -> TestCase
   - multi-DB-trim: declared_dbs has aliases never queried     -> trim `databases`
@@ -37,6 +37,7 @@ import json
 import time
 import inspect
 import contextlib
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -57,7 +58,7 @@ _KNOWN_BASES = {
 _records: dict[str, dict] = {}
 
 
-def _db_enabled(item: pytest.Item, cls) -> bool:
+def _db_enabled(item: pytest.Item, cls: type | None) -> bool:
     if item.get_closest_marker("django_db") is not None:
         return True
     if cls is None:
@@ -70,7 +71,7 @@ def _db_enabled(item: pytest.Item, cls) -> bool:
         return False
 
 
-def _is_txn(item: pytest.Item, cls) -> bool:
+def _is_txn(item: pytest.Item, cls: type | None) -> bool:
     """The *slow* TransactionTestCase (truncates tables), not Django's fast TestCase subclass of it."""
     marker = item.get_closest_marker("django_db")
     if marker is not None and marker.kwargs.get("transaction"):
@@ -85,7 +86,7 @@ def _is_txn(item: pytest.Item, cls) -> bool:
         return False
 
 
-def _testcase_base(cls) -> str:
+def _testcase_base(cls: type | None) -> str:
     if cls is None:
         return "function"
     for ancestor in cls.__mro__[1:]:
@@ -94,7 +95,7 @@ def _testcase_base(cls) -> str:
     return cls.__mro__[1].__name__ if len(cls.__mro__) > 1 else cls.__name__
 
 
-def _declared_dbs(cls):
+def _declared_dbs(cls: type | None) -> list[str] | str | None:
     """The `databases` the TestCase wraps in transactions; None for plain functions."""
     dbs = getattr(cls, "databases", None) if cls is not None else None
     if dbs is None:
@@ -107,7 +108,7 @@ def _declared_dbs(cls):
         return str(dbs)
 
 
-def _ch_provisioned(cls) -> bool:
+def _ch_provisioned(cls: type | None) -> bool:
     if cls is None:
         return False
     return any("Clickhouse" in a.__name__ or "ClickHouse" in a.__name__ for a in cls.__mro__)
@@ -142,8 +143,18 @@ def _new_record(item: pytest.Item) -> dict:
         # Redundancy in setup: distinct query shapes vs the single most-repeated shape (N+1 in fixtures).
         "setup_distinct": 0,
         "setup_max_dup": 0,
-        "_setup_shapes": {},
+        "_setup_shapes": Counter(),
     }
+
+
+def _reset_counters(rec: dict) -> None:
+    """Clear per-attempt accumulators so a rerun (pytest-rerunfailures, --count) keeps the last attempt, not the sum."""
+    rec["pg_setup"] = rec["pg_call"] = rec["pg_teardown"] = 0
+    rec["ch_call"] = rec["on_commit"] = 0
+    rec["for_update"] = False
+    rec["pg_alias"] = {}
+    rec["_setup_shapes"] = Counter()
+    rec["status"] = "unknown"
 
 
 def _record_for(item: pytest.Item) -> dict:
@@ -157,34 +168,33 @@ def _record_for(item: pytest.Item) -> dict:
 @contextlib.contextmanager
 def _wrap_pg(rec: dict, phase: str):
     """Count Postgres queries per connection alias and watch for SELECT ... FOR UPDATE."""
-    counts: dict[str, int] = {}
+    counts: Counter[str] = Counter()
+    es = contextlib.ExitStack()
     try:
         from django.db import connections  # noqa: PLC0415 — Django configured at runtime only
 
-        stack: contextlib.AbstractContextManager = contextlib.ExitStack()
-
         def make(alias: str):
             def wrapper(execute, sql, params, many, context):
-                counts[alias] = counts.get(alias, 0) + 1
+                counts[alias] += 1
                 if isinstance(sql, str):
-                    if not rec["for_update"] and "FOR UPDATE" in sql.upper():
+                    # Django emits the keyword uppercase; substring check avoids an upper() copy per query.
+                    if not rec["for_update"] and "FOR UPDATE" in sql:
                         rec["for_update"] = True
-                    # Count query shapes during setup only — that's where fixture N+1 lives.
-                    # sql already carries %s placeholders (params are separate), so it's the shape.
+                    # Count query shapes during setup only — that's where fixture N+1 lives. sql already
+                    # carries %s placeholders (params are separate), so key by it directly (no hash collisions).
                     if phase == "setup":
-                        shapes = rec["_setup_shapes"]
-                        h = hash(sql)
-                        shapes[h] = shapes.get(h, 0) + 1
+                        rec["_setup_shapes"][sql] += 1
                 return execute(sql, params, many, context)
 
             return wrapper
 
         for conn in connections.all():
-            stack.enter_context(conn.execute_wrapper(make(conn.alias)))
+            es.enter_context(conn.execute_wrapper(make(conn.alias)))
     except Exception:
-        stack = contextlib.nullcontext()
+        es.close()  # unwind any wrappers entered before the failure so none leak onto the connection
+        es = contextlib.ExitStack()
     try:
-        with stack:
+        with es:
             yield
     finally:
         rec[f"pg_{phase}"] += sum(counts.values())
@@ -239,7 +249,9 @@ def _wrap_on_commit(rec: dict):
 
 @pytest.hookimpl(hookwrapper=True)
 def pytest_runtest_setup(item):
-    with _wrap_pg(_record_for(item), "setup"):
+    rec = _record_for(item)
+    _reset_counters(rec)  # setup is the first phase of every attempt, including reruns
+    with _wrap_pg(rec, "setup"):
         yield
 
 
@@ -265,8 +277,10 @@ def pytest_runtest_makereport(item):
     rec = _record_for(item)
     if report.when == "call":
         rec["status"] = report.outcome
-    elif report.when == "setup" and report.outcome in {"skipped", "failed"} and rec["status"] == "unknown":
-        rec["status"] = report.outcome
+    if report.outcome == "failed":
+        rec["status"] = "failed"  # any-phase failure (incl. teardown) means the test isn't green
+    elif report.when == "setup" and report.outcome == "skipped":
+        rec["status"] = "skipped"
 
 
 def pytest_sessionfinish():
