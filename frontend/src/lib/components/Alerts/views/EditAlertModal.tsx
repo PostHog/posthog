@@ -131,7 +131,6 @@ export function EditAlertModal({
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
-    const alerts15MinuteIntervalEnabled = useFeatureFlag('ALERTS_15_MINUTE_INTERVAL')
 
     const { hasAvailableFeature } = useValues(userLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
@@ -297,7 +296,6 @@ export function EditAlertModal({
                                         creatingNewAlert={creatingNewAlert}
                                         alert={alert}
                                         trendInterval={trendInterval}
-                                        alerts15MinuteIntervalEnabled={alerts15MinuteIntervalEnabled}
                                         hasHighFrequencyAlertsEntitlement={hasHighFrequencyAlertsEntitlement}
                                         guardAvailableFeature={guardAvailableFeature}
                                         nextPlannedEvaluationStale={nextPlannedEvaluationStale}

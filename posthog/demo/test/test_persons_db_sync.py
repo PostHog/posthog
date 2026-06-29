@@ -22,7 +22,7 @@ SYNC_TEST_PROJECT_ID = 2_000_000_010
 SYNC_TEST_TARGET_TEAM_ID = 2_000_000_011
 SYNC_TEST_TARGET_PROJECT_ID = 2_000_000_011
 
-pytestmark = pytest.mark.django_db(databases=["persons_db_writer", "persons_db_reader"])
+pytestmark = pytest.mark.django_db()
 
 
 def _cleanup(conn: psycopg.Connection[Any]) -> None:

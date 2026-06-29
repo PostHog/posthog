@@ -1,6 +1,5 @@
 import json as _json
 import base64
-from collections import defaultdict
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
@@ -10,7 +9,6 @@ from django.utils import timezone
 import structlog
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
@@ -28,6 +26,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -147,7 +146,7 @@ class GroupsTypesViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     serializer_class = GroupTypeSerializer
     # DRF requires a queryset for model resolution, but all actions are overridden
     # to read via personhog-routed helpers — this queryset is never evaluated.
-    queryset = GroupTypeMapping.objects.none()  # nosemgrep: no-direct-persons-db-orm
+    queryset = GroupTypeMapping.objects.none()
     pagination_class = None
     sharing_enabled_actions = ["list"]
     lookup_field = "group_type_index"
@@ -273,7 +272,9 @@ class CreateGroupSerializer(serializers.ModelSerializer):
 
 class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet):
     scope_object = "group"
-    queryset = Group.objects.all()  # nosemgrep: no-direct-persons-db-orm
+    # DRF needs a queryset for model/basename resolution, but every action is overridden
+    # to read via personhog-routed helpers — this queryset is never evaluated against the DB.
+    queryset = Group.objects.none()
     pagination_class = None
     serializer_classes = {
         "find": FindGroupSerializer,
@@ -499,7 +500,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity="create_group",
@@ -619,7 +620,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity=f"{create_or_update}_property",
@@ -728,7 +729,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity="update_property",
@@ -803,26 +804,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         return response.Response(results)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
-    def property_definitions(self, request: request.Request, **kw):
-        tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-        query = parse_select(
-            """
-            SELECT index, tupleElement(keysAndValues, 1) AS key, count(*) AS count
-            FROM groups
-            ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS keysAndValues
-            GROUP BY index, key
-            ORDER BY index ASC, count DESC, key ASC
-            """
-        )
-        rows = execute_hogql_query(query, team=self.team).results
-
-        group_type_index_to_properties = defaultdict(list)
-        for group_type_index, key, count in rows:
-            group_type_index_to_properties[str(group_type_index)].append({"name": key, "count": count})
-
-        return response.Response(group_type_index_to_properties)
-
-    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):
         with (
             PROPERTY_VALUES_DURATION.labels(endpoint_type="group").time(),
@@ -841,7 +822,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value_filter is not None)
 
-            value_expr = "replaceRegexpAll(tupleElement(keysAndValues, 2), '^\"|\"$', '') AS value"
             where_extra = ""
             placeholders: dict[str, ast.Expr] = {
                 "group_type_index": ast.Constant(value=int(group_type_index)),
@@ -851,14 +831,20 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 where_extra = "AND value ILIKE {value_filter}"
                 placeholders["value_filter"] = ast.Constant(value=f"%{value_filter}%")
 
-            # nosemgrep: hogql-fstring-audit (only constant SQL fragments value_expr/where_extra are interpolated; key/value/index go through parse_select placeholders)
+            # Dedup to each group's latest value of the requested property. Aggregating only the
+            # extracted property (not the whole properties blob, as the `groups` lazy table would)
+            # keeps memory bounded on teams with many large groups.
+            # nosemgrep: hogql-fstring-audit (only the constant where_extra fragment is interpolated; key/value/index go through parse_select placeholders)
             query = parse_select(
                 f"""
-                SELECT {value_expr}, count(*) AS count
-                FROM groups
-                ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS keysAndValues
-                WHERE index = {{group_type_index}}
-                  AND tupleElement(keysAndValues, 1) = {{key}}
+                SELECT value, count(*) AS count
+                FROM (
+                    SELECT argMax(properties[{{key}}], updated_at) AS value
+                    FROM raw_groups
+                    WHERE index = {{group_type_index}}
+                    GROUP BY index, key
+                )
+                WHERE value IS NOT NULL
                   {where_extra}
                 GROUP BY value
                 ORDER BY count DESC, value ASC

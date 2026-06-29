@@ -24,7 +24,6 @@ import posthoganalytics
 from asgiref.sync import async_to_sync
 from clickhouse_driver.errors import ServerException
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -59,6 +58,7 @@ from posthog.schema import (
 
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import _release_request_connections
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
 from posthog.auth import (
     ExportRendererAuthentication,
@@ -73,6 +73,7 @@ from posthog.cloud_utils import is_cloud
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
@@ -1157,7 +1158,7 @@ class SessionRecordingViewSet(
                 organization_id=cast(User, request.user).current_organization_id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=None,
                 scope="Replay",
                 activity="bulk_deleted",
@@ -1672,6 +1673,7 @@ class SessionRecordingViewSet(
             session_ids=[session_id],
             video_based=True,
         )
+        _release_request_connections()
         response = StreamingHttpResponse(
             self._generate_video_based_summary(
                 session_id, user, tracking_id, product_context, custom_tags, force_restart=force_restart

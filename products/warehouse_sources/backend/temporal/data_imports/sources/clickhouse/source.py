@@ -213,6 +213,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # replays the identical failure, so stop and tell the customer to fix the schema.
             # We match the stable suffix, not the volatile `<database>.<table>` prefix.
             "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
+            # query as Arrow: a selected column has a type ClickHouse can't serialize
+            # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
+            # materialized view). The column type is fixed, so retrying replays the
+            # identical failure. We match the stable Arrow-conversion phrase, not the
+            # volatile column name or type in the message.
+            "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
         }
 
     def get_schemas(

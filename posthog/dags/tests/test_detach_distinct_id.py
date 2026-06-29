@@ -1,4 +1,5 @@
 import uuid as uuid_module
+import contextlib
 from uuid import UUID
 
 import pytest
@@ -13,6 +14,7 @@ from posthog.dags.detach_distinct_id import (
     detach_distinct_id_job,
 )
 from posthog.kafka_client.topics import KAFKA_PERSON_DISTINCT_ID
+from posthog.persons_db import persons_db_connection
 
 PERSON_UUID = "5e00024e-cb68-59f6-821f-6150fcffc431"
 PERSON_PK = 42
@@ -330,9 +332,9 @@ class TestDetachDistinctIdIntegration:
 
         return Team.objects.create(organization=organization, name="Detach Test Team")
 
-    @staticmethod
-    def _pdi_exists(conn, pdi_id: int) -> bool:
-        with conn.cursor() as cursor:
+    @classmethod
+    def _pdi_exists(cls, pdi_id: int) -> bool:
+        with cls._get_persons_conn() as conn, conn.cursor() as cursor:
             cursor.execute("SELECT 1 FROM posthog_persondistinctid WHERE id = %s", [pdi_id])
             return cursor.fetchone() is not None
 
@@ -340,9 +342,8 @@ class TestDetachDistinctIdIntegration:
     def person_with_two_distinct_ids(self, team):
         from posthog.models.utils import UUIDT
 
-        conn = self._get_persons_conn()
         person_uuid = UUIDT()
-        with conn.cursor() as cursor:
+        with self._get_persons_conn() as conn, conn.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO posthog_person (team_id, uuid, properties, is_identified, version, created_at, properties_last_updated_at, properties_last_operation) "
                 "VALUES (%s, %s, '{}', false, 1, NOW(), '{}', '{}') RETURNING id",
@@ -385,25 +386,27 @@ class TestDetachDistinctIdIntegration:
         }
 
     @staticmethod
+    @contextlib.contextmanager
     def _get_persons_conn():
-        from django.db import connections
-
-        from posthog.person_db_router import PERSONS_DB_FOR_WRITE
-
-        return connections[PERSONS_DB_FOR_WRITE]
+        # autocommit=False: the dagster job consumes this connection as the `persons_database`
+        # resource and drives its own commit()/rollback() (dry runs roll back), so it must be
+        # transactional rather than autocommit. The cursor-only callers commit on block exit.
+        with persons_db_connection(writer=True) as conn:
+            yield conn
 
     @patch("posthog.dags.detach_distinct_id.sync_execute")
     def test_dry_run_does_not_delete(self, mock_sync_execute, team, person_with_two_distinct_ids):
         person, _pdi_keep, pdi_detach = person_with_two_distinct_ids
         producer = MagicMock()
 
-        result = detach_distinct_id_job.execute_in_process(
-            run_config=self._run_config(team.id, str(person.uuid), dry_run=True),
-            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
-        )
+        with self._get_persons_conn() as conn:
+            result = detach_distinct_id_job.execute_in_process(
+                run_config=self._run_config(team.id, str(person.uuid), dry_run=True),
+                resources={"persons_database": conn, "kafka_producer": producer},
+            )
 
         assert result.success
-        assert self._pdi_exists(self._get_persons_conn(), pdi_detach.id)
+        assert self._pdi_exists(pdi_detach.id)
         producer.produce.assert_not_called()
         mock_sync_execute.assert_not_called()
 
@@ -412,18 +415,18 @@ class TestDetachDistinctIdIntegration:
         person, pdi_keep, pdi_detach = person_with_two_distinct_ids
         producer = MagicMock()
 
-        result = detach_distinct_id_job.execute_in_process(
-            run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
-            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
-        )
+        with self._get_persons_conn() as conn:
+            result = detach_distinct_id_job.execute_in_process(
+                run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
+                resources={"persons_database": conn, "kafka_producer": producer},
+            )
 
         assert result.success
 
-        conn = self._get_persons_conn()
         # PDI row deleted
-        assert not self._pdi_exists(conn, pdi_detach.id)
+        assert not self._pdi_exists(pdi_detach.id)
         # Other PDI untouched
-        assert self._pdi_exists(conn, pdi_keep.id)
+        assert self._pdi_exists(pdi_keep.id)
 
         # Kafka deletion published
         producer.produce.assert_called_once()
@@ -446,11 +449,12 @@ class TestDetachDistinctIdIntegration:
         wrong_uuid = str(uuid_module.uuid4())
         producer = MagicMock()
 
-        result = detach_distinct_id_job.execute_in_process(
-            run_config=self._run_config(team.id, wrong_uuid, dry_run=False),
-            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
-            raise_on_error=False,
-        )
+        with self._get_persons_conn() as conn:
+            result = detach_distinct_id_job.execute_in_process(
+                run_config=self._run_config(team.id, wrong_uuid, dry_run=False),
+                resources={"persons_database": conn, "kafka_producer": producer},
+                raise_on_error=False,
+            )
 
         assert not result.success
         producer.produce.assert_not_called()
@@ -462,9 +466,8 @@ class TestDetachDistinctIdIntegration:
 
         from posthog.models.utils import UUIDT
 
-        conn = self._get_persons_conn()
         person_uuid = UUIDT()
-        with conn.cursor() as cursor:
+        with self._get_persons_conn() as conn, conn.cursor() as cursor:
             cursor.execute(
                 "INSERT INTO posthog_person (team_id, uuid, properties, is_identified, version, created_at, properties_last_updated_at, properties_last_operation) "
                 "VALUES (%s, %s, '{}', false, 1, NOW(), '{}', '{}') RETURNING id",
@@ -479,11 +482,12 @@ class TestDetachDistinctIdIntegration:
         person = SimpleNamespace(id=person_id, uuid=person_uuid, version=1)
         producer = MagicMock()
 
-        result = detach_distinct_id_job.execute_in_process(
-            run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
-            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
-            raise_on_error=False,
-        )
+        with self._get_persons_conn() as conn:
+            result = detach_distinct_id_job.execute_in_process(
+                run_config=self._run_config(team.id, str(person.uuid), dry_run=False),
+                resources={"persons_database": conn, "kafka_producer": producer},
+                raise_on_error=False,
+            )
 
         assert not result.success
         producer.produce.assert_not_called()
@@ -493,11 +497,14 @@ class TestDetachDistinctIdIntegration:
     def test_fails_when_distinct_id_not_found(self, mock_sync_execute, team):
         producer = MagicMock()
 
-        result = detach_distinct_id_job.execute_in_process(
-            run_config=self._run_config(team.id, str(uuid_module.uuid4()), dry_run=False, distinct_id="nonexistent"),
-            resources={"persons_database": self._get_persons_conn(), "kafka_producer": producer},
-            raise_on_error=False,
-        )
+        with self._get_persons_conn() as conn:
+            result = detach_distinct_id_job.execute_in_process(
+                run_config=self._run_config(
+                    team.id, str(uuid_module.uuid4()), dry_run=False, distinct_id="nonexistent"
+                ),
+                resources={"persons_database": conn, "kafka_producer": producer},
+                raise_on_error=False,
+            )
 
         assert not result.success
         producer.produce.assert_not_called()

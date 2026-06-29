@@ -120,7 +120,8 @@ class SlackSettings(UUIDModel):
 
     def __str__(self) -> str:
         who = self.slack_user_id or "(workspace default)"
-        return f"{self.slack_workspace_id} / {who} → integration {self.default_integration_id}"
+        target = self.default_integration_id if self.default_integration_id else "(inherit)"
+        return f"{self.slack_workspace_id} / {who} → integration {target}"
 
 
 class SlackChannel(UUIDModel):
