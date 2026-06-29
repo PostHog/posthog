@@ -399,7 +399,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BeamerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -409,7 +409,7 @@ class BigCommerceSourceConfig(config.Config):
 
 @config.config
 class BigMailerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -597,7 +597,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChargedeskSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1069,7 +1069,7 @@ class EventzillaSourceConfig(config.Config):
 
 @config.config
 class EverhourSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1137,7 +1137,8 @@ class FinnhubSourceConfig(config.Config):
 
 @config.config
 class FinnworldsSourceConfig(config.Config):
-    pass
+    api_key: str
+    tickers: str
 
 
 @config.config

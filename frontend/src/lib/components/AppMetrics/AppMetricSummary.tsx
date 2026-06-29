@@ -24,6 +24,8 @@ export type AppMetricSummaryProps = {
     onClick?: () => void
     /** Tooltip shown on the drill-down affordance when `onClick` is set. */
     onClickTooltip?: string
+    /** Optional content rendered at the bottom of the card, e.g. a deep-link to the underlying data. */
+    footer?: JSX.Element | null
 }
 
 export function AppMetricSummary({
@@ -37,6 +39,7 @@ export function AppMetricSummary({
     hideIfZero = false,
     onClick,
     onClickTooltip,
+    footer,
 }: AppMetricSummaryProps): JSX.Element | null {
     const total = useMemo(() => {
         if (!timeSeries) {
@@ -156,6 +159,7 @@ export function AppMetricSummary({
                     )}
                 </div>
             </div>
+            {footer ? <div className="mt-2 text-xs text-center">{footer}</div> : null}
         </div>
     )
 }

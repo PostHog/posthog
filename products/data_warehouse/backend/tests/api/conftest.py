@@ -32,7 +32,7 @@ from posthog.temporal.tests.data_imports.conftest import (  # noqa: F401
     stripe_subscription,
 )
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 
 @pytest_asyncio.fixture
