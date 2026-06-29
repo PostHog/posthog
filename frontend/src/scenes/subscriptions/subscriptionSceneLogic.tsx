@@ -6,12 +6,16 @@ import posthog from 'posthog-js'
 import {
     subscriptionsDeliveriesList,
     subscriptionsPartialUpdate,
+    subscriptionsPreviewCreate,
+    subscriptionsRePlanCreate,
     subscriptionsRetrieve,
     subscriptionsTestDeliveryCreate,
 } from '@posthog/products-subscriptions/frontend/generated/api'
 import type {
     PaginatedSubscriptionDeliveryListApi,
+    QueryPlanApi,
     SubscriptionApi,
+    SubscriptionPreviewResponseApi,
     SubscriptionsDeliveriesListStatus,
 } from '@posthog/products-subscriptions/frontend/generated/api.schemas'
 
@@ -64,6 +68,12 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             source,
         }),
         expireDeliveryThanks: (deliveryId: string) => ({ deliveryId }),
+        replanSubscription: true,
+        replanSubscriptionSuccess: true,
+        replanSubscriptionFailure: true,
+        // Local edits to the frozen plan's HogQL, keyed by step index, before the owner saves.
+        setQueryPlanStepHogql: (stepIndex: number, hogql: string) => ({ stepIndex, hogql }),
+        resetQueryPlanEdits: true,
     }),
     reducers({
         deliveringSubscriptionId: [
@@ -78,6 +88,14 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             null as SubscriptionsDeliveriesListStatus | null,
             {
                 setDeliveryStatusFilter: (_, { status }) => status,
+            },
+        ],
+        replanning: [
+            false,
+            {
+                replanSubscription: () => true,
+                replanSubscriptionSuccess: () => false,
+                replanSubscriptionFailure: () => false,
             },
         ],
         deliveryFeedback: [
@@ -101,6 +119,17 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 },
             },
         ],
+        // Pending edits to the frozen plan's HogQL, keyed by step index. Cleared whenever the
+        // subscription reloads (the saved plan is the new baseline) or the user resets.
+        queryPlanEdits: [
+            {} as Record<number, string>,
+            {
+                setQueryPlanStepHogql: (state, { stepIndex, hogql }) => ({ ...state, [stepIndex]: hogql }),
+                resetQueryPlanEdits: () => ({}),
+                loadSubscriptionSuccess: () => ({}),
+                saveQueryPlanSuccess: () => ({}),
+            },
+        ],
     }),
     loaders(({ values, props }) => ({
         subscription: [
@@ -122,6 +151,33 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                         return values.subscription
                     }
                     return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, { enabled })
+                },
+                // Persist the owner's edits to the frozen plan's HogQL. PATCH returns the updated
+                // subscription so the loader replaces the whole value, resetting the editor baseline.
+                saveQueryPlan: async () => {
+                    const numericId = parseInt(props.id, 10)
+                    const plan = values.editedQueryPlan
+                    if (!Number.isFinite(numericId) || !plan) {
+                        return values.subscription
+                    }
+                    return await subscriptionsPartialUpdate(String(getCurrentTeamId()), numericId, {
+                        query_plan: plan,
+                    })
+                },
+            },
+        ],
+        preview: [
+            null as SubscriptionPreviewResponseApi | null,
+            {
+                clearPreview: () => null,
+                previewSubscription: async (_, breakpoint) => {
+                    const numericId = parseInt(props.id, 10)
+                    if (!Number.isFinite(numericId)) {
+                        return null
+                    }
+                    const result = await subscriptionsPreviewCreate(String(getCurrentTeamId()), numericId)
+                    breakpoint()
+                    return result
                 },
             },
         ],
@@ -170,6 +226,24 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 ]
             },
         ],
+        // The frozen plan with the owner's pending HogQL edits applied, ready to save. Null when there
+        // is no plan or no edits — used both to drive the "Save plan" enabled state and as the PATCH body.
+        editedQueryPlan: [
+            (s) => [s.subscription, s.queryPlanEdits],
+            (subscription, queryPlanEdits): QueryPlanApi | null => {
+                const plan = subscription?.query_plan
+                if (!plan || Object.keys(queryPlanEdits).length === 0) {
+                    return null
+                }
+                return {
+                    ...plan,
+                    steps: plan.steps.map((step, index) =>
+                        index in queryPlanEdits ? { ...step, hogql: queryPlanEdits[index] } : step
+                    ),
+                }
+            },
+        ],
+        hasQueryPlanEdits: [(s) => [s.editedQueryPlan], (editedQueryPlan): boolean => editedQueryPlan !== null],
     }),
     listeners(({ actions, values, props, cache, selectors }) => ({
         submitDeliveryFeedback: ({ deliveryId, feedback, source }, _breakpoint, _action, previousState) => {
@@ -241,6 +315,36 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
             // sub with no integration) — backend already validates this.
             const detail = errorObject?.detail
             lemonToast.error(typeof detail === 'string' ? detail : 'Could not update subscription')
+        },
+        replanSubscription: async () => {
+            const numericId = parseInt(props.id, 10)
+            if (!Number.isFinite(numericId)) {
+                actions.replanSubscriptionFailure()
+                return
+            }
+            try {
+                await subscriptionsRePlanCreate(String(getCurrentTeamId()), numericId)
+            } catch (errorObject: any) {
+                const detail = errorObject?.detail
+                lemonToast.error(typeof detail === 'string' ? detail : 'Could not re-plan subscription')
+                actions.replanSubscriptionFailure()
+                return
+            }
+            lemonToast.success('Query plan cleared — the next report will re-plan from your prompt')
+            actions.replanSubscriptionSuccess()
+            // The frozen plan is now null; reload so the editor and preview reflect the cleared state.
+            actions.loadSubscription()
+        },
+        previewSubscriptionFailure: ({ errorObject }) => {
+            const detail = errorObject?.detail
+            lemonToast.error(typeof detail === 'string' ? detail : 'Could not generate preview')
+        },
+        saveQueryPlanSuccess: () => {
+            lemonToast.success('Query plan saved')
+        },
+        saveQueryPlanFailure: ({ errorObject }) => {
+            const detail = errorObject?.detail
+            lemonToast.error(typeof detail === 'string' ? detail : 'Could not save query plan')
         },
     })),
     urlToAction(({ actions, props, values }) => ({
