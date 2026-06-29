@@ -4,7 +4,6 @@ import { IconInfo, IconPencil } from '@posthog/icons'
 import { LemonBanner, LemonInput } from '@posthog/lemon-ui'
 
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -139,8 +138,6 @@ export function ExperimentMetricForm({
     const [eventCount, setEventCount] = useState<number | null>(null)
     const [isLoading, setIsLoading] = useState(false)
 
-    const isExperimentFunnelDWHSupport = useFeatureFlag('EXPERIMENT_FUNNEL_DWH_SUPPORT')
-
     const getEventTypeLabel = (): string => {
         if (isExperimentMeanMetric(metric)) {
             return metric.source.kind === NodeKind.ActionsNode ? 'actions' : 'events'
@@ -196,23 +193,13 @@ export function ExperimentMetricForm({
             if (newMetricType === ExperimentMetricType.MEAN && isExperimentMeanMetric(newMetric)) {
                 newMetric.source = sources[0]
             } else if (newMetricType === ExperimentMetricType.FUNNEL && isExperimentFunnelMetric(newMetric)) {
-                // Filter sources based on feature flag support
-                if (isExperimentFunnelDWHSupport) {
-                    // Include all supported types including DataWarehouseNode
-                    newMetric.series = sources.filter(
-                        (s): s is ExperimentFunnelMetricStep =>
-                            s &&
-                            (s.kind === NodeKind.EventsNode ||
-                                s.kind === NodeKind.ActionsNode ||
-                                s.kind === NodeKind.ExperimentDataWarehouseNode)
-                    )
-                } else {
-                    // Legacy: only support EventsNode and ActionsNode
-                    newMetric.series = sources.filter(
-                        (s): s is ExperimentFunnelMetricStep =>
-                            s && (s.kind === NodeKind.EventsNode || s.kind === NodeKind.ActionsNode)
-                    )
-                }
+                newMetric.series = sources.filter(
+                    (s): s is ExperimentFunnelMetricStep =>
+                        s &&
+                        (s.kind === NodeKind.EventsNode ||
+                            s.kind === NodeKind.ActionsNode ||
+                            s.kind === NodeKind.ExperimentDataWarehouseNode)
+                )
             } else if (newMetricType === ExperimentMetricType.RATIO && isExperimentRatioMetric(newMetric)) {
                 newMetric.numerator = sources[0]
             } else if (newMetricType === ExperimentMetricType.RETENTION && isExperimentRetentionMetric(newMetric)) {
@@ -410,17 +397,9 @@ export function ExperimentMetricForm({
                         // showNumericalPropsOnly={true}
                         mathAvailability={mathAvailability}
                         allowedMathTypes={allowedMathTypes}
-                        actionsTaxonomicGroupTypes={
-                            isExperimentFunnelDWHSupport
-                                ? commonActionFilterProps.actionsTaxonomicGroupTypes
-                                : commonActionFilterProps.actionsTaxonomicGroupTypes?.filter(
-                                      (type) => type !== 'data_warehouse'
-                                  )
-                        }
+                        actionsTaxonomicGroupTypes={commonActionFilterProps.actionsTaxonomicGroupTypes}
                         propertiesTaxonomicGroupTypes={commonActionFilterProps.propertiesTaxonomicGroupTypes}
-                        dataWarehousePopoverFields={
-                            isExperimentFunnelDWHSupport ? dataWarehousePopoverFields : undefined
-                        }
+                        dataWarehousePopoverFields={dataWarehousePopoverFields}
                     />
                 )}
 

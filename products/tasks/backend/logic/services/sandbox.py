@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import shlex
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
@@ -273,6 +274,18 @@ class SandboxBase(ABC):
 
     @abstractmethod
     def is_running(self) -> bool: ...
+
+    def read_agent_server_boot_ms(self) -> int | None:
+        return None
+
+    def _read_health_boot_ms(self, port: int) -> int | None:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            boot_ms = payload.get("bootMs")
+            return int(boot_ms) if isinstance(boot_ms, int | float) else None
+        except Exception:
+            return None
 
     def __enter__(self) -> Self:
         return self

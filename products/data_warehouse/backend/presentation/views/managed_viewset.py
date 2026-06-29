@@ -7,7 +7,7 @@ from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.warehouse_sources.backend.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
 logger = structlog.get_logger(__name__)
 

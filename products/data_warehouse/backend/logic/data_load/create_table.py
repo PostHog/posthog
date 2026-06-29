@@ -19,7 +19,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import (
     asave_saved_query,
 )
 from products.data_warehouse.backend.s3 import get_size_of_folder
-from products.warehouse_sources.backend.models.table import (
+from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     acreate_datawarehousetable,
     asave_datawarehousetable,

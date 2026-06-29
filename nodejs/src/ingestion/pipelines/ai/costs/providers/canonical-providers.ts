@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-06-26 10:59:37 UTC
+// Generated at: 2026-06-29 11:38:33 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -15,7 +15,6 @@ export type CanonicalProvider =
     | 'amazon-bedrock-global'
     | 'amazon-bedrock-us'
     | 'amazon-bedrock-us-east-1'
-    | 'ambient-fp8'
     | 'ambient-int4'
     | 'anthropic'
     | 'anthropic-2'
@@ -69,6 +68,7 @@ export type CanonicalProvider =
     | 'google-vertex-us-west2'
     | 'groq'
     | 'inception'
+    | 'inceptron-fp4'
     | 'inceptron-fp8'
     | 'inceptron-int4'
     | 'infermatic-bf16'
@@ -76,6 +76,7 @@ export type CanonicalProvider =
     | 'io-net-fp8'
     | 'ionstream-fp8'
     | 'liquid'
+    | 'mancer-fp4'
     | 'mancer-fp8'
     | 'mara'
     | 'minimax'
@@ -98,6 +99,7 @@ export type CanonicalProvider =
     | 'novita-fp16'
     | 'novita-fp4'
     | 'novita-fp8'
+    | 'novita-int4'
     | 'nvidia'
     | 'nvidia-bf16'
     | 'open-inference-bf16'
@@ -146,7 +148,6 @@ export type CanonicalProvider =
     | 'venice-int4'
     | 'wafer-fast'
     | 'wafer-fp4'
-    | 'wafer-fp8'
     | 'wandb-bf16'
     | 'wandb-fp16'
     | 'wandb-fp4'

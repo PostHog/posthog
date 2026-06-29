@@ -17,6 +17,16 @@ from llm_gateway.rate_limiting.cost_refresh import COST_ALIASES
 # CF has no native litellm provider; we route through its OpenAI-compatible endpoint.
 _CF_LITELLM_PREFIX = "openai/"
 
+# CF Workers AI model ids are namespaced under `@cf/` (e.g. `@cf/zai-org/glm-5.2`). The id alone is
+# what marks a request for CF routing across every gateway path — chat/completions, responses, and
+# anthropic-messages all branch on this, independent of the provider header.
+_CF_MODEL_PREFIX = "@cf/"
+
+
+def is_cloudflare_model(model: str) -> bool:
+    """Whether `model` is a Cloudflare Workers AI model id (`@cf/...`)."""
+    return model.startswith(_CF_MODEL_PREFIX)
+
 
 def cloudflare_litellm_model(model: str) -> str:
     """The litellm model id CF requests route under (its OpenAI-compatible prefix)."""
@@ -86,5 +96,29 @@ def make_cloudflare_completion_call(api_base: str, api_key: str) -> Callable[...
     async def llm_call(**kwargs: Any) -> Any:
         _inject_cloudflare_params(kwargs, api_base, api_key)
         return await litellm.acompletion(**kwargs)
+
+    return llm_call
+
+
+def make_cloudflare_responses_call(api_base: str, api_key: str) -> Callable[..., Awaitable[Any]]:
+    """Build an llm_call that routes OpenAI Responses API requests to Cloudflare.
+
+    CF's OpenAI-compatible endpoint only serves chat/completions, not the Responses API,
+    so we force litellm's Responses->chat/completions bridge (`use_chat_completions_api`)
+    and route the bridged completion through CF's endpoint. Without this, `litellm.aresponses`
+    would hit CF's non-existent `/responses` route. This is the codex/Responses analogue of
+    `make_cloudflare_completion_call` (chat/completions) and `make_cloudflare_anthropic_call`
+    (Anthropic Messages).
+    """
+
+    async def llm_call(**kwargs: Any) -> Any:
+        _inject_cloudflare_params(kwargs, api_base, api_key)
+        # Assign into kwargs rather than passing as an explicit keyword: `ResponsesRequest` allows
+        # extra fields, so a caller could smuggle `use_chat_completions_api` in the request body —
+        # passing it both ways would raise `TypeError: got multiple values for keyword argument`,
+        # and this also stops a caller flipping it to False to escape the bridge onto CF's missing
+        # /responses route.
+        kwargs["use_chat_completions_api"] = True
+        return await litellm.aresponses(**kwargs)
 
     return llm_call

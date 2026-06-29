@@ -14,7 +14,6 @@ from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from pydantic import TypeAdapter
 from pydantic_core import ValidationError as PydanticValidationError
@@ -31,6 +30,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import is_impersonated
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
@@ -52,6 +52,7 @@ from posthog.models.product_intent.product_intent import (
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
+from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -720,6 +721,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    event_retention_months = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
+            "enforcement is active for the team, queries do not return events older than this many months."
+        ),
+    )
+    events_retention_enforced = serializers.SerializerMethodField(
+        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+    )
 
     class Meta:
         model = Team
@@ -749,6 +760,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
+            "event_retention_months",
+            "events_retention_enforced",
         )
 
         read_only_fields = (
@@ -796,6 +809,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @tracer.start_as_current_span("team_serializer.group_types")
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return cached_group_types_for_team(team)
+
+    @extend_schema_field(serializers.BooleanField())
+    @tracer.start_as_current_span("team_serializer.events_retention_enforced")
+    def get_events_retention_enforced(self, team: Team) -> bool:
+        return should_enforce_events_retention(team.id)
 
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
@@ -1446,7 +1464,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=team.organization_id,
             team_id=team.pk,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="created",
@@ -1498,7 +1516,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     organization_id=cast(UUIDT, instance.organization_id),
                     team_id=instance.pk,
                     user=cast(User, self.context["request"].user),
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(self.context["request"]),
                     scope="Survey",
                     item_id="",
                     activity="updated",
@@ -1576,7 +1594,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=cast(UUIDT, instance.organization_id),
             team_id=instance.pk,
             user=cast(User, self.context["request"].user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(self.context["request"]),
             scope="Team",
             item_id=instance.pk,
             activity="updated",
@@ -1746,7 +1764,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id=cast(UUIDT, instance.organization_id),
                 team_id=instance.pk,
                 user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(self.context["request"]),
                 scope="Team",
                 item_id=instance.pk,
                 activity="updated",
@@ -1939,7 +1957,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             organization_id=cast(UUIDT, organization_id),
             team_id=team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team_id,
             activity="deleted",
@@ -1956,7 +1974,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -1967,7 +1985,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -1978,9 +1996,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.delete_secret_token_backup_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
-        )
+        team.delete_secret_token_backup_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -1992,7 +2008,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.generate_conversations_public_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 

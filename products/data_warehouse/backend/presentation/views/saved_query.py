@@ -11,7 +11,6 @@ import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
 from drf_spectacular.utils import extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import exceptions, filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import PageNumberPagination
@@ -31,6 +30,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -51,21 +51,21 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import Data
 from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.logic.data_load.saved_query_service import (
+from products.data_warehouse.backend.facade.api import (
     pause_saved_query_schedule,
     saved_query_workflow_exists,
     sync_saved_query_workflow,
     trigger_saved_query_schedule,
     unpause_saved_query_schedule,
 )
-from products.warehouse_sources.backend.models.external_data_schema import (
-    sync_frequency_interval_to_sync_frequency,
-    sync_frequency_to_sync_frequency_interval,
-)
-from products.warehouse_sources.backend.models.util import (
+from products.warehouse_sources.backend.facade.hogql import (
     CLICKHOUSE_HOGQL_MAPPING,
     clean_type,
     get_view_or_table_by_name,
+)
+from products.warehouse_sources.backend.facade.models import (
+    sync_frequency_interval_to_sync_frequency,
+    sync_frequency_to_sync_frequency_interval,
 )
 
 logger = structlog.get_logger(__name__)
@@ -410,7 +410,7 @@ class DataWarehouseSavedQuerySerializer(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=view.created_by,
-                was_impersonated=is_impersonated_session(self.context["request"]),
+                was_impersonated=is_impersonated(self.context["request"]),
                 item_id=view.id,
                 scope="DataWarehouseSavedQuery",
                 activity="created",
@@ -550,7 +550,7 @@ class DataWarehouseSavedQuerySerializer(
                 organization_id=team.organization_id,
                 team_id=team.id,
                 user=self.context["request"].user,
-                was_impersonated=is_impersonated_session(self.context["request"]),
+                was_impersonated=is_impersonated(self.context["request"]),
                 item_id=view.id,
                 scope="DataWarehouseSavedQuery",
                 activity="updated",
@@ -881,7 +881,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=instance.id,
             scope="DataWarehouseSavedQuery",
             activity="deleted",
@@ -906,7 +906,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="sync_triggered",
@@ -947,7 +947,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="materialization_disabled",
@@ -1006,7 +1006,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="materialization_enabled",
@@ -1179,7 +1179,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             organization_id=self.team.organization_id,
             team_id=self.team_id,
             user=cast(User, request.user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             item_id=saved_query.id,
             scope="DataWarehouseSavedQuery",
             activity="sync_cancelled",

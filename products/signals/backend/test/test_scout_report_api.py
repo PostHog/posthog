@@ -144,6 +144,24 @@ class TestScoutReportAPI(APIBaseTest):
         assert "title" in response.json()["updated_fields"]
         assert response.json()["note_appended"] is True
         assert SignalReport.objects.get(id=created["report_id"]).title == "new title"
+        # The run records which report it edited so "which reports did this run touch?" is a column lookup.
+        run.refresh_from_db()
+        assert run.edited_report_ids == [created["report_id"]]
+
+    def test_edit_report_records_edited_report_once_across_repeated_edits(self) -> None:
+        # The edited tally is set-membership, not a per-edit log: a run editing the same report twice
+        # records it once (the per-edit detail lives in the report's artefact log).
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        for title in ("first edit", "second edit"):
+            response = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, "title": title}, format="json"
+            )
+            assert response.status_code == status.HTTP_200_OK, response.json()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
 
     def test_edit_report_fails_closed_on_cross_team_report(self) -> None:
         other_org = Organization.objects.create(name="other")

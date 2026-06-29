@@ -37,6 +37,7 @@ def _ensure_post_fork_init():
     from posthog.caching.redis_cluster_connection_factory import prewarm_query_cache_cluster_in_background
     from posthog.continuous_profiling import start_continuous_profiling
     from posthog.otel_instrumentation import initialize_otel
+    from posthog.web_memory_probe import install_memory_probe_handler
     from posthog.web_memory_sampler import start_web_memory_sampler
 
     start_continuous_profiling()
@@ -45,6 +46,10 @@ def _ensure_post_fork_init():
     # Production runs ASGI, so the sampler — previously only started from wsgi.py — never
     # ran in prod, leaving posthog_web_worker_rss_mb empty. Start it here, post-fork.
     start_web_memory_sampler()
+    # Register the on-demand SIGUSR2 memory probe here too — not because of fork-unsafe
+    # threads (it starts none), but because signal handlers must be set on the worker's
+    # main thread, which this init runs on. Inert unless WEB_MEMORY_PROBE_ENABLED is set.
+    install_memory_probe_handler()
     _post_fork_initialized = True
 
 

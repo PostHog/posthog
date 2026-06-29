@@ -842,6 +842,7 @@ tools:
             - description
             - parameters
             - running_time_calculation
+            - excluded_variants
             - metrics
             - metrics_secondary
             - saved_metrics_ids
@@ -861,9 +862,7 @@ tools:
                     Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
                     experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
                     e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
-                    recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with
-                    the legacy parameters.* keys during the deprecation window, so prefer this field over writing the
-                    calculator keys inside parameters.
+                    recommended_running_time (days), and exposure_estimate_config.
             saved_metrics_ids:
                 input_schema: SavedMetricsAttachSchema
         ui_app: experiment

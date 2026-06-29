@@ -940,6 +940,9 @@ class ModalSandbox(SandboxBase):
     def _agent_server_is_healthy(self) -> bool:
         return wait_for_health_check(self.execute, self.id, AGENT_SERVER_PORT, max_attempts=1, poll_interval=0.0)
 
+    def read_agent_server_boot_ms(self) -> int | None:
+        return self._read_health_boot_ms(AGENT_SERVER_PORT)
+
     def _free_agent_server_port(self) -> None:
         self.execute(
             "pkill -TERM -f agent-server 2>/dev/null || true; "

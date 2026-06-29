@@ -14,11 +14,13 @@ from posthog.settings import (
     XDIST_SUFFIX,
 )
 
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.models.util import CLICKHOUSE_HOGQL_MAPPING, clean_type
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.hogql import CLICKHOUSE_HOGQL_MAPPING, clean_type
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def create_data_warehouse_table_from_csv(

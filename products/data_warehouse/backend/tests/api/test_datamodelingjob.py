@@ -110,6 +110,30 @@ class TestDataModelingJob(APIBaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["id"], str(other_job.id))
 
+    def test_pagination_honors_offset_and_returns_count(self):
+        paged_query = DataWarehouseSavedQuery.objects.create(team=self.team, name="Paged saved query")
+        for _ in range(12):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=paged_query,
+                status=DataModelingJob.Status.COMPLETED,
+                last_run_at=timezone.now(),
+            )
+
+        base_url = f"/api/environments/{self.team.pk}/data_modeling_jobs/?saved_query_id={paged_query.id}"
+
+        first_page = self.client.get(f"{base_url}&limit=10&offset=0").json()
+        self.assertEqual(first_page["count"], 12)
+        self.assertEqual(len(first_page["results"]), 10)
+
+        second_page = self.client.get(f"{base_url}&limit=10&offset=10").json()
+        self.assertEqual(second_page["count"], 12)
+        self.assertEqual(len(second_page["results"]), 2)
+
+        first_ids = {job["id"] for job in first_page["results"]}
+        second_ids = {job["id"] for job in second_page["results"]}
+        self.assertEqual(first_ids & second_ids, set())
+
     def test_cannot_access_other_teams_jobs(self):
         response = self.client.get(f"/api/environments/{self.team.pk}/data_modeling_jobs/{self.other_team_job.id}/")
         self.assertEqual(response.status_code, 404)

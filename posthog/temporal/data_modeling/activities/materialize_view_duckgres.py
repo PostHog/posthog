@@ -85,7 +85,13 @@ def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str,
 
     from posthog.ducklake.client import compile_hogql_to_ducklake_sql
 
-    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(team_id, HogQLQuery(query=hogql_query))
+    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(
+        team_id,
+        HogQLQuery(query=hogql_query),
+        # Userless shadow materialization; mirror ClickHouse materialization so the
+        # model query can resolve its warehouse source tables/views.
+        bypass_warehouse_access_control=True,
+    )
     return postgres_sql, values
 
 

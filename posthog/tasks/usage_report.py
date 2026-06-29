@@ -1235,9 +1235,25 @@ def get_teams_with_ai_event_count_in_period(
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.USAGE_REPORT):
         return sync_execute(
             """
-            SELECT team_id, COUNT() as count
-            FROM events
-            WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+            -- Gateway events are wallet-billed, so exempt them: subtract one per distinct
+            -- verified $ai_gateway_request_id (a replayed signature reuses one id, so it's
+            -- worth one exemption and the copies stay billable). Both markers are
+            -- capture-stamped (#64806), not client-settable; a non-empty request_id is
+            -- required so one without it stays billable.
+            -- Perf: extract request_id only for verified rows (normally ≈0), so
+            -- non-gateway rows pay just the verified-bool extraction, not a string
+            -- extraction each, across the full AI event volume.
+            SELECT
+                team_id,
+                COUNT() - uniqExactIf(request_id, verified AND request_id != '') as count
+            FROM (
+                SELECT
+                    team_id,
+                    JSONExtractBool(properties, '$ai_gateway_verified') as verified,
+                    if(verified, JSONExtractString(properties, '$ai_gateway_request_id'), '') as request_id
+                FROM events
+                WHERE event IN %(ai_events)s AND timestamp >= %(begin)s AND timestamp < %(end)s
+            )
             GROUP BY team_id
         """,
             {"begin": begin, "end": end, "ai_events": AI_EVENTS},
