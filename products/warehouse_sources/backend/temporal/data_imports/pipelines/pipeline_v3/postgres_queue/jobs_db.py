@@ -337,6 +337,10 @@ class BatchQueue:
                     ON CONFLICT (team_id, schema_id) DO UPDATE
                         SET owner_token = excluded.owner_token,
                             expires_at = excluded.expires_at,
+                            acquired_at = CASE
+                                WHEN {LEASE_TABLE}.owner_token = excluded.owner_token THEN {LEASE_TABLE}.acquired_at
+                                ELSE now()
+                            END,
                             updated_at = now()
                         WHERE {LEASE_TABLE}.expires_at < now()
                            OR {LEASE_TABLE}.owner_token = excluded.owner_token
@@ -583,11 +587,11 @@ class BatchQueue:
         already expired and another pod reclaimed the group, the delete must be
         a no-op rather than removing the new owner's lease.
         """
-        groups = {(b.team_id, b.schema_id) for b in batches}
-        if not groups:
+        pairs = list({(b.team_id, b.schema_id) for b in batches})
+        if not pairs:
             return
-        team_ids = [team_id for team_id, _ in groups]
-        schema_ids = [schema_id for _, schema_id in groups]
+        team_ids = [team_id for team_id, _ in pairs]
+        schema_ids = [schema_id for _, schema_id in pairs]
         await conn.execute(
             f"""
             DELETE FROM {LEASE_TABLE}

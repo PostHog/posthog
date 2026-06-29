@@ -12,9 +12,10 @@ def _create_group_lease_table(apps, schema_editor):
             acquired_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CONSTRAINT sgl_team_schema_uniq UNIQUE (team_id, schema_id)
-        );
-
-        CREATE INDEX sgl_expires_at_idx ON sourcegrouplease (expires_at);
+        )
+    """)
+    schema_editor.execute("""
+        CREATE INDEX sgl_expires_at_idx ON sourcegrouplease (expires_at)
     """)
 
 
