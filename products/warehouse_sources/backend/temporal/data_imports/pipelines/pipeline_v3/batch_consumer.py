@@ -653,9 +653,10 @@ class BatchConsumer:
         self,
         batch: PendingBatch,
         reason: str,
-        conn: psycopg.AsyncConnection[Any],
+        conn: psycopg.AsyncConnection[Any] | None = None,
     ) -> None:
         """Fail the run via the adapter; the adapter isolates each step so a failure can't crash the consumer."""
+        conn = conn or await self._ensure_poll_conn()
 
         try:
             await self._adapter.fail_run(conn, batch=batch, reason=reason)
