@@ -36,9 +36,7 @@ export function TwoFactorSettings(): JSX.Element {
     // The authenticator row sits next to real controls, so its heading/status text read as
     // interactive. Make the whole content region trigger the row's primary, non-destructive
     // action instead of leaving dead clicks: set up when not configured, view backup codes when it is.
-    const handleAuthenticatorRowClick = hasTotp
-        ? () => toggleBackupCodesModal(true)
-        : () => openTwoFactorSetupModal()
+    const handleAuthenticatorRowClick = hasTotp ? () => toggleBackupCodesModal(true) : () => openTwoFactorSetupModal()
 
     return (
         <div className="flex flex-col items-start space-y-4">
