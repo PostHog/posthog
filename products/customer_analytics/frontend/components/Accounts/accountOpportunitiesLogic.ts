@@ -38,6 +38,20 @@ export interface AccountOpportunitiesResult {
 // Identity used as a "not loaded yet" sentinel by the view — every loaded outcome returns a fresh object.
 export const NOT_LOADED: AccountOpportunitiesResult = { sfdcId: null, opportunities: null }
 
+const OPPORTUNITY_TABLE = 'salesforce.opportunity'
+
+// The warehouse query fails with a HogQL `QueryError` whenever the table can't be resolved — both because it's
+// access-denied for the team/user (`You don't have access to table ...`) and because it's absent outside production
+// (`Unknown table ...`). Both are fully expected here and already degrade to the empty state, so we must not report
+// them to error tracking. Anything else is a genuine failure worth capturing.
+const isExpectedMissingTableError = (error: unknown): boolean => {
+    const message = error instanceof Error ? error.message : String(error ?? '')
+    return (
+        message.includes(OPPORTUNITY_TABLE) &&
+        (message.includes("don't have access to table") || message.includes('Unknown table'))
+    )
+}
+
 export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
     path((key) => ['scenes', 'customerAnalytics', 'accounts', 'accountOpportunitiesLogic', key]),
     props({} as AccountOpportunitiesLogicProps),
@@ -85,11 +99,14 @@ export const accountOpportunitiesLogic = kea<accountOpportunitiesLogicType>([
                         }))
                         return { sfdcId, opportunities }
                     } catch (error) {
-                        // `salesforce.opportunity` only exists in production. Elsewhere (and on genuine failures,
-                        // which we still report) we degrade to the empty state instead of a red query-error box.
-                        posthog.captureException(error as Error, {
-                            scope: 'accountOpportunitiesLogic.loadOpportunities',
-                        })
+                        // `salesforce.opportunity` is access-gated and only exists in production, so a denied/absent
+                        // table is the expected empty-state — don't capture it as an error. Genuine, unexpected
+                        // failures are still reported. Either way we degrade to the empty state, not a red error box.
+                        if (!isExpectedMissingTableError(error)) {
+                            posthog.captureException(error as Error, {
+                                scope: 'accountOpportunitiesLogic.loadOpportunities',
+                            })
+                        }
                         return { sfdcId, opportunities: null }
                     }
                 },
