@@ -281,6 +281,10 @@ function startOfBucket(d: dayjs.Dayjs, interval: IntervalType): dayjs.Dayjs {
     return d.startOf(interval)
 }
 
+// The one format for bucket keys — must match ClickHouse dateTrunc's DateTime output so the
+// zero-fill join and the in-progress-tail comparison line up. Change it here, nowhere else.
+const BUCKET_FORMAT = 'YYYY-MM-DD HH:mm:ss'
+
 // Every bucket key across the resolved window [start, end] at the active interval, formatted to
 // match dateTrunc's DateTime output ('YYYY-MM-DD HH:mm:ss'). The activity and tool-usage series are
 // zero-filled against these so the x-axis spans the whole selected range instead of clipping to the
@@ -292,7 +296,7 @@ export function buildBucketKeys(dateFilter: DateFilter, timezone: string, interv
     let cursor = startOfBucket(start, interval)
     // Bounded dashboard windows keep this small; the cap is just a guard against a pathological range.
     for (let i = 0; cursor.valueOf() <= last && i < 100000; i++) {
-        keys.push(cursor.format('YYYY-MM-DD HH:mm:ss'))
+        keys.push(cursor.format(BUCKET_FORMAT))
         cursor = cursor.add(1, interval)
     }
     return keys
@@ -310,13 +314,13 @@ export function lastBucketIsInProgress(
     if (bucketKeys.length < 2) {
         return false
     }
-    const currentBucket = startOfBucket(now.tz(timezone), interval).format('YYYY-MM-DD HH:mm:ss')
+    const currentBucket = startOfBucket(now.tz(timezone), interval).format(BUCKET_FORMAT)
     return bucketKeys[bucketKeys.length - 1] === currentBucket
 }
 
 export function normalizeBucket(raw: unknown, timezone: string): string {
     const s = String(raw ?? '')
-    return s ? dayjs(s).tz(timezone).format('YYYY-MM-DD HH:mm:ss') : ''
+    return s ? dayjs(s).tz(timezone).format(BUCKET_FORMAT) : ''
 }
 
 // Project the daily success/error rows onto the full set of buckets, defaulting empty buckets to 0.
@@ -349,7 +353,7 @@ export function buildKpiWindow(dateFilter: DateFilter, timezone: string, interva
     return {
         dateFrom: priorStart.toISOString(),
         dateTo: end.toISOString(),
-        currentStartBucket: start.startOf(interval).format('YYYY-MM-DD HH:mm:ss'),
+        currentStartBucket: start.startOf(interval).format(BUCKET_FORMAT),
     }
 }
 

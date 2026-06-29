@@ -31,8 +31,10 @@ export function ActivityChart({
 }): JSX.Element {
     const series = useMemo<Series[]>(() => {
         const totals = daily.successes.map((s, i) => s + (daily.errors[i] ?? 0))
-        const dashedFromIndex = incompleteTail && totals.length >= 2 ? totals.length - 1 : undefined
-        const partialStroke = dashedFromIndex !== undefined ? { partial: { fromIndex: dashedFromIndex } } : undefined
+        // `incompleteTail` is only true when the window has ≥2 buckets (lastBucketIsInProgress owns
+        // that rule), and `daily` is zero-filled to the bucket count — so the final segment exists.
+        // The renderer also clamps fromIndex, so a stray single-point series can't go out of range.
+        const partialStroke = incompleteTail ? { partial: { fromIndex: totals.length - 1 } } : undefined
         return [
             { key: 'calls', label: 'Tool calls', color: theme.colors[0], data: totals, stroke: partialStroke },
             { key: 'errors', label: 'Errors', color: theme.colors[4], data: daily.errors, stroke: partialStroke },

@@ -228,6 +228,22 @@ describe('mcpDashboardOverviewLogic', () => {
                 errors: [0, 0, 0],
             })
         })
+
+        // The in-progress-tail dash applies `fromIndex = successes.length - 1` to line up with the
+        // last bucket key, so the series must stay exactly bucketKeys-length — including when rows
+        // fall outside the window. If this drifts, the dashed segment lands on the wrong point.
+        it('keeps series length equal to bucketKeys, ignoring rows outside the window', () => {
+            const bucketKeys = ['2024-01-01 00:00:00', '2024-01-02 00:00:00', '2024-01-03 00:00:00']
+            const rows: ActivityRow[] = [
+                { day: '2024-01-02 00:00:00', successes: 5, errors: 1 },
+                { day: '2023-12-31 00:00:00', successes: 9, errors: 9 }, // outside bucketKeys — must be dropped
+            ]
+            const result = buildDailyActivity(rows, bucketKeys)
+            expect(result.labels).toHaveLength(bucketKeys.length)
+            expect(result.successes).toHaveLength(bucketKeys.length)
+            expect(result.errors).toHaveLength(bucketKeys.length)
+            expect(result.successes).toEqual([0, 5, 0])
+        })
     })
 
     describe('lastBucketIsInProgress', () => {
