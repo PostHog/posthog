@@ -7,10 +7,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use common_kafka::kafka_consumer::{RecvErr, SingleTopicConsumer};
+use common_kafka::kafka_consumer::{Offset, RecvErr, SingleTopicConsumer};
 use common_types::ClickHouseEvent;
 use lifecycle::Handle;
 use metrics::counter;
+use serde::{de::IgnoredAny, Deserialize};
 use tracing::{debug, error, info, warn};
 
 use crate::event::CohortStreamEvent;
@@ -21,24 +22,85 @@ use crate::observability::metrics::{
 };
 use crate::producer::CohortStreamProducer;
 
-/// `Forward` carries the moved-out `person_id` so the forward path needs no clone.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ForwardDecision {
-    Forward { person_id: String },
+/// Phase-1 gate target: the minimum the team gate needs. Every other field — including the big
+/// `properties` / `person_properties` / `groupN_properties` JSON-string blobs — is undeclared, so
+/// `serde_json` routes its value through the ignore path (scan to the end of the value, no unescape,
+/// no per-field `String` allocation). Choosing this leaner target type is the whole optimization:
+/// ~99% of the firehose is dropped at the gate and never pays the blob `parse_str` cost.
+#[derive(Deserialize)]
+struct GateFields {
+    team_id: i32,
+    /// Presence only. `Option<IgnoredAny>` reports `Some`/`None` without allocating the string,
+    /// which is all the gate needs to keep `DropNoPersonId`-before-`SkipTeamGate` precedence; the
+    /// value itself is re-read on the survivor path. Mirrors `ClickHouseEvent::person_id` presence
+    /// semantics: absent and `null` → `None`, any present non-null value → `Some`.
+    #[serde(default)]
+    person_id: Option<IgnoredAny>,
+}
+
+/// Gate decision over the cheap phase-1 parse. `person_id` is checked before the team gate so a
+/// missing routing key disqualifies the event regardless of team membership, preserving the current
+/// `shuffler_events_*` counter attribution.
+#[derive(Debug, PartialEq, Eq)]
+enum GateOutcome {
+    Forward,
     DropNoPersonId,
     SkipTeamGate,
 }
 
-/// Takes `person_id` by `take()` to avoid a clone; `person_id` is checked first because a missing
-/// routing key disqualifies the event regardless of the team gate.
-pub fn classify(event: &mut ClickHouseEvent, team_index: &TeamIndex) -> ForwardDecision {
-    let Some(person_id) = event.person_id.take() else {
-        return ForwardDecision::DropNoPersonId;
-    };
-    if !team_index.contains(event.team_id) {
-        return ForwardDecision::SkipTeamGate;
+fn classify_gate(gate: &GateFields, team_index: &TeamIndex) -> GateOutcome {
+    if gate.person_id.is_none() {
+        return GateOutcome::DropNoPersonId;
     }
-    ForwardDecision::Forward { person_id }
+    if !team_index.contains(gate.team_id) {
+        return GateOutcome::SkipTeamGate;
+    }
+    GateOutcome::Forward
+}
+
+/// Output of the per-message decode closure. `Forward` carries the fully-parsed survivor and its
+/// moved-out `person_id`; the source coordinates are stitched in afterward from the `Offset`, which
+/// is not visible inside the closure.
+///
+/// `event` is boxed because it is by far the largest variant payload (~544 bytes) yet is built for
+/// only the ~1% of events that pass the gate. Boxing keeps every entry of the batch `Vec` small, so
+/// the ~99% drop/skip majority is cheap to move and scan; the cost is one transient allocation per
+/// survivor, negligible against the full parse and produce that survivor already pays for.
+#[derive(Debug)]
+enum Decoded {
+    Forward {
+        event: Box<ClickHouseEvent>,
+        person_id: String,
+    },
+    DropNoPersonId,
+    SkipTeamGate,
+}
+
+/// Two-phase decode: a cheap gate parse for every event, then a full `ClickHouseEvent` parse only
+/// for the ~1% that pass the gate, reusing the same payload bytes so the forwarded envelope stays
+/// byte-identical to a single full-parse path. The error type matches
+/// [`SingleTopicConsumer::recv_with`]'s decode contract, so a survivor that fails the full parse is
+/// auto-stored and skipped exactly as a poison pill is today.
+fn decode_gated(payload: &[u8], team_index: &TeamIndex) -> Result<Decoded, serde_json::Error> {
+    let gate: GateFields = serde_json::from_slice(payload)?;
+    match classify_gate(&gate, team_index) {
+        GateOutcome::DropNoPersonId => Ok(Decoded::DropNoPersonId),
+        GateOutcome::SkipTeamGate => Ok(Decoded::SkipTeamGate),
+        GateOutcome::Forward => {
+            let mut event: ClickHouseEvent = serde_json::from_slice(payload)?;
+            let Some(person_id) = event.person_id.take() else {
+                // Unreachable: the gate confirmed a present, non-null person_id, and a non-string
+                // person_id would have failed the full parse above. Fail safe rather than panic on
+                // the firehose hot path.
+                warn!("gate-forwarded event had no person_id after full parse; dropping");
+                return Ok(Decoded::DropNoPersonId);
+            };
+            Ok(Decoded::Forward {
+                event: Box::new(event),
+                person_id,
+            })
+        }
+    }
 }
 
 pub struct EventShuffler {
@@ -102,10 +164,7 @@ impl EventShuffler {
             return Ok(0);
         }
 
-        let results = self
-            .consumer
-            .json_recv_batch::<ClickHouseEvent>(self.batch_size, self.batch_timeout)
-            .await;
+        let results = self.recv_gated_batch().await;
         if results.is_empty() {
             return Ok(0);
         }
@@ -117,7 +176,7 @@ impl EventShuffler {
         let mut offsets = Vec::with_capacity(results.len());
 
         for result in results {
-            let (mut event, offset) = match result {
+            let (decoded, offset) = match result {
                 Ok(pair) => pair,
                 Err(err) => {
                     // Poison pills are already offset-stored by the consumer; just log.
@@ -130,17 +189,17 @@ impl EventShuffler {
             let source_partition = offset.partition();
             let source_offset = offset.get_value();
 
-            match classify(&mut event, &self.team_index) {
-                ForwardDecision::Forward { person_id } => {
+            match decoded {
+                Decoded::Forward { event, person_id } => {
                     forwardable.push(CohortStreamEvent::from_clickhouse(
-                        event,
+                        *event,
                         person_id,
                         source_partition,
                         source_offset,
                     ))
                 }
-                ForwardDecision::DropNoPersonId => dropped += 1,
-                ForwardDecision::SkipTeamGate => skipped += 1,
+                Decoded::DropNoPersonId => dropped += 1,
+                Decoded::SkipTeamGate => skipped += 1,
             }
 
             offsets.push(offset);
@@ -187,6 +246,35 @@ impl EventShuffler {
 
         Ok(consumed as usize)
     }
+
+    /// Faithful local mirror of [`SingleTopicConsumer::json_recv_batch`]: the same
+    /// timeout-vs-collect race and break-on-error semantics, differing only in the decode target —
+    /// each message goes through [`decode_gated`] instead of a blanket
+    /// `serde_json::from_slice::<ClickHouseEvent>`. The closure captures `&TeamIndex` (a `Copy`
+    /// reference; `TeamIndex: Sync`, so the polled future stays `Send`).
+    async fn recv_gated_batch(&self) -> Vec<Result<(Decoded, Offset), RecvErr>> {
+        let team_index: &TeamIndex = &self.team_index;
+        let mut results = Vec::with_capacity(self.batch_size);
+
+        tokio::select! {
+            _ = tokio::time::sleep(self.batch_timeout) => {}
+            _ = async {
+                while results.len() < self.batch_size {
+                    let result = self
+                        .consumer
+                        .recv_with(|payload| decode_gated(payload, team_index))
+                        .await;
+                    let was_err = result.is_err();
+                    results.push(result);
+                    if was_err {
+                        break; // mirror json_recv_batch: an error may signal a kafka problem
+                    }
+                }
+            } => {}
+        }
+
+        results
+    }
 }
 
 fn log_recv_error(err: &RecvErr) {
@@ -201,64 +289,165 @@ fn log_recv_error(err: &RecvErr) {
 mod tests {
     use super::*;
     use crate::event::sample_clickhouse_event;
+    use serde_json::{json, Value};
 
     fn index_with(teams: &[i32]) -> TeamIndex {
         TeamIndex::from_teams(teams.iter().copied())
     }
 
+    fn gate_fields(team_id: i32, person_id: Option<IgnoredAny>) -> GateFields {
+        GateFields { team_id, person_id }
+    }
+
     #[test]
-    fn classify_covers_every_gate_outcome() {
+    fn classify_gate_covers_every_gate_outcome() {
         let cases = [
             (
                 "forward",
-                Some("p"),
+                Some(IgnoredAny),
                 2,
                 vec![2],
-                ForwardDecision::Forward {
-                    person_id: "p".to_string(),
-                },
+                GateOutcome::Forward,
             ),
-            (
-                "no person",
-                None,
-                2,
-                vec![2],
-                ForwardDecision::DropNoPersonId,
-            ),
+            ("no person", None, 2, vec![2], GateOutcome::DropNoPersonId),
             (
                 "team gate",
-                Some("p"),
+                Some(IgnoredAny),
                 99,
                 vec![2],
-                ForwardDecision::SkipTeamGate,
+                GateOutcome::SkipTeamGate,
             ),
             (
                 "no person precedence",
                 None,
                 99,
                 vec![2],
-                ForwardDecision::DropNoPersonId,
+                GateOutcome::DropNoPersonId,
             ),
             (
                 "empty index",
-                Some("p"),
+                Some(IgnoredAny),
                 2,
                 vec![],
-                ForwardDecision::SkipTeamGate,
+                GateOutcome::SkipTeamGate,
             ),
         ];
 
         for (name, person_id, team_id, teams, expected) in cases {
-            let mut event = sample_clickhouse_event(team_id, person_id);
             let index = index_with(&teams);
-            assert_eq!(classify(&mut event, &index), expected, "case: {name}");
+            assert_eq!(
+                classify_gate(&gate_fields(team_id, person_id), &index),
+                expected,
+                "case: {name}"
+            );
         }
     }
 
     #[test]
     fn unloaded_index_forwards_nothing() {
         let index = TeamIndex::new();
-        let mut event = sample_clickhouse_event(2, Some("p"));
-        assert_eq!(classify(&mut event, &index), ForwardDecision::SkipTeamGate);
+        assert_eq!(
+            classify_gate(&gate_fields(2, Some(IgnoredAny)), &index),
+            GateOutcome::SkipTeamGate
+        );
+    }
+
+    #[test]
+    fn dropped_event_never_materializes_blobs() {
+        // `properties` as a JSON object would fail a full `ClickHouseEvent` parse (the field is a
+        // stringified blob). A team outside the index has its blob ignored by the gate and skips —
+        // proof the dropped majority never pays the `parse_str` unescape — while a team inside the
+        // index runs the survivor full parse and rejects the very same payload.
+        let mut value: Value =
+            serde_json::to_value(sample_clickhouse_event(99, Some("p"))).unwrap();
+        value["properties"] = json!({ "a": [1, 2, 3] });
+        let payload = serde_json::to_vec(&value).unwrap();
+
+        assert!(matches!(
+            decode_gated(&payload, &index_with(&[2])).unwrap(),
+            Decoded::SkipTeamGate
+        ));
+        assert!(decode_gated(&payload, &index_with(&[99])).is_err());
+    }
+
+    #[test]
+    fn missing_person_mode_skips_mismatched_team_instead_of_erroring() {
+        // `person_mode` is required by the full parse but ignored by the gate. A team-mismatch event
+        // missing it now counts as consumed + skipped rather than an invisible serde error.
+        let mut value: Value =
+            serde_json::to_value(sample_clickhouse_event(99, Some("p"))).unwrap();
+        value.as_object_mut().unwrap().remove("person_mode");
+        let payload = serde_json::to_vec(&value).unwrap();
+
+        assert!(matches!(
+            decode_gated(&payload, &index_with(&[2])).unwrap(),
+            Decoded::SkipTeamGate
+        ));
+    }
+
+    #[test]
+    fn person_id_presence_matches_full_parse_semantics() {
+        let index = index_with(&[2]);
+        let base: Value =
+            serde_json::to_value(sample_clickhouse_event(2, Some("ignored"))).unwrap();
+        let decode =
+            |value: Value| decode_gated(&serde_json::to_vec(&value).unwrap(), &index).unwrap();
+
+        // Absent → DropNoPersonId (the person check precedes the team gate).
+        let mut absent = base.clone();
+        absent.as_object_mut().unwrap().remove("person_id");
+        assert!(matches!(decode(absent), Decoded::DropNoPersonId));
+
+        // null → DropNoPersonId.
+        let mut null = base.clone();
+        null["person_id"] = Value::Null;
+        assert!(matches!(decode(null), Decoded::DropNoPersonId));
+
+        // "" is present → Forward, and the empty person_id is moved out verbatim.
+        let mut empty = base.clone();
+        empty["person_id"] = json!("");
+        match decode(empty) {
+            Decoded::Forward { event, person_id } => {
+                assert_eq!(person_id, "");
+                assert!(
+                    event.person_id.is_none(),
+                    "person_id must be taken from the event"
+                );
+            }
+            other => panic!("expected Forward, got {other:?}"),
+        }
+
+        // Valid string → Forward, person_id taken.
+        let mut valid = base.clone();
+        valid["person_id"] = json!("p");
+        match decode(valid) {
+            Decoded::Forward { event, person_id } => {
+                assert_eq!(person_id, "p");
+                assert!(event.person_id.is_none());
+            }
+            other => panic!("expected Forward, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn survivor_fully_materializes_the_forward_envelope() {
+        let payload = serde_json::to_vec(&sample_clickhouse_event(2, Some("p"))).unwrap();
+        match decode_gated(&payload, &index_with(&[2])).unwrap() {
+            Decoded::Forward { event, person_id } => {
+                assert_eq!(person_id, "p");
+                assert_eq!(event.team_id, 2);
+                assert!(event.person_id.is_none(), "person_id should be taken");
+                // Blobs ignored on the drop path are fully parsed for survivors.
+                assert_eq!(
+                    event.properties.as_deref(),
+                    Some(r#"{"$current_url":"/pricing"}"#)
+                );
+                assert_eq!(
+                    event.person_properties.as_deref(),
+                    Some(r#"{"email":"u@p.com"}"#)
+                );
+            }
+            other => panic!("expected Forward, got {other:?}"),
+        }
     }
 }
