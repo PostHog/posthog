@@ -12,7 +12,7 @@ import {
     LemonTag,
 } from '@posthog/lemon-ui'
 
-import { DateRangePicker } from 'lib/components/DateFilter/DateRangePicker'
+import { DateRangePicker, zoomDateRange } from 'lib/components/DateFilter/DateRangePicker'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -73,12 +73,10 @@ export function TracingFilterBar(): JSX.Element {
                                 type="secondary"
                                 tooltip="Zoom out"
                                 onClick={() => {
-                                    const from = dayjs(dateRange.date_from)
-                                    const to = dateRange.date_to ? dayjs(dateRange.date_to) : dayjs()
-                                    const diff = to.diff(from, 'millisecond')
+                                    const zoomed = zoomDateRange(dateRange, 2)
                                     setDateRange({
-                                        date_from: from.subtract(diff / 2, 'millisecond').toISOString(),
-                                        date_to: to.add(diff / 2, 'millisecond').toISOString(),
+                                        date_from: zoomed.date_from ?? null,
+                                        date_to: zoomed.date_to ?? null,
                                     })
                                 }}
                             />
@@ -95,12 +93,10 @@ export function TracingFilterBar(): JSX.Element {
                                 type="secondary"
                                 tooltip="Zoom in"
                                 onClick={() => {
-                                    const from = dayjs(dateRange.date_from)
-                                    const to = dateRange.date_to ? dayjs(dateRange.date_to) : dayjs()
-                                    const diff = to.diff(from, 'millisecond')
+                                    const zoomed = zoomDateRange(dateRange, 0.5)
                                     setDateRange({
-                                        date_from: from.add(diff / 4, 'millisecond').toISOString(),
-                                        date_to: to.subtract(diff / 4, 'millisecond').toISOString(),
+                                        date_from: zoomed.date_from ?? null,
+                                        date_to: zoomed.date_to ?? null,
                                     })
                                 }}
                             />
