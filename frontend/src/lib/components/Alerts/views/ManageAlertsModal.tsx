@@ -154,9 +154,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     type="primary"
                     onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
                     disabledReason={
-                        !props.canCreateAlertForInsight
-                            ? alertsUnsupportedReason({ funnelAlertsEnabled })
-                            : undefined
+                        !props.canCreateAlertForInsight ? alertsUnsupportedReason({ funnelAlertsEnabled }) : undefined
                     }
                 >
                     New alert
