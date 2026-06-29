@@ -16,6 +16,22 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..')
 const FRONTEND = path.resolve(REPO_ROOT, 'frontend')
 
+// Keep a single copy of these in the monorepo — duplicate react/kea instances
+// break hooks and kea's context. Aliased to the app's copy and deduped.
+const SINGLETON_PACKAGES = [
+    'react',
+    'react-dom',
+    '@base-ui/react',
+    'kea',
+    'kea-router',
+    'kea-forms',
+    'kea-loaders',
+    'kea-localstorage',
+    'kea-subscriptions',
+    'kea-waitfor',
+    'kea-window-values',
+]
+
 const createStoriesPathFor = (storyPath: string): string => `../../../${storyPath}/**/*.stories.@(js|jsx|ts|tsx)`
 
 const config: StorybookConfig = {
@@ -44,47 +60,13 @@ const config: StorybookConfig = {
         mergeConfig(viteConfig, {
             plugins: [frontendResolvePlugin(REPO_ROOT), tailwindcss(), sqlRawPlugin(), moduleGraphPlugin(REPO_ROOT)],
             resolve: {
-                // Keep a single copy of these in the monorepo.
-                // Duplicate react/kea instances break hooks and kea's context.
-                ...((): Pick<NonNullable<Parameters<typeof mergeConfig>[1]['resolve']>, 'dedupe' | 'alias'> => {
-                    const SINGLETON_PACKAGES = [
-                        'react',
-                        'react-dom',
-                        '@base-ui/react',
-                        'kea',
-                        'kea-router',
-                        'kea-forms',
-                        'kea-loaders',
-                        'kea-localstorage',
-                        'kea-subscriptions',
-                        'kea-waitfor',
-                        'kea-window-values',
-                    ]
-                    return {
-                        dedupe: SINGLETON_PACKAGES,
-                        alias: Object.fromEntries(
-                            SINGLETON_PACKAGES.map((pkg) => [pkg, path.resolve(FRONTEND, 'node_modules', pkg)])
-                        ),
-                    }
-                })(),
+                dedupe: SINGLETON_PACKAGES,
                 alias: {
                     // The app's runtime deps live in frontend/node_modules, not under
                     // common/storybook. Webpack reached them via resolve.modules; Vite has no
                     // equivalent, so point the ones imported by bundled app/quill code there.
                     ...Object.fromEntries(
-                        [
-                            'react',
-                            'react-dom',
-                            '@base-ui/react',
-                            'kea',
-                            'kea-router',
-                            'kea-forms',
-                            'kea-loaders',
-                            'kea-localstorage',
-                            'kea-subscriptions',
-                            'kea-waitfor',
-                            'kea-window-values',
-                        ].map((pkg) => [pkg, path.resolve(FRONTEND, 'node_modules', pkg)])
+                        SINGLETON_PACKAGES.map((pkg) => [pkg, path.resolve(FRONTEND, 'node_modules', pkg)])
                     ),
                     '~': path.resolve(FRONTEND, 'src'),
                     lib: path.resolve(FRONTEND, 'src', 'lib'),
