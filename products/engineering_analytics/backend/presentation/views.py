@@ -37,15 +37,6 @@ from products.engineering_analytics.backend.presentation.serializers import (
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
 
-_REPO = OpenApiParameter(
-    name="repo",
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.QUERY,
-    required=False,
-    description="Optional 'owner/name' repository to disambiguate when the PR number exists in more than one "
-    "connected repo.",
-)
-
 _DATE_FROM = OpenApiParameter(
     name="date_from",
     type=OpenApiTypes.STR,
@@ -264,12 +255,18 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 required=True,
                 description="Pull request number to inspect.",
             ),
-            _REPO,
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the pull request belongs to.",
+            ),
             _SOURCE_ID,
         ],
         responses={
             200: PRLifecycleSerializer,
-            400: OpenApiResponse(description="Missing or non-integer pr_number, or invalid repo or source_id."),
+            400: OpenApiResponse(description="Missing pr_number/repo, or invalid repo or source_id."),
             404: OpenApiResponse(description="No pull request with that number in the warehouse."),
         },
         description=(
@@ -280,11 +277,15 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     )
     @action(detail=False, methods=["get"], pagination_class=None)
     def pr_lifecycle(self, request: Request, **kwargs) -> Response:
+        repo = request.query_params.get("repo")
         try:
+            pr_number = _require_int_param(request, "pr_number")
+            if not repo:
+                raise ValueError("repo is required")
             result = api.get_pr_lifecycle(
                 team=self.team,
-                pr_number=_require_int_param(request, "pr_number"),
-                repo=request.query_params.get("repo") or None,
+                pr_number=pr_number,
+                repo=repo,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

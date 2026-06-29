@@ -9902,11 +9902,11 @@ export namespace Schemas {
       UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
-    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+    export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
 
 
-    export const AzureBlobDestinationConfigType = {
-      AzureBlob: 'AzureBlob',
+    export const AwsS3DestinationConfigType = {
+      AwsS3: 'AwsS3',
     } as const;
 
     /**
@@ -9928,15 +9928,93 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `JSONLines` - JSONLines
      * * `Parquet` - Parquet
+     * * `JSONLines` - JSONLines
      */
     export type FileFormatEnum = typeof FileFormatEnum[keyof typeof FileFormatEnum];
 
 
     export const FileFormatEnum = {
-      JSONLines: 'JSONLines',
       Parquet: 'Parquet',
+      JSONLines: 'JSONLines',
+    } as const;
+
+    /**
+     * Typed configuration for an AWS S3 batch-export destination.
+     *
+     * AWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of
+     * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface AwsS3DestinationConfig {
+      /** Name of the destination bucket. */
+      bucket_name: string;
+      /** Region the bucket is in (e.g. 'us-east-1'). */
+      region: string;
+      /** Object key prefix applied to every exported file. */
+      prefix: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+       *
+       * * `brotli` - brotli
+       * * `gzip` - gzip
+       * * `lz4` - lz4
+       * * `snappy` - snappy
+       * * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+       *
+       * * `Parquet` - Parquet
+       * * `JSONLines` - JSONLines */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      /**
+         * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
+         * @nullable
+         */
+      encryption?: string | null;
+      /**
+         * KMS key ID to use when encryption is 'aws:kms'.
+         * @nullable
+         */
+      kms_key_id?: string | null;
+      type: AwsS3DestinationConfigType;
+    }
+
+    export type AwsS3DestinationRequestType = typeof AwsS3DestinationRequestType[keyof typeof AwsS3DestinationRequestType];
+
+
+    export const AwsS3DestinationRequestType = {
+      AwsS3: 'AwsS3',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an AWS S3 batch-export destination.
+     */
+    export interface AwsS3DestinationRequest {
+      type: AwsS3DestinationRequestType;
+      /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: AwsS3DestinationConfig;
+    }
+
+    /**
+     * * `AwsS3` - AwsS3
+     */
+    export type AwsS3DestinationRequestTypeEnum = typeof AwsS3DestinationRequestTypeEnum[keyof typeof AwsS3DestinationRequestTypeEnum];
+
+
+    export const AwsS3DestinationRequestTypeEnum = {
+      AwsS3: 'AwsS3',
+    } as const;
+
+    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+
+
+    export const AzureBlobDestinationConfigType = {
+      AzureBlob: 'AzureBlob',
     } as const;
 
     /**
@@ -10541,14 +10619,59 @@ export namespace Schemas {
       type: PostgresDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
+    export type S3CompatibleDestinationConfigType = typeof S3CompatibleDestinationConfigType[keyof typeof S3CompatibleDestinationConfigType];
+
+
+    export const S3CompatibleDestinationConfigType = {
+      S3Compatible: 'S3Compatible',
+    } as const;
+
+    /**
+     * Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
+     * DigitalOcean Spaces, etc.).
+     *
+     * Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
+     * Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
+     * `products/batch_exports/backend/service.py`.
+     */
+    export interface S3CompatibleDestinationConfig {
+      /** Name of the destination bucket. */
+      bucket_name: string;
+      /** Region the bucket is in (e.g. 'us-east-1'). */
+      region: string;
+      /** Object key prefix applied to every exported file. */
+      prefix: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+       *
+       * * `brotli` - brotli
+       * * `gzip` - gzip
+       * * `lz4` - lz4
+       * * `snappy` - snappy
+       * * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+       *
+       * * `Parquet` - Parquet
+       * * `JSONLines` - JSONLines */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      /** Use virtual-hosted-style addressing rather than path-style. */
+      use_virtual_style_addressing?: boolean;
+      type: S3CompatibleDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
-     * Other destination types accept the same JSON shape but without a typed
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
+     * AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
@@ -10568,7 +10691,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10576,7 +10699,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11527,7 +11650,24 @@ export namespace Schemas {
       config: PostgresDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
+    export type S3CompatibleDestinationRequestType = typeof S3CompatibleDestinationRequestType[keyof typeof S3CompatibleDestinationRequestType];
+
+
+    export const S3CompatibleDestinationRequestType = {
+      S3Compatible: 'S3Compatible',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an S3-compatible batch-export destination.
+     */
+    export interface S3CompatibleDestinationRequest {
+      type: S3CompatibleDestinationRequestType;
+      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: S3CompatibleDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -20932,18 +21072,371 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `cohort` - cohort
+     * * `person` - person
+     * * `group` - group
+     */
+    export type PropertyGroupTypeEnum = typeof PropertyGroupTypeEnum[keyof typeof PropertyGroupTypeEnum];
+
+
+    export const PropertyGroupTypeEnum = {
+      Cohort: 'cohort',
+      Person: 'person',
+      Group: 'group',
+    } as const;
+
+    /**
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `gt` - gt
+     * * `gte` - gte
+     * * `lt` - lt
+     * * `lte` - lte
+     */
+    export type FeatureFlagFilterPropertyGenericSchemaOperatorEnum = typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyGenericSchemaOperatorEnum = {
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Gt: 'gt',
+      Gte: 'gte',
+      Lt: 'lt',
+      Lte: 'lte',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyGenericSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+       *
+       * * `cohort` - cohort
+       * * `person` - person
+       * * `group` - group */
+      type?: PropertyGroupTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
+      value: unknown;
+      /** Operator used to compare the property value.
+       *
+       * * `exact` - exact
+       * * `is_not` - is_not
+       * * `icontains` - icontains
+       * * `not_icontains` - not_icontains
+       * * `regex` - regex
+       * * `not_regex` - not_regex
+       * * `gt` - gt
+       * * `gte` - gte
+       * * `lt` - lt
+       * * `lte` - lte */
+      operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnum;
+    }
+
+    export interface FeatureFlagFilterPropertyExistsSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+       *
+       * * `cohort` - cohort
+       * * `person` - person
+       * * `group` - group */
+      type?: PropertyGroupTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Existence operator.
+       *
+       * * `is_set` - is_set
+       * * `is_not_set` - is_not_set */
+      operator: ExistenceOperatorEnum;
+      /** Optional value. Runtime behavior determines whether this is ignored. */
+      value?: unknown;
+    }
+
+    export interface FeatureFlagFilterPropertyDateSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+       *
+       * * `cohort` - cohort
+       * * `person` - person
+       * * `group` - group */
+      type?: PropertyGroupTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Date comparison operator.
+       *
+       * * `is_date_exact` - is_date_exact
+       * * `is_date_after` - is_date_after
+       * * `is_date_before` - is_date_before */
+      operator: DateOperatorEnum;
+      /** Date value in ISO format or relative date expression. */
+      value: string;
+    }
+
+    /**
+     * * `semver_gt` - semver_gt
+     * * `semver_gte` - semver_gte
+     * * `semver_lt` - semver_lt
+     * * `semver_lte` - semver_lte
+     * * `semver_eq` - semver_eq
+     * * `semver_neq` - semver_neq
+     * * `semver_tilde` - semver_tilde
+     * * `semver_caret` - semver_caret
+     * * `semver_wildcard` - semver_wildcard
+     */
+    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
+      SemverGt: 'semver_gt',
+      SemverGte: 'semver_gte',
+      SemverLt: 'semver_lt',
+      SemverLte: 'semver_lte',
+      SemverEq: 'semver_eq',
+      SemverNeq: 'semver_neq',
+      SemverTilde: 'semver_tilde',
+      SemverCaret: 'semver_caret',
+      SemverWildcard: 'semver_wildcard',
+    } as const;
+
+    export interface FeatureFlagFilterPropertySemverSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+       *
+       * * `cohort` - cohort
+       * * `person` - person
+       * * `group` - group */
+      type?: PropertyGroupTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Semantic version comparison operator.
+       *
+       * * `semver_gt` - semver_gt
+       * * `semver_gte` - semver_gte
+       * * `semver_lt` - semver_lt
+       * * `semver_lte` - semver_lte
+       * * `semver_eq` - semver_eq
+       * * `semver_neq` - semver_neq
+       * * `semver_tilde` - semver_tilde
+       * * `semver_caret` - semver_caret
+       * * `semver_wildcard` - semver_wildcard */
+      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
+      /** Semantic version string. */
+      value: string;
+    }
+
+    /**
+     * * `icontains_multi` - icontains_multi
+     * * `not_icontains_multi` - not_icontains_multi
+     */
+    export type FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum = typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum = {
+      IcontainsMulti: 'icontains_multi',
+      NotIcontainsMulti: 'not_icontains_multi',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyMultiContainsSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Property filter type. Common values are 'person' and 'cohort'.
+       *
+       * * `cohort` - cohort
+       * * `person` - person
+       * * `group` - group */
+      type?: PropertyGroupTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Multi-contains operator.
+       *
+       * * `icontains_multi` - icontains_multi
+       * * `not_icontains_multi` - not_icontains_multi */
+      operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum;
+      /** List of strings to evaluate against. */
+      value: string[];
+    }
+
+    /**
+     * * `cohort` - cohort
+     */
+    export type FeatureFlagFilterPropertyCohortInSchemaTypeEnum = typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnum[keyof typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnum];
+
+
+    export const FeatureFlagFilterPropertyCohortInSchemaTypeEnum = {
+      Cohort: 'cohort',
+    } as const;
+
+    /**
+     * * `in` - in
+     * * `not_in` - not_in
+     */
+    export type FeatureFlagFilterPropertyCohortInSchemaOperatorEnum = typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyCohortInSchemaOperatorEnum = {
+      In: 'in',
+      NotIn: 'not_in',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyCohortInSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Cohort property type required for in/not_in operators.
+       *
+       * * `cohort` - cohort */
+      type: FeatureFlagFilterPropertyCohortInSchemaTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Membership operator for cohort properties.
+       *
+       * * `in` - in
+       * * `not_in` - not_in */
+      operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnum;
+      /** Cohort comparison value (single or list, depending on usage). */
+      value: unknown;
+    }
+
+    /**
+     * * `flag` - flag
+     */
+    export type FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum = typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum];
+
+
+    export const FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum = {
+      Flag: 'flag',
+    } as const;
+
+    /**
+     * * `flag_evaluates_to` - flag_evaluates_to
+     */
+    export type FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum = typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum];
+
+
+    export const FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum = {
+      FlagEvaluatesTo: 'flag_evaluates_to',
+    } as const;
+
+    export interface FeatureFlagFilterPropertyFlagEvaluatesSchema {
+      /** Property key used in this feature flag condition. */
+      key: string;
+      /** Flag property type required for flag dependency checks.
+       *
+       * * `flag` - flag */
+      type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum;
+      /**
+         * Resolved cohort name for cohort-type filters.
+         * @nullable
+         */
+      cohort_name?: string | null;
+      /**
+         * Group type index when using group-based filters.
+         * @nullable
+         */
+      group_type_index?: number | null;
+      /** Operator for feature flag dependency evaluation.
+       *
+       * * `flag_evaluates_to` - flag_evaluates_to */
+      operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum;
+      /** Value to compare flag evaluation against. */
+      value: unknown;
+    }
+
+    export type FeatureFlagFilterPropertySchema = FeatureFlagFilterPropertyGenericSchema | FeatureFlagFilterPropertyExistsSchema | FeatureFlagFilterPropertyDateSchema | FeatureFlagFilterPropertySemverSchema | FeatureFlagFilterPropertyMultiContainsSchema | FeatureFlagFilterPropertyCohortInSchema | FeatureFlagFilterPropertyFlagEvaluatesSchema;
+
+    export interface FeatureFlagConditionGroupSchema {
+      /** Property conditions for this release condition group. */
+      properties?: FeatureFlagFilterPropertySchema[];
+      /** Rollout percentage for this release condition group. */
+      rollout_percentage?: number;
+      /**
+         * Variant key override for multivariate flags.
+         * @nullable
+         */
+      variant?: string | null;
+      /**
+         * Group type index for this condition set. None means person-level aggregation.
+         * @nullable
+         */
+      aggregation_group_type_index?: number | null;
+    }
+
+    /**
      * A holdout group — a stable slice of users excluded from experiment exposure.
      */
     export interface ExperimentHoldout {
       readonly id: number;
-      /** @maxLength 400 */
+      /**
+         * Human-readable name for the holdout group.
+         * @maxLength 400
+         */
       name: string;
       /**
+         * Optional description of what this holdout reserves and why.
          * @maxLength 400
          * @nullable
          */
       description?: string | null;
-      filters?: unknown;
+      /** Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout. */
+      filters?: FeatureFlagConditionGroupSchema[];
       readonly created_by: UserBasic;
       readonly created_at: string;
       readonly updated_at: string;
@@ -22993,354 +23486,6 @@ export namespace Schemas {
       properties: FeatureFlagConditionPropertyAnalysis[];
     }
 
-    /**
-     * * `cohort` - cohort
-     * * `person` - person
-     * * `group` - group
-     */
-    export type PropertyGroupTypeEnum = typeof PropertyGroupTypeEnum[keyof typeof PropertyGroupTypeEnum];
-
-
-    export const PropertyGroupTypeEnum = {
-      Cohort: 'cohort',
-      Person: 'person',
-      Group: 'group',
-    } as const;
-
-    /**
-     * * `exact` - exact
-     * * `is_not` - is_not
-     * * `icontains` - icontains
-     * * `not_icontains` - not_icontains
-     * * `regex` - regex
-     * * `not_regex` - not_regex
-     * * `gt` - gt
-     * * `gte` - gte
-     * * `lt` - lt
-     * * `lte` - lte
-     */
-    export type FeatureFlagFilterPropertyGenericSchemaOperatorEnum = typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnum];
-
-
-    export const FeatureFlagFilterPropertyGenericSchemaOperatorEnum = {
-      Exact: 'exact',
-      IsNot: 'is_not',
-      Icontains: 'icontains',
-      NotIcontains: 'not_icontains',
-      Regex: 'regex',
-      NotRegex: 'not_regex',
-      Gt: 'gt',
-      Gte: 'gte',
-      Lt: 'lt',
-      Lte: 'lte',
-    } as const;
-
-    export interface FeatureFlagFilterPropertyGenericSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
-       *
-       * * `cohort` - cohort
-       * * `person` - person
-       * * `group` - group */
-      type?: PropertyGroupTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
-      value: unknown;
-      /** Operator used to compare the property value.
-       *
-       * * `exact` - exact
-       * * `is_not` - is_not
-       * * `icontains` - icontains
-       * * `not_icontains` - not_icontains
-       * * `regex` - regex
-       * * `not_regex` - not_regex
-       * * `gt` - gt
-       * * `gte` - gte
-       * * `lt` - lt
-       * * `lte` - lte */
-      operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnum;
-    }
-
-    export interface FeatureFlagFilterPropertyExistsSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
-       *
-       * * `cohort` - cohort
-       * * `person` - person
-       * * `group` - group */
-      type?: PropertyGroupTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Existence operator.
-       *
-       * * `is_set` - is_set
-       * * `is_not_set` - is_not_set */
-      operator: ExistenceOperatorEnum;
-      /** Optional value. Runtime behavior determines whether this is ignored. */
-      value?: unknown;
-    }
-
-    export interface FeatureFlagFilterPropertyDateSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
-       *
-       * * `cohort` - cohort
-       * * `person` - person
-       * * `group` - group */
-      type?: PropertyGroupTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Date comparison operator.
-       *
-       * * `is_date_exact` - is_date_exact
-       * * `is_date_after` - is_date_after
-       * * `is_date_before` - is_date_before */
-      operator: DateOperatorEnum;
-      /** Date value in ISO format or relative date expression. */
-      value: string;
-    }
-
-    /**
-     * * `semver_gt` - semver_gt
-     * * `semver_gte` - semver_gte
-     * * `semver_lt` - semver_lt
-     * * `semver_lte` - semver_lte
-     * * `semver_eq` - semver_eq
-     * * `semver_neq` - semver_neq
-     * * `semver_tilde` - semver_tilde
-     * * `semver_caret` - semver_caret
-     * * `semver_wildcard` - semver_wildcard
-     */
-    export type FeatureFlagFilterPropertySemverSchemaOperatorEnum = typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnum];
-
-
-    export const FeatureFlagFilterPropertySemverSchemaOperatorEnum = {
-      SemverGt: 'semver_gt',
-      SemverGte: 'semver_gte',
-      SemverLt: 'semver_lt',
-      SemverLte: 'semver_lte',
-      SemverEq: 'semver_eq',
-      SemverNeq: 'semver_neq',
-      SemverTilde: 'semver_tilde',
-      SemverCaret: 'semver_caret',
-      SemverWildcard: 'semver_wildcard',
-    } as const;
-
-    export interface FeatureFlagFilterPropertySemverSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
-       *
-       * * `cohort` - cohort
-       * * `person` - person
-       * * `group` - group */
-      type?: PropertyGroupTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Semantic version comparison operator.
-       *
-       * * `semver_gt` - semver_gt
-       * * `semver_gte` - semver_gte
-       * * `semver_lt` - semver_lt
-       * * `semver_lte` - semver_lte
-       * * `semver_eq` - semver_eq
-       * * `semver_neq` - semver_neq
-       * * `semver_tilde` - semver_tilde
-       * * `semver_caret` - semver_caret
-       * * `semver_wildcard` - semver_wildcard */
-      operator: FeatureFlagFilterPropertySemverSchemaOperatorEnum;
-      /** Semantic version string. */
-      value: string;
-    }
-
-    /**
-     * * `icontains_multi` - icontains_multi
-     * * `not_icontains_multi` - not_icontains_multi
-     */
-    export type FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum = typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum];
-
-
-    export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum = {
-      IcontainsMulti: 'icontains_multi',
-      NotIcontainsMulti: 'not_icontains_multi',
-    } as const;
-
-    export interface FeatureFlagFilterPropertyMultiContainsSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Property filter type. Common values are 'person' and 'cohort'.
-       *
-       * * `cohort` - cohort
-       * * `person` - person
-       * * `group` - group */
-      type?: PropertyGroupTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Multi-contains operator.
-       *
-       * * `icontains_multi` - icontains_multi
-       * * `not_icontains_multi` - not_icontains_multi */
-      operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnum;
-      /** List of strings to evaluate against. */
-      value: string[];
-    }
-
-    /**
-     * * `cohort` - cohort
-     */
-    export type FeatureFlagFilterPropertyCohortInSchemaTypeEnum = typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnum[keyof typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnum];
-
-
-    export const FeatureFlagFilterPropertyCohortInSchemaTypeEnum = {
-      Cohort: 'cohort',
-    } as const;
-
-    /**
-     * * `in` - in
-     * * `not_in` - not_in
-     */
-    export type FeatureFlagFilterPropertyCohortInSchemaOperatorEnum = typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnum];
-
-
-    export const FeatureFlagFilterPropertyCohortInSchemaOperatorEnum = {
-      In: 'in',
-      NotIn: 'not_in',
-    } as const;
-
-    export interface FeatureFlagFilterPropertyCohortInSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Cohort property type required for in/not_in operators.
-       *
-       * * `cohort` - cohort */
-      type: FeatureFlagFilterPropertyCohortInSchemaTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Membership operator for cohort properties.
-       *
-       * * `in` - in
-       * * `not_in` - not_in */
-      operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnum;
-      /** Cohort comparison value (single or list, depending on usage). */
-      value: unknown;
-    }
-
-    /**
-     * * `flag` - flag
-     */
-    export type FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum = typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum];
-
-
-    export const FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum = {
-      Flag: 'flag',
-    } as const;
-
-    /**
-     * * `flag_evaluates_to` - flag_evaluates_to
-     */
-    export type FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum = typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum];
-
-
-    export const FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum = {
-      FlagEvaluatesTo: 'flag_evaluates_to',
-    } as const;
-
-    export interface FeatureFlagFilterPropertyFlagEvaluatesSchema {
-      /** Property key used in this feature flag condition. */
-      key: string;
-      /** Flag property type required for flag dependency checks.
-       *
-       * * `flag` - flag */
-      type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnum;
-      /**
-         * Resolved cohort name for cohort-type filters.
-         * @nullable
-         */
-      cohort_name?: string | null;
-      /**
-         * Group type index when using group-based filters.
-         * @nullable
-         */
-      group_type_index?: number | null;
-      /** Operator for feature flag dependency evaluation.
-       *
-       * * `flag_evaluates_to` - flag_evaluates_to */
-      operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnum;
-      /** Value to compare flag evaluation against. */
-      value: unknown;
-    }
-
-    export type FeatureFlagFilterPropertySchema = FeatureFlagFilterPropertyGenericSchema | FeatureFlagFilterPropertyExistsSchema | FeatureFlagFilterPropertyDateSchema | FeatureFlagFilterPropertySemverSchema | FeatureFlagFilterPropertyMultiContainsSchema | FeatureFlagFilterPropertyCohortInSchema | FeatureFlagFilterPropertyFlagEvaluatesSchema;
-
-    export interface FeatureFlagConditionGroupSchema {
-      /** Property conditions for this release condition group. */
-      properties?: FeatureFlagFilterPropertySchema[];
-      /** Rollout percentage for this release condition group. */
-      rollout_percentage?: number;
-      /**
-         * Variant key override for multivariate flags.
-         * @nullable
-         */
-      variant?: string | null;
-      /**
-         * Group type index for this condition set. None means person-level aggregation.
-         * @nullable
-         */
-      aggregation_group_type_index?: number | null;
-    }
-
     export interface FeatureFlagMultivariateVariantSchema {
       /** Unique key for this variant. */
       key: string;
@@ -23883,6 +24028,31 @@ export namespace Schemas {
     export interface ForgetResponse {
       /** Whether a row was actually removed (false if the key didn't exist). */
       deleted: boolean;
+    }
+
+    export interface GapAction {
+      /**
+         * Optional knowledge source to link when accepting.
+         * @nullable
+         */
+      resolved_source_id?: string | null;
+    }
+
+    export interface GapTopicAction {
+      /** The normalized topic key identifying the gap cluster to act on. */
+      normalized_topic: string;
+      /**
+         * Optional knowledge source to link when accepting.
+         * @nullable
+         */
+      resolved_source_id?: string | null;
+    }
+
+    export interface GapTopicActionResult {
+      /** The normalized topic cluster that was acted on. */
+      readonly normalized_topic: string;
+      /** Number of gap rows whose status changed. */
+      readonly updated: number;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -27533,6 +27703,30 @@ export namespace Schemas {
       readonly source_name: string;
       /** Title of the document this chunk belongs to. */
       readonly document_title: string;
+    }
+
+    export interface KnowledgeGapSuggestion {
+      /** Unique identifier for this gap suggestion. */
+      readonly id: string;
+      /** The ticket that surfaced this gap. */
+      readonly ticket_id: string;
+      /** Raw topic the AI couldn't answer. */
+      readonly topic: string;
+      /** Normalized cluster key for grouping. */
+      readonly normalized_topic: string;
+      /** Ticket classification type. */
+      readonly ticket_type: string;
+      /** Pipeline outcome that produced this gap. */
+      readonly outcome: string;
+      /** Current status: pending, accepted, or dismissed. */
+      readonly status: string;
+      /**
+         * Knowledge source created to fill this gap.
+         * @nullable
+         */
+      readonly resolved_source_id: string | null;
+      /** When this gap was first recorded. */
+      readonly created_at: string;
     }
 
     /**
@@ -31438,6 +31632,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntervieweeContext[];
+    }
+
+    export interface PaginatedKnowledgeGapSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeGapSuggestion[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -37193,14 +37396,19 @@ export namespace Schemas {
      */
     export interface PatchedExperimentHoldout {
       readonly id?: number;
-      /** @maxLength 400 */
+      /**
+         * Human-readable name for the holdout group.
+         * @maxLength 400
+         */
       name?: string;
       /**
+         * Optional description of what this holdout reserves and why.
          * @maxLength 400
          * @nullable
          */
       description?: string | null;
-      filters?: unknown;
+      /** Non-empty list of release-condition groups defining the held-out population, using the same shape as feature-flag release conditions. Each element's `rollout_percentage` (0–100, may be fractional) is the **exclusion** percentage — the share of users held back from all experiments that reference this holdout. `properties` optionally narrows the group by person/group properties. Do not set `variant`: the server normalizes it to `holdout-{id}`. Note that only the first element's `rollout_percentage` is embedded into each linked experiment's feature flag, and this population is shared across every experiment using the holdout. */
+      filters?: FeatureFlagConditionGroupSchema[];
       readonly created_by?: UserBasic;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -47003,6 +47211,16 @@ export namespace Schemas {
          */
       recommended_running_time_days: number | null;
     }
+
+    /**
+     * * `S3Compatible` - S3Compatible
+     */
+    export type S3CompatibleDestinationRequestTypeEnum = typeof S3CompatibleDestinationRequestTypeEnum[keyof typeof S3CompatibleDestinationRequestTypeEnum];
+
+
+    export const S3CompatibleDestinationRequestTypeEnum = {
+      S3Compatible: 'S3Compatible',
+    } as const;
 
     /**
      * Form fields that must be submitted verbatim with the file upload
@@ -59941,6 +60159,21 @@ export namespace Schemas {
     rerank?: boolean;
     };
 
+    export type BusinessKnowledgeGapSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
+     */
+    ticket_id?: string;
+    };
+
     export type BusinessKnowledgeSourcesListParams = {
     /**
      * Number of results to return per page.
@@ -60918,9 +61151,9 @@ export namespace Schemas {
      */
     pr_number: number;
     /**
-     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+     * 'owner/name' repository the pull request belongs to.
      */
-    repo?: string;
+    repo: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

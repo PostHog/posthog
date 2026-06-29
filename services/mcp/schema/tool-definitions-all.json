@@ -2363,12 +2363,54 @@
             "readOnlyHint": true
         }
     },
+    "engineering-analytics-pr-cost": {
+        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Estimated CI cost of a PR",
+        "title": "Estimated CI cost of a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "engineering-analytics-sources": {
         "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-jobs": {
+        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Jobs of a workflow run",
+        "title": "Jobs of a workflow run",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-runner-costs": {
+        "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Workflow cost by runner tier",
+        "title": "Workflow cost by runner tier",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2931,6 +2973,76 @@
         "summary": "Deprecated alias for experiment-list.",
         "title": "Get all experiments (deprecated)",
         "required_scopes": ["experiment:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-holdouts-create": {
+        "description": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment holdout",
+        "title": "Create experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-destroy": {
+        "description": "Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always confirm by name before deleting.\n\nThis clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on success.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete experiment holdout",
+        "title": "Delete experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-list": {
+        "description": "List the experiment holdout groups in the current project. A holdout reserves a stable slice of users who are excluded from experiment exposure, so you can measure the long-term effect of all experiments against a held-back baseline. A holdout is NOT a feature flag — it is a separate object that experiments reference via holdout_id.\n\nEach holdout has a name, optional description, and a filters array (the held-out population definition). Holdouts are project-scoped. Use the returned id with experiment-create / experiment-update's holdout_id to link an experiment to a holdout.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List experiment holdouts",
+        "title": "List experiment holdouts",
+        "required_scopes": ["experiment_holdout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-holdouts-partial-update": {
+        "description": "Update a holdout group's name, description, or filters by ID. Use experiment-holdouts-list first if you don't have the ID.\n\nCAUTION: editing the filters (e.g. the rollout/exclusion percentage) cascades atomically to EVERY experiment linked to this holdout — it rewrites the exclusion_percentage on each linked feature flag, silently re-assigning the held-out population for all of those experiments at once. Confirm with the user before changing filters on a holdout that experiments depend on.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update experiment holdout",
+        "title": "Update experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-retrieve": {
+        "description": "Get a single experiment holdout group by ID, including its name, description, and filters array (the held-out population definition). Use experiment-holdouts-list first if you don't have the ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment holdout details",
+        "title": "Get experiment holdout details",
+        "required_scopes": ["experiment_holdout:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
