@@ -24,7 +24,7 @@ function StepIcon({ status }: { status: InstallationStep['status'] }): JSX.Eleme
  * reads `installationProgressLogic`, never the underlying streams.
  */
 export function InstallationProgressView({ runId, taskId }: { runId: string; taskId: string }): JSX.Element {
-    const { installationProgress } = useValues(installationProgressLogic({ runId, taskId }))
+    const { installationProgress } = useValues(installationProgressLogic({ mode: 'cloud', runId, taskId }))
     const { phase, steps, error, prUrl } = installationProgress
 
     const bannerType = phase === 'completed' ? 'success' : phase === 'error' ? 'error' : 'info'

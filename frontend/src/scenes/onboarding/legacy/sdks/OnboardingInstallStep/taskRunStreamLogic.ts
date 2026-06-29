@@ -109,6 +109,11 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
     }),
     listeners(({ values, actions, props, cache }) => ({
         connect: () => {
+            // No run to stream — the Installation layer connects this source even in local mode (where
+            // there's no TaskRun), so stay idle rather than opening a stream to a non-existent run.
+            if (!props.runId) {
+                return
+            }
             const projectId = values.currentProjectId
             if (projectId === null) {
                 actions.connectionErrored('No current project — cannot open task run stream.')
