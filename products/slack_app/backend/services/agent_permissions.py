@@ -1,14 +1,9 @@
-import re
-import json
 import time
 import uuid
-import shlex
 import hashlib
-from functools import lru_cache
-from pathlib import Path
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Literal
 
-from django.conf import settings
 from django.core.cache import cache
 
 import structlog
@@ -29,43 +24,79 @@ SLACK_PERMISSION_ACTION_APPROVE = "posthog_code_permission_approve"
 SLACK_PERMISSION_ACTION_DENY = "posthog_code_permission_deny"
 SLACK_PERMISSION_ACTION_SELECT = "posthog_code_permission_select"
 POSTHOG_PERMISSION_REQUEST_METHOD = "_posthog/permission_request"
-MCP_TOOL_DEFINITIONS_PATH = Path(settings.BASE_DIR) / "services/mcp/schema/generated-tool-definitions.json"
+SlackToolEffectClass = Literal["read", "internal_write", "customer_facing"]
 
-SAFE_NATIVE_PERMISSION_TOOLS = frozenset(
-    {
-        "Agent",
-        "BashOutput",
-        "Edit",
-        "Glob",
-        "Grep",
-        "LS",
-        "MultiEdit",
-        "NotebookEdit",
-        "NotebookRead",
-        "Read",
-        "Task",
-        "TodoWrite",
-        "WebFetch",
-        "WebSearch",
-        "Write",
-    }
+_EFFECT_CLASS_FIELDS = (
+    "effectClass",
+    "effect_class",
+    "toolEffectClass",
+    "tool_effect_class",
+    "slackEffectClass",
+    "slack_effect_class",
 )
-POSTHOG_EXEC_READ_ONLY_COMMANDS = frozenset({"info", "schema", "search", "tools"})
-DESTRUCTIVE_TOOL_NAME_RE = re.compile(
-    r"(^|-)(archive|bulk-delete|delete|destroy|disconnect|remove|uninstall)(-|$)", re.IGNORECASE
+_EFFECT_CLASS_ALIASES: dict[str, SlackToolEffectClass] = {
+    "read": "read",
+    "read_only": "read",
+    "readonly": "read",
+    "internal_write": "internal_write",
+    "internalwrite": "internal_write",
+    "write": "internal_write",
+    "customer_facing": "customer_facing",
+    "customerfacing": "customer_facing",
+    "external": "customer_facing",
+    "outbound_external": "customer_facing",
+    "outboundexternal": "customer_facing",
+}
+_READ_TOOL_NAMES = frozenset({"glob", "grep", "ls", "read", "view", "notebookread", "todoread"})
+_WRITE_TOOL_MARKERS = (
+    "write",
+    "edit",
+    "patch",
+    "delete",
+    "create",
+    "update",
+    "mcp__",
+    "curl",
+    "post ",
+    "put ",
+    "patch ",
+    "delete ",
+    "git commit",
+    "git push",
+    "gh pr create",
 )
-DESTRUCTIVE_SHELL_PATTERNS = (
-    re.compile(r"(^|[;&|])\s*(?:sudo\s+)?(?:rm|rmdir|unlink|shred)\b", re.IGNORECASE),
-    re.compile(r"(^|[;&|])\s*(?:sudo\s+)?find\b[^;&|]*\s-delete\b", re.IGNORECASE),
-    re.compile(
-        r"(^|[;&|])\s*(?:sudo\s+)?git\s+(?:clean\b|reset\s+--hard\b|branch\s+-D\b|push\b[^;&|]*--delete\b)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        r"(^|[;&|])\s*(?:sudo\s+)?gh\s+(?:repo\s+delete\b|api\b[^;&|]*(?:-X|--method)\s+DELETE\b)",
-        re.IGNORECASE,
-    ),
+_CUSTOMER_FACING_MARKERS = (
+    "customer",
+    "external",
+    "user-facing",
+    "customer-facing",
+    "email",
+    "mailgun",
+    "sendgrid",
+    "sms",
+    "twilio",
+    "zendesk",
+    "intercom",
+    "support ticket",
+    "reply to customer",
+    "send to customer",
 )
+_SLACK_DELIVERY_MARKERS = (
+    "slack_file",
+    "slack_message",
+    "slack_canvas",
+    "chat.postmessage",
+    "chat_update",
+    "chat_postmessage",
+    "living_artifacts",
+)
+
+
+@dataclass(frozen=True)
+class SlackPermissionBrokerDecision:
+    effect_class: SlackToolEffectClass
+    requires_human_approval: bool
+    reason: str
 
 
 def _interactivity_context_cache_key(context_token: str) -> str:
@@ -92,111 +123,6 @@ def _tool_call_name(tool_call: dict[str, Any]) -> str | None:
     return tool_name if isinstance(tool_name, str) and tool_name else None
 
 
-def _posthog_mcp_tool_name(tool_name: str) -> str | None:
-    parts = tool_name.split("__", 2)
-    if len(parts) != 3 or parts[0] != "mcp" or not parts[1].startswith("posthog"):
-        return None
-    return parts[2]
-
-
-def _posthog_exec_inner_tool_name(command: str) -> str | None:
-    try:
-        parts = shlex.split(command)
-    except ValueError:
-        parts = command.split()
-
-    if not parts or parts[0] != "call":
-        return None
-
-    tool_index = 1
-    while tool_index < len(parts) and parts[tool_index].startswith("--"):
-        tool_index += 1
-    return parts[tool_index] if tool_index < len(parts) else None
-
-
-def _posthog_exec_command_should_auto_allow(command: str) -> bool:
-    try:
-        parts = shlex.split(command)
-    except ValueError:
-        parts = command.split()
-
-    if not parts:
-        return False
-    if parts[0] in POSTHOG_EXEC_READ_ONLY_COMMANDS:
-        return True
-
-    inner_tool_name = _posthog_exec_inner_tool_name(command)
-    return inner_tool_name is not None and not _posthog_tool_is_destructive(inner_tool_name)
-
-
-@lru_cache(maxsize=1)
-def _mcp_tool_annotations() -> dict[str, dict[str, Any]]:
-    try:
-        with MCP_TOOL_DEFINITIONS_PATH.open() as definitions_file:
-            definitions = json.load(definitions_file)
-    except (OSError, json.JSONDecodeError):
-        logger.warning("slack_permission_mcp_tool_definitions_load_failed", path=str(MCP_TOOL_DEFINITIONS_PATH))
-        return {}
-
-    if not isinstance(definitions, dict):
-        return {}
-
-    annotations_by_tool: dict[str, dict[str, Any]] = {}
-    for tool_name, definition in definitions.items():
-        if not isinstance(tool_name, str) or not isinstance(definition, dict):
-            continue
-        annotations = definition.get("annotations")
-        if isinstance(annotations, dict):
-            annotations_by_tool[tool_name] = annotations
-    return annotations_by_tool
-
-
-def _mcp_tool_destructive_hint(tool_name: str) -> bool | None:
-    annotations = _mcp_tool_annotations().get(tool_name)
-    if annotations is None:
-        return None
-    destructive_hint = annotations.get("destructiveHint")
-    return destructive_hint if isinstance(destructive_hint, bool) else None
-
-
-def _posthog_tool_is_destructive(tool_name: str) -> bool:
-    destructive_hint = _mcp_tool_destructive_hint(tool_name)
-    if destructive_hint is not None:
-        return destructive_hint
-    return bool(DESTRUCTIVE_TOOL_NAME_RE.search(tool_name))
-
-
-def _shell_command_is_destructive(command: str) -> bool:
-    return any(pattern.search(command) for pattern in DESTRUCTIVE_SHELL_PATTERNS)
-
-
-def _permission_request_should_auto_allow(permission_request: dict[str, Any]) -> bool:
-    tool_call = permission_request["tool_call"]
-    tool_name = _tool_call_name(tool_call)
-    if tool_name is None:
-        return False
-    posthog_tool_name = _posthog_mcp_tool_name(tool_name)
-    if posthog_tool_name == "exec":
-        command = _tool_call_raw_input(tool_call).get("command")
-        return isinstance(command, str) and _posthog_exec_command_should_auto_allow(command)
-    if posthog_tool_name is not None:
-        return not _posthog_tool_is_destructive(posthog_tool_name)
-    if tool_name in SAFE_NATIVE_PERMISSION_TOOLS:
-        return True
-    if tool_name == "Bash":
-        command = _tool_call_raw_input(tool_call).get("command")
-        return isinstance(command, str) and not _shell_command_is_destructive(command)
-    return False
-
-
-def _default_allow_option_id(options: list[dict[str, str]]) -> str | None:
-    allow_options = _allow_options(options)
-    default_option = next((option for option in allow_options if option["kind"] == "allow_once"), None)
-    if default_option is not None:
-        return default_option["optionId"]
-    return allow_options[0]["optionId"] if allow_options else None
-
-
 def _slack_mapping_for_task_run(task_run: Any) -> Any:
     from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -206,58 +132,6 @@ def _slack_mapping_for_task_run(task_run: Any) -> Any:
         .order_by("-updated_at")
         .first()
     )
-
-
-def _auto_approve_slack_permission_request(task_run: Any, permission_request: dict[str, Any], mapping: Any) -> bool:
-    request_id = permission_request["request_id"]
-    run_id = str(task_run.id)
-    dedupe_key = _permission_prompt_dedupe_key(run_id, request_id)
-    if cache.get(dedupe_key):
-        return True
-
-    option_id = _default_allow_option_id(permission_request["options"])
-    if option_id is None:
-        logger.info("slack_permission_auto_allow_no_allow_option", run_id=run_id, request_id=request_id)
-        return False
-
-    from products.tasks.backend.logic.services.agent_command import send_agent_command
-    from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-
-    auth_token = None
-    created_by = getattr(getattr(task_run, "task", None), "created_by", None)
-    if created_by and getattr(created_by, "id", None):
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
-
-    result = send_agent_command(
-        task_run,
-        method="permission_response",
-        params={"requestId": request_id, "optionId": option_id},
-        auth_token=auth_token,
-    )
-    if not result.success:
-        logger.warning(
-            "slack_permission_auto_allow_failed",
-            run_id=run_id,
-            request_id=request_id,
-            option_id=option_id,
-            integration_id=getattr(mapping, "integration_id", None),
-            channel=getattr(mapping, "channel", None),
-            status_code=result.status_code,
-            error=result.error,
-        )
-        return False
-
-    cache.set(dedupe_key, True, timeout=SLACK_PERMISSION_PROMPT_DEDUPE_SECONDS)
-    logger.info(
-        "slack_permission_auto_allowed",
-        run_id=run_id,
-        request_id=request_id,
-        option_id=option_id,
-        integration_id=getattr(mapping, "integration_id", None),
-        channel=getattr(mapping, "channel", None),
-    )
-    return True
 
 
 def _truncate_slack_text(value: str, max_length: int) -> str:
@@ -279,6 +153,138 @@ def _extract_tool_summary(tool_call: dict[str, Any]) -> tuple[str, str | None]:
     label = description or title or tool_name or "Run tool"
     detail = command
     return _truncate_slack_text(label, 150), _truncate_slack_text(detail, 1200) if detail else None
+
+
+def _tool_call_text(tool_call: dict[str, Any]) -> str:
+    raw_input = tool_call.get("rawInput")
+    raw_input = raw_input if isinstance(raw_input, dict) else {}
+    parts: list[str] = []
+    for value in (
+        tool_call.get("title"),
+        tool_call.get("name"),
+        raw_input.get("toolName"),
+        raw_input.get("description"),
+        raw_input.get("command"),
+    ):
+        if isinstance(value, str) and value.strip():
+            parts.append(value)
+    return " ".join(parts).lower()
+
+
+def _tool_name(tool_call: dict[str, Any]) -> str:
+    raw_input = tool_call.get("rawInput")
+    raw_input = raw_input if isinstance(raw_input, dict) else {}
+    tool_name = raw_input.get("toolName") or tool_call.get("name") or tool_call.get("title")
+    return tool_name.lower() if isinstance(tool_name, str) else ""
+
+
+def _command_text(tool_call: dict[str, Any]) -> str:
+    raw_input = tool_call.get("rawInput")
+    raw_input = raw_input if isinstance(raw_input, dict) else {}
+    command = raw_input.get("command")
+    return command.lower().strip() if isinstance(command, str) else ""
+
+
+def _normalize_declared_effect_class(value: Any) -> SlackToolEffectClass | None:
+    if not isinstance(value, str):
+        return None
+    key = value.strip().lower().replace("-", "_").replace(" ", "_")
+    return _EFFECT_CLASS_ALIASES.get(key)
+
+
+def _declared_tool_effect_class(tool_call: dict[str, Any]) -> SlackToolEffectClass | None:
+    raw_input = tool_call.get("rawInput")
+    raw_input = raw_input if isinstance(raw_input, dict) else {}
+
+    containers: list[dict[str, Any]] = [tool_call, raw_input]
+    for nested_key in ("metadata", "annotations"):
+        nested_tool = tool_call.get(nested_key)
+        if isinstance(nested_tool, dict):
+            containers.append(nested_tool)
+        nested_input = raw_input.get(nested_key)
+        if isinstance(nested_input, dict):
+            containers.append(nested_input)
+
+    for container in containers:
+        for field in _EFFECT_CLASS_FIELDS:
+            effect_class = _normalize_declared_effect_class(container.get(field))
+            if effect_class is not None:
+                return effect_class
+    return None
+
+
+def _command_looks_read_only(command: str) -> bool:
+    if not command:
+        return False
+    if any(marker in command for marker in _WRITE_TOOL_MARKERS):
+        return False
+    read_prefixes = (
+        "cat ",
+        "cd ",
+        "find ",
+        "gh pr view",
+        "git diff",
+        "git log",
+        "git show",
+        "git status",
+        "grep ",
+        "head ",
+        "ls",
+        "pwd",
+        "rg ",
+        "sed -n",
+        "tail ",
+        "which ",
+    )
+    return command.startswith(read_prefixes)
+
+
+def _classify_tool_effect(task_run: Any, tool_call: dict[str, Any]) -> SlackToolEffectClass:
+    declared_effect_class = _declared_tool_effect_class(tool_call)
+    if declared_effect_class is not None:
+        return declared_effect_class
+
+    text = _tool_call_text(tool_call)
+    is_customer_facing_channel = bool((getattr(task_run, "state", None) or {}).get("slack_is_ext_shared_channel"))
+
+    tool_name = _tool_name(tool_call)
+    command = _command_text(tool_call)
+    if tool_name in _READ_TOOL_NAMES and (not command or _command_looks_read_only(command)):
+        return "read"
+    if _command_looks_read_only(command):
+        return "read"
+
+    if any(marker in text for marker in _CUSTOMER_FACING_MARKERS):
+        return "customer_facing"
+    if is_customer_facing_channel and any(marker in text for marker in _SLACK_DELIVERY_MARKERS):
+        return "customer_facing"
+
+    has_write_marker = any(marker in text for marker in _WRITE_TOOL_MARKERS)
+    if is_customer_facing_channel and has_write_marker:
+        return "customer_facing"
+    if is_customer_facing_channel and not command:
+        return "customer_facing"
+    if has_write_marker:
+        return "internal_write"
+    if is_customer_facing_channel:
+        return "customer_facing"
+    return "internal_write"
+
+
+def _permission_broker_decision(
+    *,
+    task_run: Any,
+    tool_call: dict[str, Any],
+    autonomy_tier: str,
+) -> SlackPermissionBrokerDecision:
+    effect_class = _classify_tool_effect(task_run, tool_call)
+    if effect_class == "customer_facing":
+        return SlackPermissionBrokerDecision(effect_class, True, "customer_facing_requires_approval")
+    if effect_class == "read":
+        return SlackPermissionBrokerDecision(effect_class, False, "read_allowed")
+    if autonomy_tier == "full_auto":
+        return SlackPermissionBrokerDecision(effect_class, False, "full_auto_internal_write")
+    return SlackPermissionBrokerDecision(effect_class, True, "tier_requires_approval")
 
 
 def _build_permission_body(tool_label: str, tool_detail: str | None) -> str:
@@ -336,6 +342,71 @@ def _reject_option_id(options: list[dict[str, str]]) -> str | None:
     return None
 
 
+def _send_broker_permission_response(
+    *,
+    task_run: Any,
+    mapping: Any,
+    target_slack_user_id: str,
+    request_id: str,
+    option_id: str,
+    decision: SlackPermissionBrokerDecision,
+) -> bool:
+    from products.slack_app.backend.api import resolve_slack_user  # noqa: PLC0415
+    from products.tasks.backend.temporal.client import signal_task_permission_response  # noqa: PLC0415
+
+    slack = SlackIntegration(mapping.integration)
+    actor_context = resolve_slack_user(
+        slack,
+        mapping.integration,
+        target_slack_user_id,
+        mapping.channel,
+        mapping.thread_ts,
+        post_feedback=False,
+    )
+    if actor_context is None:
+        logger.info(
+            "slack_permission_broker_actor_unresolved",
+            run_id=str(task_run.id),
+            request_id=request_id,
+            slack_user_id=target_slack_user_id,
+        )
+        return False
+
+    actor = actor_context.user
+    try:
+        signal_task_permission_response(
+            task_run.workflow_id,
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor.id,
+            actor_slack_user_id=target_slack_user_id,
+            effect_class=decision.effect_class,
+            broker_reason=decision.reason,
+        )
+    except Exception:
+        logger.warning(
+            "slack_permission_broker_signal_failed",
+            run_id=str(task_run.id),
+            request_id=request_id,
+            option_id=option_id,
+            effect_class=decision.effect_class,
+            reason=decision.reason,
+            actor_user_id=actor.id,
+            exc_info=True,
+        )
+        return False
+    logger.info(
+        "slack_permission_broker_response_signaled",
+        run_id=str(task_run.id),
+        request_id=request_id,
+        option_id=option_id,
+        effect_class=decision.effect_class,
+        reason=decision.reason,
+        actor_user_id=actor.id,
+    )
+    return True
+
+
 def _build_autonomy_tier_option(value: str, label: str) -> dict[str, Any]:
     return {"text": {"type": "plain_text", "text": label}, "value": value}
 
@@ -379,7 +450,7 @@ def _permission_request_from_event(event_data: dict[str, Any]) -> dict[str, Any]
 
 
 def handle_slack_permission_request_for_task_run(task_run: Any, event_data: dict[str, Any]) -> None:
-    """Respond to safe Slack permission requests and prompt for destructive ones."""
+    """Route Slack permission requests through the workflow-owned permission broker."""
     permission_request = _permission_request_from_event(event_data)
     if permission_request is None:
         return
@@ -389,11 +460,6 @@ def handle_slack_permission_request_for_task_run(task_run: Any, event_data: dict
     mapping = _slack_mapping_for_task_run(task_run)
     if mapping is None:
         logger.info("slack_permission_prompt_no_mapping", run_id=run_id, request_id=request_id)
-        return
-
-    if _permission_request_should_auto_allow(permission_request) and _auto_approve_slack_permission_request(
-        task_run, permission_request, mapping
-    ):
         return
 
     post_slack_permission_request_for_task_run(
@@ -445,6 +511,31 @@ def post_slack_permission_request_for_task_run(
             return
 
         tool_label, tool_detail = _extract_tool_summary(permission_request["tool_call"])
+        current_autonomy_tier = _initial_autonomy_tier(task_run, SlackAutonomyTier.ASK_BEFORE_WRITE)
+        broker_decision = _permission_broker_decision(
+            task_run=task_run,
+            tool_call=permission_request["tool_call"],
+            autonomy_tier=current_autonomy_tier,
+        )
+        if not broker_decision.requires_human_approval:
+            if _send_broker_permission_response(
+                task_run=task_run,
+                mapping=mapping,
+                target_slack_user_id=target_slack_user_id,
+                request_id=request_id,
+                option_id=default_option["optionId"],
+                decision=broker_decision,
+            ):
+                cache.set(dedupe_key, True, timeout=SLACK_PERMISSION_PROMPT_DEDUPE_SECONDS)
+                return
+            logger.info(
+                "slack_permission_broker_fell_back_to_prompt",
+                run_id=run_id,
+                request_id=request_id,
+                effect_class=broker_decision.effect_class,
+                reason=broker_decision.reason,
+            )
+
         context_token = uuid.uuid4().hex
         cache.set(
             _interactivity_context_cache_key(context_token),
@@ -463,13 +554,13 @@ def post_slack_permission_request_for_task_run(
                 "options": options,
                 "tool_label": tool_label,
                 "tool_detail": tool_detail,
+                "effect_class": broker_decision.effect_class,
                 "created_at": int(time.time()),
             },
             timeout=SLACK_PERMISSION_CONTEXT_TTL_SECONDS,
         )
 
         text = f"<@{target_slack_user_id}> the agent needs permission to continue: *{tool_label}*"
-        current_autonomy_tier = _initial_autonomy_tier(task_run, SlackAutonomyTier.ASK_BEFORE_WRITE)
         autonomy_tier_options = [
             _build_autonomy_tier_option(value, label) for value, label in SlackAutonomyTier.choices
         ]
@@ -549,6 +640,8 @@ def post_slack_permission_request_for_task_run(
             request_id=request_id,
             integration_id=mapping.integration_id,
             channel=mapping.channel,
+            effect_class=broker_decision.effect_class,
+            reason=broker_decision.reason,
         )
     except SlackApiError as e:
         slack_error = e.response.get("error") if e.response else None

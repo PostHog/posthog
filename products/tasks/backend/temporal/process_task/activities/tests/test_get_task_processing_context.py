@@ -120,7 +120,13 @@ class TestGetTaskProcessingContextActivity:
             description="Clone a repo later from chat",
             origin_product=Task.OriginProduct.SLACK,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "pr_authorship_mode": "user",
+                "slack_actor_user_id": user.id,
+            }
+        )
 
         result = async_to_sync(activity_environment.run)(
             get_task_processing_context,
@@ -132,6 +138,23 @@ class TestGetTaskProcessingContextActivity:
         assert result.github_user_integration_id == str(user_integration.id)
 
     @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_requires_slack_actor(self, activity_environment, team, user):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="Slack task without actor",
+            description="Summarize the thread",
+            origin_product=Task.OriginProduct.SLACK,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "user"})
+
+        with pytest.raises(TaskInvalidStateError):
+            async_to_sync(activity_environment.run)(
+                get_task_processing_context,
+                GetTaskProcessingContextInput(run_id=str(task_run.id)),
+            )
+
+    @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_exposes_general_task_kind(self, activity_environment, team, user):
         task = Task.objects.create(
             team=team,
@@ -141,7 +164,13 @@ class TestGetTaskProcessingContextActivity:
             origin_product=Task.OriginProduct.SLACK,
             task_kind=Task.TaskKind.GENERAL,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "task_kind": Task.TaskKind.GENERAL})
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "task_kind": Task.TaskKind.GENERAL,
+                "slack_actor_user_id": user.id,
+            }
+        )
 
         result = async_to_sync(activity_environment.run)(
             get_task_processing_context,
@@ -163,7 +192,13 @@ class TestGetTaskProcessingContextActivity:
             origin_product=Task.OriginProduct.SLACK,
             github_integration=github_integration,
         )
-        task_run = task.create_run(extra_state={"interaction_origin": "slack", "pr_authorship_mode": "bot"})
+        task_run = task.create_run(
+            extra_state={
+                "interaction_origin": "slack",
+                "pr_authorship_mode": "bot",
+                "slack_actor_user_id": user.id,
+            }
+        )
 
         result = async_to_sync(activity_environment.run)(
             get_task_processing_context,

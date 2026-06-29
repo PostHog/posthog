@@ -30,7 +30,7 @@ _SLACK_DELIVERY_CONSTRAINTS = """Slack delivery constraints:
 # channel that mostly ignored the bot); we surface the most recent slice so the
 # update stays bounded and the agent doesn't drown in scrollback.
 _THREAD_UPDATE_MAX_MESSAGES = 50
-_SlackPermissionMode = Literal["default", "plan", "bypassPermissions"]
+_SlackPermissionMode = Literal["default", "plan"]
 
 
 @dataclass(frozen=True)
@@ -47,6 +47,19 @@ def _slack_autonomy_state_updates(policy: SlackAutonomyPolicy) -> dict[str, Any]
         "slack_is_ext_shared_channel": policy.is_ext_shared_channel,
         "slack_customer_facing_approval_required": policy.customer_facing_approval_required,
     }
+
+
+def _slack_actor_state_updates(*, user_id: int, slack_user_id: str) -> dict[str, Any]:
+    return {
+        "slack_actor_user_id": user_id,
+        "slack_actor_slack_user_id": slack_user_id,
+    }
+
+
+def _slack_posthog_mcp_scopes(policy: SlackAutonomyPolicy) -> Literal["read_only", "full"]:
+    if policy.tier == "read_only":
+        return "read_only"
+    return "full"
 
 
 def _resolve_slack_autonomy_policy(
@@ -70,14 +83,10 @@ def _resolve_slack_autonomy_policy(
     permission_mode: _SlackPermissionMode
     if tier == SlackAutonomyTier.READ_ONLY:
         permission_mode = "plan"
-    elif tier == SlackAutonomyTier.FULL_AUTO:
-        permission_mode = "bypassPermissions"
     else:
         permission_mode = "default"
 
     customer_facing_approval_required = is_ext_shared_channel
-    if customer_facing_approval_required and permission_mode == "bypassPermissions":
-        permission_mode = "default"
 
     return SlackAutonomyPolicy(
         tier=tier,
@@ -483,12 +492,12 @@ def create_posthog_code_task_for_repo_activity(
     # General coworker tasks intentionally run without code/PR behavior. Coding
     # tasks keep PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = task_kind == tasks_facade.TaskKind.CODING
-    posthog_mcp_scopes = "full" if task_kind == tasks_facade.TaskKind.CODING else "read_only"
     autonomy_policy = _resolve_slack_autonomy_policy(
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
         is_ext_shared_channel=inputs.is_ext_shared_channel,
     )
+    posthog_mcp_scopes = _slack_posthog_mcp_scopes(autonomy_policy)
 
     from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
 
@@ -577,6 +586,7 @@ def create_posthog_code_task_for_repo_activity(
         state_updates: dict[str, Any] = {
             "slack_mention_workflow_id": derive_mention_workflow_id(inputs),
             **_slack_autonomy_state_updates(autonomy_policy),
+            **_slack_actor_state_updates(user_id=user_id, slack_user_id=slack_user_id),
         }
         if repo_research_task_id and repo_research_run_id:
             state_updates["repo_research_task_id"] = repo_research_task_id
@@ -647,13 +657,13 @@ def forward_posthog_code_followup_activity(
     )
     slack = SlackIntegration(integration)
 
+    actor_user = mapping.task.created_by
     followup_user_text_prefix: str | None = None
     if slack_user_id != mapping.mentioning_slack_user_id:
         # The follow-up is from a different Slack user than the one who started the
         # thread. Try to resolve them to a PostHog user with access to the same team
-        # — if so, let them participate; the message is still relayed in the original
-        # author's name (their sandbox token, their identity to the agent), with the
-        # actual sender's name prefixed onto the text so the agent sees who spoke.
+        # — if so, let them participate under their own sandbox token, with their
+        # name prefixed onto the text so the agent sees who spoke.
         resolved = resolve_slack_user(slack, integration, slack_user_id, channel, thread_ts)
         if not resolved:
             logger.info(
@@ -667,6 +677,7 @@ def forward_posthog_code_followup_activity(
         # `slack_email` is None on the linked-user resolver path; fall through
         # to the user's PostHog email rather than interpolating literal "None: "
         # into the LLM-forwarded prefix when both name and slack_email are absent.
+        actor_user = resolved.user
         actor_name = resolved.user.get_full_name() or resolved.slack_email or resolved.user.email
         followup_user_text_prefix = f"{actor_name}: "
         logger.info(
@@ -694,6 +705,20 @@ def forward_posthog_code_followup_activity(
         mapping.latest_actor_slack_user_id = slack_user_id
         mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
 
+    if actor_user and actor_user.id:
+        try:
+            tasks_facade.update_task_run_state(
+                task_run.id,
+                updates=_slack_actor_state_updates(user_id=actor_user.id, slack_user_id=slack_user_id),
+            )
+        except Exception:
+            logger.exception(
+                "posthog_code_followup_actor_state_update_failed",
+                channel=channel,
+                thread_ts=thread_ts,
+                actor_user_id=actor_user.id,
+            )
+
     if task_run.is_terminal:
         return _resume_task_with_new_run(
             mapping,
@@ -705,6 +730,7 @@ def forward_posthog_code_followup_activity(
             slack_user_id,
             event_text,
             user_message_ts,
+            actor_user=actor_user,
             user_text_prefix=followup_user_text_prefix,
         )
 
@@ -768,11 +794,10 @@ def forward_posthog_code_followup_activity(
         safe_react(slack.client, channel, user_message_ts, "eyes")
 
     auth_token = None
-    created_by = mapping.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+    if actor_user and actor_user.id:
+        distinct_id = actor_user.distinct_id or f"user_{actor_user.id}"
         auth_token = tasks_facade.create_sandbox_connection_token(
-            task_run.id, user_id=created_by.id, distinct_id=distinct_id
+            task_run.id, user_id=actor_user.id, distinct_id=distinct_id
         )
 
     result = tasks_facade.send_user_message(task_run.id, user_text, auth_token=auth_token, timeout=90)
@@ -856,6 +881,7 @@ def _resume_task_with_new_run(
     slack_user_id: str,
     event_text: str,
     user_message_ts: str | None,
+    actor_user: Any | None = None,
     user_text_prefix: str | None = None,
 ) -> bool:
     """Create a new run on the same task when a follow-up arrives after the previous run completed."""
@@ -872,7 +898,8 @@ def _resume_task_with_new_run(
         user_text = user_text_prefix + user_text
 
     created_by = mapping.task.created_by
-    if not created_by:
+    run_actor = actor_user or created_by
+    if not created_by or not run_actor:
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -882,18 +909,19 @@ def _resume_task_with_new_run(
 
     is_general_task = mapping.task.task_kind == tasks_facade.TaskKind.GENERAL
     create_pr = not is_general_task
-    posthog_mcp_scopes = "read_only" if is_general_task else "full"
     autonomy_policy = _resolve_slack_autonomy_policy(
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
         is_ext_shared_channel=inputs.is_ext_shared_channel,
     )
+    posthog_mcp_scopes = _slack_posthog_mcp_scopes(autonomy_policy)
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",
         "task_kind": mapping.task.task_kind,
         "initial_permission_mode": autonomy_policy.initial_permission_mode,
         **_slack_autonomy_state_updates(autonomy_policy),
+        **_slack_actor_state_updates(user_id=run_actor.id, slack_user_id=slack_user_id),
     }
 
     previous_state = previous_run.state or {}
@@ -952,7 +980,7 @@ def _resume_task_with_new_run(
             task_id=str(mapping.task_id),
             run_id=str(new_run.id),
             team_id=new_run.team_id,
-            user_id=created_by.id,
+            user_id=run_actor.id,
             create_pr=create_pr,
             slack_thread_context=slack_thread_context,
             posthog_mcp_scopes=posthog_mcp_scopes,

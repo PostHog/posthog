@@ -101,6 +101,8 @@ from products.slack_app.backend.services.slack_user_oauth import (
     post_link_invite_message,
 )
 from products.slack_app.backend.slack_link_unfurl import handle_posthog_link_unfurl
+from products.tasks.backend.models import TaskRun
+from products.tasks.backend.temporal.client import signal_task_permission_response
 
 logger = structlog.get_logger(__name__)
 
@@ -143,7 +145,6 @@ SLACK_MESSAGE_ACTION_DISCARD = "posthog_code_slack_message_discard"
 _MAX_GITHUB_REPOS = 500
 REPO_LIST_CACHE_TTL_SECONDS = 300
 PENDING_REPO_PICKER_TTL_SECONDS = PICKER_TOKEN_MAX_AGE_SECONDS
-SLACK_PERMISSION_DENIAL_FOLLOWUP_TIMEOUT_SECONDS = 5
 
 
 def _user_repo_list_cache_key(user_id: int) -> str:
@@ -3445,7 +3446,7 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     resolved = _resolve_permission_interaction(payload)
     if resolved is None:
         return HttpResponse(status=200)
-    context_token, context, integration, _clicker_slack_user_id = resolved
+    context_token, context, integration, clicker_slack_user_id = resolved
 
     options_by_id = _permission_options_by_id(context)
     if not options_by_id:
@@ -3468,10 +3469,6 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if not isinstance(option_id, str) or option_id not in options_by_id:
         return HttpResponse(status=200)
 
-    from products.tasks.backend.logic.services.agent_command import send_agent_command, send_user_message
-    from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-    from products.tasks.backend.models import TaskRun
-
     try:
         task_run = TaskRun.objects.select_related("task", "task__created_by").get(
             id=run_id,
@@ -3486,65 +3483,56 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
         cache.delete(_picker_context_cache_key(context_token))
         return HttpResponse(status=200)
 
-    auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+    channel = context.get("channel")
+    thread_ts = context.get("thread_ts")
+    if not isinstance(channel, str) or not isinstance(thread_ts, str):
+        return HttpResponse(status=200)
 
-    option_label = options_by_id[option_id]["label"]
-    if action_id == SLACK_PERMISSION_ACTION_DENY:
-        denial_message = _build_permission_denial_followup_message(context, option_label)
-        denial_result = send_user_message(
-            task_run,
-            denial_message,
-            auth_token=auth_token,
-            timeout=SLACK_PERMISSION_DENIAL_FOLLOWUP_TIMEOUT_SECONDS,
-        )
-        if not denial_result.success:
-            logger.warning(
-                "slack_app_permission_denial_followup_failed",
-                run_id=run_id,
-                request_id=request_id,
-                option_id=option_id,
-                status_code=denial_result.status_code,
-                error=denial_result.error,
-            )
-            _post_permission_ephemeral_feedback(
-                payload,
-                "I couldn't tell the agent about that denial. Please try again from the Task UI.",
-            )
-            return HttpResponse(status=200)
-
-    result = send_agent_command(
-        task_run,
-        method="permission_response",
-        params={"requestId": request_id, "optionId": option_id},
-        auth_token=auth_token,
+    actor_context = resolve_slack_user(
+        SlackIntegration(integration),
+        integration,
+        clicker_slack_user_id,
+        channel,
+        thread_ts,
+        post_feedback=False,
     )
-    if not result.success:
-        logger.warning(
-            "slack_app_permission_response_failed",
-            run_id=run_id,
-            request_id=request_id,
-            option_id=option_id,
-            status_code=result.status_code,
-            error=result.error,
-        )
+    if actor_context is None:
         _post_permission_ephemeral_feedback(
             payload,
-            "I couldn't deliver that response to the agent. Please try again from the Task UI.",
+            "I couldn't resolve your PostHog account for this approval. Please try again from the Task UI.",
         )
         return HttpResponse(status=200)
 
+    option_label = options_by_id[option_id]["label"]
+    denial_message = None
     if action_id == SLACK_PERMISSION_ACTION_DENY:
-        TaskRun.update_state_atomic(
-            task_run.id,
-            updates={
-                "slack_permission_rejected": True,
-                "slack_permission_rejected_request_id": request_id,
-            },
+        denial_message = _build_permission_denial_followup_message(context, option_label)
+
+    try:
+        signal_task_permission_response(
+            task_run.workflow_id,
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor_context.user.id,
+            actor_slack_user_id=clicker_slack_user_id,
+            is_denial=action_id == SLACK_PERMISSION_ACTION_DENY,
+            denial_message=denial_message,
+            effect_class=context.get("effect_class") if isinstance(context.get("effect_class"), str) else None,
         )
+    except Exception:
+        logger.warning(
+            "slack_app_permission_response_signal_failed",
+            run_id=run_id,
+            request_id=request_id,
+            option_id=option_id,
+            actor_user_id=actor_context.user.id,
+            exc_info=True,
+        )
+        _post_permission_ephemeral_feedback(
+            payload,
+            "I couldn't queue that response for the agent. Please try again from the Task UI.",
+        )
+        return HttpResponse(status=200)
 
     cache.delete(_picker_context_cache_key(context_token))
     if action_id == SLACK_PERMISSION_ACTION_DENY:
@@ -3555,11 +3543,12 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     else:
         _replace_permission_prompt(payload, f"{action_label} `{option_label}` for the agent.")
     logger.info(
-        "slack_app_permission_response_sent",
+        "slack_app_permission_response_signaled",
         run_id=run_id,
         request_id=request_id,
         option_id=option_id,
         action=action.get("action_id"),
+        actor_user_id=actor_context.user.id,
     )
     return HttpResponse(status=200)
 

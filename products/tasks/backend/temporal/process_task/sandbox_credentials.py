@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Protocol
 
 import redis
 
-from posthog.models.user_integration import UserGitHubIntegration
+from posthog.models.user_integration import ReauthorizationRequired, UserGitHubIntegration
 from posthog.redis import get_client
 
 from products.tasks.backend.logic.services.agentsh import ENV_FILE
@@ -17,7 +17,9 @@ from products.tasks.backend.temporal.process_task.utils import (
     PrAuthorshipMode,
     get_pr_authorship_mode,
     get_sandbox_github_token,
+    get_task_run_credential_user,
     is_caller_token_run,
+    is_slack_interaction_state,
     resolve_user_github_integration_for_task,
 )
 
@@ -248,11 +250,20 @@ class GitHubSandboxCredential:
                 self.kind, refreshed=False, next_refresh_seconds=DEFAULT_REFRESH_INTERVAL_SECONDS
             )
 
+        actor_user = get_task_run_credential_user(task, ctx.state)
+        if is_slack_interaction_state(ctx.state) and actor_user is None:
+            raise ReauthorizationRequired("Slack run requires an acting user before refreshing GitHub credentials.")
+
         integration = None
         if get_pr_authorship_mode(task, ctx.state) == PrAuthorshipMode.USER and not is_caller_token_run(
             ctx.run_id, ctx.state
         ):
-            integration = resolve_user_github_integration_for_task(task, repository=ctx.repository, allow_refresh=True)
+            integration = resolve_user_github_integration_for_task(
+                task,
+                actor_user=actor_user,
+                repository=ctx.repository,
+                allow_refresh=True,
+            )
 
         if integration is not None:
             return self._refresh_shared_user_integration(sandbox, ctx, integration)
@@ -262,6 +273,7 @@ class GitHubSandboxCredential:
             run_id=ctx.run_id,
             state=ctx.state,
             task=task,
+            actor_user=actor_user,
             github_user_integration_id=ctx.github_user_integration_id,
             repository=ctx.repository,
         )

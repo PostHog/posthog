@@ -191,6 +191,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -237,6 +238,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )
@@ -276,6 +278,7 @@ class TestForwardPendingUserMessage(TestCase):
                 "pending_user_message": "fix the tests",
                 "pending_user_message_ts": "1234.5",
                 "interaction_origin": "slack",
+                "slack_actor_user_id": self.user.id,
                 "sandbox_url": "https://sandbox.example.com/rpc",
             }
         )

@@ -32,6 +32,10 @@ from .refresh_sandbox_credentials import (
 )
 from .relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .send_permission_response_to_sandbox import (
+    SendPermissionResponseToSandboxInput,
+    send_permission_response_to_sandbox,
+)
 from .start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -71,6 +75,7 @@ __all__ = [
     "TrackWorkflowEventInput",
     "UpdateTaskRunStatusInput",
     "RelaySandboxEventsInput",
+    "SendPermissionResponseToSandboxInput",
     "SendFollowupToSandboxInput",
     "cleanup_sandbox",
     "create_resume_snapshot",
@@ -79,6 +84,7 @@ __all__ = [
     "execute_task_in_sandbox",
     "forward_pending_user_message",
     "relay_sandbox_events",
+    "send_permission_response_to_sandbox",
     "send_followup_to_sandbox",
     "get_sandbox_for_repository",
     "get_task_processing_context",
