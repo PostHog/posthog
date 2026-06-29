@@ -1835,31 +1835,63 @@ canonical) — API/MCP only for now; the **"reset to canonical"** force-re-pull 
 per-PR coordinator step that picks _which_ of the enabled perspectives best fit a given PR (the user's "what
 perspectives make sense for this PR").
 
-##### ⏭ NEXT — per-user custom validators (one active at a time) — NOT BUILT, marked for the step after
+##### ✅ BUILT 2026-06-29 — per-user custom validators (single-active) (uncommitted)
 
 The same move as perspectives, applied to the **validator**, **reusing the same `ReviewSkillConfig` table** (the
-model was renamed generic for exactly this). The validator rows carry the `review-hog-validation-*` prefix; the
-prefix is the only thing that distinguishes them from perspective rows — no `kind` column. One structural
-difference the user called out: a review runs **exactly one** validator (the bar for "does this issue matter"), so
-this is a **single-active selection per user**, not a multi-enable set. The cardinality difference is **app-level
-logic, not a table change**: a "select" endpoint sets the chosen validation row `enabled=True` and flips the user's
-other validation rows off (one `UPDATE`), exactly as the perspective min-1 floor is enforced in app code. A user
-authors a custom `review-hog-validation-*` skill (any content) and selects which one validates their reviews;
-absent any enabled validation row, the canonical `review-hog-validation-criteria` is the default (so no min-1 floor
-needed — there's always a fallback). Build shape: `load_validation_skill_for_run(team_id, acting_user_id)` reads
-the user's single enabled `review-hog-validation-*` row (else the canonical default), replacing today's
-team-latest-by-name resolve; a `register_missing_validation_config` analogue seeds the canonical validator enabled;
-the toggle is a validation-prefix branch in the existing config viewset (enabling a validator flips the others off)
-or a sibling action. Reuse the acting-user resolution already built (same `resolve_acting_user_activity` result
-threads into validation). **Temporal threading — mirror exactly what perspectives did** (see the As-built record):
-the validator loads inside `ValidateIssuesWorkflow` via `load_validation_skill_activity(ValidateIntegrationInput(
-team_id))` today, with no acting user — thread `acting_user_id` onto `ValidateIssuesInputs` (passed from the parent
-after the gate, just like `ReviewPerspectivesInputs.acting_user_id`) and swap that activity's input for a
-`LoadValidationInput(team_id, acting_user_id)` (the analogue of `LoadPerspectivesInput`). Validator skills stay
-team-level and editable exactly like perspectives; the output
-schema (`IssueValidation`) stays fixed. If the DB should _guarantee_ one active validator, a partial unique index
-(`UNIQUE(team,user) WHERE validation-prefix AND enabled`) is the option — but app-level matches perspectives. Not
-started.
+model was renamed generic for exactly this). Validator rows carry the `review-hog-validation-*` prefix; the prefix
+is the only thing that distinguishes them from perspective rows — no `kind` column. The one structural difference: a
+review runs **exactly one** validator (the bar for "does this issue matter"), so this is a **single-active selection
+per user**, not a multi-enable set — enforced in **app code, not a DB constraint** (the user explicitly ruled the
+partial unique index overengineering since the code check is good enough). A user authors a custom
+`review-hog-validation-*` skill and selects which one validates their reviews; absent any enabled validation row the
+canonical `review-hog-validation-criteria` is the default, so there is no min-1 floor (always a fallback).
+
+What shipped:
+
+- **`load_validation_skill_for_run(team_id, acting_user_id)`** (`skill_loader.py`, replacing the old single-arg
+  team-latest-by-name resolve) seeds the canonical config, reads the user's single enabled `review-hog-validation-*`
+  row (canonical default if none), pins its latest non-deleted version, and **raises `ValidationSkillNotFoundError`
+  if the selected skill's row is missing** (hard error, uniform with perspectives — the locked decision). The
+  `sorted(...)[0]` is only a deterministic tiebreak; single-active is an app invariant. `register_missing_validation_config`
+  is the `register_missing_perspective_configs` analogue (seeds the one canonical enabled; `CANONICAL_VALIDATION_SKILL_NAMES`
+  is a single-element tuple).
+- **Shared-table hardening (the non-obvious part):** because perspectives and validators now share `ReviewSkillConfig`,
+  the perspective-side queries that assumed "every row is a perspective" were prefix-scoped — `load_perspectives_for_run`'s
+  enabled-set read and the perspective viewset's min-1-floor count both gained
+  `skill_name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX`. Without this, an enabled validator row would be loaded/counted
+  as a perspective. The validator-side select's bulk deactivate is symmetrically scoped to the validation prefix so it
+  never disables the user's perspective rows. All three are guarded by regression tests that fail if the prefix is dropped.
+- **Temporal threading mirrors perspectives exactly:** `acting_user_id` was added to `ValidateIssuesInputs`, the parent
+  passes the **resolved** value (from `resolve_acting_user_activity`, the same gate perspectives use), and the activity
+  input swapped from `ValidateIntegrationInput(team_id)` to a new `LoadValidationInput(team_id, acting_user_id)` (the
+  `LoadPerspectivesInput` analogue). `ValidateIntegrationInput` is still used by `validate_github_integration_activity`.
+- **A sibling viewset `ReviewValidatorConfigViewSet`** (`api/validators.py`, `scope_object="INTERNAL"`) at
+  `/api/projects/:team_id/review_hog/validators` — chosen over branching the perspectives viewset because the two have
+  different interaction semantics (radio vs checkbox, no floor vs min-1) and one handler carrying both is a
+  conditional-behavior-by-prefix smell; the shared model + loader helpers mean no logic duplication. `list` shows every
+  validator with the user's active one flagged (canonical auto-seeds active); `partial_update` PATCH `{active: true}`
+  **selects** — inside one `transaction.atomic` it flips the user's other validation rows off (bumping `updated_at` to
+  match the per-row save) then enables the chosen one (upsert + re-enable branch for switch-back). `active: false` is
+  rejected (single-active: switch by selecting a different one).
+
+**Tests** (`/writing-tests`): validator loader (cold→canonical pinned, team-edited version, selected custom resolves,
+fallback-when-none-enabled, missing selected skill raises, per-user isolation), `register_missing_validation_config`
+(seeds canonical enabled + idempotent, never re-enables a deselected canonical), validator config API (list active/
+inactive, **list excludes perspective skills**, select flips canonical off, **switching between two customs keeps
+exactly one active incl. the re-enable branch**, **selecting a validator leaves perspective configs enabled**, reject
+deactivate, 400 non-validator, 404 unknown), and a workflow assertion that the **resolved** `acting_user_id` (not the
+None input) threads into both the perspective and validation loads.
+
+**Adversarial review** (6-dimension fan-out + per-finding verification) found no production bug — the shipped code
+was correct on every dimension. It surfaced test-coverage gaps (since closed: the two-custom switch, the cross-table
+write prefix-scope guard, the list cross-prefix guard, the workflow thread-through assert) and two trivial hygiene
+fixes (a 3-line comment tightened to 2; `updated_at` bumped on the bulk deactivate to match the per-row save). One
+scary-looking "prefix filter is ABSENT" report was a false alarm — a parallel verifier had temporarily edited the
+file to prove a gap and another agent read it mid-experiment.
+
+**Still deferred (own steps):** validator selection in the ReviewHog skills **UI** (ships with the perspective UI —
+API/MCP only for now); a partial unique index if a hard DB single-active guarantee is ever wanted (app-level matches
+perspectives today).
 
 The fact that keeps all of this safe: **the output schema is fixed; only the skill (logic) is editable.** Every
 perspective validates against `IssuesReview`/`Issue`, the validator against `IssueValidation`, chunking against
