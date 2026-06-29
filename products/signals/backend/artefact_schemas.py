@@ -76,9 +76,15 @@ class SignalFinding(BaseModel):
         description=(
             "A mapping of 'git commit short SHA (7 characters)' -> 'reason'. "
             "Values are short explanations of WHY each commit is relevant. "
-            "Use `git blame` on the most critical code paths to identify commits that caused, or are most closely related to, "
-            "the issue described by this report. Prioritize causative commits "
-            "(e.g. the commit that introduced a bug) over general authorship commits. Include 1-5 commits."
+            "Use `git blame --ignore-revs-file $(git rev-parse --show-toplevel)/.git-blame-ignore-revs` on "
+            "the most critical code paths to identify commits that caused, or are most closely related to, "
+            "the issue described by this report. Prioritize causative commits (e.g. the commit that introduced a bug) "
+            "over general authorship commits. "
+            "Exclude commits authored by bots (any GitHub login ending in `[bot]`), "
+            "commits authored by known LLM authors (such as Claude, OpenAI, etc.), "
+            "and commits whose only relationship to the code is a repo-wide mechanical change "
+            "(linting, formatting, import sorting, bulk refactor) — those authors "
+            "didn't meaningfully shape this code and must not be surfaced as reviewers. Include 1-5 commits."
         ),
     )
     data_queried: str = Field(

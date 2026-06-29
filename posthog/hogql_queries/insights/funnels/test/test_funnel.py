@@ -4134,6 +4134,69 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[1]["average_conversion_time"], 1_207_020)
         self.assertEqual(results[1]["median_conversion_time"], 1_207_020)
 
+    def test_total_median_conversion_time(self):
+        _create_person(distinct_ids=["user_fast"], team=self.team)
+        _create_person(distinct_ids=["user_mid"], team=self.team)
+        _create_person(distinct_ids=["user_slow"], team=self.team)
+        _create_person(distinct_ids=["user_dropoff"], team=self.team)
+
+        # Three completers convert in 100s / 200s / 900s; the dropoff never reaches step 2 and is excluded.
+        # Browser is set so we can verify the median stays global (breakdown-agnostic) below.
+        events_by_person = {
+            "user_fast": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "user signed up", "timestamp": datetime(2024, 3, 1, 12, 1, 40)},
+            ],
+            "user_mid": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Chrome"},
+                },
+                {"event": "user signed up", "timestamp": datetime(2024, 3, 1, 12, 3, 20)},
+            ],
+            "user_slow": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Safari"},
+                },
+                {"event": "user signed up", "timestamp": datetime(2024, 3, 1, 12, 15, 0)},
+            ],
+            "user_dropoff": [
+                {
+                    "event": "$pageview",
+                    "timestamp": datetime(2024, 3, 1, 12, 0, 0),
+                    "properties": {"$browser": "Safari"},
+                },
+            ],
+        }
+        journeys_for(events_by_person, self.team)
+
+        series = [
+            EventsNode(event="$pageview", name="$pageview"),
+            EventsNode(event="user signed up", name="user signed up"),
+        ]
+        date_range = DateRange(date_from="2024-02-17", date_to="2024-03-18")
+
+        query = FunnelsQuery(dateRange=date_range, series=series)
+        response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+        # Median of [100, 200, 900] is 200; the dropoff has no full-funnel time and doesn't count.
+        self.assertEqual(response.total_median_conversion_time, 200)
+
+        # With a breakdown active the median is still computed over all completers, not per browser.
+        breakdown_query = FunnelsQuery(
+            dateRange=date_range,
+            series=series,
+            breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+        breakdown_response = FunnelsQueryRunner(query=breakdown_query, team=self.team).calculate()
+        self.assertEqual(breakdown_response.total_median_conversion_time, 200)
+
     def test_parses_breakdowns_correctly(self):
         _create_person(
             distinct_ids=[f"user_1"],

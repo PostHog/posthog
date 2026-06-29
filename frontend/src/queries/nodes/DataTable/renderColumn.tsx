@@ -18,6 +18,7 @@ import { formatCurrency } from 'lib/utils/currency'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { isURL } from 'lib/utils/url'
 import { GroupActorDisplay } from 'scenes/persons/GroupActorDisplay'
+import { pickBestPersonDistinctId } from 'scenes/persons/person-utils'
 import { PersonDisplay, PersonDisplayProps } from 'scenes/persons/PersonDisplay'
 import { sessionColumnRenderers } from 'scenes/sessions/sessionColumnRenderers'
 import { urls } from 'scenes/urls'
@@ -339,14 +340,15 @@ export function renderColumn(
         }
 
         if (isPersonsNode(query.source) && personRecord.distinct_ids) {
-            displayProps.href = urls.personByDistinctId(personRecord.distinct_ids[0])
+            displayProps.href = urls.personByDistinctId(
+                pickBestPersonDistinctId(personRecord.distinct_ids) ?? personRecord.distinct_ids[0]
+            )
         }
 
         if (isActorsQuery(query.source) && value) {
             displayProps.person = value
-            displayProps.href = value.distinct_ids?.[0]
-                ? urls.personByDistinctId(value.distinct_ids[0])
-                : urls.personByUUID(value.id)
+            const bestDistinctId = pickBestPersonDistinctId(value.distinct_ids)
+            displayProps.href = bestDistinctId ? urls.personByDistinctId(bestDistinctId) : urls.personByUUID(value.id)
         }
 
         if (isTracesQuery(query.source) && value) {

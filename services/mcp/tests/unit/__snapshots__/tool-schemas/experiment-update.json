@@ -46,6 +46,20 @@
             ],
             "description": "Description of the experiment hypothesis and expected outcomes."
         },
+        "excluded_variants": {
+            "anyOf": [
+                {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`."
+        },
         "exposure_criteria": {
             "anyOf": [
                 {
@@ -214,6 +228,18 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "multiple_variant_handling": {
+                            "anyOf": [
+                                {
+                                    "enum": ["exclude", "first_seen"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
                         }
                     },
                     "type": "object"
@@ -3546,20 +3572,6 @@
             "anyOf": [
                 {
                     "properties": {
-                        "excluded_variants": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "type": "string"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
-                        },
                         "feature_flag_variants": {
                             "anyOf": [
                                 {
@@ -3659,7 +3671,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded), and `variant_notes` (free-text notes per variant, keyed by variant key). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`."
+            "description": "Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here."
         },
         "running_time_calculation": {
             "anyOf": [
@@ -3758,7 +3770,35 @@
                     "type": "null"
                 }
             ],
-            "description": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config. These values are kept in sync with the legacy parameters.* keys during the deprecation window, so prefer this field over writing the calculator keys inside parameters."
+            "description": "Persist a running-time / sample-size plan onto the experiment (the planning target shown in the experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage, e.g. 20 for a 20% lift), recommended_sample_size (total across all variants), recommended_running_time (days), and exposure_estimate_config."
+        },
+        "saved_metrics_ids": {
+            "description": "The complete desired set of shared (saved) metrics for the experiment — this REPLACES all existing saved-metric links, it does not append. To add or remove one, first read the experiment's current saved_metrics via experiment-get and resend the full set. Pass an empty array to detach all shared metrics.",
+            "items": {
+                "properties": {
+                    "id": {
+                        "description": "ID of an existing shared/saved metric. Discover IDs with experiment-saved-metrics-list.",
+                        "maximum": 9007199254740991,
+                        "minimum": -9007199254740991,
+                        "type": "integer"
+                    },
+                    "metadata": {
+                        "description": "Optional per-link metadata. Omit to default this metric to primary.",
+                        "properties": {
+                            "type": {
+                                "description": "Whether this metric is a primary or secondary metric on the experiment.",
+                                "enum": ["primary", "secondary"],
+                                "type": "string"
+                            }
+                        },
+                        "required": ["type"],
+                        "type": "object"
+                    }
+                },
+                "required": ["id"],
+                "type": "object"
+            },
+            "type": "array"
         },
         "stats_config": {},
         "update_feature_flag_params": {

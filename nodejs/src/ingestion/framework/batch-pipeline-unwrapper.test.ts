@@ -1,8 +1,8 @@
 import { Message } from 'node-rdkafka'
 
 import { OVERFLOW_OUTPUT } from '~/common/outputs'
+import { logger } from '~/common/utils/logger'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
-import { logger } from '~/utils/logger'
 
 import { BatchPipelineUnwrapper } from './batch-pipeline-unwrapper'
 import { BatchPipeline } from './batch-pipeline.interface'
@@ -10,7 +10,7 @@ import { DefaultContext, createContext, createNewBatchPipeline, createOkContext 
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock the logger
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: {
         warn: jest.fn(),
     },

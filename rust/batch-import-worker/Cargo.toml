@@ -48,7 +48,7 @@ metrics = { workspace = true }
 url = { workspace = true }
 urlencoding = "2.1"
 moka = { workspace = true }
-posthog-rs = { version = "0.4.2", features = ["async-client"] }
+posthog-rs = { version = "0.13.3", features = ["async-client", "capture-v1"] }
 
 [dev-dependencies]
 httpmock = { workspace = true }

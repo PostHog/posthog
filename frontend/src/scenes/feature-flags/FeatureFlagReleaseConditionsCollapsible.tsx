@@ -72,6 +72,7 @@ import {
 
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { EarlyExitIndicator } from './EarlyExitIndicator'
 import { FeatureFlagConditionDragHandle } from './FeatureFlagConditionDragHandle'
@@ -478,7 +479,10 @@ const ConditionContent = ({
 
     const resolvedTargetName = aggregationTargetName(group.aggregation_group_type_index)
     const resolvedSingularTargetName = aggregationLabel(
-        group.aggregation_group_type_index ?? releaseFilters.aggregation_group_type_index,
+        resolveAggregationGroupTypeIndex(
+            group.aggregation_group_type_index,
+            releaseFilters.aggregation_group_type_index
+        ),
         true
     ).singular
 
@@ -607,8 +611,7 @@ const ConditionContent = ({
                                                 updateConditionSet(index, undefined, properties)
                                             }}
                                             taxonomicGroupTypes={taxonomicGroupTypesForCondition(
-                                                group.aggregation_group_type_index ??
-                                                    releaseFilters.aggregation_group_type_index
+                                                group.aggregation_group_type_index
                                             )}
                                             taxonomicFilterOptionsFromProp={filtersTaxonomicOptions}
                                             hasRowOperator={false}
@@ -683,9 +686,10 @@ const ConditionContent = ({
                                                                         resolvedTargetName
                                                                     )}
                                                                 </b>
-                                                                {(group.aggregation_group_type_index ??
-                                                                    releaseFilters.aggregation_group_type_index) ==
-                                                                    null && (
+                                                                {resolveAggregationGroupTypeIndex(
+                                                                    group.aggregation_group_type_index,
+                                                                    releaseFilters.aggregation_group_type_index
+                                                                ) == null && (
                                                                     <Tooltip
                                                                         title={MATCHING_ESTIMATE_TOOLTIP}
                                                                         interactive

@@ -1,5 +1,3 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use common_types::TeamId;
 use hogvm::{ExecutionContext, Program, StepOutcome, VmError};
@@ -14,9 +12,7 @@ use crate::{
         CUSTOM_GROUPED_EVENTS, GROUPING_RULES_DISABLED, GROUPING_RULES_FOUND,
         GROUPING_RULES_PROCESSING_TIME, GROUPING_RULES_TRIED,
     },
-    modes::processing::rules::assignment::NewAssignment,
     teams::TeamManager,
-    types::RawErrProps,
 };
 
 #[derive(Debug, Clone)]
@@ -97,10 +93,10 @@ impl GroupingRule {
             }
         };
 
-        let mut globals = HashMap::new();
-        globals.insert("properties".to_string(), props.clone());
-        let globals: Value = serde_json::to_value(globals)
-            .expect("Can construct a json object from a hashmap of String:JsonValue");
+        let globals = Value::Object(serde_json::Map::from_iter([(
+            "properties".to_string(),
+            props.clone(),
+        )]));
         let program = Program::new(rule_bytecode.clone())?;
         let context = ExecutionContext::with_defaults(program).with_globals(globals);
         let mut vm = context.to_vm()?;
@@ -127,49 +123,6 @@ impl GroupingRule {
 
         Err(VmError::OutOfResource("steps".to_string()))
     }
-
-    pub fn assignment(&self) -> Option<NewAssignment> {
-        NewAssignment::try_new(self.user_id, self.role_id)
-    }
-}
-
-pub async fn try_grouping_rules(
-    con: &mut PgConnection,
-    team_id: TeamId,
-    team_manager: &TeamManager,
-    exception_properties: &RawErrProps,
-) -> Result<Option<GroupingRule>, UnhandledError> {
-    let mut props_json = serde_json::to_value(exception_properties)?;
-
-    if let Value::Object(ref mut props) = props_json {
-        let exception_list = &exception_properties.exception_list;
-        props.insert(
-            "$exception_types".to_string(),
-            serde_json::to_value(exception_list.get_unique_types())?,
-        );
-        props.insert(
-            "$exception_values".to_string(),
-            serde_json::to_value(exception_list.get_unique_messages())?,
-        );
-        props.insert(
-            "$exception_releases".to_string(),
-            serde_json::to_value(exception_list.get_release_map())?,
-        );
-        props.insert(
-            "$exception_sources".to_string(),
-            serde_json::to_value(exception_list.get_unique_sources())?,
-        );
-        props.insert(
-            "$exception_functions".to_string(),
-            serde_json::to_value(exception_list.get_unique_functions())?,
-        );
-        props.insert(
-            "$exception_handled".to_string(),
-            serde_json::to_value(exception_list.get_is_handled())?,
-        );
-    }
-
-    evaluate_grouping_rules(con, team_id, team_manager, props_json).await
 }
 
 pub async fn evaluate_grouping_rules(
@@ -215,27 +168,19 @@ pub async fn evaluate_grouping_rules(
 
     timing.label("outcome", "no_match").fin();
 
-    // If none of the rules matched, grab the existing assignment, in case one exists,
-    // and return that (or None)
     Ok(None)
 }
 
 #[cfg(test)]
 mod test {
-    use std::collections::HashMap;
-
     use chrono::Utc;
     use serde_json::{json, Value as JsonValue};
     use sqlx::PgPool;
     use uuid::Uuid;
 
-    use crate::{
-        fingerprinting::resolve_fingerprint,
-        test_utils::create_test_context,
-        types::{ExceptionList, RawErrProps},
-    };
+    use crate::{fingerprinting::Fingerprint, test_utils::create_test_context};
 
-    use super::GroupingRule;
+    use super::{evaluate_grouping_rules, GroupingRule};
 
     fn rule_bytecode() -> JsonValue {
         // return properties.test_value = 'test_value'
@@ -268,27 +213,20 @@ mod test {
         }
     }
 
-    fn test_props() -> RawErrProps {
-        RawErrProps {
-            exception_list: ExceptionList(vec![]),
-            fingerprint: None,
-            issue_name: None,
-            issue_description: None,
-            handled: None,
-            other: HashMap::new(),
-            debug_images: vec![],
-        }
+    fn test_props(test_value: JsonValue) -> JsonValue {
+        json!({
+            "$exception_list": [],
+            "test_value": test_value,
+        })
     }
 
     #[sqlx::test(migrations = "./tests/test_migrations")]
     async fn test_grouping_rules(db: PgPool) {
         let ctx = create_test_context(db).await;
+        let mut conn = ctx.posthog_pool.acquire().await.unwrap();
 
         let test_team_id = 1;
-        let mut test_props = test_props();
-        test_props
-            .other
-            .insert("test_value".to_string(), JsonValue::from("test_value"));
+        let props = test_props(JsonValue::from("test_value"));
 
         let rule = get_test_rule();
         let expected_fingerprint = format!("custom-rule:{}", rule.id);
@@ -297,39 +235,22 @@ mod test {
             .grouping_rules
             .insert(test_team_id, vec![rule]);
 
-        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
-            .await
-            .unwrap();
+        let matched =
+            evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, props.clone())
+                .await
+                .unwrap();
+        let fingerprint = Fingerprint::from_rule(matched.expect("rule should match"));
 
-        assert_eq!(res.value, expected_fingerprint);
-        assert!(res.assignment.is_none()); // The rule has no assignment associated with it
+        assert_eq!(fingerprint.value, expected_fingerprint);
 
-        // Make sure if a rule has an assignment associated with it, it's returned in the fingerprint
-        let mut rule = get_test_rule();
-        let expected_fingerprint = format!("custom-rule:{}", rule.id);
-        rule.user_id = Some(1);
-        ctx.team_manager
-            .grouping_rules
-            .insert(test_team_id, vec![rule]);
-
-        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
-            .await
-            .unwrap();
-
-        assert_eq!(res.value, expected_fingerprint);
-        assert!(res.assignment.is_some());
-
-        // Insert a different value - simply removed the value would cause the rule to be disabled, since it
+        // Insert a different value - simply removing the value would cause the rule to be disabled, since it
         // tries to access an undefined global
-        test_props
-            .other
-            .insert("test_value".to_string(), JsonValue::from("no_match"));
+        let props = test_props(JsonValue::from("no_match"));
 
-        let res = resolve_fingerprint(&ctx, test_team_id, &test_props)
+        let matched = evaluate_grouping_rules(&mut conn, test_team_id, &ctx.team_manager, props)
             .await
             .unwrap();
 
-        assert_ne!(res.value, expected_fingerprint);
-        assert!(res.assignment.is_none());
+        assert!(matched.is_none());
     }
 }

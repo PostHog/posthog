@@ -2,10 +2,10 @@ import { chunk } from 'lodash'
 import { Gauge } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk } from '../../../types'
-import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { CyclotronV2DequeuedJob, CyclotronV2JobInit, CyclotronV2Manager, CyclotronV2Worker } from '../cyclotron-v2'
@@ -47,11 +47,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             | 'CDP_CYCLOTRON_INSERT_MAX_BATCH_SIZE'
             | 'CDP_CYCLOTRON_INSERT_PARALLEL_BATCHES'
             | 'CDP_CYCLOTRON_STRIP_PERSON_FROM_STATE_TEAMS'
-        >,
-        // Worker-level options the queue passes through to the worker on
-        // construction. Currently just fair dequeue; other per-worker tweaks
-        // could go here without bloating the constructor signature further.
-        private workerOptions: { fairDequeue?: boolean } = {}
+        >
     ) {
         this.sanitizer = createInvocationSanitizer(config)
     }
@@ -96,7 +92,6 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
             batchMaxSize: this.consumerBatchSize,
             pollDelayMs: this.config.CDP_CYCLOTRON_BATCH_DELAY_MS,
             includeEmptyBatches: true,
-            fairDequeue: this.workerOptions.fairDequeue,
         })
 
         await this.worker.connect(async (jobs) => {
@@ -277,7 +272,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
     return Buffer.from(JSON.stringify(blob))
 }
 
-function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
+export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)

@@ -621,6 +621,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "status": "draft",
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
@@ -3848,6 +3849,7 @@ class TestExperimentCRUD(APILicensedTest):
                 "status": result["status"],
                 "metrics_count": 0,
                 "secondary_metrics_count": 0,
+                "saved_metrics_count": 0,
                 "has_description": False,
                 "has_conclusion_comment": False,
                 "variant_count": 2,
@@ -7110,7 +7112,7 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
         return response.json()
 
-    def test_create_with_legacy_parameters_populates_running_time_calculation(self):
+    def test_create_with_legacy_parameters_does_not_populate_running_time_calculation(self):
         created = self._create_experiment(
             parameters={
                 "minimum_detectable_effect": 25,
@@ -7120,19 +7122,13 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             }
         )
 
-        expected = {
-            "minimum_detectable_effect": 25,
-            "recommended_running_time": 14,
-            "recommended_sample_size": 5000,
-            "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG,
-        }
-        self.assertEqual(created["running_time_calculation"], expected)
-        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 25)
+        # Legacy calculator keys in `parameters` are no longer mirrored into the canonical field.
+        self.assertEqual(created["running_time_calculation"], {})
 
         experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(experiment.running_time_calculation, expected)
+        self.assertEqual(experiment.running_time_calculation, {})
 
-    def test_create_with_running_time_calculation_mirrors_into_parameters(self):
+    def test_create_with_running_time_calculation_does_not_touch_parameters(self):
         created = self._create_experiment(
             running_time_calculation={
                 "minimum_detectable_effect": 20,
@@ -7144,22 +7140,23 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             created["running_time_calculation"],
             {"minimum_detectable_effect": 20, "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG},
         )
-        self.assertEqual(created["parameters"]["minimum_detectable_effect"], 20)
-        self.assertEqual(created["parameters"]["exposure_estimate_config"], self.EXPOSURE_ESTIMATE_CONFIG)
+        self.assertNotIn("minimum_detectable_effect", created["parameters"] or {})
+        self.assertNotIn("exposure_estimate_config", created["parameters"] or {})
 
         experiment = Experiment.objects.get(pk=created["id"])
-        assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 20)
+        self.assertEqual(
+            experiment.running_time_calculation,
+            {"minimum_detectable_effect": 20, "exposure_estimate_config": self.EXPOSURE_ESTIMATE_CONFIG},
+        )
+        self.assertNotIn("minimum_detectable_effect", experiment.parameters or {})
 
-    def test_update_running_time_calculation_merges_into_parameters(self):
+    def test_update_running_time_calculation_does_not_touch_parameters(self):
         created = self._create_experiment(
             parameters={
                 "feature_flag_variants": [
                     {"key": "control", "rollout_percentage": 50},
                     {"key": "test", "rollout_percentage": 50},
                 ],
-                "minimum_detectable_effect": 25,
-                "recommended_sample_size": 5000,
             }
         )
 
@@ -7174,12 +7171,11 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             experiment.running_time_calculation,
             {"minimum_detectable_effect": 10, "recommended_running_time": 7},
         )
-        # Other parameters keys survive; calculator keys are replaced wholesale
+        # `parameters` is untouched: variants survive and no calculator keys leak in.
         assert experiment.parameters is not None
         self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 2)
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 10)
-        self.assertEqual(experiment.parameters["recommended_running_time"], 7)
-        self.assertNotIn("recommended_sample_size", experiment.parameters)
+        self.assertNotIn("minimum_detectable_effect", experiment.parameters)
+        self.assertNotIn("recommended_running_time", experiment.parameters)
 
     def test_update_running_time_calculation_does_not_touch_feature_flag(self):
         variants = [
@@ -7200,8 +7196,10 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         flag.refresh_from_db()
         self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
 
-    def test_update_parameters_derives_running_time_calculation(self):
-        created = self._create_experiment()
+    def test_update_parameters_does_not_touch_running_time_calculation(self):
+        created = self._create_experiment(
+            running_time_calculation={"minimum_detectable_effect": 15},
+        )
 
         response = self.client.patch(
             f"/api/projects/{self.team.id}/experiments/{created['id']}/",
@@ -7210,21 +7208,10 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         experiment = Experiment.objects.get(pk=created["id"])
-        self.assertEqual(
-            experiment.running_time_calculation,
-            {"minimum_detectable_effect": 30, "recommended_sample_size": 1000},
-        )
+        # The canonical field is independent of legacy `parameters` calculator keys.
+        self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 15})
 
-        # parameters replaces wholesale, so dropping the keys clears the canonical field too
-        response = self.client.patch(
-            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
-            {"parameters": {}},
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
-        experiment.refresh_from_db()
-        self.assertEqual(experiment.running_time_calculation, {})
-
-    def test_running_time_calculation_wins_when_both_sent(self):
+    def test_running_time_calculation_and_parameters_are_independent(self):
         created = self._create_experiment()
 
         response = self.client.patch(
@@ -7237,9 +7224,10 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
         experiment = Experiment.objects.get(pk=created["id"])
+        # Each side is stored exactly as sent — no cross-write between them.
         self.assertEqual(experiment.running_time_calculation, {"minimum_detectable_effect": 11})
         assert experiment.parameters is not None
-        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 11)
+        self.assertEqual(experiment.parameters["minimum_detectable_effect"], 99)
 
     @parameterized.expand(
         [
@@ -7256,6 +7244,104 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
                 "name": "Invalid running time",
                 "feature_flag_key": "invalid-running-time-flag",
                 "running_time_calculation": value,
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestExperimentExcludedVariants(APILicensedTest):
+    THREE_VARIANTS = [
+        {"key": "control", "rollout_percentage": 34},
+        {"key": "test-1", "rollout_percentage": 33},
+        {"key": "test-2", "rollout_percentage": 33},
+    ]
+
+    def _create_experiment(self, **overrides: Any) -> dict:
+        payload: dict[str, Any] = {
+            "name": "Excluded variants experiment",
+            "feature_flag_key": "excluded-variants-flag",
+            "filters": {"events": [{"order": 0, "id": "$pageview"}], "properties": []},
+            **overrides,
+        }
+        response = self.client.post(f"/api/projects/{self.team.id}/experiments/", payload)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
+        return response.json()
+
+    def test_create_with_excluded_variants_writes_only_column(self):
+        created = self._create_experiment(
+            parameters={"feature_flag_variants": self.THREE_VARIANTS},
+            excluded_variants=["test-2"],
+        )
+
+        self.assertEqual(created["excluded_variants"], ["test-2"])
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # No longer mirrored into the deprecated parameters blob
+        assert experiment.parameters is not None
+        self.assertNotIn("excluded_variants", experiment.parameters)
+
+    def test_update_excluded_variants_does_not_require_feature_flag_variants(self):
+        """The headline of the parameters split: excluding a variant no longer requires
+        re-sending feature_flag_variants, because validation resolves against the flag."""
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        experiment = Experiment.objects.get(pk=created["id"])
+        self.assertEqual(experiment.excluded_variants, ["test-2"])
+        # Only the column is written; the deprecated parameters blob is untouched
+        assert experiment.parameters is not None
+        self.assertNotIn("excluded_variants", experiment.parameters)
+        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
+
+    def test_update_excluded_variants_does_not_touch_feature_flag(self):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+        flag = FeatureFlag.objects.get(key="excluded-variants-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": ["test-2"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        flag.refresh_from_db()
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
+
+    @parameterized.expand(
+        [
+            ("unknown_variant", ["does-not-exist"]),
+            ("baseline_excluded", ["control"]),
+            ("all_test_variants_excluded", ["test-1", "test-2"]),
+        ]
+    )
+    def test_update_excluded_variants_validates_against_flag_variants(self, _name: str, excluded_variants: list):
+        created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{created['id']}/",
+            {"excluded_variants": excluded_variants},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+
+    @parameterized.expand(
+        [
+            ("non_list", "test-2"),
+            ("non_string_element", [123]),
+        ]
+    )
+    def test_invalid_excluded_variants_rejected(self, _name: str, value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Invalid excluded variants",
+                "feature_flag_key": "invalid-excluded-variants-flag",
+                "excluded_variants": value,
             },
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
@@ -7405,4 +7491,29 @@ class TestExperimentSerializerSuperset(unittest.TestCase):
         self.assertFalse(
             mismatches,
             "Shared fields have mismatched read_only/required between serializers:\n" + "\n".join(mismatches),
+        )
+
+
+class TestExperimentApiExposureCriteriaParity(unittest.TestCase):
+    """Structural guard: the slim API exposure-criteria schema must expose every writable field.
+
+    ``exposure_criteria`` is stored as a plain JSONField, so the backend accepts any field at
+    runtime. ``ExperimentApiExposureCriteria`` is the slim type that drives the OpenAPI spec and,
+    downstream, the MCP tool / frontend write schema. A field honored at runtime (read from
+    ``ExperimentExposureCriteria``) but missing from the slim type is silently stripped by the
+    generated client before it ever reaches the API — which is how ``multiple_variant_handling``
+    looked settable via ``experiment-get`` yet never saved via ``experiment-update``.
+    """
+
+    def test_api_schema_exposes_every_runtime_field(self) -> None:
+        from posthog.schema import ExperimentApiExposureCriteria, ExperimentExposureCriteria
+
+        runtime_fields = set(ExperimentExposureCriteria.model_fields)
+        api_fields = set(ExperimentApiExposureCriteria.model_fields)
+        dropped = runtime_fields - api_fields
+        self.assertFalse(
+            dropped,
+            f"ExperimentApiExposureCriteria omits exposure_criteria fields the runtime honors: {dropped}. "
+            "Generated write clients (MCP, frontend) strip these silently — add them to the slim API "
+            "type in frontend/src/queries/schema/schema-general.ts and rerun hogli build:schema.",
         )

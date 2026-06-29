@@ -245,6 +245,9 @@ impl Job {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
             // but this pod should restart, in case it's sink is in some bad state
             error!("Failed to commit chunk: {:?}", e);
+            if let Err(cleanup_err) = self.source.cleanup_after_job().await {
+                warn!("Failed to cleanup after commit failure: {:?}", cleanup_err);
+            }
             return Err(e);
         }
 

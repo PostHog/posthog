@@ -22,6 +22,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -1491,6 +1492,194 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
+    def test_hog_flow_data_warehouse_table_trigger_valid(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        trigger = response.json()["trigger"]
+        assert trigger["type"] == "data-warehouse-table"
+        assert trigger["table_name"] == "postgres.table_1"
+        # Filters should be compiled to bytecode with the data-warehouse-table source
+        assert trigger["filters"]["source"] == "data-warehouse-table"
+        assert "bytecode" in trigger["filters"]
+
+    def test_hog_flow_data_warehouse_table_trigger_without_table_name(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__table_name",
+            "code": "invalid_input",
+            "detail": "A data warehouse table name is required for this trigger.",
+            "type": "validation_error",
+        }
+
+    def test_hog_flow_data_warehouse_table_trigger_draft_allows_missing_table_name(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "draft",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_data_warehouse_table_trigger_filters_not_dict(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": "not a dict",
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__0__filters",
+            "code": "invalid_input",
+            "detail": "Filters must be a dictionary.",
+            "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            ("wait_until_condition", {"condition": {"filters": {"properties": []}}, "max_wait_duration": "5m"}),
+            ("random_cohort_branch", {"cohorts": [{"percentage": 50}]}),
+        ]
+    )
+    def test_hog_flow_data_warehouse_table_trigger_rejects_person_dependent_steps(self, action_type, action_config):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        person_dependent_action = {
+            "id": "person_step",
+            "name": "person_step",
+            "type": action_type,
+            "config": action_config,
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "actions": [trigger_action, person_dependent_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "actions"
+        assert action_type in response.json()["detail"]
+
+    def test_hog_flow_data_warehouse_table_trigger_draft_allows_person_dependent_steps(self):
+        # Drafts are not executed, so we defer the hard rejection until activation.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+        person_dependent_action = {
+            "id": "person_step",
+            "name": "person_step",
+            "type": "random_cohort_branch",
+            "config": {"cohorts": [{"percentage": 50}]},
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "draft",
+            "actions": [trigger_action, person_dependent_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
+        # Other exit conditions re-evaluate trigger/conversion filters that may reference person
+        # data, so warehouse-triggered flows are coerced to exit_only_at_end regardless of input.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "data-warehouse-table",
+                "table_name": "postgres.table_1",
+                "filters": {"properties": []},
+            },
+        }
+
+        hog_flow = {
+            "name": "Test DWH Flow",
+            "status": "active",
+            "exit_condition": "exit_on_conversion",
+            "actions": [trigger_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        assert response.json()["exit_condition"] == "exit_only_at_end"
+
     @parameterized.expand(
         [
             ("events", {"events": [{"id": "$pageview", "type": "events"}]}),
@@ -1849,6 +2038,108 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_user_blast_radius_persons.assert_not_called()
 
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "completed"
+        assert response.json()["no_op"] is False
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "failed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        # Already terminal → no-op, original status preserved
+        assert response.status_code == 200, response.json()
+        assert response.json()["no_op"] is True
+        assert response.json()["status"] == "completed"
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_rejects_invalid_status(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "active"},  # not a terminal state
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        batch_job.refresh_from_db()
+        assert batch_job.status == "active"  # unchanged
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_returns_404_for_missing_job(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/00000000-0000-0000-0000-000000000000/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 404, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_returns_404_for_invalid_uuid(self):
+        # `not-a-uuid` reaches UUIDField → ValidationError, must surface as 404 not 500.
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/not-a-uuid/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 404, response.json()
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_requires_internal_api_secret(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        # No INTERNAL_API_SECRET header → unauthenticated
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed"},
+            content_type="application/json",
+        )
+
+        # Endpoint requires internal auth — anything other than 200 is acceptable
+        assert response.status_code in (401, 403), response.json()
+
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
         trigger_action = {
@@ -1993,6 +2284,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
 
+    @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -2010,6 +2302,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["variables"] == batch_job_data["variables"]
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
+        # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_passes_elevated_audience_size(self, mock_create_invocation):
+        flow_id = self._create_active_hog_flow()
+
+        with override_settings(
+            HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+            HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+                {"variables": [{"key": "first_name", "value": "Test"}]},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_create_invocation.assert_called_once()
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.

@@ -151,15 +151,10 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         allow_null=True,
         help_text=(
             "Experiment parameters JSON. Supported keys include "
-            "`feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, "
-            "`custom_exposure_filter`, `excluded_variants` "
-            "(list of variant keys to drop from statistical analysis; "
-            "the baseline variant and holdout pseudo-variants cannot be excluded), "
-            "and `variant_notes` (free-text notes per variant, keyed by variant key). "
-            "The running-time calculator keys (`minimum_detectable_effect`, "
-            "`recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) "
-            "are deprecated here — prefer `running_time_calculation`."
+            "`feature_flag_variants`, `rollout_percentage`, "
+            "`custom_exposure_filter`, and `variant_notes` "
+            "(free-text notes per variant, keyed by variant key). "
+            "Excluded variants live on the top-level `excluded_variants` field, not here."
         ),
     )
     running_time_calculation = ExperimentRunningTimeCalculationField(
@@ -168,8 +163,18 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, "
             "`recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, "
-            "which historically lived in `parameters`; values are kept in sync with `parameters` "
-            "during the deprecation window."
+            "which historically lived in `parameters`."
+        ),
+    )
+    excluded_variants = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Variant keys to exclude from metric result calculations. Excluded variants are still "
+            "served to users but omitted from statistical analysis. The baseline variant and holdout "
+            "pseudo-variants cannot be excluded. Canonical home for what historically lived in "
+            "`parameters.excluded_variants`."
         ),
     )
     conclusion = serializers.ChoiceField(
@@ -316,6 +321,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "exposure_cohort",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "secondary_metrics",
             "saved_metrics",
             "saved_metrics_ids",
@@ -413,7 +419,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
                         get_experiment_stats_method(instance),
                         instance.exposure_criteria,
                         only_count_matured_users=instance.only_count_matured_users,
-                        excluded_variants=(instance.parameters or {}).get("excluded_variants"),
+                        excluded_variants=instance.excluded_variants or [],
                     )
 
         return data
@@ -432,6 +438,10 @@ class ExperimentSerializer(ExperimentBaseSerializer):
 
     def validate_running_time_calculation(self, value):
         ExperimentService.validate_running_time_calculation(value)
+        return value
+
+    def validate_excluded_variants(self, value):
+        ExperimentService.validate_excluded_variants(value)
         return value
 
     def validate_exposure_criteria(self, exposure_criteria: dict | None):
@@ -466,6 +476,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             type=self.validated_data.get("type", "product"),
             parameters=self.validated_data.get("parameters"),
             running_time_calculation=self.validated_data.get("running_time_calculation"),
+            excluded_variants=self.validated_data.get("excluded_variants"),
             metrics=self.validated_data.get("metrics"),
             metrics_secondary=self.validated_data.get("metrics_secondary"),
             secondary_metrics=self.validated_data.get("secondary_metrics"),
@@ -504,6 +515,7 @@ class ExperimentSerializer(ExperimentBaseSerializer):
             "type",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "metrics",
             "metrics_secondary",
             "secondary_metrics",
@@ -583,6 +595,7 @@ class ExperimentBasicSerializer(ExperimentBaseSerializer):
             "exposure_cohort",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "archived",
             "deleted",
             "created_by",

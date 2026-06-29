@@ -94,6 +94,7 @@ RESOURCE_INHERITANCE_MAP: dict[APIScopeObject, APIScopeObject] = {
     "account": "customer_analytics",
     "customer_journey": "customer_analytics",
     "experiment_saved_metric": "experiment",
+    "experiment_holdout": "experiment",
     "dashboard_template": "dashboard",
     # Marketing analytics doesn't have its own RBAC resource yet — inherit from
     # web_analytics so the existing per-team controls actually gate it (matches
@@ -297,6 +298,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "session_recording_playlist"
     if name == "experimentsavedmetric":
         return "experiment_saved_metric"
+    if name == "experimentholdout":
+        return "experiment_holdout"
     if name == "endpointversion":
         return "endpoint"
     if name == "externaldatasource":
@@ -380,8 +383,9 @@ class UserAccessControl:
         Covers both resource-level (resource_id IS NULL) and object-level (resource_id set)
         rows, so all resolvers (object, resource, queryset) share one query instead of N narrow ones.
 
-        Only team-scoped: org-scoped rows (e.g. `plugin` matched via `team__organization_id`)
-        are not in this set, so `_get_access_controls` falls back to a targeted query for those.
+        Only team-scoped: org-scoped lookups (the `project` queryset, matched via
+        `team__organization_id` across the org's teams) are not in this set, so
+        `_get_access_controls` falls back to a targeted query for those.
         """
         if not EE_AVAILABLE or not self._team:
             return []
@@ -389,6 +393,13 @@ class UserAccessControl:
         return list(
             AccessControl.objects.select_related("team").filter(self._filter_options({"team_id": self._team.id}))
         )
+
+    @property
+    def user(self) -> User:
+        """The principal this access control was built for. Callers that run HogQL on a user's behalf
+        need it: warehouse/system table ACL is honored only when a real user reaches the database build
+        (a userless build fails closed), so forwarding just the access control isn't enough."""
+        return self._user
 
     @property
     def rbac_supported(self) -> bool:
@@ -432,8 +443,8 @@ class UserAccessControl:
 
     def _can_serve_from_preload(self, filters: dict) -> bool:
         """The preloaded set is `WHERE team_id = self._team.id` (+ the OR-3 precedence), so it
-        can only answer team-scoped lookups. Org-scoped filters (e.g. `plugin` via
-        `team__organization_id`, or the project queryset) must hit the DB directly."""
+        can only answer team-scoped lookups. The org-scoped `project` queryset filter (via
+        `team__organization_id`) must hit the DB directly."""
         return self._team is not None and filters.get("team_id") == self._team.id
 
     def _row_matches(self, ac: _AccessControl, filters: dict) -> bool:
@@ -477,14 +488,6 @@ class UserAccessControl:
         """
         Used when checking an individual object - gets all access controls for the object and its type
         """
-        # Plugins are a special case because they don't belong to a team, instead they belong to an organization
-        if resource == "plugin":
-            return {
-                "team__organization_id": str(self._organization_id),
-                "resource": resource,
-                "resource_id": resource_id,
-            }
-
         return {"team_id": self._team.id, "resource": resource, "resource_id": resource_id}  # type: ignore
 
     def _access_controls_filters_for_resource(self, resource: APIScopeObject) -> dict:
@@ -1006,8 +1009,8 @@ class UserAccessControl:
         "none"), built from the single preload via the canonical object resolver.
 
         Consumed by HogQL object-level access control (schema filtering / printer guard) and by
-        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there
-        is no team / EE. FF-agnostic: callers decide whether to enforce it.
+        the query cache fingerprint. Empty for org admins (they bypass object AC) and when there is
+        no team / EE / entitlement.
         """
         if not EE_AVAILABLE or not self._team or self.is_organization_admin:
             return {}

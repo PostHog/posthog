@@ -34,8 +34,12 @@ export interface SlowestQuery {
     experiment_metric_events_path: string
     experiment_query_surface: string
     experiment_precompute_table: string
+    experiment_query_group_id: string
     experiment_metric_type: string
+    experiment_funnel_order_type: string | null
     experiment_id: number | null
+    total_duration_ms: number
+    sub_queries: SlowestQuery[]
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
@@ -46,6 +50,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setHoursBack: (hours: number) => ({ hours }),
         setTeamIdFilter: (teamId: string) => ({ teamId }),
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
+        setMetricTypeFilter: (metricType: string) => ({ metricType }),
     }),
     reducers({
         search: [
@@ -70,6 +75,12 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
             '',
             {
                 setExperimentIdFilter: (_, { experimentId }) => experimentId,
+            },
+        ],
+        metricTypeFilter: [
+            '',
+            {
+                setMetricTypeFilter: (_, { metricType }) => metricType,
             },
         ],
     }),
@@ -110,6 +121,14 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     if (values.experimentIdFilter) {
                         params.append('experiment_id', values.experimentIdFilter)
                     }
+                    if (values.metricTypeFilter) {
+                        // Encoded as "<metricType>" or "funnel:<orderType>" (e.g. "funnel:ordered").
+                        const [metricType, funnelOrderType] = values.metricTypeFilter.split(':')
+                        params.append('metric_type', metricType)
+                        if (funnelOrderType) {
+                            params.append('funnel_order_type', funnelOrderType)
+                        }
+                    }
                     return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },
@@ -129,6 +148,9 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         },
         setExperimentIdFilter: async (_, breakpoint) => {
             await breakpoint(300)
+            actions.loadSlowestQueries()
+        },
+        setMetricTypeFilter: () => {
             actions.loadSlowestQueries()
         },
     })),

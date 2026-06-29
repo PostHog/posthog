@@ -7,7 +7,22 @@
 
 import { z } from 'zod'
 
-export const ModelIdSchema = z.string().min(1)
+import type { TriggerMetadata } from '../runtime/trigger-metadata'
+
+/**
+ * Canonical model id: `<provider>/<model-id>` (e.g. `anthropic/claude-haiku-4-5`).
+ *
+ * Reject bare ids at authoring time so we don't freeze a revision the gateway
+ * can't serve. `resolveModel` / `acceptedModelIds` operate on the prefixed
+ * form; a bare `haiku-4-5` would pass `.min(1)` here, freeze, then fail the
+ * very first session with a 400 from the gateway. Mirror of
+ * `_AGENT_SPEC_JSON_SCHEMA_RAW.models.manual.models[].model.pattern` in
+ * `backend/logic/spec_schema.py` — keep the two in sync.
+ */
+export const ModelIdSchema = z
+    .string()
+    .min(1)
+    .regex(/^[a-z0-9_-]+\/[a-zA-Z0-9._:-]+$/, 'model id must be "<provider>/<model-id>"')
 
 /**
  * Auth modes. Auth is a property of the TRIGGER, not the spec — declarative
@@ -494,95 +509,90 @@ export const McpToolEntrySchema = z.union([
  * the open client.
  *
  * Single shape today: a third-party MCP server reachable over HTTP.
- * `auth.integration` plugs into PostHog's integrations registry (OAuth-style);
- * `secrets[]` is the simpler per-MCP token case, resolved through the same
- * encrypted-env path the agent's main `spec.secrets` uses. `id` is the tool-
- * name prefix. `tools[]` selects + gates: bare string = inclusion only; object
- * form adds `requires_approval` + `approval_policy`.
+ * `auth.provider` references a `spec.identity_providers[]` entry — a
+ * per-principal OAuth identity, stamped as the asker's bearer (gates into
+ * auth_required if unlinked). `secrets[]` + `headers` is the simpler
+ * bring-your-own-token case, resolved through the same encrypted-env path the
+ * agent's main `spec.secrets` uses. `id` is the tool-name prefix. `tools[]`
+ * selects + gates: bare string = inclusion only; object form adds
+ * `requires_approval` + `approval_policy`.
  *
  * The `kind: 'agent'` variant (agent-to-agent MCP composability) was removed
  * in favour of a single flat shape — `agent-as-mcp-server.md` will re-add it
  * when a concrete consumer lands.
  */
-export const McpRefSchema = z
-    .object({
-        /**
-         * Stable id within the spec. Tool-name prefix at runtime —
-         * `<id>__<toolName>` is what the model sees so it can tell which MCP
-         * a tool came from. Must be unique across `spec.mcps[]`.
-         */
-        id: z.string().min(1),
-        url: z.string().url(),
-        auth: z
-            .object({
-                /** Team-level integration credential (shared across the team). */
-                integration: z.string().optional(),
-                /** Per-principal identity provider: stamps the linked user's bearer,
-                 *  gates into auth_required if unlinked. Vs the team-wide `integration`. */
-                provider: z.string().optional(),
-            })
-            .optional(),
-        /**
-         * Per-MCP secret names. Resolved at session start through the same
-         * encrypted-env path as the agent's main `spec.secrets`. The runner
-         * substitutes `${name}` placeholders in the URL + auth headers before
-         * opening the client; the plaintext never leaves the runner process.
-         */
-        secrets: z.array(z.string()).default([]),
-        /**
-         * Author-supplied request headers stamped on every outgoing MCP request.
-         * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
-         * the plaintext value before opening the MCP client, so the secret never
-         * leaves the runner process. Same substitution shape as
-         * `@posthog/http-request`'s `headers` — the parallel is intentional so
-         * authors can use the same mental model for "bring my own bearer token"
-         * against either a typed MCP catalog or a raw HTTP API.
-         *
-         * Use this for the bring-your-own-token case (paste a PAT once, reference
-         * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For platform-
-         * managed OAuth tokens, use `auth.integration` instead; integration-
-         * stamped headers compose with author-supplied headers — explicit
-         * author entries win on duplicate keys, matching `http-request`'s
-         * "caller-set values are not silently overwritten" rule.
-         */
-        headers: z.record(z.string(), z.string()).optional(),
-        /**
-         * Per-tool selection AND approval gating. Bare string is a passthrough
-         * (gates inclusion, no approval); object form carries
-         * `requires_approval` + `approval_policy`. Omitted / empty = expose
-         * every tool the server lists. Replaces the earlier `allowlist[]`
-         * field (PR 7 hard-break — no production specs used it).
-         *
-         * Names must be unique within the array. A duplicate would be a
-         * silent first-match-wins footgun — e.g. an author who appends a
-         * gated copy of an already-listed bare-string entry would see the
-         * gated version ignored. Better to reject at parse time.
-         */
-        tools: z
-            .array(McpToolEntrySchema)
-            .optional()
-            .refine(
-                (entries) => {
-                    if (!entries) {
-                        return true
-                    }
-                    const seen = new Set<string>()
-                    for (const e of entries) {
-                        const name = typeof e === 'string' ? e : e.name
-                        if (seen.has(name)) {
-                            return false
-                        }
-                        seen.add(name)
-                    }
+export const McpRefSchema = z.object({
+    /**
+     * Stable id within the spec. Tool-name prefix at runtime —
+     * `<id>__<toolName>` is what the model sees so it can tell which MCP
+     * a tool came from. Must be unique across `spec.mcps[]`.
+     */
+    id: z.string().min(1),
+    url: z.string().url(),
+    auth: z
+        .object({
+            /** Per-principal identity provider (id from `spec.identity_providers[]`):
+             *  stamps the linked user's bearer, gates into auth_required if unlinked. */
+            provider: z.string().optional(),
+        })
+        .optional(),
+    /**
+     * Per-MCP secret names. Resolved at session start through the same
+     * encrypted-env path as the agent's main `spec.secrets`. The runner
+     * substitutes `${name}` placeholders in the URL + auth headers before
+     * opening the client; the plaintext never leaves the runner process.
+     */
+    secrets: z.array(z.string()).default([]),
+    /**
+     * Author-supplied request headers stamped on every outgoing MCP request.
+     * Values may reference `${NAME}` from `secrets[]`; the runner substitutes
+     * the plaintext value before opening the MCP client, so the secret never
+     * leaves the runner process. Same substitution shape as
+     * `@posthog/http-request`'s `headers` — the parallel is intentional so
+     * authors can use the same mental model for "bring my own bearer token"
+     * against either a typed MCP catalog or a raw HTTP API.
+     *
+     * Use this for the bring-your-own-token case (paste a PAT once, reference
+     * it as `${TOKEN}` in `Authorization: 'Bearer ${TOKEN}'`). For OAuth, use
+     * `auth.provider` instead; provider-stamped headers compose with
+     * author-supplied headers — explicit author entries win on duplicate
+     * keys, matching `http-request`'s "caller-set values are not silently
+     * overwritten" rule.
+     */
+    headers: z.record(z.string(), z.string()).optional(),
+    /**
+     * Per-tool selection AND approval gating. Bare string is a passthrough
+     * (gates inclusion, no approval); object form carries
+     * `requires_approval` + `approval_policy`. Omitted / empty = expose
+     * every tool the server lists. Replaces the earlier `allowlist[]`
+     * field (PR 7 hard-break — no production specs used it).
+     *
+     * Names must be unique within the array. A duplicate would be a
+     * silent first-match-wins footgun — e.g. an author who appends a
+     * gated copy of an already-listed bare-string entry would see the
+     * gated version ignored. Better to reject at parse time.
+     */
+    tools: z
+        .array(McpToolEntrySchema)
+        .optional()
+        .refine(
+            (entries) => {
+                if (!entries) {
                     return true
-                },
-                { message: 'mcps[].tools[] entries must have unique names' }
-            ),
-    })
-    .refine((m) => !(m.auth?.integration && m.auth?.provider), {
-        message: 'mcps[].auth cannot set both integration (team-wide) and provider (per-asker)',
-        path: ['auth'],
-    })
+                }
+                const seen = new Set<string>()
+                for (const e of entries) {
+                    const name = typeof e === 'string' ? e : e.name
+                    if (seen.has(name)) {
+                        return false
+                    }
+                    seen.add(name)
+                }
+                return true
+            },
+            { message: 'mcps[].tools[] entries must have unique names' }
+        ),
+})
 
 export const SkillRefSchema = z.object({
     id: z.string(),
@@ -604,7 +614,10 @@ export const SkillRefSchema = z.object({
      */
     from_template: z.string().optional(),
     alias: z.string().optional(),
-    version: z.number().int().nonnegative().optional(),
+    version: z.number().int().min(1).optional(),
+    // Immutable per-version row id of the resolved store skill — the exact
+    // provenance anchor, stamped at freeze. Optional so older frozen specs parse.
+    source_version_id: z.string().optional(),
 })
 
 /**
@@ -673,6 +686,58 @@ export type AuthConfig = z.infer<typeof AuthConfigSchema>
  * opt into.
  */
 export const ReasoningEffortSchema = z.enum(['minimal', 'low', 'medium', 'high', 'xhigh'])
+
+/** One model in a manual priority list; per-entry `reasoning` overrides the spec default. */
+export const ModelEntrySchema = z.object({
+    model: ModelIdSchema,
+    reasoning: ReasoningEffortSchema.optional(),
+})
+
+/** Quality/cost level for `auto` policy; mapped to a maintained model list (below). */
+export const ModelLevelSchema = z.enum(['low', 'medium', 'high'])
+
+/**
+ * How the runner treats the priority list across a session's turns.
+ *
+ *  - `cost` (default): the first turn walks the list until a model answers, then
+ *    pins that model for the rest of the session — every later turn uses ONLY it,
+ *    no cross-model failover. One provider per session keeps its prompt cache warm
+ *    (cache reads are ~0.1–0.5× of full input), which dominates multi-turn cost.
+ *    The trade: if the pinned model goes down mid-session the turn fails (after
+ *    pi-ai's same-provider retries) rather than switching — switching a large
+ *    cached session to a cold provider re-reads the whole context at full price.
+ *  - `availability`: the runner still leads with the last-served model (sticky, so
+ *    it doesn't thrash) but DOES fail over to the next model on failure, trading
+ *    that cold-cache re-read for keeping the session alive.
+ */
+export const ModelOptimizeForSchema = z.enum(['cost', 'availability'])
+
+/** `auto`: platform resolves `level` to a priority-ordered list at runtime.
+ *  `manual`: author's explicit priority list.
+ *  `optimize_for` (both): session model stability vs. resilience — see above. */
+export const ModelPolicySchema = z.discriminatedUnion('mode', [
+    z.object({
+        mode: z.literal('auto'),
+        level: ModelLevelSchema.default('medium'),
+        reasoning: ReasoningEffortSchema.optional(),
+        optimize_for: ModelOptimizeForSchema.default('cost'),
+    }),
+    z.object({
+        mode: z.literal('manual'),
+        models: z.array(ModelEntrySchema).min(1),
+        optimize_for: ModelOptimizeForSchema.default('cost'),
+    }),
+])
+
+/** `auto` level → priority-ordered, cross-provider list (also the fallback chain).
+ *  The curated grouping layer over the gateway catalog: ids here MUST be
+ *  gateway-served. `validateModelLevels` (gateway-catalog.ts) guards that in
+ *  CI; the runner filters this against the live catalog at session start. */
+export const MODEL_POLICY_LEVELS: Record<z.infer<typeof ModelLevelSchema>, readonly string[]> = {
+    low: ['anthropic/claude-haiku-4-5', 'openai/gpt-5-mini'],
+    medium: ['anthropic/claude-sonnet-4-6', 'openai/gpt-5'],
+    high: ['anthropic/claude-opus-4-7', 'openai/gpt-5-pro'],
+}
 
 /**
  * Author-facing knobs for the framework-injected system-prompt preamble.
@@ -777,12 +842,12 @@ export const IdentityProviderConfigSchema = z.discriminatedUnion('kind', [
 export type IdentityProviderConfig = z.infer<typeof IdentityProviderConfigSchema>
 
 export const AgentSpecSchema = z.object({
-    model: ModelIdSchema,
+    /** Model selection: auto level (default) or manual priority list. Resolve via `modelPolicyToList`. */
+    models: ModelPolicySchema.default({ mode: 'auto', level: 'medium', optimize_for: 'cost' }),
     triggers: z.array(TriggerSchema).default([]),
     tools: z.array(ToolRefSchema).default([]),
     mcps: z.array(McpRefSchema).default([]),
     skills: z.array(SkillRefSchema).default([]),
-    integrations: z.array(z.string()).default([]),
     /** Identity providers users can link against (the credential axis). */
     identity_providers: z.array(IdentityProviderConfigSchema).default([]),
     secrets: z.array(SecretRefSchema).default([]),
@@ -793,13 +858,29 @@ export const AgentSpecSchema = z.object({
         max_memory_mb: 512,
         max_cpu_cores: 0.25,
     }),
-    entrypoint: z.string().default('agent.md'),
     reasoning: ReasoningEffortSchema.optional(),
     framework_prompt: FrameworkPromptConfigSchema.optional(),
     resume: ResumeConfigSchema.optional(),
 })
 
 export type AgentSpec = z.infer<typeof AgentSpecSchema>
+export type ModelEntry = z.infer<typeof ModelEntrySchema>
+export type ModelLevel = z.infer<typeof ModelLevelSchema>
+export type ModelOptimizeFor = z.infer<typeof ModelOptimizeForSchema>
+export type ModelPolicy = z.infer<typeof ModelPolicySchema>
+
+/** Priority-ordered models the runner tries (primary first). Reasoning: per-entry → auto override → spec default. */
+export function modelPolicyToList(spec: Pick<AgentSpec, 'models' | 'reasoning'>): ModelEntry[] {
+    const policy = spec.models
+    if (policy.mode === 'manual') {
+        return policy.models.map((m) => ({ model: m.model, reasoning: m.reasoning ?? spec.reasoning }))
+    }
+    return MODEL_POLICY_LEVELS[policy.level].map((model) => ({
+        model,
+        reasoning: policy.reasoning ?? spec.reasoning,
+    }))
+}
+
 export type Trigger = z.infer<typeof TriggerSchema>
 export type TriggerType = Trigger['type']
 
@@ -830,8 +911,8 @@ export function secretRefName(ref: SecretRef): string {
  *   - `undefined` when the name isn't declared in `spec.secrets[]` at all.
  *
  * The three-way return is load-bearing: the runtime treats `null` (declared
- * but unbound) as "fail-closed" — same shape as `mcp-clients.ts` refuses an
- * `auth.integration` ref when its host validator isn't wired.
+ * but unbound) as "fail-closed" — a bare-string secret can't be substituted
+ * into an outbound request until it's pinned to an allowed host.
  */
 export function getSecretAllowedHosts(spec: AgentSpec, name: string): readonly string[] | null | undefined {
     for (const ref of spec.secrets) {
@@ -1107,15 +1188,8 @@ export interface AgentSession {
      * `cron-trigger-scheduler.md` §6.
      */
     idempotency_key: string | null
-    /**
-     * Trigger-specific metadata stamped at enqueue time. Shape varies by
-     * trigger kind; for cron firings:
-     * `{ kind: 'cron', cron_name, schedule, fired_at }`. Read by the
-     * session-detail UI to render a "fired by `<cron_name>` at `<fired_at>`"
-     * badge. Stash-don't-parse — the runtime doesn't introspect this beyond
-     * forwarding it to the UI.
-     */
-    trigger_metadata: Record<string, unknown> | null
+    /** Trigger-specific metadata stamped at enqueue, discriminated on `kind`. */
+    trigger_metadata: TriggerMetadata | null
     /**
      * Session state. See the session-restart redesign for the contract:
      *

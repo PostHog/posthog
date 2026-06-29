@@ -1,6 +1,5 @@
-import { GenericMcpToolRenderer } from '../../sandbox/components/tool/GenericMcpToolRenderer'
-import { SandboxDataToolRow } from '../../sandbox/components/tool/SandboxDataToolRow'
-import type { SandboxToolRendererProps } from '../../sandbox/sandboxToolRegistry'
+import { GenericMcpToolRenderer, DataToolRow, type ToolRendererProps } from 'products/posthog_ai/frontend/api/tools'
+
 import { RecordingsWidget } from '../UIPayloadAnswer'
 import { extractRecordingFilters } from './extractors'
 
@@ -9,7 +8,7 @@ import { extractRecordingFilters } from './extractors'
  * in `rawOutput.filters`; `RecordingsWidget` renders the live playlist inline. Pre-completion or a
  * missing filter object falls back to the generic card.
  */
-export function SearchSessionRecordingsWidget(props: SandboxToolRendererProps): JSX.Element {
+export function SearchSessionRecordingsWidget(props: ToolRendererProps): JSX.Element {
     const { message } = props
     const filters = message.status === 'completed' ? extractRecordingFilters(message) : null
 
@@ -18,8 +17,8 @@ export function SearchSessionRecordingsWidget(props: SandboxToolRendererProps): 
     }
 
     return (
-        <SandboxDataToolRow {...props}>
+        <DataToolRow {...props}>
             <RecordingsWidget toolCallId={message.id} filters={filters} embedded />
-        </SandboxDataToolRow>
+        </DataToolRow>
     )
 }

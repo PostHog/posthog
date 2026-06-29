@@ -35,6 +35,7 @@ from posthog.dags.events_backfill_to_duckling import (
     _execute_export_with_retry,
     _get_cluster,
     _glob_run_files,
+    _is_transient_s3_error,
     _resolve_duckling_target,
     _resolve_table_names,
     _set_table_partitioning,
@@ -72,14 +73,13 @@ class TestDucklingBackfillAlertRouting:
 class TestResolveDucklingTarget:
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
-    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
     def test_resolves_bucket_from_control_plane(
-        self, mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
+        self, mock_org: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
         # The control plane is the authoritative owner of the bucket name.
         with patch(
-            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
             return_value="posthog-duckling-org-1-mw-prod-us",
         ) as mock_cp:
             target = _resolve_duckling_target(7)
@@ -94,11 +94,8 @@ class TestResolveDucklingTarget:
         mock_cp.assert_called_once_with("org-1")
 
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
-    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
-    def test_control_plane_wins_over_stale_stored_server_bucket(
-        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_tables: MagicMock
-    ):
+    def test_control_plane_wins_over_stale_stored_server_bucket(self, _mock_org: MagicMock, _mock_tables: MagicMock):
         # A row provisioned before the naming fix carries a stale bucket; the CP value
         # must win so the backfill never exports to a bucket that doesn't exist.
         server = MagicMock(bucket="posthog-duckling-stale-prod-us", bucket_region="us-east-1")
@@ -108,7 +105,7 @@ class TestResolveDucklingTarget:
                 return_value=server,
             ),
             patch(
-                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
                 return_value="posthog-duckling-org-1-mw-prod-us",
             ),
         ):
@@ -117,10 +114,9 @@ class TestResolveDucklingTarget:
         assert target.bucket == "posthog-duckling-org-1-mw-prod-us"
 
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
-    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
     def test_falls_back_to_stored_server_when_control_plane_unavailable(
-        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_tables: MagicMock
+        self, _mock_org: MagicMock, _mock_tables: MagicMock
     ):
         # CP can't answer → use the known-good stored row rather than failing the run.
         server = MagicMock(bucket="posthog-duckling-org-1-mw-prod-us", bucket_region="us-east-1")
@@ -130,7 +126,7 @@ class TestResolveDucklingTarget:
                 return_value=server,
             ),
             patch(
-                "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+                "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
                 return_value=None,
             ),
         ):
@@ -140,13 +136,12 @@ class TestResolveDucklingTarget:
 
     @patch("posthog.dags.events_backfill_to_duckling._resolve_table_names", return_value=("events", "persons"))
     @patch("posthog.dags.events_backfill_to_duckling.get_duckgres_server_for_organization", return_value=None)
-    @patch("posthog.dags.events_backfill_to_duckling.get_ducklake_catalog_for_organization", return_value=None)
     @patch("posthog.dags.events_backfill_to_duckling._get_org_id_for_team", return_value="org-1")
     def test_raises_when_nothing_can_name_the_bucket(
-        self, _mock_org: MagicMock, _mock_catalog: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
+        self, _mock_org: MagicMock, _mock_server: MagicMock, _mock_tables: MagicMock
     ):
         with patch(
-            "products.data_warehouse.backend.api.managed_warehouse.cp_bucket_for",
+            "products.data_warehouse.backend.presentation.views.managed_warehouse.cp_bucket_for",
             return_value=None,
         ):
             with pytest.raises(ValueError, match="No S3 bucket resolvable"):
@@ -165,22 +160,22 @@ class TestResolveTableNames:
         return model
 
     def test_set_suffix_yields_dedicated_tables(self):
-        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam", self._patch_suffix("alpha")):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_distinct_suffixes_isolate_two_teams(self):
-        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("alpha")):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam", self._patch_suffix("alpha")):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
-        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("beta")):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam", self._patch_suffix("beta")):
             assert _resolve_table_names(2) == ("events_beta", "persons_beta")
 
     @parameterized.expand([("none", None), ("empty", "")])
     def test_unset_suffix_falls_back_to_shared_tables(self, _name, suffix):
-        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix(suffix)):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam", self._patch_suffix(suffix)):
             assert _resolve_table_names(1) == ("events", "persons")
 
     def test_unsafe_suffix_is_rejected(self):
-        with patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill", self._patch_suffix("a-b; DROP")):
+        with patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam", self._patch_suffix("a-b; DROP")):
             with pytest.raises(ValueError):
                 _resolve_table_names(1)
 
@@ -660,7 +655,7 @@ class TestFullBackfillSensorEarliestDate:
         ]
     )
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
-    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     def test_earliest_date_clamped(
         self,
@@ -678,6 +673,7 @@ class TestFullBackfillSensorEarliestDate:
 
         backfill = MagicMock()
         backfill.team_id = 1
+        backfill.earliest_event_date = None  # unresolved → sensor resolves + caches it
         mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
@@ -689,9 +685,13 @@ class TestFullBackfillSensorEarliestDate:
         assert len(result.run_requests) > 0
         first_key = result.run_requests[0].partition_key
         assert first_key == f"1_{expected_first_month}"
+        # Round-robin order is oldest-month-first for a single team.
+        assert result.run_requests[0].run_key == first_key
+        # Earliest date is cached on the row so later ticks never re-query ClickHouse.
+        assert backfill.earliest_event_date == max(earliest_dt, datetime(2015, 1, 1)).date()
 
     @patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team")
-    @patch("posthog.dags.events_backfill_to_duckling.DuckLakeBackfill")
+    @patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam")
     @patch("posthog.dags.events_backfill_to_duckling.timezone")
     def test_no_events_returns_empty(self, mock_tz, mock_backfill_cls, mock_get_earliest):
         from dagster import DagsterInstance, SensorResult, build_sensor_context
@@ -701,6 +701,7 @@ class TestFullBackfillSensorEarliestDate:
 
         backfill = MagicMock()
         backfill.team_id = 1
+        backfill.earliest_event_date = None
         mock_backfill_cls.objects.filter.return_value.order_by.return_value = [backfill]
 
         instance = DagsterInstance.ephemeral()
@@ -710,9 +711,131 @@ class TestFullBackfillSensorEarliestDate:
         assert result.run_requests is not None
 
         assert len(result.run_requests) == 0
+        # No events → cache the sentinel so the team isn't re-queried every tick.
+        from posthog.dags.events_backfill_to_duckling import _NO_HISTORY_SENTINEL
+
+        assert backfill.earliest_event_date == _NO_HISTORY_SENTINEL
 
     def test_earliest_backfill_date_is_2015(self):
         assert EARLIEST_BACKFILL_DATE == datetime(2015, 1, 1)
+
+    @staticmethod
+    def _bf(team_id: int, earliest=None):
+        m = MagicMock()
+        m.team_id = team_id
+        m.earliest_event_date = earliest
+        return m
+
+    def _run_full_sensor(self, backfills, *, now, get_earliest, existing=None, get_runs=None):
+        """Drive duckling_events_full_backfill_sensor against mocked backfills + an ephemeral instance."""
+        from dagster import DagsterInstance, build_sensor_context
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team") as mock_ge,
+        ):
+            mock_tz.now.return_value = now
+            mock_cls.objects.filter.return_value.order_by.return_value = backfills
+            if isinstance(get_earliest, list):
+                mock_ge.side_effect = get_earliest
+            else:
+                mock_ge.return_value = get_earliest
+
+            instance = DagsterInstance.ephemeral()
+            if existing:
+                instance.add_dynamic_partitions("duckling_events_backfill", list(existing))
+
+            context = build_sensor_context(instance=instance)
+            if get_runs is not None:
+                with patch.object(instance, "get_runs", return_value=get_runs):
+                    result = duckling_events_full_backfill_sensor(context)
+            else:
+                result = duckling_events_full_backfill_sensor(context)
+            return result, mock_ge
+
+    def test_round_robin_interleaves_teams(self):
+        # Two teams with the same range → emission alternates team by month index, so the
+        # FIFO queue drains both fairly rather than finishing team 1's whole history first.
+        backfills = [self._bf(1), self._bf(2)]
+        result, _ = self._run_full_sensor(
+            backfills, now=datetime(2020, 3, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert keys == ["1_2020-01", "2_2020-01", "1_2020-02", "2_2020-02", "1_2020-03", "2_2020-03"]
+        # Every full-backfill run is tagged so the next tick's in-flight count excludes daily runs.
+        assert all(rr.tags.get("duckling_backfill_type") == "full" for rr in result.run_requests)
+
+    def test_skips_existing_partitions(self):
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,  # earliest already cached → no lookup
+            existing=["1_2020-01"],
+        )
+        keys = [rr.partition_key for rr in result.run_requests]
+        assert "1_2020-01" not in keys
+        assert keys == ["1_2020-02", "1_2020-03"]
+
+    def test_does_not_requery_cached_earliest(self):
+        result, mock_ge = self._run_full_sensor(
+            [self._bf(1, earliest=date(2020, 1, 1))],
+            now=datetime(2020, 2, 10, 12, 0, 0),
+            get_earliest=None,
+        )
+        mock_ge.assert_not_called()
+        assert [rr.partition_key for rr in result.run_requests] == ["1_2020-01", "1_2020-02"]
+
+    def test_caps_earliest_lookups_per_tick(self):
+        # 7 unresolved teams, cap is 5 → only 5 ClickHouse lookups this tick; the other two
+        # stay unresolved and contribute no partitions until a later tick.
+        backfills = [self._bf(t) for t in range(1, 8)]
+        result, mock_ge = self._run_full_sensor(
+            backfills, now=datetime(2020, 2, 10, 12, 0, 0), get_earliest=datetime(2020, 1, 1)
+        )
+        assert mock_ge.call_count == 5
+        teams_emitted = {rr.partition_key.split("_")[0] for rr in result.run_requests}
+        assert teams_emitted == {"1", "2", "3", "4", "5"}
+        assert backfills[5].earliest_event_date is None and backfills[6].earliest_event_date is None
+
+    def test_top_up_only_fills_to_target_depth(self):
+        # 98 runs already in flight against the depth-100 target → only 2 slots free this tick.
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2015, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+            get_runs=[MagicMock()] * 98,
+        )
+        assert len(result.run_requests) == 2
+
+    def test_top_up_emits_nothing_when_queue_full(self):
+        result, _ = self._run_full_sensor(
+            [self._bf(1, earliest=date(2015, 1, 1))],
+            now=datetime(2020, 3, 10, 12, 0, 0),
+            get_earliest=None,
+            get_runs=[MagicMock()] * 100,
+        )
+        assert len(result.run_requests) == 0
+
+    def test_inflight_count_filters_by_full_backfill_tag(self):
+        # The in-flight query must be scoped to full-backfill runs via the tag, so daily
+        # runs on the shared job can't starve the top-up.
+        from dagster import DagsterInstance, build_sensor_context
+
+        with (
+            patch("posthog.dags.events_backfill_to_duckling.timezone") as mock_tz,
+            patch("posthog.dags.events_backfill_to_duckling.DuckgresServerTeam") as mock_cls,
+            patch("posthog.dags.events_backfill_to_duckling.get_earliest_event_date_for_team"),
+        ):
+            mock_tz.now.return_value = datetime(2020, 2, 10, 12, 0, 0)
+            mock_cls.objects.filter.return_value.order_by.return_value = [self._bf(1, earliest=date(2020, 1, 1))]
+            instance = DagsterInstance.ephemeral()
+            context = build_sensor_context(instance=instance)
+            with patch.object(instance, "get_runs", return_value=[]) as mock_get_runs:
+                duckling_events_full_backfill_sensor(context)
+
+        runs_filter = mock_get_runs.call_args.kwargs["filters"]
+        assert runs_filter.tags == {"duckling_backfill_type": "full"}
 
 
 class TestGetClusterRetry:
@@ -975,6 +1098,54 @@ class TestConnectionDropped:
         assert _connection_dropped(exc) is False
 
 
+# The exact shape duckgres surfaces when S3 5xx/throttles mid-glob (HTTP GET listing the run's
+# files); a ProgrammingError, NOT a connection drop — so it needs its own retry path.
+_S3_503_GLOB_ERROR = psycopg.errors.SyntaxErrorOrAccessRuleViolation(
+    "rpc error: code = Unknown desc = HTTP Error: HTTP GET error reading "
+    "'s3://posthog-duckling-x-mw-prod-us/backfill/events/55513/year=2019/month=12/day=21/abc_' "
+    "in region 'us-east-1' (HTTP 503 Service Unavailable)"
+)
+
+
+class TestIsTransientS3Error:
+    """_is_transient_s3_error retries S3 5xx/throttles surfaced through the PG wire, but only
+    when the message is genuinely about object storage (so a plain SQL error can't match)."""
+
+    @parameterized.expand(
+        [
+            ("glob_503", _S3_503_GLOB_ERROR),
+            (
+                "add_files_500",
+                psycopg.errors.InternalError(
+                    "HTTP Error: HTTP GET error reading 's3://b/f.parquet' (HTTP 500 InternalError)"
+                ),
+            ),
+            (
+                "slowdown_throttle",
+                psycopg.OperationalError("HTTP PUT error writing 's3://b/f' (HTTP 503 SlowDown: Please reduce ...)"),
+            ),
+            ("too_many_requests", psycopg.errors.InternalError("HTTP GET 's3://b/x' HTTP 429 Too Many Requests")),
+        ]
+    )
+    def test_transient_s3_errors_are_retryable(self, _label, exc):
+        assert _is_transient_s3_error(exc) is True
+
+    @parameterized.expand(
+        [
+            # 404/403 are permanent S3 responses — not retryable.
+            ("not_found", psycopg.errors.InternalError("HTTP GET error reading 's3://b/missing' (HTTP 404 Not Found)")),
+            ("access_denied", psycopg.errors.InternalError("HTTP GET 's3://b/x' (HTTP 403 Forbidden)")),
+            # A genuine SQL error that merely contains a number must not match (no S3/HTTP token).
+            ("sql_error_with_500", psycopg.errors.SyntaxErrorOrAccessRuleViolation("error near column 500")),
+            ("binder_error", psycopg.errors.InternalError("Binder Error: Referenced column not found")),
+            # 503 text without any object-storage context must not match either.
+            ("bare_503", psycopg.OperationalError("service had 503 issues")),
+        ]
+    )
+    def test_non_transient_errors_are_not_retryable(self, _label, exc):
+        assert _is_transient_s3_error(exc) is False
+
+
 class TestConnectDuckgres:
     """_connect_duckgres pins the session to UTC so ranged DELETEs align with the UTC day
     the export wrote, but never fails a connection if the server can't set it."""
@@ -1084,6 +1255,31 @@ class TestDuckgresSessionRetry:
         # _reconnect closes the prior (dead) connection before acquiring a fresh one
         conn0.close.assert_called_once()
         conn1.close.assert_called_once()
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_transient_s3_retries_on_same_connection(self, mock_connect, _sleep):
+        # A transient S3 5xx is the worker hiccuping on object storage, not a worker drop —
+        # so it replays on the SAME connection (no reconnect) and eventually succeeds.
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=[_S3_503_GLOB_ERROR, _S3_503_GLOB_ERROR, "ok"])
+
+        assert session.run("register", op) == "ok"
+        assert op.call_count == 3
+        assert mock_connect.call_count == 1  # initial connect only — never reconnected
+
+    @patch("posthog.dags.events_backfill_to_duckling.time.sleep")
+    @patch("posthog.dags.events_backfill_to_duckling._connect_duckgres")
+    def test_transient_s3_gives_up_after_max_attempts(self, mock_connect, _sleep):
+        mock_connect.return_value = MagicMock()
+        session = _DuckgresSession(MagicMock(), MagicMock())
+        op = MagicMock(side_effect=_S3_503_GLOB_ERROR)
+
+        with pytest.raises(psycopg.errors.SyntaxErrorOrAccessRuleViolation):
+            session.run("register", op)
+        assert op.call_count == _DuckgresSession.MAX_ATTEMPTS
+        assert mock_connect.call_count == 1  # never reconnects for an S3 hiccup
 
 
 class TestDuckgresBackfillOptions:
@@ -1251,7 +1447,7 @@ class TestExportFanOut:
         insert_sql, count_sql, s3_glob, _ = self._run_export(
             export_persons_to_duckling_s3, target, row_count=3_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
-        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 3)" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 3)" in insert_sql
         # Pin the full predicate: dropping is_deleted/date would silently over-size the fan-out.
         assert "FROM person WHERE team_id = 2 AND toDate(_timestamp) = '2026-06-17' AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=2026/month=06/run1_*.parquet"
@@ -1260,7 +1456,7 @@ class TestExportFanOut:
         insert_sql, count_sql, s3_glob, _ = self._run_export(
             export_persons_full_to_duckling_s3, target, row_count=5_000_000, team_id=2
         )
-        assert "PARTITION BY toString(cityHash64(pd.distinct_id) % 5)" in insert_sql
+        assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
         assert "FROM person_distinct_id2 WHERE team_id = 2 AND is_deleted = 0" in count_sql
         assert s3_glob == "s3://bkt/backfill/persons/2/year=0/month=0/run1_*.parquet"
 
@@ -1357,6 +1553,30 @@ class TestRegisterFilesWithDuckling:
         sql, params = cur.execute.call_args.args
         assert "glob(%s)" in sql
         assert params == ("s3://bkt/x/run1_*.parquet",)
+
+    def test_glob_run_files_empty_day_returns_no_files(self):
+        # A zero-event team-day writes no Parquet, so the glob matches nothing and
+        # duckgres returns a command-complete with no result set: fetchall() raises
+        # "the last operation didn't produce a result". _glob_run_files must absorb
+        # that and return [] (nothing to register).
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchall.side_effect = psycopg.ProgrammingError("the last operation didn't produce a result")
+        conn.cursor.return_value.__enter__.return_value = cur
+        conn.cursor.return_value.__exit__.return_value = False
+
+        assert _glob_run_files(conn, "s3://bkt/x/run1_*.parquet") == []
+
+    def test_glob_run_files_propagates_other_programming_errors(self):
+        # A genuine SQL error must not be swallowed as "no files".
+        conn = MagicMock()
+        cur = MagicMock()
+        cur.fetchall.side_effect = psycopg.ProgrammingError("syntax error at or near")
+        conn.cursor.return_value.__enter__.return_value = cur
+        conn.cursor.return_value.__exit__.return_value = False
+
+        with pytest.raises(psycopg.ProgrammingError, match="syntax error"):
+            _glob_run_files(conn, "s3://bkt/x/run1_*.parquet")
 
 
 # Column SELECT used to synthesize events Parquet files for the round-trip test.

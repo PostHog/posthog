@@ -49,7 +49,6 @@ DataWarehouseSavedQueryFolder
 DataWarehouseTable
 Dataset
 DatasetItem
-DesktopRecording
 EarlyAccessFeature
 Edge
 EmailChannel

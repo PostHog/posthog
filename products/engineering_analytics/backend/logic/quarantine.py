@@ -71,6 +71,9 @@ _ENTRY_FIELDS = ("id", "runner", "reason", "owner", "issue", "added", "expires",
 _REPO_PART_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
 _FETCH_TIMEOUT_SECONDS = 3
 _CACHE_TTL_SECONDS = 60
+# A real quarantine file is tens of KB; this is generous headroom while bounding how
+# much a hostile public repo can make us buffer, cache, and parse from one request.
+_MAX_QUARANTINE_BYTES = 5 * 1024 * 1024
 
 # Most urgent first; ties broken by soonest expiry, then id.
 _LIFECYCLE_URGENCY = {
@@ -273,23 +276,39 @@ def _most_active_repo(
 def _fetch_quarantine_text(owner: str, name: str) -> tuple[str | None, str | None]:
     """Returns ``(text, error)``: the file text on 200, ``(None, None)`` on 404
     (no quarantine file is not an error), ``(None, message)`` on any other
-    failure."""
+    failure — including a body over ``_MAX_QUARANTINE_BYTES``."""
     cache_key = f"engineering_analytics_quarantine:{owner}/{name}"
     cached = cache.get(cache_key)
     if isinstance(cached, str):
         return cached, None
 
     url = f"https://raw.githubusercontent.com/{owner}/{name}/HEAD/{QUARANTINE_FILENAME}"
+    too_large = f"{QUARANTINE_FILENAME} for {owner}/{name} exceeds the {_MAX_QUARANTINE_BYTES}-byte limit"
     try:
-        response = requests.get(url, timeout=_FETCH_TIMEOUT_SECONDS)
+        with requests.get(url, timeout=_FETCH_TIMEOUT_SECONDS, stream=True) as response:
+            if response.status_code == 404:
+                return None, None
+            if response.status_code != 200:
+                return None, f"could not fetch {QUARANTINE_FILENAME} for {owner}/{name}: HTTP {response.status_code}"
+            # Reject an advertised oversize body before reading it. Content-Length can be
+            # absent or wrong, so the streamed read below is the actual ceiling.
+            declared = response.headers.get("Content-Length")
+            if declared is not None and declared.isdigit() and int(declared) > _MAX_QUARANTINE_BYTES:
+                return None, too_large
+            body = bytearray()
+            for chunk in response.iter_content(chunk_size=8192):
+                body.extend(chunk)
+                if len(body) > _MAX_QUARANTINE_BYTES:
+                    return None, too_large
     except requests.RequestException as err:
         return None, f"could not fetch {QUARANTINE_FILENAME} for {owner}/{name}: {err}"
-    if response.status_code == 404:
-        return None, None
-    if response.status_code != 200:
-        return None, f"could not fetch {QUARANTINE_FILENAME} for {owner}/{name}: HTTP {response.status_code}"
-    cache.set(cache_key, response.text, _CACHE_TTL_SECONDS)
-    return response.text, None
+
+    try:
+        text = body.decode("utf-8")
+    except UnicodeDecodeError:
+        return None, f"could not fetch {QUARANTINE_FILENAME} for {owner}/{name}: not valid UTF-8"
+    cache.set(cache_key, text, _CACHE_TTL_SECONDS)
+    return text, None
 
 
 def _unavailable(generated_at: datetime, *, repo: RepoRef | None = None, error: str | None = None) -> QuarantineFile:

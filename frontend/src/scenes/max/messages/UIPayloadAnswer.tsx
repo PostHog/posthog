@@ -31,6 +31,7 @@ import {
     issueQueryOptionsLogic,
 } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { ERROR_TRACKING_SCENE_LOGIC_KEY } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/errorTrackingSceneLogic'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 import { isDangerousOperationResponse, normalizeDangerousOperationResponse } from '../approvalOperationUtils'
 import { DangerousOperationApprovalCard } from '../DangerousOperationApprovalCard'
@@ -38,7 +39,6 @@ import { maxLogic } from '../maxLogic'
 import { ErrorTrackingFiltersSummary } from './ErrorTrackingFiltersSummary'
 import { ErrorTrackingIssueCard } from './ErrorTrackingIssueCard'
 import { MaxErrorTrackingWidgetLogicProps, maxErrorTrackingWidgetLogic } from './maxErrorTrackingWidgetLogic'
-import { MessageTemplate } from './MessageTemplate'
 import { RecordingsFiltersSummary } from './RecordingsFiltersSummary'
 
 export const RENDERABLE_UI_PAYLOAD_TOOLS: AssistantTool[] = [

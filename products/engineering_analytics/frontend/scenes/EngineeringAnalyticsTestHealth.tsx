@@ -17,8 +17,6 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import { dayjs } from 'lib/dayjs'
-import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'

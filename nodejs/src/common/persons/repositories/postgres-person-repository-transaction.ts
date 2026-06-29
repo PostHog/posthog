@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
+import { TransactionClient } from '~/common/utils/db/postgres'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
-import { TransactionClient } from '~/utils/db/postgres'
 
 import { PersonRepositoryTransaction } from './person-repository-transaction'
 import { RawPostgresPersonRepository } from './raw-postgres-person-repository'

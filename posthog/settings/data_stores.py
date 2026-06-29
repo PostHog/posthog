@@ -399,7 +399,9 @@ CLICKHOUSE_LOGS_CLUSTER_HOST: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_HOST", "l
 CLICKHOUSE_LOGS_CLUSTER_PORT: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PORT", "9000")
 CLICKHOUSE_LOGS_CLUSTER_USER: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_USER", "default")
 CLICKHOUSE_LOGS_CLUSTER_PASSWORD: str = os.getenv("CLICKHOUSE_LOGS_CLUSTER_PASSWORD", "")
-CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", "default")
+CLICKHOUSE_LOGS_CLUSTER_DATABASE: str = (
+    CLICKHOUSE_TEST_DB if TEST else os.getenv("CLICKHOUSE_LOGS_DATABASE", CLICKHOUSE_DATABASE)
+)
 CLICKHOUSE_LOGS_CLUSTER_SECURE: bool = get_from_env(
     "CLICKHOUSE_LOGS_CLUSTER_SECURE", not TEST and not DEBUG, type_cast=str_to_bool
 )
@@ -558,9 +560,19 @@ if not CDP_API_URL:
         "http://localhost:6738" if DEBUG else "http://ingestion-cdp-api.posthog.svc.cluster.local"
     )  # localhost is correct — plugin server runs on host in dev
 
-# Shared secret for internal API authentication between Django and Node.js services
+# Shared secret for internal API authentication between Django and Node.js services.
+# Only the services that make/serve internal calls get this injected, so a missing value must not
+# block startup. Defaults to the public dev secret in DEBUG/TEST; elsewhere it defaults to empty and
+# internal API requests fail closed at request time (InternalAPIAuthentication) rather than silently
+# running on a known-public value. Stripped at load so a mounted secret's trailing newline can't
+# cause a spurious mismatch; get_list already strips the fallbacks.
 LOCAL_DEV_INTERNAL_API_SECRET = "posthog123"
-INTERNAL_API_SECRET = get_from_env("INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET)
+INTERNAL_API_SECRET = get_from_env(
+    "INTERNAL_API_SECRET", LOCAL_DEV_INTERNAL_API_SECRET if DEBUG or TEST else ""
+).strip()
+# Previous secrets still accepted for verification during zero-downtime rotation, newest first.
+# Receivers accept INTERNAL_API_SECRET plus these; senders always send INTERNAL_API_SECRET.
+INTERNAL_API_SECRET_FALLBACKS = get_list(os.getenv("INTERNAL_API_SECRET_FALLBACKS", ""))
 
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
@@ -589,6 +601,14 @@ AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:808
 # Rust feature flags service URL
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
+
+# Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
+FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
+
+# Temporary (Rust remote_config port, phase 2): when true, each Django remote_config response is
+# shadow-compared against Rust. Off by default; flip per environment to start/stop without a deploy.
+# Delete with remote_config_shadow.py at the phase-3 cutover.
+REMOTE_CONFIG_SHADOW_ENABLED = get_from_env("REMOTE_CONFIG_SHADOW_ENABLED", False, type_cast=str_to_bool)
 
 # Bearer token for marking Django -> Rust /flags calls as internal (non-billable).
 # When set, internal Django callers (toolbar prep, my_flags, evaluation_reasons) pass this

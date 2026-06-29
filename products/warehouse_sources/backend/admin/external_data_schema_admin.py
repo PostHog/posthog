@@ -13,15 +13,12 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.temporal.common.client import sync_connect
-from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
 from posthog.temporal.utils import ExternalDataWorkflowInputs
 
-from products.data_warehouse.backend.data_load.service import (
-    pause_external_data_schedule,
-    unpause_external_data_schedule,
-)
+from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat
 
 # Source of truth lives in pipeline.typings.PartitionFormat. Re-deriving here keeps
 # the dropdown in sync if a new format is ever added.
@@ -162,7 +159,11 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_size < 1:
                 messages.error(request, f"partition_size must be >= 1; got {new_size}.")
                 return redirect(_change_url(schema_id))
-            partition_field = "partition_size"
+            # Write the *_override key, not partition_size directly: the bundled reset below
+            # wipes partition_size, so a plain write would be discarded and the source would
+            # re-derive its own value. The override survives the reset and is consumed once
+            # applied (see ExternalDataSchema.set_partitioning_enabled).
+            partition_field = "partition_size_override"
             partition_value = new_size
             previous_value = schema.partition_size
         elif schema.partition_mode == "md5":
@@ -175,7 +176,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             if new_count < 1:
                 messages.error(request, f"partition_count must be >= 1; got {new_count}.")
                 return redirect(_change_url(schema_id))
-            partition_field = "partition_count"
+            # Write the *_override key (survives the reset); see the numerical branch above.
+            partition_field = "partition_count_override"
             partition_value = new_count
             previous_value = schema.partition_count
         else:
@@ -184,7 +186,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             # updating this view.
             assert_never(schema.partition_mode)
 
-        change_label = f"{partition_field}: {previous_value!r} → {partition_value!r}"
+        # Display the logical knob name (without the _override suffix). *_override keys are
+        # one-shot (consumed on the next reset); partition_format (datetime mode) survives every
+        # reset, so the "pinned for this reset" note only applies to the override variants.
+        display_field = partition_field.removesuffix("_override")
+        pin_note = " (pinned for this reset)" if partition_field.endswith("_override") else ""
+        change_label = f"{display_field}: {previous_value!r} → {partition_value!r}{pin_note}"
 
         # Pause the schedule before triggering an admin resync so the scheduled
         # workflow doesn't race with the admin one (Temporal's "OnlyOne" overlap
@@ -399,6 +406,8 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["current_partition_keys"] = obj.partitioning_keys
             extra_context["current_partition_size"] = obj.partition_size
             extra_context["current_partition_count"] = obj.partition_count
+            extra_context["current_partition_count_override"] = obj.partition_count_override
+            extra_context["current_partition_size_override"] = obj.partition_size_override
             extra_context["partitioning_enabled"] = obj.partitioning_enabled
             extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
             extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])

@@ -52,7 +52,7 @@ from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
-from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
@@ -114,7 +114,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -211,6 +211,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "task"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
+
+    @tracer.start_as_current_span("signals.source_configs.list")
+    def list(self, request, *args, **kwargs):
+        # This list is fetched on inbox load. The default serializer resolves a per-row `status`,
+        # which for session-analysis rows makes a synchronous Temporal RPC — a potential N+1. The
+        # span lets us see how much of the inbox load this endpoint accounts for.
+        return super().list(request, *args, **kwargs)
 
     def _is_scout_source(self, source_product: str | None, source_type: str | None) -> bool:
         return (
@@ -659,21 +666,20 @@ class SignalReportViewSet(
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         ).filter(~has_newer)
 
-    def _implementation_pr_exists_subquery(self):
-        # EXISTS over the latest implementation TaskRun that carries a non-empty
-        # `pr_url`. Mirrors `_annotate_implementation_pr_url`, but as a boolean
-        # EXISTS so it can be used as a filter (and counted) without the
-        # per-row PR-url annotation, which the list action skips for performance.
-        return tasks_facade.task_run_pr_url_exists_subquery(
-            SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
-        )
+    def _implementation_pr_report_filter(self):
+        # Reports with a shipped implementation PR, as a `Q` on `SignalReport.id`. Decorrelated:
+        # starts from the (small, index-backed) set of this team's tasks whose runs carry a non-empty
+        # `pr_url` and maps them to reports via the indexed `task_id` columns — instead of a correlated
+        # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
+        # PR-tab count scan the whole `ready` set per PR'd run).
+        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery(self.team.id))
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether a shipped
         # implementation PR exists. Lets the inbox count PR reports (the "Pull
-        # requests" tab) with a cheap `limit=1` count query instead of paging the
-        # whole list and filtering client-side. Absent or empty param leaves the
-        # list unchanged; an unrecognized value is a 400.
+        # requests" tab) with a cheap count query instead of paging the whole list
+        # and filtering client-side. Absent or empty param leaves the list
+        # unchanged; an unrecognized value is a 400.
         raw = self.request.query_params.get("has_implementation_pr")
         if raw is None or not raw.strip():
             return queryset
@@ -686,8 +692,8 @@ class SignalReportViewSet(
             raise serializers.ValidationError(
                 {"has_implementation_pr": f"Invalid value: {raw!r}. Allowed: true, false."}
             )
-        pr_exists = self._implementation_pr_exists_subquery()
-        return queryset.filter(pr_exists if wants_pr else ~pr_exists)
+        pr_filter = self._implementation_pr_report_filter()
+        return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -1067,14 +1073,24 @@ class SignalReportViewSet(
             ),
         ],
     )
+    @tracer.start_as_current_span("signals.reports.list")
     def list(self, request, *args, **kwargs):
-        queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        reports = list(page if page is not None else queryset)
+        # The reports list is the primary inbox-load endpoint. Each phase gets its own child span
+        # so a slow load can be attributed to Postgres (queryset annotations), ClickHouse (source
+        # products), the task facade (PR urls), or serialization, rather than one opaque request.
+        with tracer.start_as_current_span("signals.reports.list.queryset"):
+            queryset = self.filter_queryset(self.get_queryset())
+            page = self.paginate_queryset(queryset)
+            reports = list(page if page is not None else queryset)
 
         report_ids = [str(r.id) for r in reports]
-        source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
-        implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+        trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
+
+        with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
+            source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+
+        with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
+            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
 
         context = {
             **self.get_serializer_context(),
@@ -1083,9 +1099,12 @@ class SignalReportViewSet(
         }
         serializer = self.get_serializer(reports, many=True, context=context)
 
+        with tracer.start_as_current_span("signals.reports.list.serialize"):
+            data = serializer.data
+
         if page is not None:
-            return self.get_paginated_response(serializer.data)
-        return Response(serializer.data)
+            return self.get_paginated_response(data)
+        return Response(data)
 
     @extend_schema(exclude=True)
     @action(detail=False, methods=["get"], url_path="available_reviewers", required_scopes=["task:read"])
@@ -1479,8 +1498,24 @@ class SignalReportArtefactViewSet(
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
-        page = self.paginate_queryset(queryset)
-        artefacts = list(page if page is not None else queryset)
+        # Surface legacy `SignalReportTask` associations as synthetic `task_run` artefacts so a
+        # report's research / implementation runs appear in the log even before the backfill has
+        # converted its gate rows. Merged into the materialized log (de-duplicated against the real
+        # task_run artefacts) and re-sorted newest-first so each legacy row lands at its original
+        # timestamp, then paginated as one list so `count` and ordering both account for them.
+        real_artefacts = list(queryset)
+        synthetic = SignalReport.synthetic_legacy_task_run_artefacts(
+            report_id=self.parents_query_dict["report_id"],
+            team_id=self.team.id,
+            existing_artefacts=real_artefacts,
+        )
+        log = (
+            sorted([*real_artefacts, *synthetic], key=lambda a: a.created_at, reverse=True)
+            if synthetic
+            else real_artefacts
+        )
+        page = self.paginate_queryset(log)
+        artefacts = list(page if page is not None else log)
         logins_union = normalized_github_logins_from_suggested_reviewer_artefacts(artefacts)
         login_map = resolve_org_github_login_to_users(self.team.id, logins_union) if logins_union else {}
         serializer = SignalReportArtefactSerializer(

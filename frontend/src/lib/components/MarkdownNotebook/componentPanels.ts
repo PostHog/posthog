@@ -19,6 +19,18 @@ export const INSERTED_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
     results: true,
 }
 
+export const INSERTED_QUERY_COMPONENT_PANEL_VISIBILITY: ComponentPanelVisibility = {
+    filters: false,
+    results: true,
+}
+
+export function getInsertedComponentPanelVisibility(node: NotebookComponentBlockNode): ComponentPanelVisibility {
+    return getComponentPanelVisibility(
+        node,
+        node.tagName === 'Query' ? INSERTED_QUERY_COMPONENT_PANEL_VISIBILITY : INSERTED_COMPONENT_PANEL_VISIBILITY
+    )
+}
+
 export function getComponentPanelVisibility(
     node: NotebookComponentBlockNode,
     fallbackPanels: ComponentPanelVisibility

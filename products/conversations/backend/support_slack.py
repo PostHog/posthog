@@ -20,7 +20,6 @@ if TYPE_CHECKING:
     from posthog.models.team.team import Team
     from posthog.models.user import User
 
-SUPPORT_SLACK_MAX_IMAGE_BYTES = 4 * 1024 * 1024
 SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
 

@@ -45,6 +45,7 @@ export interface DataModelingJobApi {
 }
 
 export interface PaginatedDataModelingJobListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -64,9 +65,23 @@ export interface DeprovisionWarehouseResponseApi {
     org: string
 }
 
+export interface EnableWarehouseBackfillRequestApi {
+    /** Name for this environment's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix and must be unique across the organization's environments. */
+    table_name: string
+}
+
+export interface EnableWarehouseBackfillResponseApi {
+    /** Whether warehouse backfill is now enabled */
+    enabled: boolean
+    /** Suffix used for this environment's tables (events_<suffix>, persons_<suffix>) */
+    table_suffix: string
+}
+
 export interface ProvisionWarehouseRequestApi {
     /** Name for the new database */
     database_name: string
+    /** Name for the provisioning project's warehouse tables (events_<name>, persons_<name>, …). Lowercase letters, numbers, and underscores only; used verbatim as the suffix. Required so the first project gets its own per-environment tables. */
+    table_name: string
 }
 
 export interface ProvisionWarehouseResponseApi {
@@ -149,6 +164,13 @@ export interface WarehouseStatusResponseApi {
      */
     failed_at: string | null
     connection?: WarehouseConnectionApi | null
+    /** Whether this project already has a warehouse backfill configured. When true, its table name is fixed and the enable form should not be shown. */
+    has_backfill: boolean
+    /**
+     * This project's per-environment table suffix (events_<suffix>). Null when the project still writes to the shared tables.
+     * @nullable
+     */
+    table_suffix: string | null
 }
 
 /**
@@ -342,6 +364,46 @@ export interface PatchedWarehouseColumnAnnotationApi {
     readonly created_at?: string
     /** @nullable */
     readonly updated_at?: string | null
+}
+
+export interface WarehouseColumnStatisticsApi {
+    readonly id: string
+    /** ID of the data warehouse table this column belongs to. */
+    readonly table: string
+    /** Name of the column these statistics describe. */
+    readonly column_name: string
+    /** ClickHouse type the statistics were computed against (e.g. Int64, DateTime64). */
+    readonly column_type: string
+    /** Total number of rows in the table when these statistics were computed. */
+    readonly row_count: number
+    /** Number of NULL values in this column, or null if the Delta log carried no count. */
+    readonly null_count: number
+    /** Fraction of values that are NULL (null_count / row_count), between 0 and 1. */
+    readonly null_fraction: number
+    /** Minimum value in the column, as a string. Null when unavailable. For string columns this may be truncated by the underlying Delta statistics, so treat string bounds as approximate. */
+    readonly min_value: string
+    /** Maximum value in the column, as a string. Null when unavailable (see min_value). */
+    readonly max_value: string
+    /** Whether the Delta log carried min/max statistics for this column (false for some nested/binary types). */
+    readonly has_min_max: boolean
+    /** When these statistics were last computed. */
+    readonly computed_at: string
+    /** Delta table version the statistics were computed against. */
+    readonly computed_for_delta_version: number
+    /** How the statistics were produced. Currently always 'delta_log'. */
+    readonly stats_basis: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedWarehouseColumnStatisticsListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseColumnStatisticsApi[]
 }
 
 /**
@@ -1515,6 +1577,21 @@ export interface CredentialApi {
  * * `Tile38` - Tile38
  * * `Chatwoot` - Chatwoot
  * * `Sanity` - Sanity
+ * * `Metronome` - Metronome
+ * * `Jobber` - Jobber
+ * * `Knock` - Knock
+ * * `Leexi` - Leexi
+ * * `RB2B` - RB2B
+ * * `Superwall` - Superwall
+ * * `Liana` - Liana
+ * * `TawkTo` - TawkTo
+ * * `Hightouch` - Hightouch
+ * * `LemonSqueezy` - LemonSqueezy
+ * * `Ikas` - Ikas
+ * * `Talkwalker` - Talkwalker
+ * * `NextdoorAds` - NextdoorAds
+ * * `AppLovin` - AppLovin
+ * * `Baserow` - Baserow
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -2154,6 +2231,21 @@ export const ExternalDataSourceTypeEnumApi = {
     Tile38: 'Tile38',
     Chatwoot: 'Chatwoot',
     Sanity: 'Sanity',
+    Metronome: 'Metronome',
+    Jobber: 'Jobber',
+    Knock: 'Knock',
+    Leexi: 'Leexi',
+    Rb2b: 'RB2B',
+    Superwall: 'Superwall',
+    Liana: 'Liana',
+    TawkTo: 'TawkTo',
+    Hightouch: 'Hightouch',
+    LemonSqueezy: 'LemonSqueezy',
+    Ikas: 'Ikas',
+    Talkwalker: 'Talkwalker',
+    NextdoorAds: 'NextdoorAds',
+    AppLovin: 'AppLovin',
+    Baserow: 'Baserow',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
@@ -2306,13 +2398,13 @@ export interface ViewLinkValidationApi {
 
 export type DataModelingJobsListParams = {
     /**
-     * The pagination cursor value.
-     */
-    cursor?: string
-    /**
      * Number of results to return per page.
      */
     limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
     saved_query_id?: string
 }
 
@@ -2364,6 +2456,21 @@ export type WarehouseColumnAnnotationsListParams = {
     offset?: number
     /**
      * Only return annotations for this data warehouse table.
+     */
+    table_id?: string
+}
+
+export type WarehouseColumnStatisticsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Only return statistics for this data warehouse table.
      */
     table_id?: string
 }

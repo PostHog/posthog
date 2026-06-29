@@ -11,12 +11,18 @@ import {
     MultiQuestionFormQuestion,
 } from '~/queries/schema/schema-assistant-messages'
 
-import { MarkdownMessage } from '../MarkdownMessage'
+import {
+    isFieldValid,
+    MarkdownMessage,
+    MultiFieldQuestion,
+    type Option,
+    OptionSelector,
+    PermissionInput,
+    QuestionField,
+    QuestionInput,
+} from 'products/posthog_ai/frontend/api/primitives'
+
 import { maxThreadLogic } from '../maxThreadLogic'
-import { Option, OptionSelector } from './OptionSelector'
-import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
-import { SandboxPermissionInput } from './SandboxPermissionInput'
-import { SandboxQuestionInput } from './SandboxQuestionInput'
 
 function isQuestionComplete(
     q: MultiQuestionFormQuestion,
@@ -407,7 +413,7 @@ function DangerousOperationInput({ operation }: DangerousOperationInputProps): J
 /**
  * Compact badge showing the active ACP permission mode (e.g. plan vs default) for sandbox
  * conversations. Hidden when no mode has been reported. Reads the mode via `maxThreadLogic`'s
- * alias — this renders outside SandboxThread's BindLogic subtree, so it cannot bind the keyed
+ * alias — this renders outside ThreadView's BindLogic subtree, so it cannot bind the keyed
  * stream logic itself.
  */
 export function SandboxModeBadge(): JSX.Element | null {
@@ -460,7 +466,7 @@ export function InputFormArea(): JSX.Element | null {
     }, [pendingApprovalProposalId, pendingApprovalsData, resolvedApprovalStatuses])
 
     // Sandbox permission requests take precedence in the input area, mirroring the LangGraph
-    // dangerous-operation flow but driven by sandboxStreamLogic. A pending request only ever
+    // dangerous-operation flow but driven by runStreamLogic. A pending request only ever
     // originates from the sandbox stream, so its presence is sufficient — gating on `agent_runtime`
     // would strand approvals on new conversations whose runtime isn't resolved yet.
     if (pendingSandboxPermissionRequest) {
@@ -468,7 +474,7 @@ export function InputFormArea(): JSX.Element | null {
         // render the interactive question overlay instead of the approve/decline card.
         if (pendingSandboxPermissionRequest.questions?.length) {
             return (
-                <SandboxQuestionInput
+                <QuestionInput
                     key={pendingSandboxPermissionRequest.requestId}
                     streamKey={sandboxConversationKey}
                     request={pendingSandboxPermissionRequest}
@@ -476,7 +482,7 @@ export function InputFormArea(): JSX.Element | null {
             )
         }
         return (
-            <SandboxPermissionInput
+            <PermissionInput
                 key={pendingSandboxPermissionRequest.requestId}
                 streamKey={sandboxConversationKey}
                 request={pendingSandboxPermissionRequest}

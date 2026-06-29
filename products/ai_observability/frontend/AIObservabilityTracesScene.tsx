@@ -114,7 +114,7 @@ function TracesOptionsMenu(): JSX.Element | null {
                         onChange={setShowSentimentColumn}
                         label="Show sentiment"
                         fullWidth
-                        tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
+                        tooltip="Show the sentiment column from stored sentiment evaluation results."
                         data-attr="llm-traces-show-sentiment-toggle"
                     />
                 </div>
@@ -355,14 +355,14 @@ const InputMessageColumn: QueryContextColumnComponent = ({ record }) => {
         return <LemonSkeleton className="h-4 w-40" />
     }
     // Three-tier fallback: clean state unwrap → generation fallback → raw state dump.
-    const firstInput =
-        pickFirstInputMessage(messages?.firstInput, { strict: true }) ??
-        pickFirstInputMessage(messages?.firstInputFallback) ??
-        pickFirstInputMessage(messages?.firstInput)
-    if (!firstInput) {
+    const inputMessage =
+        pickLastInputMessage(messages?.lastInput, { strict: true }) ??
+        pickLastInputMessage(messages?.lastInputFallback) ??
+        pickLastInputMessage(messages?.lastInput)
+    if (!inputMessage) {
         return <>–</>
     }
-    return <LLMMessageDisplay message={firstInput} isOutput={false} minimal />
+    return <LLMMessageDisplay message={inputMessage} isOutput={false} minimal />
 }
 InputMessageColumn.displayName = 'InputMessageColumn'
 
@@ -413,13 +413,14 @@ function hasDisplayableContent(message: NormalizedMessage): boolean {
 }
 
 /**
- * Preferred → fallback cascade for the trace input column. We prefer the first
- * actual user turn, but tolerate traces that open with a system prompt or a
- * tool-result by falling back down the list. When `strict` is true we reject
+ * Preferred → fallback cascade for the trace input column. We prefer the last
+ * actual user turn (the message that drove this trace, not the start of the
+ * conversation history), but tolerate traces that only carry a system prompt or
+ * a tool-result by falling back down the list. When `strict` is true we reject
  * unknown state-wrapper shapes (the caller will then try the generation-level
  * fallback payload).
  */
-function pickFirstInputMessage(
+export function pickLastInputMessage(
     raw: unknown,
     { strict }: { strict: boolean } = { strict: false }
 ): NormalizedMessage | null {
@@ -427,19 +428,19 @@ function pickFirstInputMessage(
     if (normalized.length === 0) {
         return null
     }
-    const firstUser = normalized.find((m) => m.role === 'user' && hasDisplayableContent(m))
-    if (firstUser) {
-        return firstUser
+    const lastUser = normalized.findLast((m) => m.role === 'user' && hasDisplayableContent(m))
+    if (lastUser) {
+        return lastUser
     }
-    const firstNonSystem = normalized.find((m) => m.role !== 'system' && hasDisplayableContent(m))
-    if (firstNonSystem) {
-        return firstNonSystem
+    const lastNonSystem = normalized.findLast((m) => m.role !== 'system' && hasDisplayableContent(m))
+    if (lastNonSystem) {
+        return lastNonSystem
     }
-    const firstDisplayable = normalized.find(hasDisplayableContent)
-    if (firstDisplayable) {
-        return firstDisplayable
+    const lastDisplayable = normalized.findLast(hasDisplayableContent)
+    if (lastDisplayable) {
+        return lastDisplayable
     }
-    return normalized[0]
+    return normalized[normalized.length - 1]
 }
 
 /**

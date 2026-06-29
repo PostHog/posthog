@@ -17,18 +17,21 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import type { IndexedTrendResult } from 'scenes/trends/types'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
+import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { ChartDisplayType } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
+import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
 import { handleTrendsChartClick } from '../shared/handleTrendsChartClick'
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { buildTrendsSeriesMeta, resolveGroupTypeLabel, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 import { TrendsTooltip } from '../shared/TrendsTooltip'
-import { useTrendsLegendConfig } from '../shared/useTrendsLegendConfig'
+import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChartTransforms'
 
 interface TrendsLineChartProps {
@@ -45,7 +48,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { insightProps, insight } = useValues(insightLogic)
 
-    const legendConfig = useTrendsLegendConfig({ insightProps, inSharedMode })
+    const legendConfig = useInsightsLegendConfig({ insightProps, inSharedMode })
     const quillLegendEnabled = !!legendConfig
 
     const {
@@ -78,6 +81,18 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const { allCohorts } = useValues(cohortsModel)
+    const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+
+    const getLabel = useCallback(
+        (r: IndexedTrendResult): string =>
+            getTrendsSeriesDisplayLabel(r, {
+                breakdownFilter,
+                cohorts: allCohorts?.results,
+                formatPropertyValueForDisplay,
+            }),
+        [breakdownFilter, allCohorts?.results, formatPropertyValueForDisplay]
+    )
 
     const isPercentStackView = !!showPercentStackView && !!supportsPercentStackView
     const resolvedGroupTypeLabel = context?.groupTypeLabel ?? resolveGroupTypeLabel(labelGroupType, aggregationLabel)
@@ -202,6 +217,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 // With the quill legend on, hidden series are listed (dimmed) and excluded via
                 // config.legend.hiddenKeys instead of being dropped here, so the legend can restore them.
                 getHidden: quillLegendEnabled ? undefined : getTrendsHidden,
+                getLabel,
                 buildMeta: buildTrendsSeriesMeta,
             }),
         [
@@ -212,6 +228,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             isStickiness,
             getTrendsColor,
             getTrendsHidden,
+            getLabel,
             quillLegendEnabled,
         ]
     )
@@ -233,6 +250,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
                 goalLines,
                 incompletenessOffsetFromEnd,
                 getHidden: getTrendsHidden,
+                getLabel,
                 showConfidenceIntervals: showConfidenceIntervals ?? undefined,
                 confidenceLevel: confidenceLevel ?? undefined,
                 ciRanges,
@@ -257,6 +275,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
             goalLines,
             incompletenessOffsetFromEnd,
             getTrendsHidden,
+            getLabel,
             showConfidenceIntervals,
             confidenceLevel,
             showMovingAverage,

@@ -4,29 +4,30 @@ from collections import defaultdict
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
 from django.utils import timezone
 
 import structlog
-import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import mixins, request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 
 from posthog.schema import ProductKey
 
-from posthog.api.capture_dispatch import CaptureRoutedError, capture_internal_routed
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api.capture import CaptureInternalError, capture_internal
 from posthog.api.documentation import extend_schema
 from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric, PropertyDefinition
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
@@ -44,12 +45,13 @@ from posthog.models.group_type_mapping import (
 )
 from posthog.models.user import User
 from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.utils import str_to_bool
 
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.notebooks.backend.util import (
+from products.notebooks.backend.facade import api as notebooks
+from products.notebooks.backend.facade.content import (
     create_bullet_list,
     create_empty_paragraph,
     create_heading_with_text,
@@ -258,8 +260,7 @@ class FindGroupSerializer(GroupSerializer):
         fields = [*GroupSerializer.Meta.fields, "notebook"]
 
     def get_notebook(self, obj: Group) -> str | None:
-        notebooks = ResourceNotebook.objects.filter(group=obj.id).first()
-        return notebooks.notebook.short_id if notebooks else None
+        return notebooks.get_group_notebook_short_id(obj.id)
 
 
 class CreateGroupSerializer(serializers.ModelSerializer):
@@ -325,7 +326,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             "$group_set": group_properties or group.group_properties,
         }
         try:
-            result = capture_internal_routed(
+            result = capture_internal(
                 token=self.team.api_token,
                 event_name="$groupidentify",
                 event_source="ee_ch_views_groups",
@@ -335,7 +336,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 process_person_profile=False,
             )
             result.raise_for_status()
-        except CaptureRoutedError as error:
+        except CaptureInternalError as error:
             raise TriggerGroupIdentifyException(
                 exception_data={
                     "code": f"Failed to submit {operation} event.",
@@ -442,10 +443,18 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         request_data = CreateGroupSerializer(data=request.data)
         request_data.is_valid(raise_exception=True)
 
+        group_key = request_data.validated_data["group_key"]
+        group_type_index = request_data.validated_data["group_type_index"]
+
+        # Personhog upserts on duplicate (team, group_type_index, group_key) instead
+        # of raising, so reject duplicates up front to preserve the 400 contract.
+        if get_group_by_key(self.team.pk, group_type_index, group_key) is not None:
+            raise ValidationError({"detail": "A group with this key already exists"})
+
         try:
             group = create_group(
-                group_key=request_data.validated_data["group_key"],
-                group_type_index=request_data.validated_data["group_type_index"],
+                group_key=group_key,
+                group_type_index=group_type_index,
                 properties=request_data.validated_data["group_properties"],
                 team_id=self.team.pk,
                 timestamp=timezone.now(),
@@ -490,7 +499,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity="create_group",
@@ -532,7 +541,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         if (
             not skip_create_notebook
             and self._is_crm_enabled(cast(User, request.user))
-            and not ResourceNotebook.objects.filter(group=group.id).exists()
+            and not notebooks.group_has_notebook(group.id)
         ):
             try:
                 self._create_notebook_for_group(group=group)
@@ -610,7 +619,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity=f"{create_or_update}_property",
@@ -683,7 +692,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             }
 
             try:
-                routed_result = capture_internal_routed(
+                routed_result = capture_internal(
                     token=self.team.api_token,
                     event_name=event_name,
                     event_source="ee_ch_views_groups",
@@ -694,7 +703,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 )
                 routed_result.raise_for_status()
 
-            except CaptureRoutedError as e:
+            except CaptureInternalError as e:
                 return response.Response(
                     {
                         "attr": "$unset",
@@ -719,7 +728,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                 organization_id=self.organization.id,
                 team_id=self.team.id,
                 user=cast(User, request.user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=group.pk,
                 scope="Group",
                 activity="update_property",
@@ -796,17 +805,16 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_definitions(self, request: request.Request, **kw):
         tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-        rows = sync_execute(
-            f"""
-            SELECT group_type_index, tupleElement(keysAndValues, 1) as key, count(*) as count
+        query = parse_select(
+            """
+            SELECT index, tupleElement(keysAndValues, 1) AS key, count(*) AS count
             FROM groups
-            ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-            WHERE team_id = %(team_id)s
-            GROUP BY group_type_index, tupleElement(keysAndValues, 1)
-            ORDER BY group_type_index ASC, count DESC, key ASC
-            """,
-            {"team_id": self.team.pk},
+            ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS keysAndValues
+            GROUP BY index, key
+            ORDER BY index ASC, count DESC, key ASC
+            """
         )
+        rows = execute_hogql_query(query, team=self.team).results
 
         group_type_index_to_properties = defaultdict(list)
         for group_type_index, key, count in rows:
@@ -833,30 +841,39 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             span.set_attribute("property_key", key)
             span.set_attribute("has_value_filter", value_filter is not None)
 
-            query = f"""
-                    SELECT {trim_quotes_expr("tupleElement(keysAndValues, 2)")} as value, count(*) as count
-                    FROM groups
-                    ARRAY JOIN JSONExtractKeysAndValuesRaw(group_properties) as keysAndValues
-                    WHERE team_id = %(team_id)s
-                      AND group_type_index = %(group_type_index)s
-                      AND tupleElement(keysAndValues, 1) = %(key)s
-                      {f"AND {trim_quotes_expr('tupleElement(keysAndValues, 2)')} ILIKE %(value_filter)s" if value_filter else ""}
-                    GROUP BY value
-                    ORDER BY count DESC, value ASC
-                    LIMIT 20
-                """
-
-            params = {
-                "team_id": self.team.pk,
-                "group_type_index": group_type_index,
-                "key": key,
+            where_extra = ""
+            placeholders: dict[str, ast.Expr] = {
+                "group_type_index": ast.Constant(value=int(group_type_index)),
+                "key": ast.Constant(value=key),
             }
-
             if value_filter:
-                params["value_filter"] = f"%{value_filter}%"
+                where_extra = "AND value ILIKE {value_filter}"
+                placeholders["value_filter"] = ast.Constant(value=f"%{value_filter}%")
+
+            # Dedup to each group's latest value of the requested property. Aggregating only the
+            # extracted property (not the whole properties blob, as the `groups` lazy table would)
+            # keeps memory bounded on teams with many large groups.
+            # nosemgrep: hogql-fstring-audit (only the constant where_extra fragment is interpolated; key/value/index go through parse_select placeholders)
+            query = parse_select(
+                f"""
+                SELECT value, count(*) AS count
+                FROM (
+                    SELECT argMax(properties[{{key}}], updated_at) AS value
+                    FROM raw_groups
+                    WHERE index = {{group_type_index}}
+                    GROUP BY index, key
+                )
+                WHERE value IS NOT NULL
+                  {where_extra}
+                GROUP BY value
+                ORDER BY count DESC, value ASC
+                LIMIT 20
+                """,
+                placeholders=placeholders,
+            )
 
             tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-            rows = sync_execute(query, params)
+            rows = execute_hogql_query(query, team=self.team).results
 
             span.set_attribute("result_count", len(rows))
             return response.Response(
@@ -864,7 +881,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             )
 
     def _is_crm_enabled(self, user: User) -> bool:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             "crm-iteration-one",
             str(user.distinct_id),
             groups={"organization": str(self.team.organization.id)},
@@ -872,7 +889,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             send_feature_flag_events=False,
         )
 
-    @transaction.atomic
     def _create_notebook_for_group(self, group: Group):
         group_name = group.group_properties.get("name", "")
         notebook_title = f"{group_name} Notes" if group_name else "Notes"
@@ -890,13 +906,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             create_heading_with_text(text="Last interaction", level=2),
             create_bullet_list(items=["Date: ", "Context: ", "Next steps: "]),
         ]
-        notebook = Notebook.objects.create(
-            team=self.team,
-            title=notebook_title,
-            content=notebook_content,
-            visibility=Notebook.Visibility.INTERNAL,
-        )
-        ResourceNotebook.objects.create(notebook=notebook, group=group.id)
+        notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
 
 
 _DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
@@ -982,7 +992,7 @@ class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlS
             raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
 
     def _validate_data_warehouse(self, filters: dict, math, math_property):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
         if missing:

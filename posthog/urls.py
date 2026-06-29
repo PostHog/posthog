@@ -29,7 +29,7 @@ from posthog.api import (
     uploaded_media,
     user,
 )
-from posthog.api.github_callback.personal_finish import github_link_complete
+from posthog.api.github_callback.views import github_oauth_callback, github_setup_callback
 from posthog.api.oauth.connected_apps import ConnectedAppsViewSet
 from posthog.api.oauth.raycast_metadata import RAYCAST_METADATA_PATH, RaycastClientMetadataView
 from posthog.api.oauth.wizard_metadata import WIZARD_METADATA_PATH, WizardClientMetadataView
@@ -48,7 +48,7 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.ai_observability.backend.api.personal_spend import personal_spend_eu_redirect
 from products.cdp.backend.api import hog_function_template
-from products.data_warehouse.backend.api.public_source_configs import PublicSourceConfigViewSet
+from products.data_warehouse.backend.presentation.views.public_source_configs import PublicSourceConfigViewSet
 from products.early_access_features.backend.api import early_access_features
 from products.legal_documents.backend.presentation.webhook import legal_document_pandadoc_webhook
 from products.messaging.backend.api.customerio_webhook import CustomerIOWebhookView
@@ -60,7 +60,9 @@ from products.slack_app.backend.api import (
     posthog_code_interactivity_handler,
     slack_workspace_claims_view,
 )
+from products.slack_app.backend.views import slack_user_link_authorize, slack_user_link_callback
 from products.surveys.backend.api.survey import public_survey_page
+from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
     start_call as user_interviews_start_call,
     vapi_webhook,
@@ -367,6 +369,11 @@ urlpatterns = [
         "api/public_source_configs",
         PublicSourceConfigViewSet.as_view({"get": "list"}),
     ),
+    # Internal agent-proxy side-effect callback (auth: sandbox event ingest JWT)
+    path(
+        "internal/tasks/runs/<str:run_id>/agent-proxy-callback/",
+        csrf_exempt(agent_proxy_callback),
+    ),
     # Internal service-to-service endpoints (authenticated with POSTHOG_INTERNAL_SERVICE_TOKEN)
     path(
         "api/projects/<str:team_id>/internal/hog_flows/user_blast_radius",
@@ -379,6 +386,10 @@ urlpatterns = [
     path(
         "api/internal/hog_flows/process_due_schedules",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"post": "internal_process_due_schedules"})),
+    ),
+    path(
+        "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
+        csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
     ),
     path(
         "api/projects/<str:team_id>/internal/signals/emit",
@@ -444,7 +455,14 @@ urlpatterns = [
     ),  # overrides from `social_django.urls` to validate proper license
     # GitHub account linking (identity-only, separate from the login pipeline).
     # Must precede `social_django.urls` so the latter's `complete/<str:backend>/` doesn't swallow it.
-    path("complete/github-link/", github_link_complete, name="github_link_complete"),
+    path("complete/github-link/", github_oauth_callback, name="github_link_complete"),
+    opt_slash_path(
+        "integrations/github/callback", github_setup_callback, name="github_team_integration_setup_callback"
+    ),
+    # Slack user-identity linking — mirrors the GitHub per-user pattern above,
+    # and likewise must precede `social_django.urls` for the same reason.
+    path("complete/slack-link/start/", slack_user_link_authorize, name="slack_link_start"),
+    path("complete/slack-link/", slack_user_link_callback, name="slack_link_complete"),
     path("", include("social_django.urls", namespace="social")),
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
@@ -534,6 +552,8 @@ frontend_unauthenticated_routes = [
     "organization/confirm-creation",
     "login",
     "unsubscribe",
+    # Public bridge for desktop-app canvas share links — deep-links into PostHog Code.
+    r"code/canvas/[^/]+/[^/]+",
     "verify_email",
     r"agentic/account-mismatch",
     # OAuth redirect target when logging the local frontend into a remote cloud region;

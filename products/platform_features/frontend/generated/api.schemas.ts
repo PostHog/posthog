@@ -342,6 +342,14 @@ export interface PatchedOrganizationMemberApi {
     readonly search_match_type?: SearchMatchTypeEnumApi | null
 }
 
+export interface OrganizationMemberGithubLoginApi {
+    /**
+     * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+     * @nullable
+     */
+    github_login: string | null
+}
+
 export interface OrganizationPersonalAPIKeyOwnerApi {
     /** First name of the key's owner. */
     readonly first_name: string
@@ -789,14 +797,6 @@ export interface PatchedCommentApi {
     readonly completed_at?: string | null
     /** @nullable */
     source_comment?: string | null
-}
-
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
 }
 
 export interface PinnedSceneTabApi {

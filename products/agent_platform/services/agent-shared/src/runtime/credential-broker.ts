@@ -48,13 +48,6 @@ export type Credential =
      * (e.g. to call back into the issuing system) or read `claims`.
      */
     | { kind: 'jwt'; token: string; claims: Record<string, unknown> }
-    /**
-     * Reference to a team-level integration credential (Slack token,
-     * etc.). The runner resolves to the actual access token through the
-     * existing `IntegrationCredentials` resolver — keeping the integration
-     * shape consistent with native-tool usage today.
-     */
-    | { kind: 'integration_ref'; integration_id: string }
 
 /**
  * Map of target → credential. Targets are author-defined strings; the

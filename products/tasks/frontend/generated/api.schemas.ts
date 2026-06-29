@@ -395,6 +395,34 @@ export const SignalReportTaskRelationshipEnumApi = {
 } as const
 
 /**
+ * * `claude` - claude
+ * * `codex` - codex
+ */
+export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
+
+export const RuntimeAdapterEnumApi = {
+    Claude: 'claude',
+    Codex: 'codex',
+} as const
+
+/**
+ * * `low` - low
+ * * `medium` - medium
+ * * `high` - high
+ * * `xhigh` - xhigh
+ * * `max` - max
+ */
+export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
+
+export const ReasoningEffortEnumApi = {
+    Low: 'low',
+    Medium: 'medium',
+    High: 'high',
+    Xhigh: 'xhigh',
+    Max: 'max',
+} as const
+
+/**
  * Request body for creating or updating a task.
  *
  * Field required/default semantics match the ``Task`` model. The view passes
@@ -458,6 +486,30 @@ export interface TaskWriteApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /**
+     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
+    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**
@@ -524,6 +576,30 @@ export interface PatchedTaskWriteApi {
      * @nullable
      */
     ci_prompt?: string | null
+    /**
+     * Branch the user has selected for this cloud task. Write-only and not persisted on the task itself: used only to reuse a matching pre-warmed sandbox Run on creation (the branch is otherwise carried on the run). Omit to match a warm Run on the default branch.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** Selected runtime adapter ('claude' or 'codex'). Write-only and not persisted on the task: used only to reuse a pre-warmed Run started on the same runtime. A value differing from the warm Run's runtime skips reuse so the task isn't silently run on the wrong runtime.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * Selected LLM model identifier. Write-only; used only to reuse a warm Run started on the same model.
+     * @nullable
+     */
+    model?: string | null
+    /** Selected reasoning effort. Write-only; used only to reuse a warm Run started on the same effort.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
 }
 
 /**
@@ -581,23 +657,6 @@ export type ClaudeRuntimeAdapterEnumApi = (typeof ClaudeRuntimeAdapterEnumApi)[k
 
 export const ClaudeRuntimeAdapterEnumApi = {
     Claude: 'claude',
-} as const
-
-/**
- * * `low` - low
- * * `medium` - medium
- * * `high` - high
- * * `xhigh` - xhigh
- * * `max` - max
- */
-export type ReasoningEffortEnumApi = (typeof ReasoningEffortEnumApi)[keyof typeof ReasoningEffortEnumApi]
-
-export const ReasoningEffortEnumApi = {
-    Low: 'low',
-    Medium: 'medium',
-    High: 'high',
-    Xhigh: 'xhigh',
-    Max: 'max',
 } as const
 
 /**
@@ -967,17 +1026,6 @@ export interface TaskStagedArtifactsPrepareUploadResponseApi {
     /** Prepared staged uploads for the requested artifacts */
     artifacts: TaskStagedArtifactPrepareUploadResponseApi[]
 }
-
-/**
- * * `claude` - claude
- * * `codex` - codex
- */
-export type RuntimeAdapterEnumApi = (typeof RuntimeAdapterEnumApi)[keyof typeof RuntimeAdapterEnumApi]
-
-export const RuntimeAdapterEnumApi = {
-    Claude: 'claude',
-    Codex: 'codex',
-} as const
 
 /**
  * * `anthropic` - anthropic
@@ -1535,6 +1583,19 @@ export interface TaskRunStartRequestApi {
     pending_user_artifact_ids?: string[]
 }
 
+/**
+ * Response containing a JWT token (and resolved base URL) for reading a task run's live event stream
+ */
+export interface StreamReadTokenResponseApi {
+    /** Run-scoped JWT the browser presents to the agent-proxy to read this run's live event stream */
+    token: string
+    /**
+     * Base URL of the agent-proxy to read the stream from when routing via the proxy is enabled for this user. Null means read from the Django endpoint directly (same-origin). The client appends the run's stream path and sends the token as a Bearer header when this is set.
+     * @nullable
+     */
+    stream_base_url: string | null
+}
+
 export interface TaskRepositoriesResponseApi {
     /** Distinct repositories in use by non-deleted, non-internal tasks for the current team. */
     repositories: string[]
@@ -1840,6 +1901,58 @@ export interface PaginatedTaskSummaryDTOListApi {
     /** @nullable */
     previous?: string | null
     results: TaskSummaryDTOApi[]
+}
+
+/**
+ * Request body for warming a full idling Run while composing a Code-app cloud task.
+ *
+ * Collection-level: no task exists yet at typing time. The warmer births a draft Task and an
+ * interactive Run that boots, clones, checks out `branch`, and starts the agent, then idles awaiting
+ * the first message. `github_integration` is a plain integration PK (an integer); the view re-scopes
+ * it to the caller's team before use.
+ */
+export interface WarmTaskRequestApi {
+    /**
+     * Target GitHub repository to clone, in `organization/repo` format (e.g. `posthog/posthog`).
+     * @maxLength 255
+     */
+    repository: string
+    /** Primary key of the team's GitHub integration to clone with. */
+    github_integration: number
+    /**
+     * Branch to check out in the warm sandbox. Defaults to the repository's default branch when omitted.
+     * @maxLength 255
+     * @nullable
+     */
+    branch?: string | null
+    /** Agent runtime adapter to warm the sandbox on ('claude' or 'codex'). The warm Run starts the agent on this runtime so a matching submit reuses it; a submit selecting a different runtime falls through to a cold Run instead of reusing a mismatched warm session.
+     *
+     * * `claude` - claude
+     * * `codex` - codex */
+    runtime_adapter?: RuntimeAdapterEnumApi | null
+    /**
+     * LLM model identifier to warm the sandbox on. A submit selecting a different model won't reuse this warm Run.
+     * @nullable
+     */
+    model?: string | null
+    /** Reasoning effort to warm the sandbox on for models that expose an effort control.
+     *
+     * * `low` - low
+     * * `medium` - medium
+     * * `high` - high
+     * * `xhigh` - xhigh
+     * * `max` - max */
+    reasoning_effort?: ReasoningEffortEnumApi | null
+}
+
+/**
+ * Response for a successful warm request — the draft Task + idling warm Run reused on submit.
+ */
+export interface WarmTaskResponseApi {
+    /** Id of the draft Task birthed for the warm Run. */
+    task_id: string
+    /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
+    run_id: string
 }
 
 export type SandboxListParams = {

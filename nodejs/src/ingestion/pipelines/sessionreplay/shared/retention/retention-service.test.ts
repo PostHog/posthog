@@ -12,6 +12,12 @@ jest.mock('./metrics', () => ({
     },
 }))
 
+jest.mock('~/ingestion/pipelines/sessionreplay/sessions/metrics', () => ({
+    SessionBatchMetrics: {
+        observeRetentionRedisLatency: jest.fn(),
+    },
+}))
+
 describe('RetentionService', () => {
     let retentionService: RetentionService
     let mockRedisClient: jest.Mocked<Redis>

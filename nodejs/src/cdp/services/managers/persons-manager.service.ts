@@ -1,8 +1,8 @@
 import { PersonReadRepository } from '~/common/persons/repositories/person-repository'
+import { LazyLoader } from '~/common/utils/lazy-loader'
+import { logger } from '~/common/utils/logger'
+import { TeamManager } from '~/common/utils/team-manager'
 
-import { LazyLoader } from '../../../utils/lazy-loader'
-import { logger } from '../../../utils/logger'
-import { TeamManager } from '../../../utils/team-manager'
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
 

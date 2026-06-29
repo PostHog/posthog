@@ -18,10 +18,8 @@ import {
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
-import { AnalyticsEvent } from '@/lib/posthog/analytics'
 import { createExecTool, formatInputValidationError, type ExecInnerCallTracker } from '@/tools/exec'
 import { createRenderUiTool } from '@/tools/render-ui'
-import { getToolCategory } from '@/tools/toolDefinitions'
 import type { Context, ZodObjectAny } from '@/tools/types'
 
 import { trackToolCall, trackToolsList, type ToolCallIntentMeta } from './analytics'
@@ -86,7 +84,10 @@ export class ToolExecutor {
 
         return filteredTools.map((entry) => {
             if (entry.name === 'execute-sql') {
-                return { ...entry, description: this.instructionsBuilder.formatExecuteSqlDescription() }
+                return {
+                    ...entry,
+                    description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                }
             }
             return entry
         })
@@ -257,6 +258,16 @@ export class ToolExecutor {
 
         const startMs = Date.now()
 
+        // In single-exec mode every transport-level call is `exec`, so `$mcp_tool_name`
+        // would always read `exec` and hide which tool the agent actually invoked.
+        // Attribute the canonical event to the inner tool that dispatched (captured by
+        // `trackInnerCall` above) — keeping the same standard `$mcp_tool_name` the SDK
+        // emits for direct calls, so exec-routed and direct calls share one vocabulary.
+        // `$mcp_mode` already distinguishes single-exec from direct for anyone who needs
+        // it. Non-`call` verbs (tools/info/search/schema) resolve no inner tool and stay
+        // attributed to `exec`.
+        const execToolName = (): string => execMetrics.innerToolName ?? 'exec'
+
         try {
             const handlerResult = await resolved.handler(state.context, validation.data)
             const duration = Date.now() - startMs
@@ -273,7 +284,7 @@ export class ToolExecutor {
                   })
 
             void trackToolCall(
-                'exec',
+                execToolName(),
                 duration,
                 false,
                 state,
@@ -286,13 +297,13 @@ export class ToolExecutor {
 
             return response
         } catch (error: unknown) {
-            const metricTool = execMetrics.innerToolName ?? 'exec'
+            const metricTool = execToolName()
             if (!execMetrics.innerToolName) {
                 toolCallsTotal.inc({ tool: 'exec', status: 'error' })
             }
             classifyToolError(error, metricTool)
 
-            void trackToolCall('exec', Date.now() - startMs, true, state, undefined, intentMeta)
+            void trackToolCall(metricTool, Date.now() - startMs, true, state, undefined, intentMeta)
 
             const sessionUuid = await state.reqCtx.getEffectiveSessionUuid(state.requestContext)
             // Attribute the failure to the inner tool that actually ran (e.g. `query-logs`),
@@ -307,6 +318,11 @@ export class ToolExecutor {
         const commandReference = this.instructionsBuilder.buildExecCommandReference(state)
 
         const trackInnerCall: ExecInnerCallTracker = (toolName, properties) => {
+            // Record which inner tool actually dispatched so `callExecTool` can attribute
+            // the canonical `$mcp_tool_call` event to the real tool instead of the `exec`
+            // dispatcher. The PostHog event is intentionally NOT emitted here: the wrapper
+            // event (now relabelled to the inner tool name, with the inner tool's category
+            // derived from it) already carries this call, so a second emit would double-count.
             execMetrics.innerToolName = toolName
             const status = properties.success ? 'success' : properties.validation_error ? 'validation_error' : 'error'
             toolCallsTotal.inc({ tool: toolName, status })
@@ -316,30 +332,23 @@ export class ToolExecutor {
             if (!properties.validation_error) {
                 toolCallDurationSeconds.observe({ tool: toolName, status }, properties.duration_ms / 1000)
             }
-
-            // Mirror the native path: stamp the inner tool's category so exec-routed
-            // calls share the dashboard's `$mcp_tool_category` grouping dimension.
-            const toolCategory = getToolCategory(toolName)
-
-            void (async () => {
-                const freshContext = await state.reqCtx.safelyGetAnalyticsContext(state.context)
-                await state.reqCtx.trackEvent(
-                    AnalyticsEvent.MCP_TOOL_CALL,
-                    {
-                        tool_name: toolName,
-                        ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
-                        ...properties,
-                    },
-                    freshContext,
-                    undefined,
-                    state.distinctId
-                )
-            })().catch(() => {})
         }
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
+        // CLI `info execute-sql` returns the tool's static description from the catalog.
+        // Override it with the same flag-aware prompt tools-mode advertises, so the
+        // information_schema steering (or its absence) matches across both modes.
+        const execTools = state.allTools.map((tool) =>
+            tool.name === 'execute-sql'
+                ? {
+                      ...tool,
+                      description: this.instructionsBuilder.formatExecuteSqlDescription(state.toolFeatureFlags),
+                  }
+                : tool
+        )
+
         const execTool = createExecTool(
-            state.allTools,
+            execTools,
             state.context,
             this.instructionsBuilder.buildExecToolDescription(),
             commandReference,

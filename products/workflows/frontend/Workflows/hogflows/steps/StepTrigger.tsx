@@ -7,6 +7,7 @@ import {
     IconBolt,
     IconButton,
     IconClock,
+    IconInfo,
     IconLeave,
     IconPeople,
     IconPlusSmall,
@@ -264,11 +265,6 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 description: 'Trigger your workflow to run for each person in an audience you define.',
                 value: 'batch',
                 icon: <IconPeople />,
-                tag: (
-                    <LemonTag type="completion" className="ml-1">
-                        Beta
-                    </LemonTag>
-                ),
             },
             ...getRegisteredTriggerTypes()
                 .filter((t) => !t.featureFlag || featureFlags[t.featureFlag])
@@ -284,6 +280,10 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
     }, [type, featureFlags])
 
     const selectedItem = allTriggerItems.find((item) => item.value === displayType)
+
+    // Registered trigger types (e.g. data warehouse) can own non-event configs, so resolve the
+    // matching definition regardless of config.type and render its ConfigComponent below.
+    const registeredMatch = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
 
     const handleSelect = (value: string): void => {
         const registered = getRegisteredTriggerTypes().find((t) => t.value === value)
@@ -336,14 +336,10 @@ export function StepTriggerConfiguration({ node }: { node: Node<TriggerAction> }
                 </LemonField.Pure>
                 {type === 'schedule' && <ScheduleStatusBadge />}
             </div>
-            {node.data.config.type === 'event' ? (
-                (() => {
-                    const match = getRegisteredTriggerTypes().find((t) => t.matchConfig?.(node.data.config))
-                    if (match?.ConfigComponent) {
-                        return <match.ConfigComponent node={node} />
-                    }
-                    return <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
-                })()
+            {registeredMatch?.ConfigComponent ? (
+                <registeredMatch.ConfigComponent node={node} />
+            ) : node.data.config.type === 'event' ? (
+                <StepTriggerConfigurationEvents action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'webhook' ? (
                 <StepTriggerConfigurationWebhook action={node.data} config={node.data.config} />
             ) : node.data.config.type === 'manual' ? (
@@ -788,9 +784,12 @@ function ConversionGoalSection(): JSX.Element {
 
     return (
         <div className="flex flex-col py-2 w-full">
-            <span className="flex gap-1">
+            <span className="flex gap-1 items-center">
                 <IconTarget className="text-lg" />
                 <span className="text-md font-semibold">Conversion goal (optional)</span>
+                <Tooltip title="When a conversion goal is set, each conversion is sent as a billable $workflows_conversion event (with the workflow id and conversion type). You can build insights and cohorts from it, and it counts toward your event usage.">
+                    <IconInfo className="text-secondary" />
+                </Tooltip>
             </span>
             <p>
                 Define what a user must do to be considered converted. All conditions must be met for the user to be

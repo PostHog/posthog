@@ -243,34 +243,9 @@ export function isAgentMode(mode: unknown): mode is AgentMode {
     return typeof mode === 'string' && Object.values(AgentMode).includes(mode as AgentMode)
 }
 
-/**
- * The shape `sandboxToolRegistry` renderers receive — raw `ToolInvocation` stream state plus
- * renderer-facing fields resolved at render time.
- */
-export interface SandboxToolCallMessage {
-    /** Stable id — the tool call id. */
-    id: string
-    /** Registry lookup key — the inner tool name for single-exec calls, otherwise the wire tool name. */
-    resolvedKey: string
-    rawServerName: string
-    rawToolName: string
-    innerToolName?: string
-    /** Stable SDK tool name from `_meta.claudeCode.toolName` — set for Claude built-ins. */
-    claudeToolName?: string
-    /** rawInput at `tool_call` (for `exec`, includes the wrapper `{ command }`). */
-    rawInput: Record<string, unknown>
-    /** JSON-parsed inner args when `innerToolName` is set. */
-    innerInput?: Record<string, unknown>
-    rawOutput?: unknown
-    /** Accumulated ACP `content[]`. */
-    content: unknown[]
-    status: 'pending' | 'in_progress' | 'completed' | 'failed'
-    title?: string
-    kind?: string
-    /** ACP `toolCall.locations` — file paths (with optional line) the tool touched. */
-    locations?: { path: string; line?: number }[]
-    error?: { message?: string } | null
-}
+// `ToolCallMessage` now lives with the relocated sandbox renderer. Re-exported here so
+// the frozen LangGraph path and any in-flight branches keep resolving it from `maxTypes`.
+export type { ToolCallMessage } from 'products/posthog_ai/frontend/api/types'
 
 /**
  * Flat context attachment sent to the sandbox agent runtime (`agent_runtime === 'sandbox'`).

@@ -221,6 +221,62 @@ export const AgentRevisionApiSpecFrameworkPromptOmitItem = {
     ReasoningHint: 'reasoning_hint',
 } as const
 
+/**
+ * One reference to a versioned skill in the llma-skill store, pinned into
+ * this agent's bundle at freeze.
+ */
+export interface SkillRefApi {
+    /**
+     * Name of the skill in the llma-skill store to pin into this agent. Resolved at freeze to the chosen `version` and materialized into the bundle.
+     * @maxLength 64
+     */
+    from_template: string
+    /**
+     * Folder the resolved skill is materialized under in the bundle (`skills/<alias>/`). Lowercase letters, digits, hyphens or underscores, starting and ending with a letter or digit; must be unique within the revision.
+     * @maxLength 64
+     * @pattern ^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$
+     */
+    alias: string
+    /**
+     * Specific published version to pin. Omit to pin the store's latest version at freeze time.
+     * @minimum 1
+     */
+    version?: number
+}
+
+/**
+ * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
+ */
+export type AgentRevisionApiSpecModels =
+    | {
+          mode: 'auto'
+          /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
+          level?: 'low' | 'medium' | 'high'
+          /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
+          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
+          optimize_for?: 'cost' | 'availability'
+      }
+    | {
+          mode: 'manual'
+          /**
+           * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
+           * @minItems 1
+           */
+          models: {
+              /**
+               * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
+               * @minLength 1
+               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+               */
+              model: string
+              /** Per-model reasoning effort override (else the spec default). */
+              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          }[]
+          /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
+          optimize_for?: 'cost' | 'availability'
+      }
+
 export type AgentRevisionApiSpecTriggersItem =
     | {
           type: 'slack'
@@ -394,7 +450,7 @@ export type AgentRevisionApiSpecToolsItem =
           kind: 'custom_template'
           from_template: string
           alias: string
-          /** @minimum 0 */
+          /** @minimum 1 */
           version?: number
       }
     | {
@@ -414,7 +470,6 @@ export type AgentRevisionApiSpecToolsItem =
       }
 
 export type AgentRevisionApiSpecMcpsItemAuth = {
-    integration?: string
     provider?: string
 }
 
@@ -453,8 +508,9 @@ export type AgentRevisionApiSpecSkillsItem = {
     description?: string
     from_template?: string
     alias?: string
-    /** @minimum 0 */
+    /** @minimum 1 */
     version?: number
+    source_version_id?: string
 }
 
 export type AgentRevisionApiSpecIdentityProvidersItem =
@@ -544,17 +600,15 @@ export type AgentRevisionApiSpecResume = {
 }
 
 export type AgentRevisionApiSpec = {
-    /** @minLength 1 */
-    model: string
+    /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
+    models: AgentRevisionApiSpecModels
     triggers: AgentRevisionApiSpecTriggersItem[]
     tools: AgentRevisionApiSpecToolsItem[]
     mcps: AgentRevisionApiSpecMcpsItem[]
     skills: AgentRevisionApiSpecSkillsItem[]
-    integrations: string[]
     identity_providers?: AgentRevisionApiSpecIdentityProvidersItem[]
     secrets: AgentRevisionApiSpecSecretsItem[]
     limits: AgentRevisionApiSpecLimits
-    entrypoint: string
     reasoning?: AgentRevisionApiSpecReasoning
     framework_prompt?: AgentRevisionApiSpecFrameworkPrompt
     resume?: AgentRevisionApiSpecResume
@@ -581,6 +635,8 @@ export interface AgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256: string | null
     spec?: AgentRevisionApiSpec
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+    readonly skill_refs: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id: number | null
     /**
@@ -600,6 +656,39 @@ export interface PaginatedAgentRevisionListApi {
     previous?: string | null
     results: AgentRevisionApi[]
 }
+
+/**
+ * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
+ */
+export type PatchedAgentRevisionApiSpecModels =
+    | {
+          mode: 'auto'
+          /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
+          level?: 'low' | 'medium' | 'high'
+          /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
+          reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
+          optimize_for?: 'cost' | 'availability'
+      }
+    | {
+          mode: 'manual'
+          /**
+           * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
+           * @minItems 1
+           */
+          models: {
+              /**
+               * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
+               * @minLength 1
+               * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
+               */
+              model: string
+              /** Per-model reasoning effort override (else the spec default). */
+              reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh'
+          }[]
+          /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
+          optimize_for?: 'cost' | 'availability'
+      }
 
 export type PatchedAgentRevisionApiSpecTriggersItem =
     | {
@@ -774,7 +863,7 @@ export type PatchedAgentRevisionApiSpecToolsItem =
           kind: 'custom_template'
           from_template: string
           alias: string
-          /** @minimum 0 */
+          /** @minimum 1 */
           version?: number
       }
     | {
@@ -794,7 +883,6 @@ export type PatchedAgentRevisionApiSpecToolsItem =
       }
 
 export type PatchedAgentRevisionApiSpecMcpsItemAuth = {
-    integration?: string
     provider?: string
 }
 
@@ -833,8 +921,9 @@ export type PatchedAgentRevisionApiSpecSkillsItem = {
     description?: string
     from_template?: string
     alias?: string
-    /** @minimum 0 */
+    /** @minimum 1 */
     version?: number
+    source_version_id?: string
 }
 
 export type PatchedAgentRevisionApiSpecIdentityProvidersItem =
@@ -946,17 +1035,15 @@ export type PatchedAgentRevisionApiSpecResume = {
 }
 
 export type PatchedAgentRevisionApiSpec = {
-    /** @minLength 1 */
-    model: string
+    /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
+    models: PatchedAgentRevisionApiSpecModels
     triggers: PatchedAgentRevisionApiSpecTriggersItem[]
     tools: PatchedAgentRevisionApiSpecToolsItem[]
     mcps: PatchedAgentRevisionApiSpecMcpsItem[]
     skills: PatchedAgentRevisionApiSpecSkillsItem[]
-    integrations: string[]
     identity_providers?: PatchedAgentRevisionApiSpecIdentityProvidersItem[]
     secrets: PatchedAgentRevisionApiSpecSecretsItem[]
     limits: PatchedAgentRevisionApiSpecLimits
-    entrypoint: string
     reasoning?: PatchedAgentRevisionApiSpecReasoning
     framework_prompt?: PatchedAgentRevisionApiSpecFrameworkPrompt
     resume?: PatchedAgentRevisionApiSpecResume
@@ -983,6 +1070,8 @@ export interface PatchedAgentRevisionApi {
     /** @nullable */
     readonly bundle_sha256?: string | null
     spec?: PatchedAgentRevisionApiSpec
+    /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
+    readonly skill_refs?: readonly SkillRefApi[]
     /** @nullable */
     readonly created_by_id?: number | null
     /**
@@ -1003,17 +1092,6 @@ export interface WriteAgentMdRequestApi {
 
 export type WriteTypedBundleRequestApiSpec = { [key: string]: unknown }
 
-/**
- * Body shape for PUT /revisions/<id>/skills/<skill_id>/. The body is stored
- * at the canonical `skills/<skill_id>/SKILL.md` path in the bundle.
- */
-export interface WriteSkillRequestApi {
-    /** One-line summary shown in the skill index; the model uses it to decide when to load the skill. */
-    description: string
-    /** The skill's full markdown body, stored at `skills/<skill_id>/SKILL.md`. */
-    body: string
-}
-
 export type WriteToolRequestApiArgsSchema = { [key: string]: unknown }
 
 /**
@@ -1027,11 +1105,11 @@ export interface WriteToolRequestApi {
 
 /**
  * Body shape for PUT /revisions/<id>/bundle/ — the full-replace typed
- * payload.
+ * payload. Skills are not authored here: they come from the llma-skill store
+ * via `skill_refs` and are materialized into the bundle at freeze.
  */
 export interface WriteTypedBundleRequestApi {
     agent_md: string
-    skills?: WriteSkillRequestApi[]
     tools?: WriteToolRequestApi[]
     spec: WriteTypedBundleRequestApiSpec
 }
@@ -1100,6 +1178,14 @@ export interface SetEnvRequestApi {
     env: SetEnvRequestApiEnv
 }
 
+/**
+ * Body for PUT /revisions/<id>/skill_refs/ — full-replace the draft's references.
+ */
+export interface SetSkillRefsRequestApi {
+    /** The complete set of store-skill references for this draft; replaces any existing references. */
+    skill_refs: SkillRefApi[]
+}
+
 export interface AgentRevisionSlackManifestResponseApi {
     revision_id: string
     /** Slack app manifest (JSON) ready to paste into https://api.slack.com/apps?new_app=1 → 'From an app manifest'. Scopes and event subscriptions are derived from the agent's slack trigger config + tools. */
@@ -1133,7 +1219,7 @@ export interface AgentRevisionSystemPromptResponseApi {
     revision_id: string
     /** Active framework preamble version. Bumps when the platform's `# Platform guidance` content changes meaningfully (decision rules, sections renamed, behavioural defaults flipped). Authors can pin to a specific version via `spec.framework_prompt.version_pin`. */
     framework_prompt_version: number
-    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md` (or `spec.entrypoint`), and the skills index. Inspect before promotion to confirm the model will see what you expect. */
+    /** Fully-assembled system prompt the runner would pass to pi-ai for a session against this revision. Concatenates the platform framework preamble, the bundle's `agent.md`, and the skills index. Inspect before promotion to confirm the model will see what you expect. */
     system_prompt: string
 }
 
@@ -1466,7 +1552,7 @@ export const AgentSessionStateEnumApi = {
 } as const
 
 /**
- * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+ * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
  * @nullable
  */
 export type AgentSessionSummaryApiTriggerMetadata = { [key: string]: unknown } | null
@@ -1481,7 +1567,7 @@ export interface AgentSessionSummaryApi {
     /** @nullable */
     external_key: string | null
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     trigger_metadata?: AgentSessionSummaryApiTriggerMetadata
@@ -1504,7 +1590,7 @@ export interface AgentApplicationSessionsListResponseApi {
 }
 
 /**
- * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+ * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
  * @nullable
  */
 export type AgentApplicationSessionsRetrieveResponseApiTriggerMetadata = { [key: string]: unknown } | null
@@ -1597,7 +1683,7 @@ export interface AgentApplicationSessionsRetrieveResponseApi {
     /** @nullable */
     external_key: string | null
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     trigger_metadata?: AgentApplicationSessionsRetrieveResponseApiTriggerMetadata
@@ -1678,7 +1764,7 @@ export interface AgentUsersListApi {
 }
 
 /**
- * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+ * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
  * @nullable
  */
 export type AgentFleetLiveSessionSummaryApiTriggerMetadata = { [key: string]: unknown } | null
@@ -1694,7 +1780,7 @@ export interface AgentFleetLiveSessionSummaryApi {
     /** @nullable */
     external_key: string | null
     /**
-     * Trigger-specific metadata stamped at session creation. Shape varies by trigger kind; cron firings carry `{ kind: 'cron', cron_name, schedule, fired_at, manual? }`. Render this on session-detail so the operator can tell at a glance that a session was fired by which cron / when.
+     * Trigger-specific metadata stamped at session creation. Discriminated on `kind`: chat | slack | cron | webhook | mcp. The Zod source of truth is `agent-shared/src/runtime/trigger-metadata.ts`; the node side validates and strips unknown keys at the persistence boundary, so consumers can trust `kind` and per-kind fields. TODO: narrow this DictField to a polymorphic serializer mirroring the union (needs `hogli build:openapi`).
      * @nullable
      */
     trigger_metadata?: AgentFleetLiveSessionSummaryApiTriggerMetadata
@@ -1868,6 +1954,13 @@ export const AgentApplicationsPreviewProxyFormat = {
 } as const
 
 export type AgentApplicationsPreviewTokenParams = {
+    /**
+     * Target draft revision. Must belong to this application and not be live.
+     */
+    revision_id: string
+}
+
+export type AgentApplicationsPreviewTokenMintParams = {
     /**
      * Target draft revision. Must belong to this application and not be live.
      */

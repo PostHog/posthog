@@ -88,6 +88,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    agent_proxy:
+        description: 'Agent proxy streaming service for live task-run streaming (Tasks product)'
+        requires: [core_infra]
+        docker_profiles: []
+
     ai_capture:
         description: 'AI event capture service'
         requires: [event_ingestion, llm_gateway]
@@ -356,6 +361,7 @@ intents:
                 property_definitions,
                 property_values,
                 temporal_workflows,
+                agent_proxy,
             ]
 
     logs:

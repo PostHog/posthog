@@ -34,6 +34,10 @@ import {
     parseExperimentResultsWidgetConfigApiError,
     parseExperimentsListWidgetConfigApiError,
 } from './experiments/experimentsWidgetConfigValidation'
+import { EditLogsWidgetModal } from './logs/EditLogsWidgetModal'
+import { LogsWidget } from './logs/LogsWidget'
+import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
+import { LogsWidgetTileFilters } from './logs/LogsWidgetTileFilters'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
@@ -173,6 +177,13 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         EditModal: EditExperimentResultsWidgetModal,
         productAccess: 'experiment',
         parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
+    },
+    logs_list: {
+        Component: LogsWidget,
+        TileFilters: LogsWidgetTileFilters,
+        EditModal: EditLogsWidgetModal,
+        productAccess: 'logs',
+        parseConfigApiError: parseLogsWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

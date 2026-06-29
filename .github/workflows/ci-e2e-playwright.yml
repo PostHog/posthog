@@ -73,6 +73,9 @@ env:
     AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
     AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
     PERSONHOG_ADDR: 'localhost:50052'
+    # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
+    # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
+    INTERNAL_API_SECRET: posthog123
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -259,40 +262,12 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - name: Stop/Start stack with Docker Compose
+            - name: Pull Docker images
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-
-                  (
-                    max_attempts=3
-                    attempt=1
-                    delay=5
-
-                    while [ $attempt -le $max_attempts ]; do
-                        echo "Attempt $attempt of $max_attempts to start stack..."
-
-                        if docker compose -f docker-compose.dev.yml down && \
-                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
-                            echo "Stack started successfully"
-                            exit 0
-                        fi
-
-                        echo "Failed to start stack on attempt $attempt"
-
-                        if [ $attempt -lt $max_attempts ]; then
-                            sleep_time=$((delay * 2 ** (attempt - 1)))
-                            echo "Waiting ${sleep_time} seconds before retry..."
-                            sleep $sleep_time
-                        fi
-
-                        attempt=$((attempt + 1))
-                    done
-
-                    echo "Failed to start stack after $max_attempts attempts"
-                    exit 1
-                  ) &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -525,6 +500,11 @@ jobs:
                   sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
+
+                  # Person/group reads go through personhog (no ORM fallback), so the replica
+                  # and router must be running before setup_dev creates demo persons.
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+
                   python manage.py setup_dev
 
             - name: Source celery queues

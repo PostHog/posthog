@@ -32,6 +32,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
 
 _TODAY = date(2026, 6, 12)
 _REQUESTS_GET = "products.engineering_analytics.backend.logic.quarantine.requests.get"
+_MAX_BYTES = "products.engineering_analytics.backend.logic.quarantine._MAX_QUARANTINE_BYTES"
 _FOR_TEAM = "products.engineering_analytics.backend.logic.queries._curated.CuratedGitHubSource.for_team"
 _VIEWS = "products.engineering_analytics.backend.presentation.views.api"
 _Q = "products.engineering_analytics.backend.logic.quarantine"
@@ -56,6 +57,45 @@ _GOLDEN_ONE = (
     "    ]\n"
     "}\n"
 )
+
+
+def _curated_source(results: list[tuple[str, str]]) -> mock.Mock:
+    """A stand-in CuratedGitHubSource: run_source() feeds the repo SQL, run() returns the rows."""
+    source = mock.Mock()
+    source.run_source.return_value = "(runs)"
+    source.run.return_value = SimpleNamespace(results=results)
+    return source
+
+
+def _entry(**overrides: Any) -> dict[str, Any]:
+    raw: dict[str, Any] = {
+        "id": "posthog/api/test/test_foo.py::TestFoo::test_bar",
+        "runner": "pytest",
+        "reason": "flaky",
+        "owner": "@PostHog/team-foo",
+        "issue": "https://github.com/PostHog/posthog/issues/1",
+        "added": "2026-06-01",
+        "expires": "2026-06-20",
+        "mode": "run",
+    }
+    raw.update(overrides)
+    return {key: value for key, value in raw.items() if value is not None}
+
+
+def _text(*entries: dict[str, Any]) -> str:
+    return json.dumps({"version": 1, "entries": list(entries)})
+
+
+def _response(status_code: int = 200, text: str = "", headers: dict[str, str] | None = None) -> mock.MagicMock:
+    """A streamed requests response: usable as a context manager, body delivered via iter_content."""
+    body = text.encode("utf-8")
+    response = mock.MagicMock()
+    response.status_code = status_code
+    response.headers = headers or {}
+    response.iter_content.side_effect = lambda *args, **kwargs: iter([body])
+    response.__enter__.return_value = response
+    response.__exit__.return_value = False
+    return response
 
 
 def _github_mock(**overrides: Any) -> mock.Mock:
@@ -88,37 +128,6 @@ def _request(**overrides: Any) -> contracts.QuarantineRequest:
     }
     fields.update(overrides)
     return contracts.QuarantineRequest(**fields)
-
-
-def _curated_source(results: list[tuple[str, str]]) -> mock.Mock:
-    """A stand-in CuratedGitHubSource: run_source() feeds the repo SQL, run() returns the rows."""
-    source = mock.Mock()
-    source.run_source.return_value = "(runs)"
-    source.run.return_value = SimpleNamespace(results=results)
-    return source
-
-
-def _entry(**overrides: Any) -> dict[str, Any]:
-    raw: dict[str, Any] = {
-        "id": "posthog/api/test/test_foo.py::TestFoo::test_bar",
-        "runner": "pytest",
-        "reason": "flaky",
-        "owner": "@PostHog/team-foo",
-        "issue": "https://github.com/PostHog/posthog/issues/1",
-        "added": "2026-06-01",
-        "expires": "2026-06-20",
-        "mode": "run",
-    }
-    raw.update(overrides)
-    return {key: value for key, value in raw.items() if value is not None}
-
-
-def _text(*entries: dict[str, Any]) -> str:
-    return json.dumps({"version": 1, "entries": list(entries)})
-
-
-def _response(status_code: int = 200, text: str = "") -> mock.Mock:
-    return mock.Mock(status_code=status_code, text=text)
 
 
 class TestQuarantineParse(TestCase):
@@ -233,7 +242,7 @@ class TestQuarantineBuild(BaseTest):
         assert result.entries[0].days_until_expiry == 8
         assert result.entries[0].lifecycle == contracts.QuarantineLifecycle.ACTIVE
         get.assert_called_once_with(
-            "https://raw.githubusercontent.com/PostHog/posthog/HEAD/.test_quarantine.json", timeout=3
+            "https://raw.githubusercontent.com/PostHog/posthog/HEAD/.test_quarantine.json", timeout=3, stream=True
         )
 
     def test_404_means_unavailable_without_errors(self) -> None:
@@ -277,6 +286,26 @@ class TestQuarantineBuild(BaseTest):
 
         assert get.call_count == 1
         assert result.available is True and len(result.entries) == 1
+
+    def test_oversized_streamed_body_rejected_and_not_cached(self) -> None:
+        # No Content-Length header: the cap must hold on the streamed bytes, and a
+        # hostile oversize response must not poison the cache for the next caller.
+        with mock.patch(_MAX_BYTES, 16), mock.patch(_REQUESTS_GET, return_value=_response(200, _text(_entry()))) as get:
+            first = build_quarantine(team=self.team, repo="PostHog/posthog")
+            second = build_quarantine(team=self.team, repo="PostHog/posthog")
+
+        assert first.available is False
+        assert len(first.parse_errors) == 1 and "exceeds" in first.parse_errors[0]
+        assert second.available is False
+        assert get.call_count == 2
+
+    def test_oversized_content_length_rejected_before_reading_body(self) -> None:
+        response = _response(200, _text(_entry()), headers={"Content-Length": str(10 * 1024 * 1024)})
+        with mock.patch(_REQUESTS_GET, return_value=response):
+            result = build_quarantine(team=self.team, repo="PostHog/posthog")
+
+        assert result.available is False and "exceeds" in result.parse_errors[0]
+        response.iter_content.assert_not_called()
 
     def test_resolves_most_active_repo_from_workflow_runs(self) -> None:
         source = _curated_source([("PostHog", "posthog.com")])

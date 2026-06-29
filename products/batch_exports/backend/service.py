@@ -1387,6 +1387,8 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    # Total rows staged for this run (from ClickHouse), used to report export progress
+    records_total: int | None = None
     on_demand: bool = False
 
     def get_is_backfill(self) -> bool:

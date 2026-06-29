@@ -1629,6 +1629,43 @@
             animation-iteration-count: 1 !important;
         }
 
+        // The animation-duration:0ms + forwards override above is meant to snap every
+        // animation to its final keyframe, but headless Chromium in CI handles a
+        // zero-duration animation's fill inconsistently and can paint the 0% keyframe
+        // instead. For entrance animations whose final layout exists ONLY via the
+        // forwards fill, that doesn't just dim the element — it collapses it (faded-in
+        // content stays invisible; width-expanded markers stay at width 0 and pile up at
+        // the bar's left edge). Pin the end state directly for those components; as
+        // !important author rules these override the animation regardless of how the
+        // frame settles.
+        .fade-component-container {
+            // Fade animates opacity 0 -> 1.
+            opacity: 1 !important;
+        }
+
+        .BillingGaugeItem {
+            // BillingGaugeItem animates width 0 -> --billing-gauge-item-width, which
+            // positions its marker/label along the gauge bar.
+            width: var(--billing-gauge-item-width) !important;
+        }
+
+        // Entrance animations with an opacity:0 base that fade in via forwards fill.
+        .InsightQuickStart__card,
+        .QuestionInput__SuggestionsList,
+        .QuestionInput__QuestionSuggestion,
+        // posthog-js survey preview (`ph-survey-fade-in`)
+        .survey-form,
+        .thank-you-message {
+            opacity: 1 !important;
+        }
+
+        // react-toastify zooms the toast icon in via `Toastify__zoomIn` (opacity 0 + scale(0.3)
+        // -> 1); the 0% keyframe leaves it invisible and shrunk, so pin both end values.
+        .Toastify__toast-icon {
+            opacity: 1 !important;
+            transform: none !important;
+        }
+
         // Hide hogfetti (JS-driven confetti animation) — Math.random + requestAnimationFrame
         // makes it inherently non-deterministic, CSS animation overrides don't help
         .Hogfetti {
@@ -2090,6 +2127,9 @@
         #fba000 83%,
         #0143cb 100%
     );
+
+    // Deliberately gentle so the scroll reads as a slow shimmer, not a strobe.
+    --rainbow-scroll-duration: 6s;
 }
 
 .rainbow-text,
@@ -2101,12 +2141,12 @@
 }
 
 .rainbow-text.rainbow-text-animating {
-    animation: rainbow-scroll 3s linear infinite;
+    animation: rainbow-scroll var(--rainbow-scroll-duration) linear infinite;
 }
 
 .rainbow-text-fading.rainbow-text-animating {
     animation:
-        rainbow-scroll 3s linear infinite,
+        rainbow-scroll var(--rainbow-scroll-duration) linear infinite,
         rainbow-fade-in 300ms ease-out;
 }
 

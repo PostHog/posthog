@@ -27,6 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import _release_request_connections
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -599,6 +600,7 @@ class ConversationViewSet(
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
 
+        _release_request_connections()
         return StreamingHttpResponse(
             (
                 async_stream(workflow_inputs)
@@ -795,7 +797,7 @@ class ConversationViewSet(
 
         Runs only on a first message — no backing Task yet (`task_id is None`) and real content.
         Followups and resumes reuse the existing Task's repository, and warming has no message to
-        route on, so neither triggers the (potentially heavy) selection. Selection never raises;
+        route on, so neither triggers the explicit repository mention match. Selection never raises;
         any failure degrades to None — a repo-less sandbox — so it can't block the conversation.
         """
         if conversation.task_id is not None:
