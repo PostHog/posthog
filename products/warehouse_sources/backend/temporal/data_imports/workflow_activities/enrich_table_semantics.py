@@ -399,11 +399,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         capture_enrichment_event(team, EVENT_COMPLETED, {"status": status, **event_props, **props})
 
     if not enrichment_enabled(team):
+        log.info("warehouse_enrichment.skipped", reason="flag_disabled")
         emit_completed("skipped", reason="flag_disabled")
         return {"status": "skipped", "reason": "flag_disabled"}
     # Respect the org's AI data-processing opt-out: this path ships table/column metadata and core
     # memory to the LLM gateway, so the feature flag alone is not enough of a gate.
     if team.organization.is_ai_data_processing_approved is not True:
+        log.info("warehouse_enrichment.skipped", reason="ai_data_processing_not_approved")
         emit_completed("skipped", reason="ai_data_processing_not_approved")
         return {"status": "skipped", "reason": "ai_data_processing_not_approved"}
 
@@ -415,10 +417,16 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     table = schema.table
     event_props["source_type"] = schema.source.source_type
     event_props["schema_name"] = schema.name
+    # Bind the schema/table context onto every subsequent log line so failures are traceable to the
+    # exact schema and table that produced them.
+    log = log.bind(source_type=schema.source.source_type, schema_name=schema.name)
     if table is None:
+        log.warning("warehouse_enrichment.skipped", reason="no_table")
         emit_completed("skipped", reason="no_table")
         return {"status": "skipped", "reason": "no_table"}
     event_props["table_id"] = str(table.id)
+    log = log.bind(table_id=str(table.id))
+    log.info("warehouse_enrichment.started")
     capture_enrichment_event(team, EVENT_STARTED, event_props)
 
     existing = {
@@ -431,6 +439,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     columns = [column for column in _columns_from_table(table, log) if column.get("name")]
     event_props["columns_total"] = len(columns)
     if not columns:
+        log.warning("warehouse_enrichment.skipped", reason="no_columns")
         emit_completed("skipped", reason="no_columns")
         return {"status": "skipped", "reason": "no_columns"}
     columns = columns[:MAX_COLUMNS_PER_TABLE]
@@ -457,8 +466,15 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     table_needs_description = not bool(schema.description) and "" not in existing
     event_props["new_columns"] = len(new_columns)
     if not new_columns and not table_needs_description:
+        log.info("warehouse_enrichment.skipped", reason="already_enriched", columns_total=len(columns))
         emit_completed("skipped", reason="already_enriched")
         return {"status": "skipped", "reason": "already_enriched"}
+    log.info(
+        "warehouse_enrichment.enriching",
+        columns_total=len(columns),
+        new_columns=len(new_columns),
+        table_needs_description=table_needs_description,
+    )
 
     # 1) Canonical descriptions are authoritative — persist them directly, no LLM.
     canonical_count = 0
@@ -479,6 +495,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     columns_needing_description = [column["name"] for column in new_columns if column["name"] not in canonical_columns]
 
     if not columns_needing_description and not table_needs_description:
+        log.info("warehouse_enrichment.done", canonical=canonical_count, ai=0, llm_called=False)
         emit_completed("done", canonical_annotations=canonical_count, ai_annotations=0, llm_called=False)
         return {"status": "done", "canonical_annotations": canonical_count, "ai_annotations": 0}
 
@@ -486,6 +503,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # model context about neighbouring columns without re-describing them.
     known_descriptions = {**{name: a.description for name, a in existing.items() if name}, **canonical_columns}
     business_context = _get_business_context(team)
+    log.info(
+        "warehouse_enrichment.llm_call_started",
+        columns_requested=len(columns_needing_description),
+        canonical=canonical_count,
+        table_needs_description=table_needs_description,
+    )
     try:
         generated, usage = _generate_descriptions(
             team_id=team_id,
@@ -501,7 +524,12 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
         )
     except Exception as e:
         capture_exception(e)
-        log.error("warehouse_enrichment.llm_failed", exc_info=True)
+        log.error(
+            "warehouse_enrichment.llm_failed",
+            error=str(e),
+            columns_requested=len(columns_needing_description),
+            exc_info=True,
+        )
         capture_enrichment_event(
             team,
             EVENT_ERROR,
@@ -555,7 +583,13 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
             team, table, "", table_description.strip(), WarehouseColumnAnnotation.DescriptionSource.AI_GENERATED
         )
 
-    log.info("warehouse_enrichment.done", canonical=canonical_count, ai=ai_count)
+    log.info(
+        "warehouse_enrichment.done",
+        canonical=canonical_count,
+        ai=ai_count,
+        columns_requested=len(columns_needing_description),
+        llm_called=True,
+    )
     emit_completed(
         "done", canonical_annotations=canonical_count, ai_annotations=ai_count, llm_called=True, llm_error=False
     )
@@ -609,9 +643,15 @@ async def enrich_table_semantics_activity(inputs: EnrichTableSemanticsInputs) ->
                 inputs.team_id, inputs.schema_id
             )
         except Exception as e:
-            # Surface unexpected failures (DB errors, etc.) to Sentry and product analytics, then re-raise
-            # so Temporal applies its retry policy.
+            # Surface unexpected failures (DB errors, etc.) to Sentry, structured logs, and product
+            # analytics — all keyed by schema_id/team_id — then re-raise so Temporal retries.
             capture_exception(e)
+            logger.exception(
+                "warehouse_enrichment.activity_failed",
+                team_id=inputs.team_id,
+                schema_id=str(inputs.schema_id),
+                error=str(e),
+            )
             try:
                 posthoganalytics.capture(
                     distinct_id=f"team-{inputs.team_id}",
