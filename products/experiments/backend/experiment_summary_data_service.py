@@ -223,6 +223,9 @@ class ExperimentSummaryDataService:
                         team=experiment.team,
                         workload=Workload.ONLINE,
                         limit_context=LimitContext.QUERY_ASYNC,
+                        # Userless background recompute. Warehouse access is enforced when the metric is
+                        # authored, so resolve warehouse tables here instead of failing closed.
+                        bypass_warehouse_access_control=True,
                     )
                     result = query_runner.run(
                         execution_mode=execution_mode,

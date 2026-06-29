@@ -57,6 +57,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
+from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
 from products.feature_flags.backend.api.feature_flag import (
     FeatureFlagSerializer,
     parse_created_by_ids,
@@ -764,6 +765,11 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
+        enforce_warehouse_metric_access(
+            [*(metrics or []), *(metrics_secondary or []), *(secondary_metrics or [])],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -2029,6 +2035,12 @@ class ExperimentService:
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
+
+        enforce_warehouse_metric_access(
+            [*(update_data.get("metrics") or []), *(update_data.get("metrics_secondary") or [])],
+            team=self.team,
+            user=self.user,
+        )
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
