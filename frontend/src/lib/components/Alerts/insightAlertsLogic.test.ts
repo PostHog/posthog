@@ -31,6 +31,11 @@ const FUNNEL_QUERY = {
     },
 }
 
+const HOGQL_QUERY = {
+    kind: NodeKind.DataVisualizationNode,
+    source: { kind: NodeKind.HogQLQuery, query: 'select count() from events' },
+}
+
 describe('insightAlertsLogic', () => {
     let listSpy: jest.SpyInstance
 
@@ -227,6 +232,10 @@ describe('areAlertsSupportedForInsight', () => {
         expect(areAlertsSupportedForInsight(FUNNEL_QUERY, { funnelAlertsEnabled: true })).toBe(true)
     })
 
+    it('returns true for SQL (HogQL) insights without any flag', () => {
+        expect(areAlertsSupportedForInsight(HOGQL_QUERY)).toBe(true)
+    })
+
     it('returns false when trendsFilter is null', () => {
         const query = {
             ...API_QUERY,
@@ -241,10 +250,8 @@ describe('areAlertsSupportedForInsight', () => {
 
 describe('alertsUnsupportedReason', () => {
     it.each([
-        ['only trends (no flags)', {}, ['trends'], ['SQL', 'funnel']],
-        ['trends + SQL', { hogqlAlertsEnabled: true }, ['trends', 'SQL'], ['funnel']],
-        ['trends + funnel', { funnelAlertsEnabled: true }, ['trends', 'funnel'], ['SQL']],
-        ['all three', { hogqlAlertsEnabled: true, funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
+        ['trends + SQL (funnel off)', {}, ['trends', 'SQL'], ['funnel']],
+        ['all three', { funnelAlertsEnabled: true }, ['trends', 'SQL', 'funnel'], []],
     ])('lists only enabled types: %s', (_name, options, included, excluded) => {
         const reason = alertsUnsupportedReason(options)
         included.forEach((type) => expect(reason).toContain(type))

@@ -544,13 +544,8 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         kind = insight.alertable_query_kind
         if kind is None:
             raise ValidationError("Alerts are not supported for this insight.")
-        if kind == NodeKind.HOG_QL_QUERY and not self._hogql_alerts_enabled():
-            raise ValidationError("SQL insight alerts are not enabled for your account.")
         if kind == NodeKind.FUNNELS_QUERY and not self._funnel_alerts_enabled():
             raise ValidationError("Funnel insight alerts are not enabled for your account.")
-
-    def _hogql_alerts_enabled(self) -> bool:
-        return self._insight_alert_flag_enabled("hogql-insight-alerts")
 
     def _funnel_alerts_enabled(self) -> bool:
         return self._insight_alert_flag_enabled("funnel-insight-alerts")

@@ -528,18 +528,17 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         }
         hogql_insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=hogql_insight_data).json()
 
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            alert = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": hogql_insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
-                    "name": "sql alert",
-                },
-            ).json()
+        alert = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            {
+                "insight": hogql_insight["id"],
+                "subscribed_users": [self.user.id],
+                "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
+                "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
+                "name": "sql alert",
+            },
+        ).json()
 
         # The insight response must list the alert inline — the UI trusts this list on reload.
         insight_response = self.client.get(f"/api/projects/{self.team.id}/insights/{hogql_insight['id']}").json()
@@ -603,47 +602,6 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         )
         response = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert['id']}")
         assert response.status_code == status.HTTP_404_NOT_FOUND
-
-    def _create_hogql_insight(self) -> dict:
-        return self.client.post(
-            f"/api/projects/{self.team.id}/insights",
-            data={
-                "query": {
-                    "kind": "DataVisualizationNode",
-                    "source": {"kind": "HogQLQuery", "query": "select count() from events"},
-                }
-            },
-        ).json()
-
-    def test_hogql_flag_enforced_on_config_only_patch(self) -> None:
-        # A config-only PATCH (no `insight`) skips the field-level validate_insight, so the SQL-alert
-        # flag must be enforced in the object-level validate() — otherwise an existing SQL alert could
-        # be reconfigured in an account where the flag is no longer enabled.
-        hogql_insight = self._create_hogql_insight()
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            alert = self.client.post(
-                f"/api/projects/{self.team.id}/alerts",
-                {
-                    "insight": hogql_insight["id"],
-                    "subscribed_users": [self.user.id],
-                    "condition": {"type": AlertConditionType.ABSOLUTE_VALUE},
-                    "config": {"type": "HogQLAlertConfig", "evaluation": "last_row"},
-                    "threshold": {"configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}}},
-                    "name": "sql alert",
-                },
-            )
-            assert alert.status_code == status.HTTP_201_CREATED, alert.content
-            alert_id = alert.json()["id"]
-
-        config_patch = {"config": {"type": "HogQLAlertConfig", "evaluation": "first_row"}}
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=False):
-            blocked = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert blocked.status_code == status.HTTP_400_BAD_REQUEST, blocked.content
-        assert "SQL insight alerts are not enabled" in str(blocked.content)
-
-        with mock.patch("products.alerts.backend.api.alert.posthoganalytics.feature_enabled", return_value=True):
-            allowed = self.client.patch(f"/api/projects/{self.team.id}/alerts/{alert_id}", config_patch)
-        assert allowed.status_code == status.HTTP_200_OK, allowed.content
 
     def test_alert_survives_switch_between_alertable_kinds(self) -> None:
         # Switching the insight to a different alertable kind (trends -> SQL) leaves the alert's config

@@ -33,7 +33,7 @@ export interface InsightAlertsLogicProps {
 
 export const areAlertsSupportedForInsight = (
     query?: Record<string, any> | null,
-    options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean } = {}
+    options: { funnelAlertsEnabled?: boolean } = {}
 ): boolean => {
     if (!query) {
         return false
@@ -44,18 +44,15 @@ export const areAlertsSupportedForInsight = (
     if (options.funnelAlertsEnabled && isInsightVizNode(query) && isFunnelsQuery(query.source)) {
         return true
     }
-    return !!options.hogqlAlertsEnabled && containsHogQLQuery(query)
+    return containsHogQLQuery(query)
 }
 
 // List only the insight types this account can actually alert on — naming a flag-gated type the
 // user doesn't have would disclose an unreleased feature.
-const alertableInsightTypesLabel = (options: { hogqlAlertsEnabled?: boolean; funnelAlertsEnabled?: boolean }): string =>
-    ['trends', options.hogqlAlertsEnabled && 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
+const alertableInsightTypesLabel = (options: { funnelAlertsEnabled?: boolean }): string =>
+    ['trends', 'SQL', options.funnelAlertsEnabled && 'funnel'].filter(Boolean).join(', ')
 
-export const alertsUnsupportedReason = (options: {
-    hogqlAlertsEnabled?: boolean
-    funnelAlertsEnabled?: boolean
-}): string =>
+export const alertsUnsupportedReason = (options: { funnelAlertsEnabled?: boolean }): string =>
     `Alerts are only available for ${alertableInsightTypesLabel(options)} insights. Change the insight representation to add alerts.`
 
 /** Map absolute-threshold alerts to chart goal lines (shared by trends and SQL charts). */
@@ -239,12 +236,8 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
 
     listeners(({ actions, values }) => ({
         setQuery: ({ query }) => {
-            const hogqlAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.HOGQL_INSIGHT_ALERTS]
             const funnelAlertsEnabled = !!values.featureFlags[FEATURE_FLAGS.FUNNEL_INSIGHT_ALERTS]
-            if (
-                values.alerts.length === 0 ||
-                areAlertsSupportedForInsight(query, { hogqlAlertsEnabled, funnelAlertsEnabled })
-            ) {
+            if (values.alerts.length === 0 || areAlertsSupportedForInsight(query, { funnelAlertsEnabled })) {
                 actions.setShouldShowAlertDeletionWarning(false)
             } else {
                 actions.setShouldShowAlertDeletionWarning(true)

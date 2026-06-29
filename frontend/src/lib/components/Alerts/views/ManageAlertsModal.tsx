@@ -103,7 +103,6 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
     const logic = insightAlertsLogic(props)
 
     const { alerts, alertsLoading } = useValues(logic)
-    const hogqlAlertsEnabled = useFeatureFlag('HOGQL_INSIGHT_ALERTS')
     const funnelAlertsEnabled = useFeatureFlag('FUNNEL_INSIGHT_ALERTS')
 
     const showDeferredListSpinner = props.deferInitialAlertsLoad && props.isOpen && alertsLoading
@@ -156,7 +155,7 @@ export function ManageAlertsModal(props: ManageAlertsModalProps): JSX.Element {
                     onClick={() => push(urls.insightAlert(props.insightShortId, 'new'))}
                     disabledReason={
                         !props.canCreateAlertForInsight
-                            ? alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled })
+                            ? alertsUnsupportedReason({ funnelAlertsEnabled })
                             : undefined
                     }
                 >

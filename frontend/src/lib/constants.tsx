@@ -320,7 +320,6 @@ export const FEATURE_FLAGS = {
     FUNNEL_INSIGHT_ALERTS: 'funnel-insight-alerts', // owner: @vdekrijger, gates alerts on funnel insights (conversion rate)
     GROUP_PROFILE_EXPERIMENT: 'group-profile-experiment', // owner: @arthurdedeus #team-customer-analytics
     HEALTH_ASK_AI: 'health-ask-ai', // owner: @jordanm-posthog #team-web-analytics, gates the "Ask PostHog AI" buttons on the Health overview
-    HOGQL_INSIGHT_ALERTS: 'hogql-insight-alerts', // owner: @vdekrijger, gates alerts on SQL-backed (HogQL) insights
     HOGQL_WAREHOUSE_ACCESS_CONTROL: 'hogql-warehouse-access-control', // owner: @a-lider #team-platform-features, gates per-object access control for warehouse tables and views
     IDENTITY_MATCHING: 'identity-matching', // owner: @fercgomes #team-growth, gates new identity matching scene on marketing analytics
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
