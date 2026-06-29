@@ -12,8 +12,10 @@ import deltalake
 import pyarrow.compute as pc
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline import delta_table_helper
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.delta_table_helper import (
+    COMMIT_CONFLICT_MAX_ATTEMPTS,
     DeltaTableHelper,
     _first_per_pk_table,
     _realign_decimal_buffers,
@@ -59,6 +61,7 @@ def _make_logger():
     logger.ainfo = AsyncMock()
     logger.awarning = AsyncMock()
     logger.aerror = AsyncMock()
+    logger.aexception = AsyncMock()
     return logger
 
 
@@ -435,6 +438,96 @@ class TestIncrementalBatchDeduplication:
         final = result.to_pyarrow_table()
         assert final.column("id").to_pylist() == [1]
         assert final.column("name").to_pylist() == ["second_copy"]
+
+
+class TestCommitConflictRetry:
+    """Deltalake optimistic-concurrency CommitFailedError must be retried in place by
+    re-reading the latest table state, not bubbled up to fail the whole sync."""
+
+    @pytest.mark.asyncio
+    async def test_retries_after_reread_then_succeeds(self, helper: DeltaTableHelper) -> None:
+        stale_table = MagicMock(name="stale")
+        fresh_table = MagicMock(name="fresh")
+        attempts: list[Any] = []
+
+        def operation(table: Any) -> str:
+            attempts.append(table)
+            if len(attempts) < 3:
+                raise deltalake.exceptions.CommitFailedError("a concurrent transactions added new data")
+            return "ok"
+
+        with (
+            patch.object(helper, "_reread_delta_table", AsyncMock(return_value=fresh_table)) as reread,
+            patch.object(delta_table_helper, "COMMIT_CONFLICT_RETRY_BASE_SECONDS", 0),
+        ):
+            result = await helper._run_delta_write_with_retry(operation, stale_table, "merge")
+
+        assert result == "ok"
+        # First attempt uses the initial (stale) table; retries use the re-read table.
+        assert attempts == [stale_table, fresh_table, fresh_table]
+        assert reread.await_count == 2
+
+    @pytest.mark.asyncio
+    async def test_gives_up_after_max_attempts(self, helper: DeltaTableHelper) -> None:
+        def operation(table: Any) -> str:
+            raise deltalake.exceptions.CommitFailedError("a concurrent transaction deleted data this operation read")
+
+        with (
+            patch.object(helper, "_reread_delta_table", AsyncMock(return_value=MagicMock())) as reread,
+            patch.object(delta_table_helper, "COMMIT_CONFLICT_RETRY_BASE_SECONDS", 0),
+            pytest.raises(deltalake.exceptions.CommitFailedError),
+        ):
+            await helper._run_delta_write_with_retry(operation, MagicMock(), "merge")
+
+        # One fewer re-read than attempts: the final attempt fails without re-reading again.
+        assert reread.await_count == COMMIT_CONFLICT_MAX_ATTEMPTS - 1
+
+    @pytest.mark.asyncio
+    async def test_non_commit_error_is_not_retried(self, helper: DeltaTableHelper) -> None:
+        def operation(table: Any) -> str:
+            raise ValueError("unrelated failure")
+
+        with (
+            patch.object(helper, "_reread_delta_table", AsyncMock()) as reread,
+            pytest.raises(ValueError, match="unrelated failure"),
+        ):
+            await helper._run_delta_write_with_retry(operation, MagicMock(), "merge")
+
+        reread.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_write_path_retries_on_commit_conflict_end_to_end(self, tmp_path: Path) -> None:
+        """A transient commit conflict on the real append path is re-read and retried,
+        and the data still lands."""
+        delta_path = str(tmp_path / "table")
+        deltalake.write_deltalake(delta_path, pa.table({"id": [1, 2], "name": ["a", "b"]}))
+
+        helper = _make_local_helper(delta_path)
+        batch = pa.table({"id": [3, 4], "name": ["c", "d"]})
+
+        real_write = delta_table_helper._write_deltalake
+        calls = {"n": 0}
+
+        def flaky_write(*args: Any, **kwargs: Any) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise deltalake.exceptions.CommitFailedError("a concurrent transactions added new data")
+            return real_write(*args, **kwargs)
+
+        with (
+            patch.object(delta_table_helper, "_write_deltalake", side_effect=flaky_write),
+            patch.object(delta_table_helper, "COMMIT_CONFLICT_RETRY_BASE_SECONDS", 0),
+        ):
+            result = await helper.write_to_deltalake(
+                data=batch,
+                write_type="append",
+                should_overwrite_table=False,
+                primary_keys=None,
+            )
+
+        assert calls["n"] == 2  # failed once, retried once
+        final = result.to_pyarrow_table()
+        assert set(final.column("id").to_pylist()) == {1, 2, 3, 4}
 
 
 class TestRealignDecimalBuffers:

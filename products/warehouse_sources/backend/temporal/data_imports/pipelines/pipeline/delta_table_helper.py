@@ -26,6 +26,15 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     pyarrow_schema_from_arrow_exportable,
 )
 
+# Deltalake uses optimistic concurrency control: if another transaction commits to the
+# same table between an operation's planning and its commit, delta-rs rejects the commit
+# with CommitFailedError. These conflicts are transient — re-reading the latest table
+# state and re-running the operation against it almost always succeeds. We retry a bounded
+# number of times here so a transient conflict is resolved where it happens, instead of
+# bubbling up and failing the whole sync (which then relies on a full activity/batch retry).
+COMMIT_CONFLICT_MAX_ATTEMPTS = 5
+COMMIT_CONFLICT_RETRY_BASE_SECONDS = 0.5
+
 
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
@@ -256,6 +265,53 @@ class DeltaTableHelper:
             )
         return deduped
 
+    async def _reread_delta_table(self) -> deltalake.DeltaTable:
+        """Re-resolve the delta table from storage, bypassing the cached snapshot.
+
+        On a commit conflict the cached DeltaTable points at a stale version; reloading
+        picks up the concurrent writer's commit so the retried operation plans against the
+        current state instead of re-colliding on the same stale snapshot.
+        """
+        self.get_delta_table.cache_clear()
+        table = await self.get_delta_table()
+        if table is None:
+            raise Exception("Deltalake table not found while retrying after a commit conflict")
+        return table
+
+    async def _run_delta_write_with_retry(
+        self,
+        operation: Callable[[deltalake.DeltaTable], Any],
+        initial_table: deltalake.DeltaTable,
+        description: str,
+    ) -> Any:
+        """Run a delta write/merge in a thread, retrying transient commit conflicts.
+
+        `operation` receives the delta table to operate against — the initial one on the
+        first attempt, then a freshly re-read table on each subsequent attempt. On a
+        deltalake CommitFailedError we re-read the latest table state and re-run, bounded by
+        COMMIT_CONFLICT_MAX_ATTEMPTS. Because the operation re-plans against current state
+        each time (a merge re-matches PKs, so a row a concurrent writer inserted is updated
+        rather than re-inserted), the retry is safe to repeat and converges instead of
+        re-colliding.
+        """
+        table = initial_table
+        for attempt in range(1, COMMIT_CONFLICT_MAX_ATTEMPTS + 1):
+            try:
+                return await asyncio.to_thread(operation, table)
+            except deltalake.exceptions.CommitFailedError as e:
+                if attempt == COMMIT_CONFLICT_MAX_ATTEMPTS:
+                    await self._logger.aexception(
+                        f"{description}: deltalake commit conflict persisted after {attempt} attempts, giving up",
+                        exc_info=e,
+                    )
+                    raise
+                await self._logger.awarning(
+                    f"{description}: deltalake commit conflict on attempt {attempt}/{COMMIT_CONFLICT_MAX_ATTEMPTS}, "
+                    f"re-reading table and retrying"
+                )
+                await asyncio.sleep(COMMIT_CONFLICT_RETRY_BASE_SECONDS * attempt)
+                table = await self._reread_delta_table()
+
     async def write_to_deltalake(
         self,
         data: pa.Table,
@@ -338,12 +394,13 @@ class DeltaTableHelper:
                     merge_commit_properties = commit_properties if i == last_partition_index else None
 
                     def _do_merge(
+                        table: deltalake.DeltaTable,
                         filtered_table: pa.Table,
                         predicate: str,
                         merge_commit_properties: deltalake.CommitProperties | None,
                     ):
                         return (
-                            existing_delta_table.merge(
+                            table.merge(
                                 source=filtered_table,
                                 source_alias="source",
                                 target_alias="target",
@@ -356,7 +413,15 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    merge_stats = await asyncio.to_thread(_do_merge, filtered_table, predicate, merge_commit_properties)
+                    # Bind the loop variables as defaults so the closure captures this
+                    # iteration's values, not the last iteration's.
+                    merge_stats = await self._run_delta_write_with_retry(
+                        lambda table, ft=filtered_table, p=predicate, mcp=merge_commit_properties: _do_merge(
+                            table, ft, p, mcp
+                        ),
+                        existing_delta_table,
+                        f"merge partition={partition}",
+                    )
 
                     await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
 
@@ -364,9 +429,9 @@ class DeltaTableHelper:
                         progress_callback()
             else:
                 # Single merge call → safe to tag directly; this is the terminal commit.
-                def _do_merge_unpartitioned(data: pa.Table, predicate_ops: list[str]):
+                def _do_merge_unpartitioned(table: deltalake.DeltaTable, data: pa.Table, predicate_ops: list[str]):
                     return (
-                        existing_delta_table.merge(
+                        table.merge(
                             source=data,
                             source_alias="source",
                             target_alias="target",
@@ -379,7 +444,11 @@ class DeltaTableHelper:
                         .execute()
                     )
 
-                merge_stats = await asyncio.to_thread(_do_merge_unpartitioned, data, predicate_ops)
+                merge_stats = await self._run_delta_write_with_retry(
+                    lambda table: _do_merge_unpartitioned(table, data, predicate_ops),
+                    existing_delta_table,
+                    "merge",
+                )
                 await self._logger.adebug(f"Delta Merge Stats: {json.dumps(merge_stats)}")
         elif (
             write_type == "full_refresh"
@@ -406,27 +475,33 @@ class DeltaTableHelper:
                 )
 
             try:
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await self._run_delta_write_with_retry(
+                    lambda table: _write_deltalake(
+                        table,
+                        data,
+                        partition_by=PARTITION_KEY if use_partitioning else None,
+                        mode=mode,
+                        schema_mode=schema_mode,
+                        commit_properties=commit_properties,
+                    ),
                     delta_table,
-                    data,
-                    partition_by=PARTITION_KEY if use_partitioning else None,
-                    mode=mode,
-                    schema_mode=schema_mode,
-                    commit_properties=commit_properties,
+                    "write_deltalake",
                 )
             except deltalake.exceptions.SchemaMismatchError as e:
                 await self._logger.adebug("SchemaMismatchError: attempting to overwrite schema instead", exc_info=e)
                 capture_exception(e)
 
-                await asyncio.to_thread(
-                    _write_deltalake,
+                await self._run_delta_write_with_retry(
+                    lambda table: _write_deltalake(
+                        table,
+                        data,
+                        partition_by=None,
+                        mode=mode,
+                        schema_mode="overwrite",
+                        commit_properties=commit_properties,
+                    ),
                     delta_table,
-                    data,
-                    partition_by=None,
-                    mode=mode,
-                    schema_mode="overwrite",
-                    commit_properties=commit_properties,
+                    "write_deltalake (schema overwrite)",
                 )
         elif write_type == "append":
             if delta_table is None:
@@ -442,14 +517,17 @@ class DeltaTableHelper:
 
             await self._logger.adebug(f"write_to_deltalake: write_type = append")
 
-            await asyncio.to_thread(
-                _write_deltalake,
+            await self._run_delta_write_with_retry(
+                lambda table: _write_deltalake(
+                    table,
+                    data,
+                    partition_by=PARTITION_KEY if use_partitioning else None,
+                    mode="append",
+                    schema_mode="merge",
+                    commit_properties=commit_properties,
+                ),
                 delta_table,
-                data,
-                partition_by=PARTITION_KEY if use_partitioning else None,
-                mode="append",
-                schema_mode="merge",
-                commit_properties=commit_properties,
+                "write_deltalake (append)",
             )
 
         delta_table = await self.get_delta_table()
@@ -616,12 +694,18 @@ class DeltaTableHelper:
             raise Exception("Deltatable not found")
 
         await self._logger.adebug("Compacting table...")
-        compact_stats = await asyncio.to_thread(table.optimize.compact)
+        compact_stats = await self._run_delta_write_with_retry(
+            lambda t: t.optimize.compact(),
+            table,
+            "compact",
+        )
         await self._logger.adebug(json.dumps(compact_stats))
 
         await self._logger.adebug("Vacuuming table...")
-        vacuum_stats = await asyncio.to_thread(
-            table.vacuum, retention_hours=24, enforce_retention_duration=False, dry_run=False
+        vacuum_stats = await self._run_delta_write_with_retry(
+            lambda t: t.vacuum(retention_hours=24, enforce_retention_duration=False, dry_run=False),
+            table,
+            "vacuum",
         )
         await self._logger.adebug(json.dumps(vacuum_stats))
 
