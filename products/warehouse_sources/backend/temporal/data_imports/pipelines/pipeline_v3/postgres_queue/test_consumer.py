@@ -643,7 +643,7 @@ class TestPerGroupConnectionIsolation:
                 conns_seen.append(lock_conn)
                 return await original_process_single(batch, lock_conn=lock_conn)
 
-            consumer._process_single = track_conn  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            consumer._process_single = track_conn  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
 
             await consumer._process_group((1, "a"), [batch_a])
             await consumer._process_group((1, "b"), [batch_b])
@@ -682,7 +682,7 @@ class TestPerGroupConnectionIsolation:
                 conn_used = lock_conn
                 return await original(batch, lock_conn=lock_conn)
 
-            consumer._process_single = capture_conn  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+            consumer._process_single = capture_conn  # type: ignore[method-assign]  # ty: ignore[invalid-assignment]
             await consumer._process_group((1, "schema-1"), [_make_batch()])
 
         assert conn_used is group_conn

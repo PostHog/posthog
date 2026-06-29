@@ -285,6 +285,11 @@ class BatchConsumer:
 
                 self._reap_finished_tasks()
 
+                # Skip polling while shared-connection groups are in-flight to avoid concurrent _poll_conn access.
+                if not self._adapter.per_group_connections and self._in_flight:
+                    await self._wait_or_shutdown(self._config.poll_interval_seconds)
+                    continue
+
                 available = self._config.max_concurrency - len(self._in_flight)
                 if available <= 0:
                     await self._wait_or_shutdown(self._config.poll_interval_seconds)
