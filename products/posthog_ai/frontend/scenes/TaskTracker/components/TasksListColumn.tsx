@@ -1,7 +1,7 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
@@ -18,7 +18,8 @@ interface TasksListColumnProps {
 }
 
 export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListColumnProps): JSX.Element {
-    const { tasks, tasksLoading } = useValues(tasksLogic)
+    const { tasks, tasksLoading, tasksError } = useValues(tasksLogic)
+    const { loadTasks } = useActions(tasksLogic)
 
     const rows =
         tasksLoading && tasks.length === 0 ? (
@@ -27,6 +28,18 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                 <LemonSkeleton className="h-8 opacity-60" />
                 <LemonSkeleton className="h-8 opacity-30" />
             </div>
+        ) : // A failed load with no cached tasks must not look like "No tasks yet" — show the error + a retry.
+        // A refresh that fails while tasks already exist keeps the stale list rather than wiping good data.
+        tasksError && tasks.length === 0 ? (
+            <LemonBanner
+                type="error"
+                className="mx-1"
+                action={{ children: 'Retry', onClick: () => loadTasks() }}
+                data-attr="tasks-load-error"
+            >
+                <p className="mb-0">We couldn't load your tasks.</p>
+                <p className="text-muted mb-0">{tasksError}</p>
+            </LemonBanner>
         ) : tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
                 <p className="text-sm mb-0">No tasks yet</p>

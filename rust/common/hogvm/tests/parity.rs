@@ -16,7 +16,11 @@
 //! `HOGVM_CORPUS_DIR=/abs/path/to/common/hogvm/__tests__`; otherwise it walks up from the
 //! manifest dir looking for `common/hogvm/__tests__`.
 
-use std::{cell::RefCell, collections::BTreeMap, path::PathBuf, rc::Rc};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, Mutex},
+};
 
 use hogvm::{
     native_func, print_hog_string_output, sync_execute, ExecutionContext, HogLiteral, Program,
@@ -88,7 +92,8 @@ fn run_one(hoge_path: &PathBuf, oracle: &str) -> Outcome {
 
     // Capture print output the way `console.log(...args.map(printHogStringOutput))` does:
     // args space-separated, one newline per call.
-    let captured = Rc::new(RefCell::new(String::new()));
+    // Arc<Mutex> rather than Rc<RefCell> because NativeFunction requires Send + Sync.
+    let captured = Arc::new(Mutex::new(String::new()));
     let sink = captured.clone();
     let print_fn = native_func(move |vm, args| {
         let mut line = String::new();
@@ -99,7 +104,7 @@ fn run_one(hoge_path: &PathBuf, oracle: &str) -> Outcome {
             line.push_str(&print_hog_string_output(&vm.heap, arg)?);
         }
         line.push('\n');
-        sink.borrow_mut().push_str(&line);
+        sink.lock().unwrap().push_str(&line);
         Ok(HogLiteral::Null.into())
     });
 
@@ -114,7 +119,7 @@ fn run_one(hoge_path: &PathBuf, oracle: &str) -> Outcome {
 
     match sync_execute(&ctx, false) {
         Ok(_) => {
-            let actual = captured.borrow().trim_end_matches('\n').to_string();
+            let actual = captured.lock().unwrap().trim_end_matches('\n').to_string();
             let expected = oracle.trim_end_matches('\n').to_string();
             if actual == expected {
                 Outcome::Pass

@@ -30439,6 +30439,14 @@ export namespace Schemas {
       readonly search_match_type: SearchMatchTypeEnum | null;
     }
 
+    export interface OrganizationMemberGithubLogin {
+      /**
+         * The member's GitHub username (login), resolved from their linked GitHub integration or OAuth identity. Null when the member has no GitHub identity linked.
+         * @nullable
+         */
+      github_login: string | null;
+    }
+
     /**
      * Serializer for organization-scoped OAuth applications (read-only).
      */
@@ -60910,9 +60918,9 @@ export namespace Schemas {
      */
     pr_number: number;
     /**
-     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+     * 'owner/name' repository the pull request belongs to.
      */
-    repo?: string;
+    repo: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

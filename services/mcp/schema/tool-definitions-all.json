@@ -2363,12 +2363,54 @@
             "readOnlyHint": true
         }
     },
+    "engineering-analytics-pr-cost": {
+        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Estimated CI cost of a PR",
+        "title": "Estimated CI cost of a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "engineering-analytics-sources": {
         "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-jobs": {
+        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Jobs of a workflow run",
+        "title": "Jobs of a workflow run",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-runner-costs": {
+        "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Workflow cost by runner tier",
+        "title": "Workflow cost by runner tier",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -5827,6 +5869,20 @@
         "summary": "Get notebook",
         "title": "Get notebook",
         "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "org-member-get-github-login": {
+        "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get an organization member's GitHub username.",
+        "title": "Get an organization member's GitHub username.",
+        "required_scopes": ["organization_member:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

@@ -4,7 +4,7 @@
 //! functions). `with_defaults` now uses a non-binding ceiling.
 
 use hogvm::{sync_execute, ExecutionContext, Program};
-use serde_json::{json, Value};
+use serde_json::json;
 
 // Opcode numeric values (mirror common/hogvm/python/operation.py).
 const OP_CALL_GLOBAL: i64 = 2;

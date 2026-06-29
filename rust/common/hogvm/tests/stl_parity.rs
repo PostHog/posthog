@@ -9,7 +9,10 @@
 //! The fixture is committed reference output (generated from the Node/Python VMs), so this runs
 //! without a live reference VM.
 
-use std::{cell::RefCell, collections::BTreeSet, rc::Rc};
+use std::{
+    collections::BTreeSet,
+    sync::{Arc, Mutex},
+};
 
 use hogvm::{
     native_func, print_hog_string_output, sync_execute, ExecutionContext, HogLiteral, Program,
@@ -29,7 +32,8 @@ struct Entry {
 
 fn run_bytecode(bytecode: Vec<Value>) -> Result<String, String> {
     let program = Program::new(bytecode).map_err(|e| format!("{e:?}"))?;
-    let captured = Rc::new(RefCell::new(String::new()));
+    // Arc<Mutex> rather than Rc<RefCell> because NativeFunction requires Send + Sync.
+    let captured = Arc::new(Mutex::new(String::new()));
     let sink = captured.clone();
     let print_fn = native_func(move |vm, args| {
         let mut line = String::new();
@@ -40,7 +44,7 @@ fn run_bytecode(bytecode: Vec<Value>) -> Result<String, String> {
             line.push_str(&print_hog_string_output(&vm.heap, arg)?);
         }
         line.push('\n');
-        sink.borrow_mut().push_str(&line);
+        sink.lock().unwrap().push_str(&line);
         Ok(HogLiteral::Null.into())
     });
     // Match reference semantics: the reference VMs always coerce comparison operands.
@@ -48,7 +52,7 @@ fn run_bytecode(bytecode: Vec<Value>) -> Result<String, String> {
         .with_coercing_comparisons()
         .with_ext_fn("print".to_string(), print_fn);
     match sync_execute(&ctx, false) {
-        Ok(_) => Ok(captured.borrow().trim_end_matches('\n').to_string()),
+        Ok(_) => Ok(captured.lock().unwrap().trim_end_matches('\n').to_string()),
         Err(f) => Err(format!("{}", f.error)),
     }
 }
