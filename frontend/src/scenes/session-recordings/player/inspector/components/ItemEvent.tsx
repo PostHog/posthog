@@ -14,10 +14,8 @@ import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { SimpleKeyValueList } from 'lib/components/SimpleKeyValueList'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TitledSnack } from 'lib/components/TitledSnack'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ceilMsToClosestSecond } from 'lib/utils/durations'
 import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { getPrimaryPropertyForEvent } from 'lib/utils/events'
@@ -219,17 +217,14 @@ export function ItemEventMenu({ item }: ItemEventProps): JSX.Element {
 }
 
 function SingleEventDetail({ item }: ItemEventProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canPinPrimaryProperty = !!featureFlags[FEATURE_FLAGS.PROMOTED_EVENT_PROPERTIES_EDIT]
     const eventName = item.data.event
 
-    const primaryPropertyActions =
-        canPinPrimaryProperty && isString(eventName)
-            ? (key: string, isRowHovered: boolean): JSX.Element | null =>
-                  key in item.data.properties ? (
-                      <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
-                  ) : null
-            : undefined
+    const primaryPropertyActions = isString(eventName)
+        ? (key: string, isRowHovered: boolean): JSX.Element | null =>
+              key in item.data.properties ? (
+                  <PinPrimaryPropertyButton eventName={eventName} propertyKey={key} isRowHovered={isRowHovered} />
+              ) : null
+        : undefined
 
     return item.data.fullyLoaded ? (
         <EventPropertyTabs
