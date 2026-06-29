@@ -252,8 +252,11 @@ class GoogleAdsSource(
             )
             is_valid = False
 
-        is_mcc_account = job_inputs.get("is_mcc_account", {})
-        if is_mcc_account.get("enabled"):
+        # The switch-group field is a dict (`{"enabled": ..., "mcc_client_id": ...}`) when
+        # sent from the setup form, but API callers may send a plain bool, so only treat it
+        # as enabled when it's the expected dict shape.
+        is_mcc_account = job_inputs.get("is_mcc_account")
+        if isinstance(is_mcc_account, dict) and is_mcc_account.get("enabled"):
             raw_mcc_client_id = is_mcc_account.get("mcc_client_id", "")
             if raw_mcc_client_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_mcc_client_id) or ""):
                 errors.append(
