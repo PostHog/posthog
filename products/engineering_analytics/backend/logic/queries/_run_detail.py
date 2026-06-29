@@ -1,8 +1,8 @@
 """Shared mapping of the curated workflow-run columns into ``WorkflowRunDetail``.
 
 ``pr_runs`` / ``workflow_run`` / ``workflow_run_list`` all select the same run columns and build the
-same contract. Centralizing the column list and the row mapper keeps a future field add from being
-applied to two of the three call sites and silently mis-mapping a column.
+same contract. Centralizing the column list and row mapper keeps a future field add from being applied
+to only some call sites and silently mis-mapping a column.
 """
 
 from typing import Any

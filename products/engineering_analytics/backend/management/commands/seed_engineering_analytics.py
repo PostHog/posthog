@@ -1,22 +1,16 @@
 """Seed the engineering analytics warehouse tables from the checked-in GitHub fixture.
 
-Loads ``products/engineering_analytics/fixtures/github_pull_requests.json`` and
-``github_workflow_runs.json`` (a real PostHog/posthog snapshot captured with
-``fixtures/fetch.py``) into the team's data warehouse behind a connected GitHub
-source, exactly as a real sync would: a GitHub ``ExternalDataSource`` with a
-``--prefix``, plus ``pull_requests`` / ``workflow_runs`` ``ExternalDataSchema`` rows
-pointing at the materialized ``<prefix>github_pull_requests`` /
-``<prefix>github_workflow_runs`` tables. The product resolves those names per team
-(``logic.sources``), so seeding under a non-default prefix exercises the resolver
-rather than the old hardcoded ``github_*`` names.
+Loads ``github_pull_requests.json`` / ``github_workflow_runs.json`` (a real PostHog/posthog snapshot
+captured with ``fixtures/fetch.py``) into the team's data warehouse behind a connected GitHub source,
+exactly as a real sync would: a GitHub ``ExternalDataSource`` with a ``--prefix`` plus
+``ExternalDataSchema`` rows pointing at the materialized ``<prefix>github_*`` tables. The product
+resolves those names per team (``logic.sources``), so seeding under a non-default prefix exercises the
+resolver rather than the old hardcoded ``github_*`` names.
 
-Timestamps are rebased so the newest fixture row lands at "now" — the queries
-window on server-side now(), so an unshifted old snapshot would render empty.
-Pass --keep-dates for the faithful snapshot instead.
-
-Re-running replaces this seed source's tables, but a table owned by a different
-(real) connected source is never touched. Local/dev only: requires the dev object
-storage and ClickHouse from the hogli stack.
+Timestamps are rebased so the newest fixture row lands at "now" (the queries window on server-side
+now(), so an unshifted old snapshot renders empty); pass --keep-dates for the faithful snapshot.
+Re-running replaces this seed source's tables but never touches a table owned by a real source.
+Local/dev only: requires the dev object storage and ClickHouse from the hogli stack.
 
 Usage:
     python manage.py seed_engineering_analytics --team-id 1
@@ -66,8 +60,8 @@ RUN_DATE_FIELDS = ("created_at", "run_started_at", "updated_at")
 
 # Marks the GitHub source this command owns, so re-seeding never clobbers a real source.
 SEED_SOURCE_ID = "engineering_analytics_seed"
-# Default prefix is non-trivial on purpose: it proves the product resolves the real
-# per-team table name rather than assuming the bare ``github_*`` names.
+# Non-trivial default prefix on purpose: proves the product resolves the real per-team table name
+# rather than assuming the bare ``github_*`` names.
 DEFAULT_PREFIX = "eng_analytics_seed"
 
 
@@ -241,8 +235,8 @@ def _demo_multi_push(
 
 
 def _warehouse_endpoint() -> str:
-    # ClickHouse runs in docker, so a localhost object-storage endpoint must be
-    # rewritten to the docker host (same approach as the demo data generator).
+    # ClickHouse runs in docker, so a localhost object-storage endpoint must be rewritten to the docker
+    # host (same approach as the demo data generator).
     endpoint = settings.OBJECT_STORAGE_ENDPOINT.rstrip("/")
     parsed = urlparse(endpoint)
     if parsed.hostname not in {"localhost", "127.0.0.1"}:

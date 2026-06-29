@@ -1,17 +1,12 @@
 """Thin a GitHub Actions job log down to its failure-relevant lines.
 
-A failed job's log is mostly noise (dependency downloads, hundreds of passing migrations) around a
-small failure region. We keep that region — lines matching a high-precision failure marker plus
-context — and a short tail fallback; everything else collapses to a ``... N lines omitted ...``
-marker, turning multi-MB logs into a few hundred lines without losing the cause.
+A failed job's log is mostly noise around a small failure region. We keep that region (lines matching a
+high-precision failure marker plus context) and a short tail fallback; everything else collapses to a
+``... N lines omitted ...`` marker, turning multi-MB logs into a few hundred lines without losing the cause.
 
-Pure transform, decoupled from fetch/emit: all-jobs ingestion can later thin *non-failure* logs by
-passing a different ``ThinningConfig``. (A structured alternative — the check-run annotations API or
-JUnit XML — is a cleaner future upgrade but depends on per-workflow instrumentation we don't control.)
-
-Markers are exact, case-sensitive substrings, deliberately high-precision: bare ``error`` / ``failed``
-are NOT markers — real logs are full of them (``errortracking`` migrations, ``0 failed`` summaries)
-and they would defeat the thinning.
+Pure transform, decoupled from fetch/emit: all-jobs ingestion can later thin non-failure logs via a
+different ``ThinningConfig``. Markers are exact, case-sensitive substrings, deliberately high-precision:
+bare ``error`` / ``failed`` are NOT markers — real logs are full of them and they would defeat the thinning.
 """
 
 import dataclasses

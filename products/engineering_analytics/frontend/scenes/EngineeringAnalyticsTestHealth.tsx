@@ -39,8 +39,8 @@ function nextExpiry(): string {
     return dayjs().add(EXTEND_DAYS, 'day').format('YYYY-MM-DD')
 }
 
-/** Single-quote a value for a POSIX shell, escaping embedded single quotes so a
- * selector, reason, or owner containing a `'` still copies as a runnable command. */
+/** Single-quote a value for a POSIX shell, escaping embedded quotes so a selector/reason/owner with a
+ * `'` still copies as a runnable command. */
 function shellQuote(value: string): string {
     return `'${value.replace(/'/g, "'\\''")}'`
 }
@@ -139,8 +139,8 @@ export function EngineeringAnalyticsTestHealth(): JSX.Element {
         return <ConnectGitHubSource />
     }
 
-    // A fetch failure (timeout, 5xx, unsafe repo) also comes back as available:false, but with
-    // parse_errors set: surface those instead of the "no file" explainer, which only fits a true 404.
+    // A fetch failure (timeout, 5xx, unsafe repo) also returns available:false but with parse_errors set —
+    // surface those instead of the "no file" explainer, which only fits a true 404.
     if (quarantine && !quarantine.available && quarantine.parseErrors.length > 0) {
         return (
             <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-primary p-10 text-center">

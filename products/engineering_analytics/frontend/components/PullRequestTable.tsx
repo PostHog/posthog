@@ -1,12 +1,9 @@
-// The PR list table, shared by the main PR list (Overview tab) and the author page (same list, scoped
-// to one author). Both feed `PullRequestRow[]`; the columns, row → detail navigation, and cost lens are
-// identical — only the author column (redundant on the author page) and the default sort differ, passed
-// in by the caller.
+// The PR list table, shared by the main PR list (Overview tab) and the author page (scoped to one
+// author). Only the author column and default sort differ per caller.
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { IconExternal } from '@posthog/icons'
 import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -69,10 +66,10 @@ export function PullRequestTable({
                         <Link
                             to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
                             target="_blank"
-                            className="flex items-center gap-1 font-mono text-secondary"
+                            targetBlankIcon
+                            className="font-mono text-secondary"
                         >
                             {row.repoOwner}/{row.repoName} #{row.number}
-                            <IconExternal />
                         </Link>
                         {row.labels.slice(0, 3).map((label) => (
                             <LemonTag key={label} type="option">

@@ -1,8 +1,7 @@
 """DRF views for engineering_analytics.
 
-Named, typed read endpoints over the curated PR/CI query builders. Each action
-runs curated HogQL privately (no global view registration) and returns a typed
-contract. These same endpoints back both the MCP tools and the UI:
+Named, typed read endpoints over the curated PR/CI query builders. Each action runs curated HogQL
+privately and returns a typed contract; these endpoints back both the MCP tools and the UI:
 
 - ``ci_cards`` — backlog headline counts.
 - ``pull_requests`` — PR list with head-SHA CI rollup.
@@ -45,8 +44,8 @@ _DATE_FROM = OpenApiParameter(
     description="Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
 )
 
-# Workflow health defaults to a tighter window than the PR list (a CI-health "now" view), so it
-# advertises its own default rather than reusing _DATE_FROM's -30d.
+# Workflow health uses a tighter default than the PR list (a CI-health "now" view), so it advertises
+# its own default rather than reusing _DATE_FROM's -30d.
 _WORKFLOW_DATE_FROM = OpenApiParameter(
     name="date_from",
     type=OpenApiTypes.STR,

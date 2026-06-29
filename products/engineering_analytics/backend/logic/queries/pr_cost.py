@@ -1,11 +1,10 @@
 """HogQL assembly of a PR's estimated CI cost, summed over the jobs of all its runs.
 
-Cost is job-level: a run fans into parallel jobs on different runner tiers, so per-PR cost is a sum
-over jobs (see ``logic.cost``). This joins the optional jobs source (``_curated.jobs_source``) to the
-runs source to bring each job's ``workflow_name`` alongside its ``labels`` / elapsed, then aggregates
-in Python twice: once over all jobs (the whole-PR rollup) and once per workflow (the per-workflow cost
-column). When the jobs source isn't synced, ``jobs_source()`` is None and this returns an empty summary
-(``jobs_available=False``) so the UI hides the cost cards instead of erroring.
+Cost is job-level (a run fans into parallel jobs on different tiers, so per-PR cost is a sum over jobs;
+see ``logic.cost``). Joins the optional jobs source to the runs source to bring each job's
+``workflow_name`` alongside its ``labels`` / elapsed, then aggregates in Python — once over all jobs
+and once per workflow. When the jobs source isn't synced, returns an empty summary
+(``jobs_available=False``) so the UI hides the cost cards.
 """
 
 import json
@@ -24,10 +23,10 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.cost import PRCostAggregate, aggregate_pr_cost, runner_descriptor
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# Pre-aggregated per (workflow, run, attempt, runner-label) — a raw per-job SELECT has no LIMIT, so HogQL
-# caps it at DEFAULT_RETURNED_ROWS (100) and silently drops the rest, undercounting any PR with >100 jobs.
-# Each group carries finished/elapsed/unfinished, expanded back into per-job tuples (cost is linear in
-# elapsed) so the run- and workflow-level rollups stay exact. Same shape as the PR-list cost query.
+# Pre-aggregated per (workflow, run, attempt, runner-label): a raw per-job SELECT has no LIMIT, so HogQL
+# caps it at DEFAULT_RETURNED_ROWS (100) and silently drops the rest. Each group carries
+# finished/elapsed/unfinished, re-expanded into per-job tuples (cost is linear in elapsed) so the
+# rollups stay exact.
 _SELECT = """
     SELECT
         r.workflow_name, r.id AS run_id, r.run_attempt, j.labels,
@@ -104,11 +103,9 @@ def query_pr_cost(
     )
 
 
-# Pre-aggregated in SQL (per PR × runner-label combo) so the row count stays small — a raw per-job
-# SELECT over every PR's jobs blows past HogQL's default row cap and silently truncates. Each group
-# carries finished/elapsed/unfinished, which is expanded back into per-job tuples (cost is linear in
-# elapsed) so the pure aggregate_pr_cost still produces the exact rollup. Scoped to the PR numbers the
-# list is actually showing so a team with deep CI history doesn't pay an all-time jobs×runs join per page.
+# Pre-aggregated per PR × runner-label so the row count stays under HogQL's default cap (a raw per-job
+# SELECT would silently truncate). Groups re-expand into per-job tuples (cost is linear in elapsed) so
+# aggregate_pr_cost still produces the exact rollup. Scoped to the visible PR numbers, not all-time.
 _LIST_SELECT = """
     SELECT
         r.repo_owner, r.repo_name, r.pr_number, j.labels,
@@ -129,8 +126,8 @@ def query_pr_list_costs(
     """Per-PR billable cost across the given PR numbers' runs, keyed by (repo_owner, repo_name, pr_number).
 
     Empty when the jobs source isn't synced or no PR numbers are given. One grouped pass over jobs ⋈ runs
-    so the PR list can show a cost/minutes column per row without a query per PR; scoped to the visible PR
-    numbers so the scan tracks the page, not the team's whole CI history.
+    so the PR list can show a cost column without a query per PR; scoped to the visible PRs so the scan
+    tracks the page, not the team's whole CI history.
     """
     jobs_source = curated.jobs_source()
     if jobs_source is None or not pr_numbers:
@@ -174,8 +171,7 @@ def query_workflow_window_costs(
 ) -> dict[str, PRCostAggregate]:
     """Per-workflow billable cost over [date_from, date_to] (optional branch), keyed by workflow_name.
 
-    Empty when the jobs source isn't synced. Mirrors the PR-list cost: grouped per workflow×label in SQL,
-    expanded back through aggregate_pr_cost.
+    Empty when the jobs source isn't synced. Same grouped+expand shape as the PR-list cost.
     """
     jobs_source = curated.jobs_source()
     if jobs_source is None:
@@ -283,9 +279,8 @@ def _expand_jobs(
 ) -> list[tuple[list[str], float | None]]:
     """Re-expand a (labels, finished, elapsed_total, unfinished) group into per-job (labels, elapsed)
     tuples for aggregate_pr_cost. Elapsed is split evenly across finished jobs — cost is linear in
-    elapsed, so the summed cost/minutes/counts are identical to costing each real job. The SQL sums
-    ``greatest(duration_seconds, 0)`` so a single clock-skewed negative duration can't cancel its
-    group-mates' elapsed before the split — matching aggregate_pr_cost's per-job ``max(0, elapsed)``."""
+    elapsed, so the totals are identical to costing each real job. The SQL sums ``greatest(duration, 0)``
+    so a clock-skewed negative can't cancel its group-mates' elapsed before the split."""
     per = (elapsed_total / finished) if finished else 0.0
     return [(labels, per)] * finished + [(labels, None)] * unfinished
 

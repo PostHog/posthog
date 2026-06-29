@@ -1,15 +1,13 @@
-"""HogQL assembly of a run's jobs, for the expandable job breakdown on the run rows.
+"""HogQL assembly of a run's jobs, for the expandable job breakdown.
 
-Reads the curated jobs subquery (``_curated.jobs_source``) for one ``run_id``. Job-level data is an
-optional source — when it isn't synced, ``jobs_source()`` is None and this returns ``[]`` so the UI
-degrades to an empty breakdown instead of erroring. Per-job cost is derived from the runner tier
-(parsed from ``labels``) and elapsed time via the pure cost model (``logic.cost``).
+Reads the curated jobs subquery (``_curated.jobs_source``) for one ``run_id``. Jobs are an optional
+source — when unsynced, returns ``[]`` so the UI degrades to an empty breakdown. Per-job cost is
+derived from the runner tier (parsed from ``labels``) and elapsed via the cost model (``logic.cost``).
 
 A re-run carries several attempts under one ``run_id``; scoping to a single ``run_attempt`` keeps a
-row's statuses, durations, and costs from merging across attempts (and double-counting cost). The
-caller passes the attempt it's showing; when omitted, the run's latest attempt is read from the runs
-source (not the synced job rows) so a default lookup tracks the canonical attempt even when only older
-attempts' jobs have synced — returning an empty breakdown rather than stale jobs for that case.
+row's statuses/durations/costs from merging across attempts. The caller passes the attempt it's
+showing; when omitted, the run's latest attempt is read from the runs source (not the synced job rows)
+so a default lookup tracks the canonical attempt even when only older attempts' jobs have synced.
 """
 
 import json
@@ -21,9 +19,8 @@ from products.engineering_analytics.backend.facade.contracts import WorkflowJob
 from products.engineering_analytics.backend.logic.cost import estimate_job_cost_usd, runner_descriptor
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100), and since the rows are ordered
-# by start, a run with >100 jobs (matrix builds, re-run attempts) would silently drop its latest-starting
-# jobs — the breakdown would then miss jobs and not add up to the run's cost.
+# Explicit high LIMIT: without it HogQL caps at DEFAULT_RETURNED_ROWS (100); ordered by start, a run with
+# >100 jobs (matrix builds, re-runs) would silently drop its latest jobs and not add up to the run's cost.
 _SELECT = """
     SELECT id, run_id, run_attempt, name, status, conclusion, labels, runner_name, started_at, completed_at, duration_seconds
     FROM __JOBS_SOURCE__ AS j

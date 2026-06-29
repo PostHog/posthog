@@ -1,9 +1,8 @@
-"""Ship fetched CI log content into Logs via OTLP — one record per line so each line is
-independently searchable, countable, and groupable. Emits through the OpenTelemetry SDK to the
-internal ``capture-logs`` endpoint (``/i/v1/logs``) with the destination team's project token as the
-``Authorization: Bearer`` — the token is what routes records to that team's Logs, so there's no
-public-internet round-trip. Each record carries the job attributes, the line's GitHub timestamp, and
-a severity from GitHub's ``##[error]`` / ``##[warning]`` markers.
+"""Ship fetched CI log content into Logs via OTLP — one record per line so each is independently
+searchable, countable, and groupable. Emits through the OpenTelemetry SDK to the internal
+``capture-logs`` endpoint with the destination team's project token as ``Authorization: Bearer`` — the
+token routes records to that team's Logs, so there's no public-internet round-trip. Each record carries
+the job attributes, the line's GitHub timestamp, and a severity from ``##[error]`` / ``##[warning]``.
 
 A Temporal activity is short-lived, so callers MUST ``flush()`` before returning (use the context
 manager) — the batch processor would otherwise drop buffered records.

@@ -1,9 +1,8 @@
 import { LemonButton } from '@posthog/lemon-ui'
 
 /**
- * Generic, retryable error state for the engineering analytics scenes. Distinct from
- * ConnectGitHubSource: shown when a source IS connected but its data endpoints failed
- * (e.g. a 500), so a connected team is never wrongly told to connect a source.
+ * Retryable error state for the engineering analytics scenes. Unlike ConnectGitHubSource, shown when a
+ * source is connected but its data endpoints failed — so a connected team isn't wrongly told to connect one.
  */
 export function CIAnalyticsLoadError({ onRetry }: { onRetry: () => void }): JSX.Element {
     return (

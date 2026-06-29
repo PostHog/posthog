@@ -1,13 +1,11 @@
 """Curated query: per-workflow CI health over a window.
 
-Run counts, success rate, and duration percentiles per ``workflow_name`` for runs
-started within ``[date_from, date_to]`` (``date_to`` optional), optionally scoped to
-a single ``head_branch``. Rates and percentiles are over completed runs only, so they
-are ``None`` for a window with no completed runs.
+Run counts, success rate, and duration percentiles per ``workflow_name`` for runs started within
+``[date_from, date_to]`` (``date_to`` optional), optionally scoped to a single ``head_branch``. Rates
+and percentiles are over completed runs only, so ``None`` for a window with none.
 
-The per-bucket history adapts its granularity to the window length (hour / day / week)
-so the trend sparkline keeps a readable number of points — per-day buckets are useless
-for a 24h window and far too many for a year.
+The per-bucket history adapts its granularity to the window length (hour / day / week) so the trend
+sparkline keeps a readable number of points.
 """
 
 import math
@@ -189,8 +187,8 @@ def _window_buckets(date_from: datetime, date_to: datetime | None, granularity: 
 def _normalize(value: datetime | date, granularity: Granularity) -> datetime:
     """Align a timestamp to its bucket start, tz-naive, so query rows and the zero-fill series key alike.
 
-    ClickHouse can hand the bucket back as a ``date`` (date/week truncation) or a ``datetime``
-    (hour truncation); widen the former so both sides key on the same type.
+    ClickHouse can return the bucket as a ``date`` (date/week truncation) or ``datetime`` (hour); widen
+    the former so both sides key on the same type.
     """
     naive = value.replace(tzinfo=None) if isinstance(value, datetime) else datetime(value.year, value.month, value.day)
     if granularity == "hour":

@@ -1,9 +1,7 @@
 """Curated query builders over the GitHub warehouse snapshots.
 
-``pull_requests`` and ``workflow_runs`` each expose a ``build_query(table_name)``
-returning the curated ``SELECT`` over the raw GitHub table whose per-team name is
-resolved by ``logic.sources`` and passed in. All PR/CI domain rules (bot detection,
-repo identity, label extraction, honest metric naming) are defined here exactly once.
-Query modules embed these as subqueries via ``logic.queries._curated`` — nothing is
-registered as a global HogQL view.
+``pull_requests`` and ``workflow_runs`` each expose ``build_query(table_name)`` returning the curated
+``SELECT`` over the raw GitHub table (per-team name resolved by ``logic.sources``). All PR/CI domain
+rules (bot detection, repo identity, labels, honest metric naming) live here exactly once. Query
+modules embed these as subqueries via ``logic.queries._curated``; nothing is a global HogQL view.
 """

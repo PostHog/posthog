@@ -1,19 +1,12 @@
-"""Facade for engineering_analytics.
+"""Facade for engineering_analytics — the only module other products and the DRF layer import.
 
-The ONLY module other products (and the DRF presentation layer) import for
-runtime PR/CI analytics. Public functions take a team plus PostHog-convention
-parameters and return canonical contract types.
-
-``repo`` is an optional ``owner/name`` filter, applied against the curated repo
-identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
-``head_branch`` filter for workflow health. ``date_from`` / ``date_to`` accept
-relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
-``source_id`` selects a specific connected GitHub source when the team has more than
-one; it defaults to the oldest connected source. ``user_access_control`` enforces the
-requesting user's per-source warehouse access (pass the request's; ``None`` for system
-contexts). Each function resolves the team's authorized curated read handle once, here,
-then delegates to the read layer — source selection and access control live in this layer,
-not in the query builders below it.
+Public functions take a team plus PostHog-convention params and return canonical contracts. Param
+contracts: ``repo`` is an optional ``owner/name`` filter; ``branch`` an exact ``head_branch`` filter
+(workflow health); ``date_from`` / ``date_to`` accept relative strings (``-30d``) or ISO8601, resolved
+against the team timezone; ``source_id`` selects a connected GitHub source (defaults to the oldest);
+``user_access_control`` enforces the requesting user's per-source warehouse access (``None`` for system
+contexts). Each function resolves the authorized curated read handle once here — source selection and
+access control live in this layer, not the query builders.
 """
 
 from typing import TYPE_CHECKING
@@ -43,10 +36,8 @@ if TYPE_CHECKING:
 def _authorized_source(
     team: Team, source_id: str | None, user_access_control: "UserAccessControl | None"
 ) -> "CuratedGitHubSource":
-    """Resolve this caller's curated read handle — the single place source selection and per-source
-    warehouse access control happen. ``user_access_control`` (None for system/Temporal/CLI contexts)
-    filters out sources the requesting user can't access; ``source_id`` selects a specific source,
-    else the oldest connected. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
+    """Resolve the caller's curated read handle — the one place source selection and per-source access
+    control happen. Raises ``GitHubSourceNotConnectedError`` / ``ValueError`` (bad source_id).
     """
     return logic.CuratedGitHubSource.for_team(team, source_id=source_id, user_access_control=user_access_control)
 
@@ -198,7 +189,6 @@ def get_quarantine(
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> QuarantineFile:
-    # Quarantine resolves its source lazily (DEBUG reads the local checkout, an explicit ``repo`` needs
-    # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
-    # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
+    # Quarantine resolves its source lazily and stays fail-open (unlike the curated reads): source_id /
+    # user_access_control only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)

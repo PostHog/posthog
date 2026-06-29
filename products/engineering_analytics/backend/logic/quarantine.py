@@ -1,19 +1,14 @@
 """Read side of a repo's checked-in ``.test_quarantine.json``.
 
-The v1 schema contract lives with the hogli quarantine tooling
-(``tools/hogli-commands/hogli_commands/quarantine/core.py``); product isolation
-forbids importing tools code, so the minimal read-side parsing is reimplemented
-here. Reading is fail-open to match the enforcement readers: malformed entries
-are dropped into ``parse_errors`` and the rest kept; unknown entry fields only
-warn; entries for runners without an enforcement adapter are kept (the UI shows
-the runner).
+The v1 schema lives with the hogli quarantine tooling; product isolation forbids importing tools code,
+so the minimal read-side parsing is reimplemented here. Reading is fail-open to match the enforcement
+readers: malformed entries land in ``parse_errors`` and the rest are kept; unknown fields only warn;
+entries for runners with no enforcement adapter are kept.
 
-Acquisition order: the server's own checkout in DEBUG (so the tab is live in
-local dev), then the caller-supplied ``repo``, then the connected GitHub
-source's most active repo over the last 30 days (``source_id`` selects which
-connected source; ``user_access_control`` filters out sources the caller can't
-read). Staying fail-open, a team with no connected source returns
-``available=false`` rather than the 4xx the curated read endpoints raise.
+Acquisition order: the server's own checkout in DEBUG (live in local dev), then the caller-supplied
+``repo``, then the connected GitHub source's most-active repo over the last 30 days (``source_id``
+selects the source; ``user_access_control`` filters out inaccessible ones). Staying fail-open, a team
+with no connected source returns ``available=false`` rather than a 4xx.
 """
 
 import re
@@ -49,19 +44,18 @@ QUARANTINE_FILENAME = ".test_quarantine.json"
 
 _SCHEMA_VERSION = 1
 _DEFAULT_RUNNER = "pytest"
-# Matches DEFAULT_GRACE_DAYS in the quarantine contract: an expired entry stays
-# inert for this long before `quarantine check` makes its removal mandatory.
+# Matches DEFAULT_GRACE_DAYS in the contract: an expired entry stays inert this long before
+# `quarantine check` makes its removal mandatory.
 _GRACE_DAYS = 7
 _EXPIRING_SOON_DAYS = 7
 _ENTRY_FIELDS = ("id", "runner", "reason", "owner", "issue", "added", "expires", "mode")
 
-# SSRF hardening: both halves of `owner/name` must look like a GitHub slug
-# before they are interpolated into the fetch URL.
+# SSRF hardening: both halves of `owner/name` must look like a GitHub slug before interpolation.
 _REPO_PART_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
 _FETCH_TIMEOUT_SECONDS = 3
 _CACHE_TTL_SECONDS = 60
-# A real quarantine file is tens of KB; this is generous headroom while bounding how
-# much a hostile public repo can make us buffer, cache, and parse from one request.
+# Generous headroom (a real file is tens of KB) while bounding what a hostile public repo can make us
+# buffer, cache, and parse.
 _MAX_QUARANTINE_BYTES = 5 * 1024 * 1024
 
 # Most urgent first; ties broken by soonest expiry, then id.

@@ -1,12 +1,10 @@
 """Find recently-failed CI jobs and fan out one idempotent log-fetch workflow per job.
 
-Per-job workflow id (``gh-logs-{team}-{job}``, reuse ``ALLOW_DUPLICATE_FAILED_ONLY``) means each
-job's log is fetched and emitted at most once, re-running only after a failed attempt.
-
-Discovery queries the raw ``{prefix}github_workflow_jobs`` table (the curated read layer doesn't
-expose jobs yet). The coordinator is registered on the schedule but no-ops until
-``OTLP_LOGS_INGEST_ENDPOINT`` is set (see ``_discover_failed_jobs``), so it activates automatically
-once the Logs endpoint is deployed, regardless of deploy order.
+Per-job workflow id (``gh-logs-{team}-{job}``, ``ALLOW_DUPLICATE_FAILED_ONLY``) means each job's log is
+fetched and emitted at most once, re-running only after a failed attempt. Discovery queries the raw
+``{prefix}github_workflow_jobs`` table (the curated read layer doesn't expose jobs yet). The coordinator
+no-ops until ``OTLP_LOGS_INGEST_ENDPOINT`` is set, so it activates automatically once the Logs endpoint
+is deployed, regardless of deploy order.
 """
 
 import re
@@ -38,8 +36,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 logger = structlog.get_logger(__name__)
 
-# How far back to look each tick. With the per-job workflow id (one fetch per job) this bounds
-# re-scanning without a separate "already fetched" store.
+# How far back to look each tick. With the per-job workflow id this bounds re-scanning without a
+# separate "already fetched" store.
 DEFAULT_LOOKBACK = timedelta(hours=2)
 _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards the table identifier
 # Cap total jobs returned per tick — the activity hands them back as one Temporal payload (~2 MiB
@@ -48,11 +46,10 @@ MAX_DISCOVERED_JOBS = 2000
 
 
 def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[str, Any]]:
-    # Window on completed_at (when the job finished), not created_at: a queued or long-running job
-    # can be created well before it fails, and a created_at window would miss it. completed_at is an
-    # ISO-8601 string and is always set for a failed (completed) job, so a lexical comparison against
-    # the cutoff is chronological. The table name is a trusted identifier (validated prefix + fixed
-    # suffix); user values flow through the placeholder, never the f-string.
+    # Window on completed_at, not created_at: a long-running job can be created well before it fails.
+    # completed_at is an always-set ISO-8601 string, so a lexical comparison against the cutoff is
+    # chronological. The table name is a trusted identifier (validated prefix + fixed suffix); user
+    # values flow through the placeholder, never the f-string.
     table = f"{prefix}github_workflow_jobs"
     sql = f"""
         SELECT id AS job_id, run_id, head_branch AS branch, conclusion

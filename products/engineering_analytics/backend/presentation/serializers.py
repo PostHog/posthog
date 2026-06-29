@@ -1,10 +1,8 @@
 """DRF serializers for engineering_analytics.
 
-Output-only serializers that turn the facade's frozen dataclasses into JSON via
-``DataclassSerializer``. Field types are auto-derived from the contract types;
-``help_text`` is added through ``Meta.extra_kwargs`` so it flows downstream into
-the OpenAPI spec, generated TypeScript types, and the ``pr_lifecycle`` MCP tool
-schema.
+Output-only serializers turning the facade's frozen dataclasses into JSON via ``DataclassSerializer``.
+Field types are auto-derived from the contracts; ``help_text`` (via ``Meta.extra_kwargs``) flows into
+the OpenAPI spec, generated TypeScript types, and the ``pr_lifecycle`` MCP tool schema.
 """
 
 from rest_framework_dataclasses.serializers import DataclassSerializer

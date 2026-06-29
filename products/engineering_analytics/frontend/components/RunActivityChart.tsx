@@ -89,11 +89,9 @@ interface Point {
 }
 
 /**
- * Two views of one workflow's runs on a shared time axis: a scatter of each completed run by start time
- * (X) and wall-clock duration (Y), colored by verdict with a dashed median line; and below it an
- * "in-flight" band showing how many runs were executing at once (the red fill is the failing share, the
- * peak is labeled). The scatter answers "are runs slow / failing?"; the band answers "how much parallel
- * load?". Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
+ * Two views of one workflow's runs on a shared time axis: a scatter by start time (X) and duration (Y),
+ * colored by verdict with a dashed median; and below it an "in-flight" band of concurrent runs (red fill
+ * = failing share). Renders nothing below `MIN_POINTS` completed runs, so callers drop it in unconditionally.
  */
 export function RunActivityChart({
     runs,
@@ -179,8 +177,7 @@ export function RunActivityChart({
     }))
 
     // In-flight band: exact concurrency via a sweep line over each run's start/end. Sampling fixed instants
-    // misses any run that begins and ends between two samples (minute-long runs on a 30-day window) — those
-    // would never be counted, so the band could read empty with the wrong peak even with runs on the scatter.
+    // would miss runs that begin and end between two samples, so the band could read empty with the wrong peak.
     const bandEvents = intervals.flatMap((iv) => {
         const failDelta = isDecisiveFailure(iv.conclusion) ? 1 : 0
         return [

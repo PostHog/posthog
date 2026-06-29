@@ -76,8 +76,8 @@ export function EngineeringAnalyticsWorkflows(): JSX.Element {
                     onBlur={applyBranchFilter}
                     data-attr="engineering-analytics-branch-filter"
                 />
-                {/* Quick presets for the default branch. We can't tell main from master without another query,
-                    so offer both — clicking the active one clears back to all branches. */}
+                {/* Default-branch presets. We can't tell main from master without another query, so offer
+                    both — clicking the active one clears back to all branches. */}
                 {['main', 'master'].map((branch) => (
                     <LemonButton
                         key={branch}
