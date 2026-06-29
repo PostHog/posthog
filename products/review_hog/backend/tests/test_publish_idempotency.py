@@ -38,9 +38,8 @@ def _pr(reviews: list[_FakeReview], *, boom: bool = False) -> PullRequest:
 
 
 def test_review_already_posted_detects_our_own_markered_review() -> None:
-    # The post-then-crash backstop: a review we already posted carries this run's hidden marker, so a
-    # retry must recognize it and skip rather than double-post. A review without the marker (another
-    # turn / another author) must not match.
+    # Post-then-crash backstop: a review we posted carries this run's marker, so a retry recognizes it
+    # and skips. A review without the marker (another turn/author) must not match.
     marker = _review_marker("rep-1", "sha1")
     assert _review_already_posted(_pr([_FakeReview(f"body text\n\n{marker}")]), marker) is True
     assert _review_already_posted(_pr([_FakeReview("an unrelated review"), _FakeReview(None)]), marker) is False

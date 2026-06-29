@@ -350,15 +350,8 @@ def load_valid_findings(
 ) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
     """This turn's valid findings paired with their verdicts, latest-wins per `issue_key`.
 
-    The DB-driven source for publishing, scoped to `run_index`: only the findings *this* turn
-    produced are returned, so publishing never replays a prior turn's findings — which is what
-    re-posted a comment the PR already carried. The latest finding and latest verdict for each
-    `issue_key` are joined, and only pairs the validator ruled valid are returned.
-
-    A finding still open across turns is re-found and re-keyed each turn, so it stays scoped to its
-    own turn here; leaving the prior turn's comment in place (never re-posting) is handled by the
-    review-time dedup against live PR comments. Recognizing it as the *same* finding (to resolve or
-    update the existing comment) needs cross-turn semantic identity and lands with the loop.
+    Scoped to `run_index`: publishing posts only this turn's findings, never replaying a prior turn's
+    (which would re-post a comment the PR already has). Returns only pairs the validator passed.
     """
     findings: dict[str, ReviewIssueFinding] = {}
     verdicts: dict[str, ValidationVerdict] = {}
@@ -394,12 +387,10 @@ def load_valid_findings(
 
 
 def load_prior_findings(*, team_id: int, report_id: str, before_run_index: int) -> list[ReviewIssueFinding]:
-    """Findings ReviewHog surfaced in earlier turns of this report (run_index < before_run_index).
+    """Findings from earlier turns of this report (`run_index < before_run_index`), latest per key.
 
-    Fed back into the review prompt as the "already covered" set so a re-review doesn't spend sandbox
-    time re-deriving a problem a prior turn already found — including the low-priority ones we keep but
-    never post, which aren't visible as inline PR comments. Latest finding per `issue_key` wins; the
-    `run_index` cutoff keeps the current turn from seeing its own findings on a resume.
+    Fed to the review prompt as the "already covered" set so a re-review skips ground a prior turn
+    found — including low-priority ones we keep but never post as comments.
     """
     findings: dict[str, ReviewIssueFinding] = {}
     rows = (
@@ -432,12 +423,8 @@ def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str) 
 def _issue_key(issue: Issue, run_index: int) -> str:
     """Identity for a finding within its turn, shared by its verdict so they pair 1:1.
 
-    Built from the pipeline's unique issue id (`{pass}-{chunk}-{issue}`) behind a readable
-    run/file/line/perspective prefix. The `run_index` prefix makes it turn-unique: the positional id
-    is reassigned every turn, so without it a later turn's finding collided with an earlier one's key
-    — silently shadowing or duplicating it. The id keeps it unique within the turn (two distinct
-    findings on the same line from the same perspective don't collapse). Robust cross-turn *semantic*
-    identity (line numbers shift as the PR evolves) needs matching and is a loop-phase concern.
+    The `run_index` prefix makes it turn-unique: the id (`{pass}-{chunk}-{issue}`) is reassigned every
+    turn, so without it a later turn's finding can collide with an earlier one's key and shadow it.
     """
     start = issue.lines[0].start if issue.lines else 0
     perspective = issue.source_perspective or "unknown"

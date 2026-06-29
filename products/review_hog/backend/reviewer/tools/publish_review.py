@@ -14,11 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 def _review_marker(report_id: str, head_sha: str) -> str:
-    """A hidden, per-(report, head) marker embedded in the review body for publish idempotency.
+    """A hidden marker (HTML comment) embedded in the review body for publish idempotency.
 
-    An HTML comment, so it's invisible in the rendered review. Posting the review is not atomic with
-    saving the `published_head_sha` watermark, so a crash in between would let a retry re-post; the
-    marker lets the retry recognize its own already-posted review and skip.
+    Posting isn't atomic with saving the `published_head_sha` watermark; if we crash between them, the
+    marker lets the retry spot its own already-posted review and skip.
     """
     return f"<!-- reviewhog:published:{report_id}:{head_sha} -->"
 

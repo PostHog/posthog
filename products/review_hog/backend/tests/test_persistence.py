@@ -288,10 +288,8 @@ class TestLoadValidFindings(BaseTest):
         assert pairs[0][1].argumentation == "actually real"
 
     def test_scopes_findings_to_the_requested_run(self) -> None:
-        # The #66456 duplicate: publish read the report's WHOLE history and re-posted a prior turn's
-        # finding (a comment the PR already carried). Each run's findings must stay scoped to that run
-        # — even when a later turn reuses the same positional id — so publish never replays an earlier
-        # turn's findings.
+        # Guards the duplicate-comment bug: publishing once replayed the whole finding history. Each
+        # run's findings must stay scoped to that run, even when a later turn reuses the same id.
         report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
         old = _issue("1-1-1", file="a.py", title="run-1 finding", issue="real")
         persist_findings(team_id=self.team.id, report_id=report_id, issues=[old], run_index=1)

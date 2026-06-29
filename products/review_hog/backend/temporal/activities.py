@@ -98,8 +98,7 @@ class ReviewMeta:
     head_sha: str
     branch: str
     repository: str
-    # This turn's 1-based index, stamped onto every finding/verdict so publishing can scope to a
-    # single turn instead of replaying the report's whole finding history.
+    # This turn's 1-based index; stamped on each finding so publishing scopes to one turn.
     run_index: int
     snapshotted: bool
     # Already reviewed AND posted this exact head (published_head_sha == head_sha): the parent's
@@ -274,9 +273,8 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
     already_published = bool(head_sha) and report.published_head_sha == head_sha
-    # `run_count` counts completed turns; this turn is the next one. `finalize_review_report` bumps
-    # run_count to match at the end, so a turn that fails before finalize and resumes reuses the same
-    # index (idempotent persist), while a fresh turn always gets a new one.
+    # This turn's index. run_count (completed turns) only bumps at finalize, so a turn that fails and
+    # resumes reuses the same index while a fresh turn gets a new one.
     run_index = report.run_count + 1
     max_comment_id = max((c.id for c in pr_comments if c.id is not None), default=None)
     new_comment_count = sum(
