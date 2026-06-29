@@ -26,6 +26,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     pyarrow_schema_from_arrow_exportable,
 )
 
+# Files-per-partition above this triggers a defensive compact at the start of a
+# sync run. Set above the natural steady-state (a few files per partition per
+# successful run) but well below the level where per-merge file-listing scans
+# dominate the merge time (we've observed ~45s merges of <300 rows once a table
+# reaches tens of thousands of files). Tune once we have real-world distributions.
+DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD = 200
+
 
 def _write_deltalake(
     table_or_uri: str | deltalake.DeltaTable,
@@ -626,3 +633,42 @@ class DeltaTableHelper:
         await self._logger.adebug(json.dumps(vacuum_stats))
 
         await self._logger.adebug("Compacting and vacuuming complete")
+
+    async def compact_if_fragmented(
+        self,
+        partition_count: int | None,
+        threshold: int = DEFAULT_COMPACT_FILES_PER_PARTITION_THRESHOLD,
+    ) -> bool:
+        """Run compact + vacuum only if files-per-partition exceeds threshold.
+
+        Returns True if compaction ran, False if it was skipped. Cheap when the
+        table is healthy: one S3 LIST via `get_file_uris`. Intended for pre-write
+        defensive cleanup so a sync that arrived at a fragmented state (e.g. an
+        earlier attempt that failed before reaching `_post_run_operations`) cleans
+        up before adding to the pile.
+        """
+        table = await self.get_delta_table()
+        if table is None:
+            return False
+
+        file_uris = await self.get_file_uris()
+        total_files = len(file_uris)
+        # Treat unpartitioned tables as one "partition" for the threshold math.
+        effective_partitions = max(partition_count or 1, 1)
+        files_per_partition = total_files / effective_partitions
+
+        if files_per_partition <= threshold:
+            await self._logger.adebug(
+                f"compact_if_fragmented: skipping (total_files={total_files}, "
+                f"partitions={effective_partitions}, files_per_partition={files_per_partition:.1f}, "
+                f"threshold={threshold})"
+            )
+            return False
+
+        await self._logger.ainfo(
+            f"compact_if_fragmented: triggering compact (total_files={total_files}, "
+            f"partitions={effective_partitions}, files_per_partition={files_per_partition:.1f}, "
+            f"threshold={threshold})"
+        )
+        await self.compact_table()
+        return True
