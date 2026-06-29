@@ -674,6 +674,17 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         return instance
 
+    # Fields whose value defines *what* gets delivered. A change to any of these
+    # warrants an immediate confirmation delivery on update; schedule/meta edits
+    # (frequency, interval, title, summary_*, …) must not re-fire one.
+    DELIVERY_RELEVANT_FIELDS: ClassVar[tuple[str, ...]] = (
+        "target_value",
+        "target_type",
+        "prompt",
+        "insight_id",
+        "dashboard_id",
+    )
+
     def update(self, instance: Subscription, validated_data: dict, *args, **kwargs) -> Subscription:
         request = self.context["request"]
         previous_value = instance.target_value
@@ -682,6 +693,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
+
+        # Snapshot delivery-relevant values before the write so we can tell, after,
+        # whether the edit actually changed what gets delivered.
+        old_delivery_values = {field: getattr(instance, field) for field in self.DELIVERY_RELEVANT_FIELDS}
+        old_export_insight_ids = set(instance.dashboard_export_insights.values_list("id", flat=True))
 
         if is_delete:
             with slo_operation(
@@ -711,19 +727,32 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         if dashboard_export_insight_ids:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
+        is_re_enabling = was_disabled and instance.enabled
+
         # Re-enabling clears the stale next_delivery_date that was frozen while
         # disabled. Without this, the scheduler picks the sub up on its next tick
         # (the past date matches `next_delivery_date__lte=now`) and fires a second
         # SCHEDULED delivery right after the immediate TARGET_CHANGE confirmation.
-        if was_disabled and instance.enabled:
+        if is_re_enabling:
             instance.set_next_delivery_date()
             instance.save(update_fields=["next_delivery_date"])
 
         # Skip the workflow trigger when the resulting state is disabled. No delivery
         # should fire for a disabled subscription regardless of whether it was just
-        # disabled or already disabled. Re-enabling (`enabled: false → true`) DOES
-        # trigger the workflow so the user gets immediate confirmation delivery.
+        # disabled or already disabled.
         if not instance.enabled:
+            return instance
+
+        # Only fire the immediate confirmation delivery when the edit changed *what*
+        # gets delivered, or when re-enabling (`enabled: false → true`) — the user
+        # expects a confirmation delivery in both cases. A schedule/meta-only edit
+        # (frequency, interval, title, summary_*, …) re-saves next_delivery_date via
+        # the model's save() but must not push a fresh delivery.
+        delivery_target_changed = (
+            any(getattr(instance, field) != old_value for field, old_value in old_delivery_values.items())
+            or set(instance.dashboard_export_insights.values_list("id", flat=True)) != old_export_insight_ids
+        )
+        if not is_re_enabling and not delivery_target_changed:
             return instance
 
         temporal = sync_connect()

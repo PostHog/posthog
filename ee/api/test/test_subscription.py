@@ -206,6 +206,87 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert activity_inputs.previous_value == "test@posthog.com"
         assert activity_inputs.invite_message == "hi new user"
 
+    @parameterized.expand(
+        [
+            # Schedule/meta-only edits must NOT re-fire a delivery — regression guard for an
+            # enabled subscription emitting a full delivery on every frequency/title tweak.
+            ("frequency", {"frequency": "daily"}, False),
+            ("interval", {"interval": 3}, False),
+            ("title", {"title": "Renamed"}, False),
+            # Delivery-relevant edits MUST fire — recipients changed, so a confirmation is expected.
+            ("target_value", {"target_value": "test@posthog.com,extra@posthog.com"}, True),
+        ]
+    )
+    def test_update_fires_delivery_only_when_delivery_relevant_field_changes(
+        self, _name: str, patch_payload: dict, should_fire: bool
+    ):
+        sub_id = self._create_subscription(invite_message=None).json()["id"]
+        self.mock_temporal_client.start_workflow.assert_called_once()  # the create itself fired
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{sub_id}", patch_payload)
+        assert response.status_code == status.HTTP_200_OK, response.content
+
+        if should_fire:
+            self.mock_temporal_client.start_workflow.assert_called_once()
+        else:
+            self.mock_temporal_client.start_workflow.assert_not_called()
+
+    def test_schedule_only_update_still_recomputes_next_delivery_date(self):
+        # A schedule edit must not fire a delivery but MUST still reschedule — the model
+        # save() recomputes next_delivery_date; this guards that the no-fire short-circuit
+        # doesn't accidentally skip the reschedule.
+        sub_id = self._create_subscription(invite_message=None, frequency="weekly").json()["id"]
+        before = Subscription.objects.get(id=sub_id).next_delivery_date
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"frequency": "daily"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_not_called()
+        after = Subscription.objects.get(id=sub_id).next_delivery_date
+        # Daily cadence brings the next delivery strictly earlier than the weekly one.
+        assert after is not None
+        assert after < before
+
+    def test_update_target_type_change_fires_delivery(self):
+        # target_type is delivery-relevant; switching channel must fire a confirmation.
+        integration = Integration.objects.create(team=self.team, kind="slack", config={})
+        sub_id = self._create_subscription(invite_message=None).json()["id"]
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
+            {"target_type": "slack", "target_value": "#general", "integration_id": integration.id},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_called_once()
+
+    def test_re_enable_fires_delivery_even_without_delivery_field_change(self):
+        # disabled → enabled must still send the confirmation delivery even though no
+        # delivery-relevant field changed — guards the re-enable carve-out against the
+        # new "only fire on delivery-field change" short-circuit.
+        subscription = Subscription.objects.create(
+            team=self.team,
+            target_type="email",
+            target_value="vasco@posthog.com",
+            frequency="daily",
+            start_date=timezone.now(),
+            insight=self.insight,
+            title="t",
+            enabled=False,
+        )
+        self.mock_temporal_client.start_workflow.reset_mock()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}",
+            {"enabled": True},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        self.mock_temporal_client.start_workflow.assert_called_once()
+
     def test_can_create_dashboard_subscription_with_dashboard_export_insights(self):
         self.dashboard.tiles.create(insight=self.insight)
         response = self.client.post(
@@ -2476,12 +2557,13 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     def test_can_update_ai_subscription_prompt(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()
-        self._mock_temporal(mock_sync)
+        mock_client = self._mock_temporal(mock_sync)
         create_resp = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(),
         )
         sub_id = create_resp.json()["id"]
+        mock_client.start_workflow.reset_mock()
 
         update_resp = self.client.patch(
             f"/api/projects/{self.team.id}/subscriptions/{sub_id}",
@@ -2489,6 +2571,9 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert update_resp.status_code == status.HTTP_200_OK, update_resp.json()
         assert update_resp.json()["prompt"] == "Show me new error events"
+        # prompt is delivery-relevant for AI subscriptions; editing it must re-fire the
+        # confirmation delivery so recipients see the updated report.
+        mock_client.start_workflow.assert_called_once()
 
     def test_resource_type_is_derived_and_read_only(self, mock_is_cloud, mock_flag, mock_sync):
         # resource_type is derived from the populated target and read-only — a client can
