@@ -162,7 +162,9 @@ The vocabulary (`watchlist:`, `baseline:`, `report:`, `noise:`, `addressed:`, `a
 - `report:anomaly_detection:insight:<short_id>` — a pointer to the inbox report you authored
   for this insight's anomaly: the `report_id` plus the condition that should re-escalate it, so
   the next run edits the live report instead of filing a duplicate. Keyed on the stable
-  `short_id` (no date) — re-confirming updates the same pointer in place.
+  `short_id` (no date) — re-confirming updates the same pointer in place. Add a
+  `:<series-or-direction>` suffix only when one insight carries genuinely distinct concurrent
+  anomalies, so they don't collapse onto one report.
 
 ### Decide
 

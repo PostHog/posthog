@@ -43,9 +43,18 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as
 READY / PENDING_INPUT), `safety_explanation`, and `skipped_reason` (set only when a preflight
-gate stopped the call before any report was created). **Stash `report_id` in a
-`report:anomaly_detection:insight:<short_id>` scratchpad pointer right after** so the next run
-edits the live report instead of filing a duplicate.
+gate stopped the call before any report was created).
+
+Stash the `report_id` in a `report:anomaly_detection:insight:<short_id>` scratchpad pointer so
+the next run finds it instead of filing a duplicate — but condition the pointer on the outcome:
+
+- **Surfaced** (`emitted=true`) — record the `report_id` as the live report to edit on a
+  recurrence.
+- **Suppressed** (`emitted=false` but a `report_id` came back — the safety judge or a
+  `not_actionable` call kept it out of the inbox) — record the `report_id` together with its
+  suppressed status. `edit_report` only rewrites title/summary or appends a note; it cannot
+  resurface a suppressed report, so a later recurrence should re-author rather than edit the
+  invisible one.
 
 ### Title
 
@@ -116,6 +125,13 @@ or `inbox-reports-list` by the insight), then:
   it in the note (one notebook per window — never append a new anomaly to a prior notebook).
 - **Rewrite `title`/`summary`** only on a report you authored, and only when the framing is
   genuinely stale.
+
+`edit_report` is preflight-gated like `emit_report`, but it **raises** when the scout is gated
+(dry-run `emit=false`, un-approved AI processing, or a disabled source) rather than returning a
+`skipped_reason` — the note is never appended. So if you built a fresh recurrence notebook and
+the `edit_report` call is blocked (or otherwise doesn't commit), **delete that notebook with
+`notebooks-destroy`** — same orphan-cleanup rule as a non-surfacing author. Equivalently, defer
+building the notebook until the edit is about to commit.
 
 A genuinely distinct anomaly (a different insight, or a new move on the same one after the prior
 was resolved) is a new `emit_report`, with a `summary` lineage line citing the prior report.
