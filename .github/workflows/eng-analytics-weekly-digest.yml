@@ -1,0 +1,54 @@
+name: Engineering analytics weekly digest
+
+# Posts a weekly CI digest to #alerts-devex every Monday morning. PULL model: the
+# script reads the engineering_analytics product's own read endpoints (the curated
+# layer behind its MCP tools/UI) and relays a week-over-week summary to Slack — it
+# does not re-derive any metric from the GitHub API. See
+# .github/scripts/eng-analytics-weekly-digest.mjs for what it reports and what is
+# deliberately deferred (total CI minutes / Depot $, re-run waste).
+#
+# Requires (no-ops with a warning until set, so it never spams failures):
+#   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project with the GitHub data
+#     warehouse source connected (the one ingesting PostHog/posthog PR + CI data).
+#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to
+#     engineering_analytics:read for that project.
+#   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot (already used by
+#     ci-alerts-devex).
+
+on:
+    schedule:
+        - cron: '0 13 * * 1' # Mondays 13:00 UTC (~9am US-East / 9am Puerto Rico)
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the digest blocks instead of posting to Slack'
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+
+jobs:
+    digest:
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Never run from forks (no secret access anyway), only the canonical repo.
+        if: github.repository == 'PostHog/posthog'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/eng-analytics-weekly-digest.mjs
+                  sparse-checkout-cone-mode: false
+
+            - name: Build and post weekly CI digest
+              env:
+                  POSTHOG_HOST: https://us.posthog.com
+                  POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
+                  POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
+                  ENG_ANALYTICS_REPO: PostHog/posthog
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  SLACK_CHANNEL: C0AS64N6DJL # #alerts-devex
+                  # Manual runs default to dry-run; the scheduled run posts.
+                  DRY_RUN: ${{ inputs.dry_run || '' }}
+              run: node .github/scripts/eng-analytics-weekly-digest.mjs
