@@ -313,10 +313,6 @@ class TestPropertyTypes(BaseTest):
         assert printed == self.snapshot
 
     def test_timestamp_typed_ai_id_property_stays_string(self):
-        # A team whose trace IDs look like ISO timestamps makes property-type detection
-        # auto-type $ai_trace_id as Datetime. Reserved AI string-ID properties must still be
-        # read as plain strings — otherwise the column is coerced to
-        # parseDateTime64BestEffortOrNull and a `= '<iso-offset>'` filter crashes ClickHouse.
         PropertyDefinition.objects.get_or_create(
             team=self.team,
             type=PropertyDefinition.Type.EVENT,

@@ -13,8 +13,6 @@ from posthog.hogql_queries.ai.ai_property_rewriter import (
 
 class TestAiStringIdProperties:
     def test_string_id_properties_are_known_ai_properties(self):
-        # The String-forcing override in PropertySwapper hardcodes these names; guard
-        # against drift from the canonical AI property -> column mapping.
         for prop_name in _AI_STRING_ID_PROPERTIES:
             assert prop_name in AI_PROPERTY_TO_COLUMN, f"{prop_name} is not a known AI property"
 

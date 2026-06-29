@@ -31,14 +31,8 @@ from posthog.clickhouse.materialized_columns import (
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
 
-# Reserved AI observability properties that always hold opaque, SDK/user-provided string IDs.
-# PostHog's property-type detection can mis-classify these when their values look like
-# something else — most notably timestamp-shaped trace IDs make `$ai_trace_id` auto-type as
-# Datetime. PropertySwapper would then coerce the column to `parseDateTime64BestEffortOrNull`,
-# turning a plain string equality into a datetime comparison ClickHouse can't perform
-# (offset-bearing literals fail to convert to DateTime64). Forcing these to String keeps the
-# comparison a plain string match. Canonical list lives in
-# posthog/hogql_queries/ai/ai_property_rewriter.py (AI_PROPERTY_TO_COLUMN); a test guards the subset.
+# Always-string IDs that property-type detection can mis-classify as Datetime when their
+# values look timestamp-shaped, making PropertySwapper coerce them to parseDateTime64BestEffortOrNull.
 _AI_STRING_ID_PROPERTIES: frozenset[str] = frozenset(
     {
         "$ai_trace_id",
@@ -95,10 +89,6 @@ def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
         if not prop_def.property_type:
             continue
 
-        # Reserved AI string-ID properties are always strings — ignore a mis-detected
-        # Datetime/Numeric type so a timestamp-looking trace ID isn't coerced (see
-        # _AI_STRING_ID_PROPERTIES). The materialized column is still a string column, so
-        # the dmat slot is kept.
         prop_type = "String" if prop_def.name in _AI_STRING_ID_PROPERTIES else prop_def.property_type
         prop_info: dict[str, str | None] = {"type": prop_type}
         slot = prop_def.materialized_column_slots.first()
