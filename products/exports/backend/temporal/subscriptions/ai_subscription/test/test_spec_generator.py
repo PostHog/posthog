@@ -16,12 +16,15 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.schemas imp
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.spec_generator import (
     PROMPT_MAX_LENGTH,
+    RELEVANT_EVENTS_LIMIT,
     PromptRejectedError,
     ReportWindow,
     _event_property_names,
+    _extract_quoted_event_tokens,
     _group_type_labels,
     _no_data_event_names,
     _person_property_names,
+    _pinned_event_names,
     _select_relevant_events,
     build_context_blob,
     compute_report_window,
@@ -171,6 +174,100 @@ class TestSelectRelevantEvents(APIBaseTest):
         # no EventDefinitions → nothing to select from → never calls the model
         assert _select_relevant_events(self.team, self.user, "exports") == []
         mock_chat.assert_not_called()
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pins_named_event_the_llm_did_not_pick(self, mock_chat: MagicMock) -> None:
+        # The deterministic guarantee: a backticked event the LLM ignores is still force-included.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(events=[])
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created` doing?") == ["export created"]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_unions_pinned_event_ahead_of_llm_picks(self, mock_chat: MagicMock) -> None:
+        # Pinned event leads; the LLM's own (real) pick is kept and de-duped against it.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventDefinition.objects.create(team=self.team, name="alert created")
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=["alert created", "export created"]
+        )
+
+        assert _select_relevant_events(self.team, self.user, "how is `export created` doing?") == [
+            "export created",
+            "alert created",
+        ]
+
+    @patch(f"{_SG}.MaxChatOpenAI")
+    def test_pinned_event_survives_when_llm_fills_the_cap(self, mock_chat: MagicMock) -> None:
+        # The named event is created last (oldest last_seen_at → outside the LLM's leading picks) and the
+        # LLM returns a full cap's worth of other events. The pin must not be truncated by the cap.
+        for i in range(RELEVANT_EVENTS_LIMIT):
+            EventDefinition.objects.create(team=self.team, name=f"event_{i}", last_seen_at=datetime.now(tz=UTC))
+        EventDefinition.objects.create(team=self.team, name="named_event", last_seen_at=None)
+        mock_chat.return_value.with_structured_output.return_value.invoke.return_value = RelevantEvents(
+            events=[f"event_{i}" for i in range(RELEVANT_EVENTS_LIMIT)]
+        )
+
+        selected = _select_relevant_events(self.team, self.user, "tell me about `named_event`")
+
+        # The pin leads and survives; the cap drops the LLM's last pick instead of the named event.
+        assert selected[0] == "named_event"
+        assert len(selected) == RELEVANT_EVENTS_LIMIT
+
+
+class TestExtractQuotedEventTokens:
+    """Pure token extraction — no DB. Validation against the taxonomy lives in `_pinned_event_names`."""
+
+    @parameterized.expand(
+        [
+            ("backticks", "how is `export created`?", {"export created"}),
+            ("double_quotes", 'how is "export created"?', {"export created"}),
+            ("single_quotes", "how is 'export created'?", {"export created"}),
+            ("mixed_quote_styles", "`a` and \"b\" and 'c'", {"a", "b", "c"}),
+            ("casefolds_and_collapses_whitespace", "`Export   Created`", {"export created"}),
+            ("none_present", "how are exports doing?", set()),
+            ("ignores_unbalanced_quote", "how is `export created doing?", set()),
+        ]
+    )
+    def test_extracts_normalized_quoted_tokens(self, _name: str, prompt: str, expected: set[str]) -> None:
+        assert _extract_quoted_event_tokens(prompt) == expected
+
+
+class TestPinnedEventNames(APIBaseTest):
+    @parameterized.expand(
+        [
+            ("backticked_name_pinned", "how is `export created`?", ["export created"]),
+            ("double_quoted_name_pinned", 'how is "export created"?', ["export created"]),
+            ("single_quoted_name_pinned", "how is 'export created'?", ["export created"]),
+            ("bare_exact_single_word_pinned", "trends for signup over time", ["signup"]),
+            ("bare_exact_multi_word_pinned", "how is export created trending", ["export created"]),
+            ("case_insensitive_match", "how is `EXPORT CREATED`?", ["export created"]),
+            ("nonexistent_quoted_name_ignored", "how is `totally made up`?", []),
+            ("substring_does_not_match", "tell me about signups please", []),
+            ("no_reference_pins_nothing", "give me a weekly summary", []),
+        ]
+    )
+    def test_pins_only_validated_named_events(self, _name: str, prompt: str, expected: list[str]) -> None:
+        # Validation is against the FULL taxonomy, so a name outside the candidate cap is still resolvable.
+        EventDefinition.objects.create(team=self.team, name="export created")
+        EventDefinition.objects.create(team=self.team, name="signup")
+
+        assert _pinned_event_names(self.team, prompt) == expected
+
+    def test_pins_event_outside_the_candidate_cap(self) -> None:
+        # An event ranked far below CANDIDATE_EVENTS_LIMIT (oldest last_seen_at) must still be pinnable —
+        # the lookup deliberately scans the full taxonomy rather than the capped candidate set.
+        EventDefinition.objects.create(team=self.team, name="rare_event", last_seen_at=None)
+        for i in range(20):
+            EventDefinition.objects.create(team=self.team, name=f"common_{i}", last_seen_at=datetime.now(tz=UTC))
+
+        assert _pinned_event_names(self.team, "what about `rare_event`?") == ["rare_event"]
+
+    def test_excludes_other_teams_events(self) -> None:
+        other = Team.objects.create(organization=self.organization, name="other")
+        EventDefinition.objects.create(team=other, name="export created")
+
+        assert _pinned_event_names(self.team, "how is `export created`?") == []
 
 
 class TestEventPropertyNames(APIBaseTest):
