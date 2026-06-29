@@ -1,0 +1,173 @@
+import { BindLogic, useActions, useValues } from 'kea'
+import { createContext, type ReactNode, useContext, useEffect } from 'react'
+
+import { isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
+import { ContextUsageBar } from './ContextUsageBar'
+import { PermissionInput } from './PermissionInput'
+import { QuestionInput } from './QuestionInput'
+import { ResourcesBar } from './ResourcesBar'
+import { RunLogSkeleton } from './RunLogSkeleton'
+import { ThreadView } from './ThreadView'
+
+export interface RunSurfaceProps {
+    taskId: string
+    runId: string
+    /** Stable logic key; defaults to `runId` (the run is the unit being viewed). */
+    streamKey?: string
+    /** Telemetry tag only — omit for conversation-less runs (automation, Slack, signals, PR-triggered). */
+    conversationId?: string
+    /**
+     * `'read-only'` (default) replays the persisted `logs/` snapshot once and never opens SSE — the safe
+     * choice for a static surface. `'live'` streams an in-progress run over SSE (falling back to replay once
+     * terminal) and arms the `RunSurface.Composer` input slot (approvals/questions + the follow-up composer) —
+     * but those affordances appear only if the consumer renders that slot. A consumer can stream live yet stay
+     * read-only by setting `interaction='live'` and omitting `<RunSurface.Composer>`. The mode is folded into
+     * the logic key, so a live and a read-only surface of the same run can never share state.
+     */
+    interaction?: 'live' | 'read-only'
+}
+
+// `RunSurface.Root` binds a `runStreamLogic` instance and bootstraps the run; the slot components
+// (`RunSurface.Thread/.Composer/.Resources/.ContextUsage`) read the bound logic via selectors and the
+// run wiring from this context. Consumers compose the slots into a custom layout — there is no default
+// layout; the prepackaged read-only embed lives in `ReadonlyRunSurfaceImpl`. State stays in the logic;
+// the slots are presentational and the composer UI is supplied by the consumer as children.
+
+interface RunSurfaceContextValue {
+    /** Original run id passed to `bootstrapRun`. */
+    rawRunId: string
+    /** Logic key (used for child stream keys). */
+    runId: string
+    interaction: 'live' | 'read-only'
+}
+
+const RunSurfaceContext = createContext<RunSurfaceContextValue | null>(null)
+
+function useRunSurfaceContext(): RunSurfaceContextValue {
+    const ctx = useContext(RunSurfaceContext)
+    if (!ctx) {
+        throw new Error('RunSurface.* slots must be rendered inside <RunSurface.Root>')
+    }
+    return ctx
+}
+
+export interface RunSurfaceRootProps extends RunSurfaceProps {
+    /** Custom composition of `RunSurface.*` slots. */
+    children: ReactNode
+}
+
+/**
+ * Binds a `runStreamLogic` instance (keyed apart from any other stream of the same run), bootstraps
+ * the run, and provides the run context the slots read. In `'read-only'` mode it replays the persisted
+ * `logs/` snapshot once — no SSE; in `'live'` mode it streams an in-progress run. Renders the given
+ * slot children — the consumer owns the layout.
+ */
+function RunSurfaceRoot({
+    taskId,
+    runId,
+    streamKey,
+    conversationId,
+    interaction = 'read-only',
+    children,
+}: RunSurfaceRootProps): JSX.Element {
+    const replayOnly = interaction !== 'live'
+    const logicKey = streamKey ?? runId
+    return (
+        <BindLogic logic={runStreamLogic} props={{ streamKey: logicKey, conversationId, replayOnly }}>
+            <RunSurfaceContext.Provider
+                value={{
+                    rawRunId: runId,
+                    runId: logicKey,
+                    interaction,
+                }}
+            >
+                <RunSurfaceBootstrap taskId={taskId} />
+                {children}
+            </RunSurfaceContext.Provider>
+        </BindLogic>
+    )
+}
+
+/** Drives the run bootstrap as a side effect; renders nothing. Kept separate so slots stay presentational. */
+function RunSurfaceBootstrap({ taskId }: { taskId: string }): null {
+    const { rawRunId, interaction } = useRunSurfaceContext()
+    const { bootstrapRun, reset } = useActions(runStreamLogic)
+
+    useEffect(() => {
+        // Reset first so a reused instance (stable streamKey, changed run) replays/streams the new run
+        // cleanly; the bound logic keys read-only instances apart from any live stream of the same run.
+        // `interaction` is in the deps so a status transition (live → terminal) re-bootstraps the right
+        // mode — the bound logic re-keys on it, so `bootstrapRun`/`reset` are fresh references anyway.
+        reset()
+        bootstrapRun({ taskId, runId: rawRunId })
+    }, [taskId, rawRunId, interaction, bootstrapRun, reset])
+
+    return null
+}
+
+/** Thread slot: the streamed run thread, with the shared run-log skeleton during the first bootstrap. */
+function RunSurfaceThread({
+    className,
+    listClassName,
+    rowClassName,
+}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
+    const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
+    const showSkeleton = bootstrapLoading && threadItems.length === 0
+    if (showSkeleton) {
+        return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
+    }
+    // An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
+    return <ThreadView className={className} listClassName={listClassName} rowClassName={rowClassName} />
+}
+
+/**
+ * Input-region slot: owns prompt-vs-composer precedence and the null-bootstrap gate. While a permission /
+ * question request is pending (and the run isn't terminal) it renders the approval prompt; otherwise it
+ * renders the consumer's composer `children`. Renders nothing outside live mode, during the `null` bootstrap
+ * window, or when no composer children are supplied (e.g. `ReadonlyRunSurface`). The composer thus shows for
+ * any settled run status (active runs take a follow-up, terminal runs start a fresh run from the typed
+ * message), is hidden during bootstrap, and is replaced by the prompt while a request is pending.
+ */
+function RunSurfaceComposer({ children }: { children?: ReactNode }): JSX.Element | null {
+    const { interaction, runId } = useRunSurfaceContext()
+    const { pendingPermissionRequest, currentRunStatus } = useValues(runStreamLogic)
+    if (interaction !== 'live') {
+        return null
+    }
+    // Pending approval/question takes precedence over the composer.
+    if (pendingPermissionRequest && !isTerminalRunStatus(currentRunStatus)) {
+        const isQuestion = !!pendingPermissionRequest.questions && pendingPermissionRequest.questions.length > 0
+        return (
+            <div className="border-t px-4 py-3">
+                {isQuestion ? (
+                    <QuestionInput streamKey={runId} request={pendingPermissionRequest} />
+                ) : (
+                    <PermissionInput streamKey={runId} request={pendingPermissionRequest} />
+                )}
+            </div>
+        )
+    }
+    if (!children || currentRunStatus === null) {
+        return null // no composer UI supplied (e.g. ReadonlyRunSurface) or pre-bootstrap
+    }
+    return (
+        <div data-attr="composer" className="border-t px-4 py-3">
+            {children}
+        </div>
+    )
+}
+
+/**
+ * Compound run surface. `RunSurface.Root` binds the stream logic, bootstraps the run, and provides context;
+ * the slots (`RunSurface.Thread/.Composer/.Resources/.ContextUsage`) compose into a custom layout — there is
+ * no default layout. `RunSurface.Composer` owns the prompt-vs-composer precedence and takes the composer UI
+ * as children; the meta slots (`.Resources`/`.ContextUsage`) self-bind and self-hide when empty. For the
+ * common no-input embed, prefer the prepackaged `ReadonlyRunSurface` (api/readableRun).
+ */
+export const RunSurface = Object.assign(RunSurfaceRoot, {
+    Root: RunSurfaceRoot,
+    Thread: RunSurfaceThread,
+    Composer: RunSurfaceComposer,
+    Resources: ResourcesBar,
+    ContextUsage: ContextUsageBar,
+})

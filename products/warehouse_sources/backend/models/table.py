@@ -54,6 +54,8 @@ from .external_table_definitions import external_tables
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
+    from posthog.models import User
+
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
     DatabaseSerializedFieldType.FLOAT: "Float64",
@@ -93,6 +95,10 @@ class DataWarehouseTableIntrospectedColumn(TypedDict):
 
 
 type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrospectedColumn]
+
+# Internal plumbing columns added during sync, hidden from the HogQL catalog (see hogql_definition)
+# and never user-facing.
+HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
 
 class DataWarehouseTableQuerySet(models.QuerySet["DataWarehouseTable"]):
@@ -191,7 +197,38 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             prefix = ""
         return self.name[len(prefix) :]
 
-    def validate_column_type(self, column_key) -> bool:
+    def get_user_facing_columns(self) -> list[dict[str, Any]]:
+        """Synced columns as `[{name, data_type, is_nullable}]`, skipping internal plumbing columns.
+
+        Reads the universal `columns` store (populated after every sync for every source type), so it
+        works for REST sources (Stripe, Hubspot, …) too — unlike the SQL-only
+        `ExternalDataSchema.schema_metadata`. Handles both the dict (`{"clickhouse": ...}`) and the
+        legacy plain-string column shapes.
+        """
+        result: list[dict[str, Any]] = []
+        for name, definition in (self.columns or {}).items():
+            if name in HIDDEN_COLUMNS:
+                continue
+            if isinstance(definition, dict):
+                clickhouse_type = definition.get("clickhouse") or definition.get("hogql") or ""
+            else:
+                clickhouse_type = definition or ""
+            result.append(
+                {
+                    "name": name,
+                    "data_type": clean_type(clickhouse_type) if clickhouse_type else "unknown",
+                    "is_nullable": "Nullable(" in clickhouse_type,
+                }
+            )
+        return result
+
+    def validate_column_type(
+        self,
+        column_key: str,
+        *,
+        user: Optional["User"] = None,
+        bypass_warehouse_access_control: bool = False,
+    ) -> bool:
         from posthog.hogql.query import execute_hogql_query
 
         columns = self.columns or {}
@@ -213,6 +250,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 query,
                 self.team,
                 modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True),
+                user=user,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
             )
             return True
         except:

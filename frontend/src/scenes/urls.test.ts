@@ -1,6 +1,10 @@
 import { urls } from './urls'
 
 describe('urls', () => {
+    it('links to the web analytics recap scene', () => {
+        expect(urls.webAnalyticsRecap()).toEqual('/web/recap')
+    })
+
     it.each(['Postgres', 'MySQL'] as const)(
         'includes direct access method when opening the new %s source wizard in direct mode',
         (sourceType) => {

@@ -1,0 +1,72 @@
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+# Descriptions are taken from the DocuSeal API docs (https://www.docuseal.com/docs/api). Partial
+# coverage is fine — any column not listed here falls back to LLM enrichment.
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "templates": {
+        "description": "A reusable document template with the fields submitters fill in to create submissions.",
+        "docs_url": "https://www.docuseal.com/docs/api#list-all-templates",
+        "columns": {
+            "id": "Unique identifier of the template.",
+            "slug": "Unique slug of the template, used in shareable links.",
+            "name": "Name of the template.",
+            "schema": "List of documents attached to the template.",
+            "fields": "List of fields to be filled in the document.",
+            "submitters": "List of submitter roles defined on the template.",
+            "author_id": "Unique identifier of the template author.",
+            "archived_at": "Timestamp the template was archived, or null if active.",
+            "created_at": "Timestamp the template was created.",
+            "updated_at": "Timestamp the template was last updated.",
+            "source": "Source the template was created from (e.g. native, api, embed).",
+            "external_id": "Your application-specific unique identifier for the template.",
+            "folder_name": "Name of the folder the template belongs to.",
+        },
+    },
+    "submissions": {
+        "description": "A signing request created from a template, grouping the submitters and documents involved.",
+        "docs_url": "https://www.docuseal.com/docs/api#list-all-submissions",
+        "columns": {
+            "id": "Unique identifier of the submission.",
+            "source": "Source the submission was created from (e.g. api, link, bulk).",
+            "submitters_order": "Order in which submitters receive the signing request (preserved or random).",
+            "slug": "Unique slug of the submission.",
+            "status": "Aggregate status of the submission (e.g. pending, completed, declined, expired).",
+            "audit_log_url": "URL of the submission's audit log PDF.",
+            "combined_document_url": "URL of the combined signed documents PDF.",
+            "expire_at": "Timestamp the submission expires, or null.",
+            "completed_at": "Timestamp all submitters completed the submission, or null.",
+            "created_at": "Timestamp the submission was created.",
+            "updated_at": "Timestamp the submission was last updated.",
+            "archived_at": "Timestamp the submission was archived, or null if active.",
+            "submitters": "List of submitters belonging to the submission.",
+            "template": "The template the submission was created from.",
+            "created_by_user": "The user who created the submission.",
+        },
+    },
+    "submitters": {
+        "description": "An individual party on a submission who fills in fields and signs the document.",
+        "docs_url": "https://www.docuseal.com/docs/api#list-all-submitters",
+        "columns": {
+            "id": "Unique identifier of the submitter.",
+            "submission_id": "Identifier of the submission this submitter belongs to.",
+            "uuid": "UUID of the submitter within the submission.",
+            "email": "Email address of the submitter.",
+            "slug": "Unique slug of the submitter, used in their signing link.",
+            "sent_at": "Timestamp the signing request was sent to the submitter, or null.",
+            "opened_at": "Timestamp the submitter opened the signing form, or null.",
+            "completed_at": "Timestamp the submitter completed signing, or null.",
+            "declined_at": "Timestamp the submitter declined to sign, or null.",
+            "created_at": "Timestamp the submitter was created.",
+            "updated_at": "Timestamp the submitter was last updated.",
+            "name": "Name of the submitter.",
+            "phone": "Phone number of the submitter.",
+            "status": "Status of the submitter (e.g. awaiting, opened, completed, declined).",
+            "role": "Role of the submitter as defined on the template.",
+            "external_id": "Your application-specific unique identifier for the submitter.",
+            "metadata": "Arbitrary metadata attached to the submitter.",
+            "values": "Field values submitted by the submitter.",
+        },
+    },
+}

@@ -11,6 +11,7 @@ if TYPE_CHECKING:
     from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
     from posthog.hogql.database.database import Database
+    from posthog.hogql.database.models import Table
     from posthog.hogql.observability import HogQLTypeObservability
     from posthog.hogql.transforms.property_types import PropertySwapper
 
@@ -123,6 +124,10 @@ class HogQLContext:
     # that the current user is denied access to. Populated before type resolution so that
     # FieldType.get_child() can raise QueryError for restricted properties.
     restricted_properties: Optional[set[tuple[str, int]]] = None
+
+    # Per-query cache of CTE synthetic tables, keyed by id() of the CTE's SelectQueryType. Value pins a
+    # strong ref to the keyed type so its id can't be reused while cached; lookups verify identity.
+    cte_database_table_cache: dict[int, tuple[Any, "Table"]] = field(default_factory=dict, compare=False, repr=False)
 
     # Cohort-gated events data retention: when set, the ClickHouse printer floors every events-table scan to
     # now() - toIntervalMonth(this). Computed once per query in prepare_ast_for_printing; None means not enforced.
