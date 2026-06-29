@@ -11,21 +11,10 @@ from posthog.kafka_client.topics import KAFKA_MESSAGE_ASSETS
 
 MESSAGE_ASSETS_TTL_DAYS = 30
 
-# Layout mirrors `hog_invocation_results` — the AUX-resident, non-sharded table
-# family produced by the CDP cyclotron path:
-#   * `message_assets_data` — local replicated table on AUX. Writes flow in via
-#     the Kafka MV; reads happen against the distributed alias.
-#   * `kafka_message_assets` — single Kafka engine table on AUX backed by the
-#     warpstream-cyclotron named collection (same producer cluster as
-#     hog_invocation_results).
-#   * `message_assets_mv` — MV on AUX, kafka → data table.
-#   * `message_assets` — distributed read alias on AUX + DATA. This is the name
-#     HogQL emits and the name the assets API queries.
-#
-# One row per successfully sent email, keyed by (invocation_id, action_id) — a
-# single workflow invocation can fan out to multiple email steps. The rendered
-# HTML body lives inline in the `html` column (ZSTD-compressed); columnar
-# storage means the listing query never reads it.
+# AUX-resident table family modelled on `hog_invocation_results`. One row per
+# successfully sent email, keyed by (invocation_id, action_id) — a single
+# workflow invocation can fan out to multiple email steps. Rendered HTML lives
+# inline in the `html` column; columnar storage means listing queries don't read it.
 MESSAGE_ASSETS_TABLE = "message_assets"
 MESSAGE_ASSETS_DATA_TABLE = f"{MESSAGE_ASSETS_TABLE}_data"
 KAFKA_MESSAGE_ASSETS_TABLE = f"kafka_{MESSAGE_ASSETS_TABLE}"
@@ -50,9 +39,8 @@ def MESSAGE_ASSETS_ENGINE() -> ReplacingMergeTree:
     )
 
 
-# Kafka payload column list — reused between the Kafka engine table, the MV
-# projection, and the distributed read alias. `html` is last because it dominates
-# row size; column-oriented reads mean listing queries never touch it.
+# `html` is last because it dominates row size; column-oriented reads mean
+# listing queries never touch it.
 MESSAGE_ASSETS_KAFKA_COLUMNS = """
     team_id Int64,
     function_kind LowCardinality(String),
