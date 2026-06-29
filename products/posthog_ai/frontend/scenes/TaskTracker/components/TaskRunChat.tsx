@@ -8,6 +8,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 
 export interface TaskRunChatProps {
     taskId: string
@@ -24,9 +25,12 @@ export interface TaskRunChatProps {
  */
 export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
+    const { selectedRun } = useValues(taskDetailSceneLogic({ taskId }))
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
+        currentModel: selectedRun?.state?.model,
+        currentEffort: selectedRun?.state?.reasoning_effort,
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
@@ -41,8 +45,11 @@ export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
 }
 
 function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicProps }): JSX.Element {
-    const { draft, isSubmitting, queuedMessages, isTerminal } = useValues(runInteractionLogic(logicProps))
-    const { setDraft, submit, updateQueuedMessage, removeQueuedMessage } = useActions(runInteractionLogic(logicProps))
+    const { composerForm, isSubmitting, queuedMessages, isTerminal, selectedModel, selectedEffort } = useValues(
+        runInteractionLogic(logicProps)
+    )
+    const { setComposerFormValues, submitComposerForm, updateQueuedMessage, removeQueuedMessage, setModel, setEffort } =
+        useActions(runInteractionLogic(logicProps))
 
     return (
         // `RunSurface.Root` binds `runStreamLogic` keyed by `runId`; `runInteractionLogic` connects to the same
@@ -52,7 +59,12 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                 <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
                 <RunSurface.Composer>
                     <RunSurface.Resources />
-                    <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={isSubmitting}>
+                    <Composer.Root
+                        value={composerForm.draft}
+                        onChange={(value) => setComposerFormValues({ draft: value })}
+                        onSubmit={submitComposerForm}
+                        loading={isSubmitting}
+                    >
                         {queuedMessages.length > 0 && (
                             <Composer.Banner>
                                 <QueuedMessageList
@@ -69,6 +81,17 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                                 </Composer.Placeholder>
                                 <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
                             </Composer.Field>
+                            <Composer.Footer>
+                                {/* Model/effort picker: a live config switch while the run is in progress, and
+                                the config for the next run once it's terminal. Selection lives in the bound
+                                runInteractionLogic. */}
+                                <ComposerModelEffortPickers
+                                    selectedModel={selectedModel}
+                                    selectedEffort={selectedEffort}
+                                    onModelChange={setModel}
+                                    onEffortChange={setEffort}
+                                />
+                            </Composer.Footer>
                         </Composer.Frame>
                         <Composer.Submit data-attr="sandbox-composer-send" />
                     </Composer.Root>
