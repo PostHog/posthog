@@ -1,4 +1,4 @@
-import React, { type ComponentType, type LazyExoticComponent, lazy } from 'react'
+import { type ComponentType, type LazyExoticComponent, lazy } from 'react'
 
 import {
     IconAI,
