@@ -207,8 +207,10 @@ def extract_inline_query_nodes(content: Any) -> list[tuple[str, dict[str, Any]]]
     :func:`extract_referenced_insight_short_ids` and the existing
     ``InsightSerializer`` shared-mode path.
 
-    Nodes whose ``nodeId`` is missing are skipped; without it the frontend has no key to look
-    the cached result up by, so we'd risk attaching the wrong result to the wrong node.
+    Legacy ProseMirror ``ph-query`` nodes whose ``nodeId`` is missing are skipped; without it
+    the frontend has no key to look the cached result up by. Markdown ``<Query>`` components
+    without an explicit ``nodeId`` instead receive a content-derived stable ID (see
+    :func:`iter_markdown_query_nodes`).
     """
     inline_nodes: list[tuple[str, dict[str, Any]]] = []
     for node in iter_prosemirror_nodes(content):
