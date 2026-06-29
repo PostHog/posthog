@@ -220,6 +220,29 @@ class ScoutEmissionReportLinkSerializer(serializers.Serializer):
     )
 
 
+# Upper bound on run ids accepted by the batched emissions / emission-reports endpoints. The findings
+# UI caps its window at 120 emitted runs (`MAX_FLEET_EMITTED_RUNS`); this sits above that with headroom
+# and bounds a pathological request rather than coupling tightly to the client cap.
+SCOUT_RUNS_BATCH_LIMIT = 200
+
+
+class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
+    """Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+    resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+    reports lookup, one ClickHouse round-trip — per emitted run) into a single request."""
+
+    run_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        allow_empty=False,
+        max_length=SCOUT_RUNS_BATCH_LIMIT,
+        help_text=(
+            "UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another "
+            "team are silently ignored (they contribute no rows) rather than failing the whole request. "
+            f"Capped at {SCOUT_RUNS_BATCH_LIMIT} ids per call."
+        ),
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 

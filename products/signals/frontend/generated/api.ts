@@ -31,6 +31,7 @@ import type {
     RememberRequestApi,
     ScoutEmissionReportLinkApi,
     ScoutMetadataApi,
+    ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
     SignalReportArtefactApi,
@@ -668,6 +669,48 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsEmissionsBatchUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/emissions/batch/`
+}
+
+/**
+ * Batched form of the per-run emissions endpoint: return the findings every requested `SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its `run_id`, so the caller can regroup by run. The findings UI uses this to load the whole recent window in one round-trip instead of one request per run. Strictly team-scoped — run ids belonging to another team contribute no rows (no per-run 404; one stale id never fails the batch).
+ * @summary List emitted findings for many runs at once
+ */
+export const signalsScoutRunsEmissionsBatch = async (
+    projectId: string,
+    scoutRunIdsBatchRequestApi: ScoutRunIdsBatchRequestApi,
+    options?: RequestInit
+): Promise<SignalScoutEmissionApi[]> => {
+    return apiMutator<SignalScoutEmissionApi[]>(getSignalsScoutRunsEmissionsBatchUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRunIdsBatchRequestApi),
+    })
+}
+
+export const getSignalsScoutRunsEmissionReportsBatchUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/emissions/reports/batch/`
+}
+
+/**
+ * Batched form of the per-run emission-reports endpoint. For every finding the requested runs emitted, resolve the inbox `SignalReport` (if any) its signal grouped into — all in a single ClickHouse round-trip rather than one query per run, which is what made the findings page slow to open. `report` is null when a finding hasn't grouped yet, was de-duplicated, or its signal was deleted. Strictly team-scoped — run ids belonging to another team contribute no rows.
+ * @summary List the inbox reports many runs' findings linked to
+ */
+export const signalsScoutRunsEmissionReportsBatch = async (
+    projectId: string,
+    scoutRunIdsBatchRequestApi: ScoutRunIdsBatchRequestApi,
+    options?: RequestInit
+): Promise<ScoutEmissionReportLinkApi[]> => {
+    return apiMutator<ScoutEmissionReportLinkApi[]>(getSignalsScoutRunsEmissionReportsBatchUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutRunIdsBatchRequestApi),
     })
 }
 
