@@ -28,7 +28,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
+        values: [tasksLogic, ['tasks', 'repositories'], integrationsLogic, ['integrations']],
         actions: [
             tasksLogic,
             ['loadTasks', 'loadRepositories', 'deleteTask'],
