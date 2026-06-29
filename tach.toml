@@ -987,18 +987,10 @@ path = "products.merge_queue"
 depends_on = ["posthog"]
 layer = "modules"
 
-# Stampede engine ↔ Cowboy seam: anything outside the product (Cowboy, other
-# products, the shadow harness) may import only the facade. The engine never
-# imports cowboy/; the one-way edge is what lets the engine run standalone.
-[[interfaces]]
-expose = [
-    "backend\\.facade.*",
-    "backend\\.presentation\\.views.*",
-    "backend\\.routes.*",
-]
-from = [
-    "products.merge_queue",
-]
+# Stampede engine ↔ Cowboy seam: the facade is the only public surface (Cowboy,
+# other products, the shadow harness import it; the engine never imports cowboy/).
+# The canonical facade interface + backend/facade/contracts.py land with the
+# isolated-product surface in M2; until then the product stays in lenient mode.
 
 [[modules]]
 path = "products.exports"
