@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
-import { Input } from '@posthog/quill'
+import { Input } from '@posthog/quill-primitives'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
