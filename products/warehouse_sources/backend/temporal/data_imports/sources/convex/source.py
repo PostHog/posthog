@@ -3,6 +3,7 @@ from typing import Optional, cast
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
+    ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -39,7 +40,7 @@ class ConvexSource(ResumableSource[ConvexSourceConfig, ConvexResumeConfig]):
             name=SchemaExternalDataSourceType.CONVEX,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Convex",
-            releaseStatus="beta",
+            releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Convex deployment URL and deploy key to sync your Convex tables into PostHog.
 
 You can find your deployment URL and deploy key in your [Convex Dashboard](https://dashboard.convex.dev/) under **Settings** > **URL & Deploy Key**.
