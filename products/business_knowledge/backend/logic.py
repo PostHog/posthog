@@ -15,12 +15,13 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
+from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
     transaction,
 )
-from django.db.models import Count, Exists, F, OuterRef, Q, QuerySet
+from django.db.models import Count, Exists, F, Max, OuterRef, Q, QuerySet
 from django.db.models.functions import Substr
 from django.utils import timezone
 
@@ -73,8 +74,10 @@ from .constants import (
 from .models import (
     REFRESH_INTERVAL_TIMEDELTAS,
     CrawlMode,
+    GapStatus,
     KnowledgeChunk,
     KnowledgeDocument,
+    KnowledgeGapSuggestion,
     KnowledgeSource,
     RefreshInterval,
     SafetyVerdict,
@@ -2563,3 +2566,116 @@ def clear_document_embeddings_emitted(*, team_id: int, document_id: UUID) -> Non
     KnowledgeDocument.objects.filter(team_id=team_id, id=document_id).update(
         embeddings_emitted_at=None, updated_at=timezone.now()
     )
+
+
+# ---------------------------------------------------------------------------
+# Knowledge gap suggestions
+# ---------------------------------------------------------------------------
+
+_GAP_NOISE_TOPICS = frozenset({"parse_failure"})
+
+
+def _normalize_topic(topic: str) -> str:
+    return topic.strip().lower()[:255]
+
+
+def upsert_knowledge_gaps(
+    team_id: int,
+    ticket_id: str,
+    topics: list[str],
+    ticket_type: str = "",
+    outcome: str = "",
+) -> int:
+    """Create one KnowledgeGapSuggestion per (ticket, normalized topic).
+
+    Idempotent via the unique constraint — safe under Temporal activity retries.
+    Returns the number of rows created (not the total including existing ones).
+    """
+    created_count = 0
+    for raw_topic in topics:
+        normalized = _normalize_topic(raw_topic)
+        if not normalized or normalized in _GAP_NOISE_TOPICS:
+            continue
+        _, created = KnowledgeGapSuggestion.objects.for_team(team_id).get_or_create(
+            team_id=team_id,
+            ticket_id=ticket_id,
+            normalized_topic=normalized,
+            defaults={
+                "topic": raw_topic.strip(),
+                "ticket_type": ticket_type,
+                "outcome": outcome,
+            },
+        )
+        if created:
+            created_count += 1
+    return created_count
+
+
+def list_gap_suggestions_for_ticket(
+    team_id: int,
+    ticket_id: str,
+) -> QuerySet[KnowledgeGapSuggestion]:
+    return KnowledgeGapSuggestion.objects.for_team(team_id).filter(ticket_id=ticket_id).order_by("-created_at")
+
+
+@dataclass
+class AggregatedGap:
+    normalized_topic: str
+    topic: str
+    ticket_count: int
+    sample_ticket_ids: list[str]
+
+
+def aggregate_gap_suggestions(
+    team_id: int,
+    status: str = GapStatus.PENDING,
+    limit: int = 50,
+) -> list[AggregatedGap]:
+    """Group pending gaps by normalized_topic, ranked by ticket count."""
+    rows = (
+        KnowledgeGapSuggestion.objects.for_team(team_id)
+        .filter(status=status)
+        .values("normalized_topic")
+        .annotate(
+            ticket_count=Count("ticket_id", distinct=True),
+            sample_ticket_ids=ArrayAgg("ticket_id", distinct=True),
+            topic=Substr(Max("topic"), 1, 500),
+        )
+        .order_by("-ticket_count")[:limit]
+    )
+    return [
+        AggregatedGap(
+            normalized_topic=r["normalized_topic"],
+            topic=r["topic"],
+            ticket_count=r["ticket_count"],
+            sample_ticket_ids=[str(tid) for tid in (r["sample_ticket_ids"] or [])[:5]],
+        )
+        for r in rows
+    ]
+
+
+def set_gap_status(
+    team_id: int,
+    *,
+    suggestion_id: UUID | None = None,
+    normalized_topic: str | None = None,
+    status: str,
+    resolved_source_id: UUID | None = None,
+) -> int:
+    """Accept or dismiss gap suggestions. Returns updated row count.
+
+    Pass suggestion_id for a single row, or normalized_topic to flip the whole
+    cluster (all tickets with that topic).
+    """
+    qs = KnowledgeGapSuggestion.objects.for_team(team_id)
+    if suggestion_id is not None:
+        qs = qs.filter(id=suggestion_id)
+    elif normalized_topic is not None:
+        qs = qs.filter(normalized_topic=normalized_topic)
+    else:
+        raise ValueError("One of suggestion_id or normalized_topic is required")
+
+    update_kwargs: dict[str, object] = {"status": status}
+    if resolved_source_id is not None:
+        update_kwargs["resolved_source_id"] = resolved_source_id
+    return qs.update(**update_kwargs)

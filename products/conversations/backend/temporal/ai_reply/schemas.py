@@ -162,6 +162,15 @@ class ReviewReplyOutput:
     reason: str = ""
 
 
+@dataclass
+class PersistKnowledgeGapInput:
+    team_id: int
+    ticket_id: str
+    missing: list[str] = field(default_factory=list)
+    ticket_type: str = ""
+    outcome: str = ""
+
+
 class SupportReplySource(BaseModel):
     ref: str = Field(description="The citation reference: a chunk_id UUID or a documentation URL")
     excerpt: str = Field(description="The exact text from this source that supports the reply")

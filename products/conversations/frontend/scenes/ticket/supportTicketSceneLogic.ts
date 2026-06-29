@@ -19,7 +19,7 @@ import { PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import type { TicketAssignee } from '../../components/Assignee'
 import { supportTicketCounterLogic } from '../../supportTicketCounterLogic'
-import type { ChatMessage, Ticket, TicketPriority, TicketStatus } from '../../types'
+import type { ChatMessage, KnowledgeGapSuggestion, Ticket, TicketPriority, TicketStatus } from '../../types'
 import { supportTicketsSceneLogic } from '../tickets/supportTicketsSceneLogic'
 import type { supportTicketSceneLogicType } from './supportTicketSceneLogicType'
 
@@ -153,6 +153,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
         loadPerson: true,
         loadPreviousTickets: true,
 
+        // Knowledge gap suggestions
+        loadKnowledgeGaps: true,
+        dismissKnowledgeGap: (suggestionId: string) => ({ suggestionId }),
+
         // Draft message state (persists across tab switches)
         setDraftContent: (content: JSONContent | null) => ({ content }),
         setDraftIsPrivate: (isPrivate: boolean) => ({ isPrivate }),
@@ -211,6 +215,25 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                         )
                     } catch (error) {
                         console.error('Failed to load previous tickets:', error)
+                        return []
+                    }
+                },
+            },
+        ],
+        knowledgeGaps: [
+            [] as KnowledgeGapSuggestion[],
+            {
+                loadKnowledgeGaps: async (): Promise<KnowledgeGapSuggestion[]> => {
+                    const ticket = values.ticket
+                    if (!ticket) {
+                        return []
+                    }
+                    try {
+                        const response = await api.get(
+                            `api/projects/@current/business_knowledge/gap_suggestions/?ticket_id=${ticket.id}`
+                        )
+                        return response.results ?? response
+                    } catch {
                         return []
                     }
                 },
@@ -439,6 +462,7 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
 
                 // Load session context data
                 actions.loadPerson()
+                actions.loadKnowledgeGaps()
 
                 // Refresh the unread count since viewing a ticket marks it as read
                 supportTicketCounterLogic.findMounted()?.actions.refreshCount()
@@ -568,6 +592,14 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
             } catch {
                 lemonToast.error('Failed to send message')
                 actions.setMessageSending(false)
+            }
+        },
+        dismissKnowledgeGap: async ({ suggestionId }) => {
+            try {
+                await api.create(`api/projects/@current/business_knowledge/gap_suggestions/${suggestionId}/dismiss/`)
+                actions.loadKnowledgeGaps()
+            } catch {
+                lemonToast.error('Failed to dismiss suggestion')
             }
         },
     })),

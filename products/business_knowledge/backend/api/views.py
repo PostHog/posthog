@@ -27,15 +27,20 @@ from posthog.temporal.common.client import sync_connect
 from .. import logic
 from ..constants import BK_DRILLDOWN_DEFAULT_RADIUS, BK_DRILLDOWN_MAX_RADIUS
 from ..file_parse import FileParseError
-from ..models import KnowledgeDocument, KnowledgeSource, SourceType
+from ..models import GapStatus, KnowledgeDocument, KnowledgeGapSuggestion, KnowledgeSource, SourceType
 from ..models.constants import CrawlMode
 from ..temporal.coordinator import IngestSourceInputs, RefreshSourceInputs
 from .serializers import (
+    AggregatedGapSerializer,
     CreateCrawlSourceSerializer,
     CreateFileSourceSerializer,
     CreateTextSourceSerializer,
     CreateUrlSourceSerializer,
+    GapActionSerializer,
+    GapTopicActionResultSerializer,
+    GapTopicActionSerializer,
     KnowledgeDocumentWindowSerializer,
+    KnowledgeGapSuggestionSerializer,
     KnowledgeSearchResultSerializer,
     KnowledgeSourceSerializer,
     UpdateTextSourceSerializer,
@@ -499,3 +504,119 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return int(raw)
         except (TypeError, ValueError):
             raise exceptions.ValidationError({name: "Must be an integer."})
+
+
+class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Surfaces topics the support AI couldn't answer from the knowledge base.
+
+    Two list shapes controlled by the ``ticket_id`` query param:
+    - **per-ticket** (``?ticket_id=<uuid>``): individual gap rows for that ticket.
+    - **aggregated** (no ``ticket_id``): gaps grouped by normalized topic with counts,
+      for the Business knowledge suggestions panel.
+    """
+
+    scope_object = "business_knowledge"
+    queryset = KnowledgeGapSuggestion.objects.unscoped()
+    serializer_class = KnowledgeGapSuggestionSerializer
+    permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
+    posthog_feature_flag = "product-business-knowledge"
+    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+
+    def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
+        return queryset.filter(team_id=self.team_id)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter(
+                name="ticket_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="When provided, returns per-ticket gap rows instead of aggregated view.",
+            ),
+        ],
+        responses={200: KnowledgeGapSuggestionSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        ticket_id = request.query_params.get("ticket_id")
+        if ticket_id:
+            suggestions = logic.list_gap_suggestions_for_ticket(self.team_id, ticket_id)
+            page = self.paginate_queryset(suggestions)
+            if page is not None:
+                return self.get_paginated_response(KnowledgeGapSuggestionSerializer(instance=page, many=True).data)
+            return Response(KnowledgeGapSuggestionSerializer(instance=suggestions, many=True).data)
+
+        aggregated = logic.aggregate_gap_suggestions(self.team_id)
+        return Response(AggregatedGapSerializer(instance=aggregated, many=True).data)
+
+    @extend_schema(
+        request=GapActionSerializer,
+        responses={200: KnowledgeGapSuggestionSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="accept")
+    def accept(self, request: Request, **kwargs) -> Response:
+        suggestion = self.get_object()
+        ser = GapActionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        logic.set_gap_status(
+            self.team_id,
+            normalized_topic=suggestion.normalized_topic,
+            status=GapStatus.ACCEPTED,
+            resolved_source_id=ser.validated_data.get("resolved_source_id"),
+        )
+        suggestion.refresh_from_db()
+        return Response(KnowledgeGapSuggestionSerializer(instance=suggestion).data)
+
+    @extend_schema(
+        request=None,
+        responses={200: KnowledgeGapSuggestionSerializer},
+    )
+    @action(detail=True, methods=["post"], url_path="dismiss")
+    def dismiss(self, request: Request, **kwargs) -> Response:
+        suggestion = self.get_object()
+        logic.set_gap_status(
+            self.team_id,
+            normalized_topic=suggestion.normalized_topic,
+            status=GapStatus.DISMISSED,
+        )
+        suggestion.refresh_from_db()
+        return Response(KnowledgeGapSuggestionSerializer(instance=suggestion).data)
+
+    @extend_schema(
+        request=GapTopicActionSerializer,
+        responses={200: GapTopicActionResultSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="accept_topic")
+    def accept_topic(self, request: Request, **kwargs) -> Response:
+        """Accept all suggestions for a normalized topic cluster."""
+        ser = GapTopicActionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        normalized_topic = ser.validated_data["normalized_topic"]
+        updated = logic.set_gap_status(
+            self.team_id,
+            normalized_topic=normalized_topic,
+            status=GapStatus.ACCEPTED,
+            resolved_source_id=ser.validated_data.get("resolved_source_id"),
+        )
+        if updated == 0:
+            raise exceptions.NotFound("No pending suggestions found for this topic.")
+        return Response({"normalized_topic": normalized_topic, "updated": updated})
+
+    @extend_schema(
+        request=GapTopicActionSerializer,
+        responses={200: GapTopicActionResultSerializer},
+    )
+    @action(detail=False, methods=["post"], url_path="dismiss_topic")
+    def dismiss_topic(self, request: Request, **kwargs) -> Response:
+        """Dismiss all suggestions for a normalized topic cluster."""
+        ser = GapTopicActionSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        normalized_topic = ser.validated_data["normalized_topic"]
+        updated = logic.set_gap_status(
+            self.team_id,
+            normalized_topic=normalized_topic,
+            status=GapStatus.DISMISSED,
+        )
+        if updated == 0:
+            raise exceptions.NotFound("No pending suggestions found for this topic.")
+        return Response({"normalized_topic": normalized_topic, "updated": updated})

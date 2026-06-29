@@ -9,6 +9,9 @@ from temporalio.common import RetryPolicy
 from products.conversations.backend.temporal.ai_reply.activities.build_context import support_build_context_activity
 from products.conversations.backend.temporal.ai_reply.activities.classify import support_classify_activity
 from products.conversations.backend.temporal.ai_reply.activities.draft import support_draft_activity
+from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
+    support_persist_knowledge_gap_activity,
+)
 from products.conversations.backend.temporal.ai_reply.activities.persist_reply import support_persist_reply_activity
 from products.conversations.backend.temporal.ai_reply.activities.record_triage import support_record_triage_activity
 from products.conversations.backend.temporal.ai_reply.activities.refine_queries import support_refine_queries_activity
@@ -24,6 +27,7 @@ from products.conversations.backend.temporal.ai_reply.constants import (
 from products.conversations.backend.temporal.ai_reply.schemas import (
     ClassifyInput,
     DraftInput,
+    PersistKnowledgeGapInput,
     PersistReplyInput,
     RecordTriageInput,
     RefineQueriesInput,
@@ -100,6 +104,26 @@ class SupportReplyWorkflow:
                 )
             except Exception:
                 workflow.logger.warning("support_reply: failed to record triage", status=patch.get("status"))
+
+        async def _persist_gaps(gap_missing: list[str], gap_ticket_type: str, gap_outcome: str) -> None:
+            """Best-effort: record knowledge gaps without breaking the pipeline."""
+            if not gap_missing:
+                return
+            try:
+                await workflow.execute_activity(
+                    support_persist_knowledge_gap_activity,
+                    PersistKnowledgeGapInput(
+                        team_id=team_id,
+                        ticket_id=ticket_id,
+                        missing=gap_missing,
+                        ticket_type=gap_ticket_type,
+                        outcome=gap_outcome,
+                    ),
+                    start_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+            except Exception:
+                workflow.logger.warning("support_reply: failed to persist knowledge gaps")
 
         # Build context
         ctx_output = await workflow.execute_activity(
@@ -292,6 +316,8 @@ class SupportReplyWorkflow:
                         start_to_close_timeout=timedelta(minutes=1),
                         retry_policy=RetryPolicy(maximum_attempts=3),
                     )
+                    if validate_output.missing:
+                        await _persist_gaps(validate_output.missing, ticket_type, "persisted")
                     outcome = {
                         "result": "persisted",
                         "ticket_type": ticket_type,
@@ -299,6 +325,7 @@ class SupportReplyWorkflow:
                         "diagnostics_allowed": ctx_output.diagnostics_allowed,
                         "confidence": validate_output.confidence,
                         "attempts": attempt + 1,
+                        "missing": validate_output.missing,
                     }
                     return f"persisted (confidence={validate_output.confidence:.2f}, attempts={attempt + 1})"
 
@@ -351,6 +378,8 @@ class SupportReplyWorkflow:
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
                 )
+                if best_missing:
+                    await _persist_gaps(best_missing, ticket_type, "escalated_with_best")
                 outcome = {
                     "result": "escalated_with_best",
                     "ticket_type": ticket_type,
@@ -358,15 +387,19 @@ class SupportReplyWorkflow:
                     "diagnostics_allowed": ctx_output.diagnostics_allowed,
                     "confidence": best_confidence,
                     "attempts": MAX_ATTEMPTS,
+                    "missing": best_missing,
                 }
                 return f"escalated_with_best (confidence={best_confidence:.2f})"
 
+            if best_missing:
+                await _persist_gaps(best_missing, ticket_type, "escalated_no_reply")
             outcome = {
                 "result": "escalated_no_reply",
                 "ticket_type": ticket_type,
                 "needs_diagnostics": needs_diagnostics,
                 "diagnostics_allowed": ctx_output.diagnostics_allowed,
                 "attempts": MAX_ATTEMPTS,
+                "missing": best_missing,
             }
             return "escalated_no_reply"
         finally:
