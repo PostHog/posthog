@@ -58,8 +58,22 @@ export const logsSamplingSectionLogic = kea<logsSamplingSectionLogicType>([
             {
                 loadRules: async () => {
                     const projectId = String(values.currentTeamId)
-                    const page = await logsSamplingRulesList(projectId)
-                    return page.results
+                    try {
+                        const page = await logsSamplingRulesList(projectId)
+                        return page.results
+                    } catch (e: unknown) {
+                        // The list endpoint is RBAC-gated (scope_object = "logs") independently of the
+                        // drop-rules feature flag, so a user with the flag but without viewer access gets
+                        // a 403 here. The loaders plugin captures load-action failures to error tracking,
+                        // so swallow the permission case gracefully with a toast. Genuine errors re-throw
+                        // and still surface as before.
+                        const err = e as { status?: number; detail?: string }
+                        if (err?.status === 403) {
+                            lemonToast.error(err?.detail ?? 'You do not have access to view logs drop rules')
+                            return []
+                        }
+                        throw e
+                    }
                 },
             },
         ],
