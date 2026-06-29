@@ -16,9 +16,12 @@ import {
 } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
 import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import type {
     AchievementDefinitionApi,
@@ -393,7 +396,21 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
     return (
         <>
             <HogfettiComponent />
-            <LemonModal isOpen={modalOpen} onClose={closeModal} title="Web analytics achievements" width={820}>
+            <LemonModal
+                isOpen={modalOpen}
+                onClose={closeModal}
+                title="Web analytics achievements"
+                width={820}
+                footer={
+                    <Link
+                        to={urls.settings('user-customization', 'web-analytics-achievements')}
+                        onClick={closeModal}
+                        className="text-xs text-muted"
+                    >
+                        Not interested? Manage in settings →
+                    </Link>
+                }
+            >
                 {definitions.length === 0 ? (
                     <div className="text-muted text-sm py-6 text-center">
                         {achievementsLoading ? 'Loading achievements…' : 'No achievements available yet.'}
@@ -437,7 +454,8 @@ function WebAnalyticsAchievementsModalInner(): JSX.Element {
 
 export function WebAnalyticsAchievementsModal(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!isWebAnalyticsAchievementsEnabled(featureFlags)) {
+    const { user } = useValues(userLogic)
+    if (!isWebAnalyticsAchievementsEnabled(featureFlags, user)) {
         return null
     }
     return <WebAnalyticsAchievementsModalInner />

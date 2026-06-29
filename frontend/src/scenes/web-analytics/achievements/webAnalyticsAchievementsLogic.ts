@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import {
     webAnalyticsAchievementsAcknowledgeCelebration,
@@ -41,7 +42,7 @@ function sortByCloseness(
 export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicType>([
     path(['scenes', 'web-analytics', 'achievements', 'webAnalyticsAchievementsLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags']],
+        values: [teamLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags'], userLogic, ['user']],
     })),
     actions({
         openModal: true,
@@ -197,7 +198,7 @@ export const webAnalyticsAchievementsLogic = kea<webAnalyticsAchievementsLogicTy
         },
     })),
     afterMount(({ actions, values }) => {
-        if (isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+        if (isWebAnalyticsAchievementsEnabled(values.featureFlags, values.user)) {
             actions.loadAchievements()
         }
     }),

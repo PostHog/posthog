@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 import { webAnalyticsLogic } from 'scenes/web-analytics/webAnalyticsLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
@@ -94,10 +95,11 @@ function WebAnalyticsSceneMenuBarInner(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { projectTreeRefEntry } = useValues(projectTreeDataLogic)
     const { currentTeam } = useValues(teamLogic)
+    const { user } = useValues(userLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
     const { openModal: openAchievementsModal } = useActions(webAnalyticsAchievementsLogic)
 
-    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags)
+    const showAchievements = isWebAnalyticsAchievementsEnabled(featureFlags, user)
     const showRecap = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
     const showTileToggles = !!featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_TILE_TOGGLES]
     const showQueryEngineToggle = !!featureFlags[FEATURE_FLAGS.SETTINGS_WEB_ANALYTICS_PRE_AGGREGATED_TABLES]

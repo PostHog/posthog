@@ -4,6 +4,7 @@ import posthog from 'posthog-js'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
 
@@ -28,6 +29,8 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
             ['featureFlags'],
             teamLogic,
             ['currentProjectId'],
+            userLogic,
+            ['user'],
         ],
     })),
     actions({
@@ -63,7 +66,10 @@ export const webAnalyticsLoadTimeLogic = kea<webAnalyticsLoadTimeLogicType>([
         collectionNodeLoadDataSuccess: sharedListeners.maybeCaptureLoaded,
         collectionNodeLoadDataFailure: sharedListeners.maybeCaptureLoaded,
         recordVisit: async () => {
-            if (cache.recordedVisitThisSession || !isWebAnalyticsAchievementsEnabled(values.featureFlags)) {
+            if (
+                cache.recordedVisitThisSession ||
+                !isWebAnalyticsAchievementsEnabled(values.featureFlags, values.user)
+            ) {
                 return
             }
             const projectId = values.currentProjectId
