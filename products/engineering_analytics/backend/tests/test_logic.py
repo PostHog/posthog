@@ -14,7 +14,6 @@ import pandas as pd
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.engineering_analytics.backend.facade import api
@@ -678,53 +677,6 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert cost.costed_jobs == 2
         assert cost.billable_minutes == pytest.approx(2.0)
         assert cost.estimated_cost_usd == pytest.approx(0.016)
-
-    def test_curated_read_survives_warehouse_access_control_flag(self) -> None:
-        # With the hogql-warehouse-access-control flag enabled, HogQL denies warehouse tables to
-        # userless queries (fail-closed). The curated read path runs userless, so without
-        # bypass_warehouse_access_control it is denied; with the bypass it still returns the team's
-        # own data.
-        self._create_table(
-            "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
-            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
-        )
-        self._create_table(
-            "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(9900, "CI", "sha90", "completed", "success", _ago(1), _ago(1))],
-        )
-
-        def _flag_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
-            return key == "hogql-warehouse-access-control"
-
-        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", side_effect=_flag_enabled):
-            items = api.list_workflow_health(team=self.team, date_from="-30d")
-        assert any(item.workflow_name == "CI" for item in items)
-
-    def test_curated_read_works_for_request_user_under_flag(self) -> None:
-        # A request carries the user's access control, but eng-analytics gates access at the product +
-        # source layer and bypasses the per-table warehouse ACL on its own synced tables — so a read
-        # works under the flag even for a user holding no explicit DataWarehouseTable grant. Guards
-        # against honoring the table ACL here, which would deny those users and re-break the page.
-        self._create_table(
-            "github_pull_requests",
-            _PULL_REQUESTS_COLUMNS,
-            [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
-        )
-        self._create_table(
-            "github_workflow_runs",
-            _WORKFLOW_RUNS_COLUMNS,
-            [_run_row(9901, "CI", "sha91", "completed", "success", _ago(1), _ago(1))],
-        )
-
-        def _flag_enabled(key: str, *_args: Any, **_kwargs: Any) -> bool:
-            return key == "hogql-warehouse-access-control"
-
-        uac = UserAccessControl(self.user, self.team)
-        with mock.patch("posthog.hogql.database.database.feature_enabled_or_false", side_effect=_flag_enabled):
-            items = api.list_workflow_health(team=self.team, date_from="-30d", user_access_control=uac)
-        assert any(item.workflow_name == "CI" for item in items)
 
     def test_pull_request_list_author_filter(self) -> None:
         # The author filter scopes the list to one author's PRs (drives the author page).

@@ -40,9 +40,12 @@ class CuratedGitHubSource:
     modules then ask the returned instance for the curated subqueries and run HogQL through it.
     """
 
-    def __init__(self, *, team: Team, tables: GitHubTables) -> None:
+    def __init__(
+        self, *, team: Team, tables: GitHubTables, user_access_control: "UserAccessControl | None" = None
+    ) -> None:
         self._team = team
         self._tables = tables
+        self._user_access_control = user_access_control
 
     @property
     def team(self) -> Team:
@@ -56,6 +59,7 @@ class CuratedGitHubSource:
         return cls(
             team=team,
             tables=resolve_github_tables(team=team, source_id=source_id, user_access_control=user_access_control),
+            user_access_control=user_access_control,
         )
 
     def pr_source(self) -> str:
@@ -166,21 +170,26 @@ class CuratedGitHubSource:
     ) -> HogQLQueryResponse:
         """Parse + execute a curated HogQL query for this team.
 
-        Runs with ``bypass_warehouse_access_control=True``. Access is enforced one layer up: the API
-        requires engineering-analytics product access, and the resolver (``for_team``) filters the source
-        to what the requesting user may read (``user_access_control``) — so by execution time the only
-        tables in play are this team's GitHub source tables the user is already authorized for. The
-        backing ``DataWarehouseTable``s are a private implementation detail of the product, not
-        independently access-controlled, so the per-table HogQL ACL is the wrong layer here: passing the
-        request user through instead would deny every non-admin product user once the
-        ``hogql-warehouse-access-control`` flag is on (they hold no explicit per-table grant, and the
-        check fails closed), re-breaking the page. The bypass also keeps the userless system / Temporal /
-        CLI read paths working.
+        Passes the requesting user's ``user_access_control`` into execution so HogQL honors the per-table
+        warehouse ACL once the ``hogql-warehouse-access-control`` flag is on — the pattern the data
+        warehouse team intends for request-driven reads (a userless build fails closed and strips every
+        warehouse table). Access is enforced twice over: the resolver (``for_team``) already filtered the
+        source to what this user may read, and now the table-level ACL is honored too, so a user denied a
+        backing ``DataWarehouseTable`` is blocked rather than let through. Every curated read is
+        request-driven (the views thread the user through), so there is no userless caller to fail closed;
+        a future system/Temporal context that needs to read would pass its own principal or opt into
+        ``bypass_warehouse_access_control`` for that narrow call (the warehouse team's escape hatch).
         """
+        uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
             return execute_hogql_query(
                 query=parse_select(sql, placeholders=placeholders),
                 team=self._team,
                 query_type=query_type,
-                bypass_warehouse_access_control=True,
+                # Forward the real user, not just the access control: a userless database build drops the
+                # access control and fails closed (see _compute_system_table_access_decision), stripping
+                # every warehouse table. Passing the user (with its preloaded access control) is what lets
+                # HogQL honor the per-table warehouse ACL on these reads.
+                user=uac.user if uac is not None else None,
+                user_access_control=uac,
             )
