@@ -1,3 +1,4 @@
+from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
@@ -5,7 +6,6 @@ from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.models.team.team import Team
-from posthog.test.base import APIBaseTest
 
 from products.tracing.backend.models import TracingView
 

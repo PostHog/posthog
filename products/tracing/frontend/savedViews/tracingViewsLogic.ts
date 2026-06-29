@@ -31,7 +31,7 @@ export interface TracingView {
     updated_at: string | null
 }
 
-const tracingViewsUrl = (teamId: number | null): string => `api/environments/${teamId}/tracing/views`
+const tracingViewsUrl = (teamId: number | null): string => `api/projects/${teamId}/tracing/views`
 
 export const tracingViewsLogic = kea<tracingViewsLogicType>([
     path(['products', 'tracing', 'frontend', 'savedViews', 'tracingViewsLogic']),

@@ -1,8 +1,8 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 
 import { tracingFiltersLogic } from '../tracingFiltersLogic'
-import { tracingViewsLogic } from './tracingViewsLogic'
 import type { tracingViewsListLogicType } from './tracingViewsListLogicType'
+import { tracingViewsLogic } from './tracingViewsLogic'
 
 export const tracingViewsListLogic = kea<tracingViewsListLogicType>([
     path(['products', 'tracing', 'frontend', 'savedViews', 'tracingViewsListLogic']),

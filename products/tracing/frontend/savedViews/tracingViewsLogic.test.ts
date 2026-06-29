@@ -60,7 +60,7 @@ describe('tracing saved views', () => {
             }).toFinishAllListeners()
 
             expect(createSpy).toHaveBeenCalledTimes(1)
-            const [, payload] = createSpy.mock.calls[0]
+            const payload = createSpy.mock.calls[0][1] as { name: string; filters: Record<string, any> }
             expect(payload.name).toBe('Slow spans')
             expect(payload.filters).toEqual({
                 dateRange: { date_from: '-1h', date_to: null },
@@ -116,7 +116,9 @@ describe('tracing saved views', () => {
         it('optimistically removes the view from the list', async () => {
             jest.spyOn(api, 'delete').mockResolvedValue(undefined)
             // Seed the loader state with two views.
-            jest.spyOn(api, 'get').mockResolvedValue({ results: [mockView({ short_id: 'keep' }), mockView({ short_id: 'drop' })] })
+            jest.spyOn(api, 'get').mockResolvedValue({
+                results: [mockView({ short_id: 'keep' }), mockView({ short_id: 'drop' })],
+            })
             await expectLogic(viewsLogic, () => {
                 viewsLogic.actions.loadViews()
             }).toFinishAllListeners()
