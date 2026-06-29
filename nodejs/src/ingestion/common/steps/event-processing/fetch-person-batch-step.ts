@@ -4,17 +4,22 @@ import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { Person, Team } from '~/types'
 
-export interface PersonPropertiesInput {
+export interface FetchPersonBatchStepInput {
     event: PluginEvent
     team: Team
 }
+
+// Query name forwarded to the repository (the "what query" half of the personhog
+// read tag). The "who" half — pipeline/lane — is the repository's client label.
+const QUERY_NAME = 'fetch-person-batch-step'
 
 function personKey(teamId: number, distinctId: string): string {
     return `${teamId}:${distinctId}`
 }
 
 /**
- * Creates a batch step that fetches person data for error tracking events.
+ * Creates a batch step that fetches person data for read-only pipelines
+ * (error tracking, AI).
  *
  * This is a read-only step that fetches person data from the database
  * and passes it downstream. It does not create or update persons, and
@@ -25,11 +30,15 @@ function personKey(teamId: number, distinctId: string): string {
  * fields on the ClickHouse event.
  *
  * This is a batch step to avoid N+1 queries when processing multiple events.
+ * The per-pipeline identity (client name) comes from the repository's client
+ * label; this step only tags the query.
  */
-export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
+export function createFetchPersonBatchStep<T extends FetchPersonBatchStepInput>(
     personRepository: PersonReadRepository
-): BatchProcessingStep<T, T & { person: Person | null }> {
-    return async function fetchPersonBatchStep(inputs: T[]): Promise<PipelineResult<T & { person: Person | null }>[]> {
+): BatchProcessingStep<T, T & { person: Person | undefined }> {
+    return async function fetchPersonBatchStep(
+        inputs: T[]
+    ): Promise<PipelineResult<T & { person: Person | undefined }>[]> {
         if (inputs.length === 0) {
             return []
         }
@@ -40,19 +49,17 @@ export function createFetchPersonBatchStep<T extends PersonPropertiesInput>(
             .map((input) => ({ teamId: input.team.id, distinctId: input.event.distinct_id }))
 
         // Batch fetch all persons in a single query
-        const persons =
-            lookups.length > 0
-                ? await personRepository.fetchPersonsByDistinctIds(lookups, 'error-tracking/person-properties')
-                : []
+        const persons = lookups.length > 0 ? await personRepository.fetchPersonsByDistinctIds(lookups, QUERY_NAME) : []
 
         // Build lookup map
         const personMap = new Map(persons.map((p) => [personKey(p.team_id, p.distinct_id), p as Person]))
 
-        // Map results back to inputs
+        // Map results back to inputs. `undefined` (not `null`) for not-found, matching
+        // the optional `person?` that createCreateEventStep / createEvent expect.
         return inputs.map((input) => {
             const person = input.event.distinct_id
-                ? (personMap.get(personKey(input.team.id, input.event.distinct_id)) ?? null)
-                : null
+                ? personMap.get(personKey(input.team.id, input.event.distinct_id))
+                : undefined
             return ok({ ...input, person })
         })
     }
