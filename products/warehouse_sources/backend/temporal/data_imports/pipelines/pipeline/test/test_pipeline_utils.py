@@ -433,13 +433,17 @@ def test_table_from_py_list_decimal_exceeding_max_scale_is_rounded():
     assert table.column("column").to_pylist() == [decimal.Decimal("1." + "1" * 32), None]
 
 
-def test_table_from_py_list_decimal_too_large_for_decimal256_raises():
-    # A value whose integer part can't fit decimal256(76, 32) even after rounding to the max
-    # scale is genuinely unrepresentable, so the hard ValueError must still surface.
-    value = decimal.Decimal("9" * 45 + "." + "1" * 40)
+def test_table_from_py_list_decimal_too_large_for_decimal256_falls_back_to_string():
+    # An unconstrained Postgres `numeric` can hold a value with more significant digits than
+    # decimal256 can represent (76), so it's unrepresentable as any Delta-compatible decimal.
+    # Keep it as text rather than crashing the whole sync (mirrors the huge-int fallback above).
+    # A None is mixed in to exercise the null passthrough.
+    value = decimal.Decimal("9" * 100)
 
-    with pytest.raises(ValueError, match="Cannot build decimal array from values"):
-        table_from_py_list([{"column": value}])
+    table = table_from_py_list([{"column": value}, {"column": None}])
+
+    assert table.schema.field("column").type == pa.string()
+    assert table.column("column").to_pylist() == [str(value), None]
 
 
 def test_table_from_py_list_normal_int_column_stays_int64():
