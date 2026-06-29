@@ -299,6 +299,12 @@ class HoglandBackend(PreviewBackend):
             "memory_mib": self.memory_mib,
             "disk_gib": self.disk_gib,
             "disk_class": self.disk_class,
+            # The server's BoxSpec marks these throughput caps required (no
+            # omitempty); 0 = unthrottled. A model-backed SDK sends them
+            # implicitly — a plain dict must include them or huma 422s.
+            "disk_mbps": 0,
+            "disk_iops": 0,
+            "net_mbps": 0,
             "kind": self.kind,
             "web_port": self.web_port,
             "ttl_seconds": self.ttl_seconds,
