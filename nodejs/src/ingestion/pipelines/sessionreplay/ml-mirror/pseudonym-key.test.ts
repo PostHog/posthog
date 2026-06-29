@@ -2,7 +2,7 @@ import { PseudonymKeyConfig, pseudonymKeyFingerprint, resolvePseudonymKey } from
 
 const baseConfig = (over: Partial<PseudonymKeyConfig> = {}): PseudonymKeyConfig => ({
     SESSION_RECORDING_ML_PSEUDONYM_SECRET: '',
-    SESSION_RECORDING_ML_PSEUDONYM_KEY_CIPHERTEXT: '',
+    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
     SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: '',
     SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: '',
     ...over,
@@ -35,7 +35,7 @@ describe('ml-mirror pseudonym key', () => {
             const key = await resolvePseudonymKey(
                 baseConfig({
                     SESSION_RECORDING_ML_PSEUDONYM_SECRET: 'dev',
-                    SESSION_RECORDING_ML_PSEUDONYM_KEY_CIPHERTEXT: 'Y2lwaGVy',
+                    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: 'Y2lwaGVy',
                 }),
                 decrypt
             )
@@ -45,7 +45,7 @@ describe('ml-mirror pseudonym key', () => {
 
         it('fails closed when neither a ciphertext nor a plaintext secret is set', async () => {
             await expect(resolvePseudonymKey(baseConfig(), failDecrypt)).rejects.toThrow(
-                'SESSION_RECORDING_ML_PSEUDONYM_KEY_CIPHERTEXT or SESSION_RECORDING_ML_PSEUDONYM_SECRET'
+                'SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY or SESSION_RECORDING_ML_PSEUDONYM_SECRET'
             )
         })
 

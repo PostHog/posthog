@@ -7,7 +7,7 @@ export type MlMirrorConfig = {
     /** Plaintext HMAC secret to pseudonymize ids; for local dev only — prod uses the KMS-wrapped key below. */
     SESSION_RECORDING_ML_PSEUDONYM_SECRET: string
     /** Base64 KMS-encrypted pseudonym key (envelope); decrypted once at startup, never persisted. Preferred over the plaintext secret. */
-    SESSION_RECORDING_ML_PSEUDONYM_KEY_CIPHERTEXT: string
+    SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: string
     /** AWS region for the KMS Decrypt call; empty → the SDK default credential/region chain. */
     SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: string
     /** Expected key fingerprint; if set, startup fails when the resolved key's fingerprint differs (enforces never-rotate). */
@@ -28,7 +28,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_METADATA_PREFIX: 'block-metadata',
         SESSION_RECORDING_ML_ALLOW_LIST_S3_KEY: '',
         SESSION_RECORDING_ML_PSEUDONYM_SECRET: '',
-        SESSION_RECORDING_ML_PSEUDONYM_KEY_CIPHERTEXT: '',
+        SESSION_RECORDING_ML_PSEUDONYM_WRAPPED_KEY: '',
         SESSION_RECORDING_ML_PSEUDONYM_KMS_REGION: '',
         SESSION_RECORDING_ML_PSEUDONYM_KEY_FINGERPRINT: '',
         SESSION_RECORDING_ML_PARQUET_SINK_GROUP_ID: 'session-replay-ml-parquet-sink',
