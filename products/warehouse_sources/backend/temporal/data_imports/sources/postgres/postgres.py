@@ -427,6 +427,24 @@ def _statement_timeout_as_non_retryable(
     )
 
 
+def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
+    """Build the timeout error for the fallback `id` primary-key uniqueness probe.
+
+    When a table has no declared primary key we fall back to assuming `id` is unique and verify
+    it with a full-table `GROUP BY id HAVING COUNT(*) > 1`, which can exhaust the statement_timeout
+    on large tables. The generic table-setup timeout message points at the incremental field, but
+    indexing that field doesn't help this probe — the fix is a primary key / index on `id`. Keeps
+    the "has an appropriate index" fragment so it stays non-retryable at the activity layer too
+    (see source.py).
+    """
+    return QueryTimeoutException(
+        'Timed out verifying that the "id" column is unique. This table has no primary key, so '
+        'PostHog assumed "id" was unique to sync incrementally but could not confirm it within the '
+        'timeout. Add a primary key, or ensure the "id" column has an appropriate index created, so '
+        "PostHog can sync this table incrementally."
+    )
+
+
 @dataclasses.dataclass(frozen=True)
 class PostgresDiscoveredSchema:
     source_catalog: str | None
@@ -2790,9 +2808,14 @@ def postgres_source(
                             has_duplicate_primary_keys = False
                             if used_id_pk_fallback:
                                 logger.debug("Checking duplicate primary keys...")
-                                has_duplicate_primary_keys = _has_duplicate_primary_keys(
-                                    cursor, schema, table_name, primary_keys, logger
-                                )
+                                try:
+                                    has_duplicate_primary_keys = _has_duplicate_primary_keys(
+                                        cursor, schema, table_name, primary_keys, logger
+                                    )
+                                except psycopg.errors.QueryCanceled as e:
+                                    # Surface a message about the assumed `id` primary key rather than
+                                    # falling through to the generic incremental-field timeout below.
+                                    raise _pk_uniqueness_probe_timeout_error() from e
                         except psycopg.errors.QueryCanceled:
                             if should_use_incremental_field:
                                 raise QueryTimeoutException(

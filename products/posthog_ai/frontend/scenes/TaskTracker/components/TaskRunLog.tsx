@@ -12,7 +12,7 @@ import { TaskRunChat } from './TaskRunChat'
  * Run-log slot state machine. Reads `taskDetailSceneLogic` directly (no prop drilling) and resolves to
  * exactly one of: an error banner, a `NotFound`, the shared `RunLogSkeleton`, an empty state, or the live
  * `TaskRunChat`. The skeleton is the only loading affordance here — once it hands off to `TaskRunChat`, the
- * eager `RunViewer` shows the same `RunLogSkeleton` during its own bootstrap, so the transition is seamless.
+ * eager `RunSurface` shows the same `RunLogSkeleton` during its own bootstrap, so the transition is seamless.
  */
 export function TaskRunLog({ taskId }: { taskId: string }): JSX.Element | null {
     const logic = taskDetailSceneLogic({ taskId })

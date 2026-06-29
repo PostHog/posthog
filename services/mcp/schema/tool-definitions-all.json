@@ -2980,6 +2980,76 @@
             "readOnlyHint": true
         }
     },
+    "experiment-holdouts-create": {
+        "description": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment holdout",
+        "title": "Create experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-destroy": {
+        "description": "Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always confirm by name before deleting.\n\nThis clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on success.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete experiment holdout",
+        "title": "Delete experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-list": {
+        "description": "List the experiment holdout groups in the current project. A holdout reserves a stable slice of users who are excluded from experiment exposure, so you can measure the long-term effect of all experiments against a held-back baseline. A holdout is NOT a feature flag — it is a separate object that experiments reference via holdout_id.\n\nEach holdout has a name, optional description, and a filters array (the held-out population definition). Holdouts are project-scoped. Use the returned id with experiment-create / experiment-update's holdout_id to link an experiment to a holdout.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List experiment holdouts",
+        "title": "List experiment holdouts",
+        "required_scopes": ["experiment_holdout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-holdouts-partial-update": {
+        "description": "Update a holdout group's name, description, or filters by ID. Use experiment-holdouts-list first if you don't have the ID.\n\nCAUTION: editing the filters (e.g. the rollout/exclusion percentage) cascades atomically to EVERY experiment linked to this holdout — it rewrites the exclusion_percentage on each linked feature flag, silently re-assigning the held-out population for all of those experiments at once. Confirm with the user before changing filters on a holdout that experiments depend on.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update experiment holdout",
+        "title": "Update experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-retrieve": {
+        "description": "Get a single experiment holdout group by ID, including its name, description, and filters array (the held-out population definition). Use experiment-holdouts-list first if you don't have the ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment holdout details",
+        "title": "Get experiment holdout details",
+        "required_scopes": ["experiment_holdout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-launch": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
         "category": "Experiments",

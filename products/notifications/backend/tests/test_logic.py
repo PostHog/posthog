@@ -18,7 +18,7 @@ from products.notifications.backend.facade.enums import (
     SourceType,
     TargetType,
 )
-from products.notifications.backend.logic import create_notification
+from products.notifications.backend.logic import create_notification, publish_resource_edited
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -334,3 +334,80 @@ class TestAccessControlFiltering(BaseTest):
         user_ids = [self.user.id, self.user2.id]
         result = self.resolver.filter_by_access_control(user_ids, "dashboard", self.team)
         assert result == [self.user.id]
+
+
+class TestPublishResourceEdited(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.organization = Organization.objects.create(name="RE Org")
+        self.team = Team.objects.create(organization=self.organization, name="RE Team")
+        self.user = User.objects.create_and_join(self.organization, "re@test.com", "password")
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_publishes_transient_event_without_persisting(self, mock_get_producer, mock_ff):
+        producer = mock_get_producer.return_value
+
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+                actor_user_id=self.user.id,
+                ac_resource_type="hog_flow",
+            )
+
+        producer.produce.assert_called_once()
+        payload = producer.produce.call_args.kwargs["data"]
+        assert payload["notification_type"] == "resource_edited"
+        assert payload["resource_type"] == "HogFlow"
+        assert payload["resource_id"] == "flow-123"
+        assert payload["updated_at"] == "2026-06-16T00:00:00+00:00"
+        assert self.user.id in payload["resolved_user_ids"]
+        # Editor-state sync only — it must never become an inbox notification.
+        assert NotificationEvent.objects.count() == 0
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=False)
+    @patch("products.notifications.backend.logic.get_producer")
+    def test_noops_when_flag_disabled(self, mock_get_producer, mock_ff):
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+            )
+
+        mock_get_producer.assert_not_called()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    @patch.object(RecipientsResolver, "resolve", return_value=[])
+    def test_noops_when_no_recipients(self, mock_resolve, mock_get_producer, mock_ff):
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+            )
+
+        mock_get_producer.assert_not_called()
+
+    @patch("products.notifications.backend.logic.posthoganalytics.feature_enabled", return_value=True)
+    @patch("products.notifications.backend.logic.get_producer")
+    @patch.object(RecipientsResolver, "filter_by_access_control")
+    def test_skips_access_control_filtering_for_non_ac_resource(self, mock_ac_filter, mock_get_producer, mock_ff):
+        # hog_flow is not an access-controlled resource type, so recipients are not AC-filtered.
+        with self.captureOnCommitCallbacks(execute=True):
+            publish_resource_edited(
+                team=self.team,
+                resource_type="HogFlow",
+                resource_id="flow-123",
+                updated_at="2026-06-16T00:00:00+00:00",
+                ac_resource_type="hog_flow",
+            )
+
+        mock_ac_filter.assert_not_called()
+        mock_get_producer.return_value.produce.assert_called_once()
