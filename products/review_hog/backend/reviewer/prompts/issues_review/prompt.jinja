@@ -34,6 +34,14 @@ The pull request author's stated intent. Use it to understand what this change i
 {{PR_COMMENTS|safe}}
 </pr_comments_for_chunk>
 
+{% if COVERED_FINDINGS %}
+<already_covered_findings_for_chunk>
+ReviewHog already surfaced these problems on this chunk's files in earlier reviews of this PR (some are low-priority and were never posted as inline comments, so they won't appear above). They are ALREADY COVERED: do not spend investigation time re-deriving them, and do not report them again. Surface only problems that are NOT already covered here or in the inline comments above.
+
+{{COVERED_FINDINGS|safe}}
+</already_covered_findings_for_chunk>
+{% endif %}
+
 <pr_file_changes_for_chunk>
 This repository is checked out at this PR's branch, so read any file in full and search the codebase directly for surrounding context — do not assume the snippets below are all you have. The changes below are the authoritative record of *what this PR changed* in this chunk (including removed lines, which are no longer in the working tree); anchor every finding to these changes. You only have this branch's checkout — no base branch and no history — so rely on the changes below for the change set rather than trying to `git diff` or `git log`.
 
