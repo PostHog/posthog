@@ -70,21 +70,20 @@ jobs:
     preview:
         name: build preview
         # This job mints the prod-us hogland token + tailnet access and then runs
-        # the PR's OWN tool code, so gate it hard: opt-in label, AND same-repo
-        # (forks never run), AND an org-member author. author_association is
-        # GitHub-computed in the trusted event payload (so it can't be spoofed and
-        # works for private members); the same-repo check rules out forks; a
-        # non-member's PR can't reach the token at all. workflow_dispatch is manual
-        # and already limited to actors with Actions write. (Skip unlabeled — that's
-        # teardown.) An org member's own PR code running with the token is the
-        # accepted boundary — they already have write access.
+        # the PR's OWN tool code, so gate it: opt-in label AND same-repo (the
+        # branch lives in PostHog/posthog, not a fork). A same-repo branch already
+        # requires write access to the repo, so only trusted contributors can
+        # trigger it; forks never run, so a non-member's PR can't reach the token.
+        # (author_association is deliberately NOT used — the webhook payload reports
+        # CONTRIBUTOR, not MEMBER, for private org members, so it skips legit
+        # authors; a reliable org-member-strict check needs an org-read App token,
+        # left as a follow-up.) workflow_dispatch is manual, already limited to
+        # actors with Actions write. Skip unlabeled — that's teardown.
         if: >-
             github.event_name == 'workflow_dispatch' ||
             (github.event.action != 'unlabeled' &&
              contains(github.event.pull_request.labels.*.name, 'hogbox-preview') &&
-             github.event.pull_request.head.repo.full_name == github.repository &&
-             (github.event.pull_request.author_association == 'OWNER' ||
-              github.event.pull_request.author_association == 'MEMBER'))
+             github.event.pull_request.head.repo.full_name == github.repository)
         runs-on: ubuntu-24.04
         timeout-minutes: 40
         steps:
