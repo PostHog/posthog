@@ -82,6 +82,7 @@ the row lists both.
 | confluence          | HTTP                        | requests                                                        | ✅                          |
 | chartmogul          | HTTP                        | requests                                                        | ✅                          |
 | circleci            | HTTP                        | requests                                                        | ✅                          |
+| cimis               | HTTP                        | requests                                                        | ✅                          |
 | cloudflare          | HTTP                        | requests                                                        | ✅                          |
 | clari               | HTTP                        | requests                                                        | ✅                          |
 | clerk               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -340,7 +341,6 @@ doesn't conflict with concurrent PRs.
 - chift
 - chorus
 - churnkey
-- cimis
 - cin7
 - cisco_meraki
 - clarifai
