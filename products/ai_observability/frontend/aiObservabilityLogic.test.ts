@@ -3,6 +3,8 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { emptySceneParams } from 'scenes/scenes'
 import { urls } from 'scenes/urls'
 
 import { productRedirects } from '~/products'
@@ -14,6 +16,7 @@ import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
 import { DisplayOption, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { aiObservabilityDashboardLogic } from './tabs/aiObservabilityDashboardLogic'
 import { aiObservabilityGenerationsLogic } from './tabs/aiObservabilityGenerationsLogic'
+import { aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
 import { aiObservabilityTracesTabLogic } from './tabs/aiObservabilityTracesTabLogic'
 
 type RedirectParams = Record<string, string>
@@ -167,6 +170,70 @@ describe('aiObservabilitySharedLogic', () => {
             },
             shouldFilterTestAccounts: false,
         })
+    })
+})
+
+describe('aiObservabilitySessionsViewLogic', () => {
+    let sharedLogic: ReturnType<typeof aiObservabilitySharedLogic.build>
+    let logic: ReturnType<typeof aiObservabilitySessionsViewLogic.build>
+    let querySpy: jest.SpyInstance
+
+    const urlState = {
+        propertyFilters: [],
+        dateFrom: '-14d',
+        dateTo: null,
+        shouldFilterTestAccounts: false,
+        datesChanged: true,
+    }
+
+    async function settleListeners(): Promise<void> {
+        for (let i = 0; i < 5; i++) {
+            await Promise.resolve()
+        }
+    }
+
+    function setActiveTab(sceneKey: string): void {
+        sceneLogic.actions.setScene('AIObservability', sceneKey, emptySceneParams)
+    }
+
+    beforeEach(() => {
+        initKeaTests()
+        querySpy = jest.spyOn(api, 'query').mockResolvedValue({
+            columns: ['session_id', 'distinct_id', 'traces', 'total_cost', 'total_latency', 'errors', 'last_seen'],
+            results: [],
+        } as any)
+        sceneLogic.mount()
+        sharedLogic = aiObservabilitySharedLogic({})
+        sharedLogic.mount()
+        logic = aiObservabilitySessionsViewLogic({})
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        sharedLogic.unmount()
+        sceneLogic.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it('reloads URL-applied session filters while the sessions tab is visible', async () => {
+        setActiveTab('aiObservabilitySessions')
+        querySpy.mockClear()
+
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
+
+        expect(querySpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not reload sessions for hidden-tab URL state changes', async () => {
+        setActiveTab('aiObservabilityTraces')
+        querySpy.mockClear()
+
+        sharedLogic.actions.applyUrlState(urlState)
+        await settleListeners()
+
+        expect(querySpy).not.toHaveBeenCalled()
     })
 })
 

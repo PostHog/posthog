@@ -1,4 +1,4 @@
-import { MessageTemplate } from 'products/posthog_ai/frontend/sandbox/messages/MessageTemplate'
+import { MessageTemplate } from 'products/posthog_ai/frontend/api/primitives'
 
 // Chat-app typing dots shown while a turn is in flight; `type` picks the side.
 export function TypingIndicator({ type = 'ai' }: { type?: 'human' | 'ai' }): JSX.Element {

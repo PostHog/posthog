@@ -74,7 +74,16 @@ function SessionTraceSentimentBar({ sentiment }: { sentiment?: LLMTrace['sentime
     }
 
     return (
-        <SentimentBar label={sentiment.label ?? 'neutral'} score={sentiment.score ?? 0} messages={sentiment.messages} />
+        <div className="flex w-full justify-end">
+            <div className="flex w-20 max-w-[75%] justify-end">
+                <SentimentBar
+                    label={sentiment.label ?? 'neutral'}
+                    score={sentiment.score ?? 0}
+                    messages={sentiment.messages}
+                    size="full"
+                />
+            </div>
+        </div>
     )
 }
 
@@ -158,7 +167,7 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
         } else {
             latestTurnRef.current.scrollIntoView({ block: 'end', behavior: 'smooth' })
         }
-    }, [playing, revealedTurnCount, currentMs])
+    }, [playing, revealedTurnCount])
 
     const showSessionSummarization =
         featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||
@@ -194,7 +203,7 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
     }
 
     return (
-        <div className="relative flex flex-col gap-4 max-w-[75rem] min-h-full">
+        <div className="relative flex w-full flex-col gap-4 min-h-full">
             {showBreadcrumb && <SceneBreadcrumbBackButton />}
             <div className="flex items-center gap-2">
                 {sessionDistinctId && <LazyPersonAvatar distinctId={sessionDistinctId} />}
@@ -417,13 +426,19 @@ function SessionTurnView({
                 <TZLabel time={trace.createdAt} formatDate="MMM D, YYYY" formatTime="h:mm A" />
                 <div className="flex-1 border-t" />
             </div>
-            <div className="flex gap-10 pb-4">
+            <div className="pb-4">
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
                     {isComplete && showSessionSummarization && summary && (
                         <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
                     )}
 
-                    <TurnBody turn={turn} phase={phase} isLoading={isLoading} onLoad={() => loadFullTrace(trace.id)} />
+                    <TurnBody
+                        turn={turn}
+                        phase={phase}
+                        isLoading={isLoading}
+                        sentiment={isComplete && showSentiment ? trace.sentiment : undefined}
+                        onLoad={() => loadFullTrace(trace.id)}
+                    />
 
                     {isComplete && turn.tools.length > 0 && (
                         <div className="flex items-center gap-1.5 flex-wrap text-xs text-muted">
@@ -493,12 +508,6 @@ function SessionTurnView({
                         />
                     )}
                 </div>
-
-                {isComplete && showSentiment && (
-                    <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
-                        <SessionTraceSentimentBar sentiment={trace.sentiment} />
-                    </div>
-                )}
             </div>
         </div>
     )
@@ -531,11 +540,13 @@ function TurnBody({
     turn,
     phase = 'complete',
     isLoading,
+    sentiment,
     onLoad,
 }: {
     turn: SessionTurn
     phase?: TurnPhase
     isLoading: boolean
+    sentiment?: LLMTrace['sentiment']
     onLoad: () => void
 }): JSX.Element | null {
     if (isLoading) {
@@ -573,7 +584,13 @@ function TurnBody({
         )
     }
     // `turn.newInputs` / `outputs` come pre-deduped from `extractSessionTurns`.
-    return <TranscriptBubbleStream inputs={turn.newInputs} outputs={turn.outputs} />
+    return (
+        <div className="flex flex-col gap-1.5">
+            <TranscriptBubbleStream inputs={turn.newInputs} outputs={[]} />
+            {turn.newInputs.length > 0 && <SessionTraceSentimentBar sentiment={sentiment} />}
+            <TranscriptBubbleStream inputs={[]} outputs={turn.outputs} />
+        </div>
+    )
 }
 
 function StepsPanel({

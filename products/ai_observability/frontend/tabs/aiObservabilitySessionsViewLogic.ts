@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, combineUrl, router, urlToAction } from 'kea-router'
+import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -10,7 +11,8 @@ import { groupsModel } from '~/models/groupsModel'
 import { DataTableNode, HogQLQuery, NodeKind, RefreshType } from '~/queries/schema/schema-general'
 
 import sessionsQueryTemplate from '../../backend/queries/sessions.sql?raw'
-import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
+import type { SortDirection, SortState } from '../aiObservabilitySharedLogic'
+import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { llmSessionTitleLazyLoaderLogic } from '../llmSessionTitleLazyLoaderLogic'
 import type { aiObservabilitySessionsViewLogicType } from './aiObservabilitySessionsViewLogicType'
 
@@ -32,18 +34,13 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
     connect(() => ({
         values: [
             aiObservabilitySharedLogic,
-            ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
+            ['activeTab', 'dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             llmSessionTitleLazyLoaderLogic,
             ['getSessionTitle'],
         ],
-        actions: [
-            aiObservabilitySharedLogic,
-            ['setDates', 'setPropertyFilters', 'setShouldFilterTestAccounts', 'applyUrlState'],
-            llmSessionTitleLazyLoaderLogic,
-            ['ensureSessionTitleLoaded'],
-        ],
+        actions: [llmSessionTitleLazyLoaderLogic, ['ensureSessionTitleLoaded']],
     })),
 
     actions({
@@ -99,14 +96,6 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
                 actions.ensureSessionTitleLoaded(session.sessionId, values.dateFilter)
             }
         },
-        // Deliberately not reloading on `applyUrlState`: it fires on every AI-obs
-        // navigation (including selecting a session), which re-queried the whole list
-        // needlessly and helped saturate the per-org query concurrency limit. Only the
-        // real query inputs below — sort, dates, filters — should trigger a reload.
-        setSessionsSort: () => actions.loadSessions(),
-        setDates: () => actions.loadSessions(),
-        setPropertyFilters: () => actions.loadSessions(),
-        setShouldFilterTestAccounts: () => actions.loadSessions(),
     })),
 
     selectors({
@@ -175,6 +164,15 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             },
         ],
     }),
+
+    subscriptions(({ actions, values }) => ({
+        sessionsQuery: (_sessionsQuery, previousSessionsQuery: DataTableNode | undefined) => {
+            if (previousSessionsQuery === undefined || values.activeTab !== 'sessions') {
+                return
+            }
+            actions.loadSessions()
+        },
+    })),
 
     urlToAction(({ actions, values }) => ({
         '/ai-observability/sessions/:id': ({ id }) => {

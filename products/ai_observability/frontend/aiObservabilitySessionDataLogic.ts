@@ -41,6 +41,8 @@ export interface TraceSummary {
 // fix is one bulk query for the first N traces' events.
 const AUTO_LOAD_LIMIT = 5
 
+type SessionDateRange = { dateFrom: string | null; dateTo: string | null } | null
+
 export interface SessionDataLogicProps {
     sessionId: string
     query: DataTableNode
@@ -60,6 +62,17 @@ function getDataNodeLogicProps({ sessionId, query, cachedResults }: SessionDataL
         cachedResults: cachedResults || undefined,
     }
     return dataNodeLogicProps
+}
+
+function getTraceQueryDateRange(dateRange: SessionDateRange): TraceQuery['dateRange'] {
+    if (!dateRange?.dateFrom && !dateRange?.dateTo) {
+        return undefined
+    }
+
+    return {
+        date_from: dateRange.dateFrom || undefined,
+        date_to: dateRange.dateTo || undefined,
+    }
 }
 
 // Maps a clicked tool/error pill to the trace event it represents so the drawer
@@ -82,7 +95,7 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
     connect((props: SessionDataLogicProps) => ({
         values: [
             aiObservabilitySessionLogic,
-            ['sessionId'],
+            ['sessionId', 'dateRange'],
             dataNodeLogic(getDataNodeLogicProps(props)),
             ['response', 'responseLoading', 'responseError', 'canLoadNextData', 'hasMoreData', 'nextDataLoading'],
             maxGlobalLogic,
@@ -274,10 +287,12 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     return
                 }
                 inFlightTraceFetches.add(traceId)
+                const dateRange = getTraceQueryDateRange(values.dateRange)
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
                     includeSentiment: true,
+                    dateRange,
                 }
                 try {
                     const response = await api.query(traceQuery)
@@ -337,9 +352,11 @@ export const aiObservabilitySessionDataLogic = kea<aiObservabilitySessionDataLog
                     // First fetch the full trace with all events (session query only has direct children)
                     let fullTrace: LLMTrace | undefined = values.fullTraces[traceId]
                     if (!fullTrace) {
+                        const dateRange = getTraceQueryDateRange(values.dateRange)
                         const traceQuery: TraceQuery = {
                             kind: NodeKind.TraceQuery,
                             traceId,
+                            dateRange,
                         }
                         const traceResponse = await api.query(traceQuery)
                         if (traceResponse.results && traceResponse.results[0]) {
