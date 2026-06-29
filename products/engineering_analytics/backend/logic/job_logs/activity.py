@@ -56,6 +56,10 @@ def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, s
 @activity.defn
 async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str, Any]:
     log = logger.bind(job_id=inputs.job_id, repo=inputs.repo, team_id=inputs.team_id)
+    if not settings.OTLP_LOGS_INGEST_ENDPOINT:
+        # No Logs sink configured: don't fetch (wastes the egress budget) and don't mark the job done
+        # (a no-op emit would never retry). Raise so Temporal retries once the endpoint is set.
+        raise ApplicationError("Logs export endpoint not configured", type="LogsExportDisabled")
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)

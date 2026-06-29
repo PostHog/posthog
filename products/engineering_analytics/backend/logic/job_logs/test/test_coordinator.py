@@ -8,6 +8,10 @@ class TestGithubSourceParams:
         job_inputs = {"auth_method": {"github_integration_id": "42"}, "repository": "PostHog/posthog"}
         assert _github_source_params(job_inputs) == (42, "PostHog/posthog")
 
+    def test_extracts_from_flat_auth_shape(self):
+        job_inputs = {"auth_method": "oauth", "github_integration_id": "42", "repository": "PostHog/posthog"}
+        assert _github_source_params(job_inputs) == (42, "PostHog/posthog")
+
     @parameterized.expand(
         [
             ("auth_method_not_dict", {"auth_method": "oauth", "repository": "PostHog/posthog"}),

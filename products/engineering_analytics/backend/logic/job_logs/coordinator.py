@@ -77,7 +77,10 @@ def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] 
     job_inputs = job_inputs or {}
     auth_method = job_inputs.get("auth_method")
     auth = auth_method if isinstance(auth_method, dict) else {}
-    integration_id = auth.get("github_integration_id")
+    # Accept both source-config shapes: nested ({"auth_method": {"github_integration_id": ...}}) and
+    # flat ({"auth_method": "oauth", "github_integration_id": ...}). The isinstance guard keeps a
+    # non-dict auth_method from crashing; the fallback reads the flat top-level id.
+    integration_id = auth.get("github_integration_id") or job_inputs.get("github_integration_id")
     repo = job_inputs.get("repository")
     if not integration_id or not isinstance(repo, str) or not _is_safe_github_repo_path(repo):
         return None
