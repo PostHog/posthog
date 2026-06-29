@@ -4,6 +4,8 @@ export interface RepositoryConfig {
     integrationId?: number
     /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
     repository?: string
+    /** Git branch the run checks out; defaults to the repo's default branch when unset. */
+    branch?: string
 }
 
 export enum OriginProduct {
