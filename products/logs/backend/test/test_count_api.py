@@ -3,11 +3,14 @@ import json
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 
@@ -76,6 +79,7 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
     def test_count_search_term_matches_body_text(self):
         response = self._count({"dateRange": _FIXTURE_WINDOW, "searchTerm": "connection refused"})
         self.assertEqual(response["count"], 1)
+        self.assertFalse(response["incomplete"])
 
     @freeze_time("2025-12-18T12:00:00Z")
     def test_count_defaults_date_range_to_last_hour(self):
@@ -118,3 +122,23 @@ class TestCountApi(ClickhouseTestMixin, APIBaseTest):
 
         sparkline_sum = sum(bucket["count"] for bucket in sparkline_response.json())
         self.assertEqual(count_result["count"], sparkline_sum)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut()),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded()),
+            ("too_many_bytes", CHQueryErrorTooManyBytes("too many bytes", code=307, code_name="too_many_bytes")),
+        ]
+    )
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_count_degrades_gracefully_when_budget_exceeded(self, _name, raised_error):
+        # A scoped count over a busy service can blow the execution-time/bytes budget; the tool
+        # must return a structured "incomplete" answer rather than an opaque 500.
+        with patch(
+            "products.logs.backend.count_query_runner.execute_hogql_query",
+            side_effect=raised_error,
+        ):
+            response = self._count({"dateRange": _FIXTURE_WINDOW, "searchTerm": "anything"})
+        self.assertIsNone(response["count"])
+        self.assertTrue(response["incomplete"])
+        self.assertIn("reason", response)

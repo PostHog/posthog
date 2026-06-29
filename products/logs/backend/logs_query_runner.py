@@ -22,6 +22,8 @@ from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
 from posthog.hogql.property import get_lowercase_index_hint, operator_is_negative, property_to_expr
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
@@ -29,6 +31,23 @@ from posthog.models.filters.mixins.utils import cached_property
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
+
+
+# The count runners cap execution time and bytes read (see their `settings`) so a count fails
+# fast instead of scanning unbounded data. A heavily-filtered count over a busy service across
+# many hours — e.g. a body ILIKE — can blow that budget, and ClickHouse throws one of these.
+# The count tools catch them and degrade to a structured "window too large" response rather
+# than surfacing an opaque 500, since they're billed as the cheap pre-flight before query-logs.
+COUNT_BUDGET_EXCEEDED_ERRORS: tuple[type[Exception], ...] = (
+    ClickHouseQueryTimeOut,
+    ClickHouseQueryMemoryLimitExceeded,
+    CHQueryErrorTooManyBytes,
+)
+
+COUNT_WINDOW_TOO_LARGE_REASON = (
+    "Counting this filter set over the requested window exceeded the time/bytes budget before "
+    "completing. Narrow the time window (or add more specific filters) and retry."
+)
 
 
 LIVE_LOGS_CHECKPOINT_QUERY = parse_select(

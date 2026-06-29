@@ -451,6 +451,14 @@ class _LogsCountRangesResponseSerializer(serializers.Serializer):
             "Informational only — use each bucket's `date_from`/`date_to` for follow-up queries."
         ),
     )
+    incomplete = serializers.BooleanField(
+        help_text="True when bucketing exceeded the execution-time/bytes budget before completing. When true, "
+        "`ranges` is empty — narrow the window or add more specific filters and retry. Never an error/500.",
+    )
+    reason = serializers.CharField(
+        required=False,
+        help_text="Present only when `incomplete` is true: human-readable explanation and how to recover.",
+    )
 
 
 class _LogsServicesBodySerializer(serializers.Serializer):
@@ -532,7 +540,19 @@ class _LogsQueryResponseSerializer(serializers.Serializer):
 
 
 class _LogsCountResponseSerializer(serializers.Serializer):
-    count = serializers.IntegerField(help_text="Number of log entries matching the filters.")
+    count = serializers.IntegerField(
+        allow_null=True,
+        help_text="Number of log entries matching the filters. Null when `incomplete` is true — "
+        "the count couldn't be computed within the execution-time/bytes budget.",
+    )
+    incomplete = serializers.BooleanField(
+        help_text="True when the count exceeded the budget before completing. When true, `count` is null — "
+        "narrow the time window or add more specific filters and retry. Never an error/500.",
+    )
+    reason = serializers.CharField(
+        required=False,
+        help_text="Present only when `incomplete` is true: human-readable explanation and how to recover.",
+    )
 
 
 class _LogsSparklineBucketSerializer(serializers.Serializer):

@@ -56,6 +56,7 @@ Same shape as `query-logs`. Applied **before** bucketing.
 
 - `ranges` — buckets ordered by `date_from` ascending. **Empty buckets are omitted** — infer gaps by comparing each bucket's `date_to` to the next bucket's `date_from`.
 - `interval` — short-form duration of the chosen bucket width (`1s` / `5m` / `1h` / `1d`). Informational only — for follow-up queries, use the per-bucket `date_from`/`date_to`.
+- `incomplete` — `true` when bucketing exceeded the time/bytes budget before completing (common for a `searchTerm` over a busy service across many hours). When true, `ranges` is empty. This is **not** an error — narrow the window or add more specific filters and call again. A `reason` string explains the recovery step.
 
 # Examples
 

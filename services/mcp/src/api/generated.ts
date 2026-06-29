@@ -53273,6 +53273,10 @@ export namespace Schemas {
       ranges: _LogsCountRangeBucket[];
       /** Short-form duration of the chosen bucket width (e.g. "1h", "5m", "30s", "1d"). Informational only — use each bucket's `date_from`/`date_to` for follow-up queries. */
       interval: string;
+      /** True when bucketing exceeded the execution-time/bytes budget before completing. When true, `ranges` is empty — narrow the window or add more specific filters and retry. Never an error/500. */
+      incomplete: boolean;
+      /** Present only when `incomplete` is true: human-readable explanation and how to recover. */
+      reason?: string;
     }
 
     export interface _LogsCountRequest {
@@ -53281,8 +53285,15 @@ export namespace Schemas {
     }
 
     export interface _LogsCountResponse {
-      /** Number of log entries matching the filters. */
-      count: number;
+      /**
+         * Number of log entries matching the filters. Null when `incomplete` is true — the count couldn't be computed within the execution-time/bytes budget.
+         * @nullable
+         */
+      count: number | null;
+      /** True when the count exceeded the budget before completing. When true, `count` is null — narrow the time window or add more specific filters and retry. Never an error/500. */
+      incomplete: boolean;
+      /** Present only when `incomplete` is true: human-readable explanation and how to recover. */
+      reason?: string;
     }
 
     export interface _LogsFacetValuesBody {

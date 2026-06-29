@@ -320,6 +320,8 @@ tools:
         response:
             include:
                 - count
+                - incomplete
+                - reason
     logs-count-ranges:
         operation: logs_count_ranges_create
         enabled: true
@@ -335,6 +337,8 @@ tools:
             include:
                 - ranges
                 - interval
+                - incomplete
+                - reason
     logs-explain-log-with-ai-create:
         operation: logs_explainLogWithAI_create
         enabled: false

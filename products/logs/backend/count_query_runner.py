@@ -10,7 +10,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import (
+    COUNT_BUDGET_EXCEEDED_ERRORS,
+    COUNT_WINDOW_TOO_LARGE_REASON,
+    LogsQueryResponse,
+    LogsQueryRunnerMixin,
+)
 
 
 class CountQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMixin):
@@ -30,18 +35,23 @@ class CountQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerM
         )
 
     def _calculate(self) -> LogsQueryResponse:
-        response = execute_hogql_query(
-            query_type="LogsQuery",
-            query=self.to_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            settings=self.settings,
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="LogsQuery",
+                query=self.to_query(),
+                modifiers=self.modifiers,
+                team=self.team,
+                workload=Workload.LOGS,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                settings=self.settings,
+            )
+        except COUNT_BUDGET_EXCEEDED_ERRORS:
+            return LogsQueryResponse(
+                results={"count": None, "incomplete": True, "reason": COUNT_WINDOW_TOO_LARGE_REASON}
+            )
         count = response.results[0][0] if response.results else 0
-        return LogsQueryResponse(results={"count": count})
+        return LogsQueryResponse(results={"count": count, "incomplete": False})
 
     def to_query(self) -> ast.SelectQuery:
         # LogsFilterBuilder.where() filters by toStartOfDay(time_bucket) which is

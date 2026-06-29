@@ -478,7 +478,7 @@ const logsCount = (): ToolBase<typeof LogsCountSchema, Schemas._LogsCountRespons
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['count']) as typeof result
+        const filtered = pickResponseFields(result, ['count', 'incomplete', 'reason']) as typeof result
         return filtered
     },
 })
@@ -499,7 +499,7 @@ const logsCountRanges = (): ToolBase<typeof LogsCountRangesSchema, Schemas._Logs
             path: `/api/projects/${encodeURIComponent(String(projectId))}/logs/count-ranges/`,
             body,
         })
-        const filtered = pickResponseFields(result, ['ranges', 'interval']) as typeof result
+        const filtered = pickResponseFields(result, ['ranges', 'interval', 'incomplete', 'reason']) as typeof result
         return filtered
     },
 })

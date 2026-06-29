@@ -11,7 +11,12 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
-from products.logs.backend.logs_query_runner import LogsQueryResponse, LogsQueryRunnerMixin
+from products.logs.backend.logs_query_runner import (
+    COUNT_BUDGET_EXCEEDED_ERRORS,
+    COUNT_WINDOW_TOO_LARGE_REASON,
+    LogsQueryResponse,
+    LogsQueryRunnerMixin,
+)
 
 DEFAULT_TARGET_BUCKETS = 10
 MAX_TARGET_BUCKETS = 100
@@ -47,16 +52,26 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
         )
 
     def _calculate(self) -> LogsQueryResponse:
-        response = execute_hogql_query(
-            query_type="LogsQuery",
-            query=self.to_query(),
-            modifiers=self.modifiers,
-            team=self.team,
-            workload=Workload.LOGS,
-            timings=self.timings,
-            limit_context=self.limit_context,
-            settings=self.settings,
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="LogsQuery",
+                query=self.to_query(),
+                modifiers=self.modifiers,
+                team=self.team,
+                workload=Workload.LOGS,
+                timings=self.timings,
+                limit_context=self.limit_context,
+                settings=self.settings,
+            )
+        except COUNT_BUDGET_EXCEEDED_ERRORS:
+            return LogsQueryResponse(
+                results={
+                    "ranges": [],
+                    "interval": self._interval_short(),
+                    "incomplete": True,
+                    "reason": COUNT_WINDOW_TOO_LARGE_REASON,
+                }
+            )
 
         ranges: list[dict] = []
         for row in response.results:
@@ -75,7 +90,7 @@ class CountRangesQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryR
             )
 
         return LogsQueryResponse(
-            results={"ranges": ranges, "interval": self._interval_short()},
+            results={"ranges": ranges, "interval": self._interval_short(), "incomplete": False},
         )
 
     def _interval_short(self) -> str:

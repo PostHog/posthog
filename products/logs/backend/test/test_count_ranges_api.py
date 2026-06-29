@@ -5,11 +5,14 @@ from datetime import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
+from posthog.errors import CHQueryErrorTooManyBytes
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 _FIXTURE_WINDOW = {"date_from": "2025-12-14T00:00:00Z", "date_to": "2025-12-19T00:00:00Z"}
 _DENSE_DAY = {"date_from": "2025-12-16T00:00:00Z", "date_to": "2025-12-17T00:00:00Z"}
@@ -48,11 +51,33 @@ class TestCountRangesApi(ClickhouseTestMixin, APIBaseTest):
         # the picker's "round" interval list).
         response = self._ranges({"dateRange": _FIXTURE_WINDOW})
         self.assertEqual(response["interval"], "12h")
+        self.assertFalse(response["incomplete"])
         self.assertGreater(len(response["ranges"]), 0)
         self.assertLessEqual(len(response["ranges"]), 10)
         for bucket in response["ranges"]:
             self.assertGreater(bucket["count"], 0)
             self.assertRegex(response["interval"], _INTERVAL_RE)
+
+    @parameterized.expand(
+        [
+            ("timeout", ClickHouseQueryTimeOut()),
+            ("memory_limit", ClickHouseQueryMemoryLimitExceeded()),
+            ("too_many_bytes", CHQueryErrorTooManyBytes("too many bytes", code=307, code_name="too_many_bytes")),
+        ]
+    )
+    @freeze_time("2025-12-18T12:00:00Z")
+    def test_ranges_degrade_gracefully_when_budget_exceeded(self, _name, raised_error):
+        # A scoped bucketed count over a busy service can blow the execution-time/bytes budget;
+        # the tool must return a structured "incomplete" answer rather than an opaque 500.
+        with patch(
+            "products.logs.backend.count_ranges_query_runner.execute_hogql_query",
+            side_effect=raised_error,
+        ):
+            response = self._ranges({"dateRange": _FIXTURE_WINDOW, "searchTerm": "anything"})
+        self.assertEqual(response["ranges"], [])
+        self.assertTrue(response["incomplete"])
+        self.assertIn("reason", response)
+        self.assertRegex(response["interval"], _INTERVAL_RE)
 
     @parameterized.expand(
         [

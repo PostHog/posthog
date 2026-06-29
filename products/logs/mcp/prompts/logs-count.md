@@ -35,6 +35,15 @@ Full-text search across log bodies.
 
 Property filters to narrow results. Same format as `query-logs` filters.
 
+# Response
+
+```json
+{ "count": 1011, "incomplete": false }
+```
+
+- `count` — number of matching log entries. `null` when `incomplete` is true.
+- `incomplete` — `true` when the count exceeded the time/bytes budget before completing (common for a `searchTerm` over a busy service across many hours). This is **not** an error — narrow the time window or add more specific filters and call again. A `reason` string explains the recovery step.
+
 # Examples
 
 ## Count errors in a service over the last day
