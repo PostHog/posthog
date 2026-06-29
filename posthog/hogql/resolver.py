@@ -120,7 +120,8 @@ _POSTGRES_FAMILY: frozenset[HogQLDialect] = frozenset({"postgres", "duckdb"})
 # isn't Postgres-wire compatible for the other gated constructs. `hogql` is included so the
 # canonical round-trip (the re-printed `self.hogql`) doesn't reject a query the target dialect
 # accepts.
-_PIVOT_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | frozenset({"snowflake", "hogql"})
+_PIVOT_ONLY_DIALECTS: frozenset[HogQLDialect] = frozenset({"snowflake", "hogql"})
+_PIVOT_DIALECTS: frozenset[HogQLDialect] = _POSTGRES_FAMILY | _PIVOT_ONLY_DIALECTS
 
 
 def _select_from_is_pivot(select_from: "ast.JoinExpr | None") -> bool:
