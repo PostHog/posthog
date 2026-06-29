@@ -820,10 +820,18 @@ class TestRedshiftSourceNonRetryableErrors:
         [
             "Source column type changed",
             "SchemaColumnTypeChangedException: Source column type changed: 'id' has values that no longer fit",
-            'connection failed: connection to server at "10.0.0.1", port 5439 failed: server does not support SSL, but SSL was required',
         ],
     )
     def test_widened_integer_column_errors_are_non_retryable(self, error_msg):
+        non_retryable = RedshiftSource().get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable
+
+    def test_ssl_server_error_is_non_retryable(self):
+        error_msg = (
+            'connection failed: connection to server at "10.0.0.1", port 5439 failed: '
+            "server does not support SSL, but SSL was required"
+        )
         non_retryable = RedshiftSource().get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable
