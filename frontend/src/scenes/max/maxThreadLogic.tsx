@@ -2491,10 +2491,14 @@ export async function onEventImplementation(
                 .find(([m]) => isHumanMessage(m))?.[1]
 
             const lastHumanMessage = lastHumanIndex != null ? values.threadRaw[lastHumanIndex] : null
+            // Match the streamed human echo to the provisional bubble by trace_id when the server
+            // provides one, otherwise fall back to content so an echo without a trace_id replaces
+            // the provisional message instead of appending a duplicate.
             const shouldReplace =
                 isHumanMessage(lastHumanMessage) &&
-                parsedResponse.trace_id &&
-                lastHumanMessage.trace_id === parsedResponse.trace_id
+                (parsedResponse.trace_id
+                    ? lastHumanMessage.trace_id === parsedResponse.trace_id
+                    : lastHumanMessage.content === parsedResponse.content)
 
             if (lastHumanIndex != null && shouldReplace) {
                 actions.replaceMessage(lastHumanIndex, {

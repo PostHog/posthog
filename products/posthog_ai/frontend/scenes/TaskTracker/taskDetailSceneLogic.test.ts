@@ -265,6 +265,42 @@ describe('taskDetailSceneLogic', () => {
         })
     })
 
+    describe('unified loading selectors', () => {
+        it('reports the header + run log as pending while task and runs are still loading', () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+
+            // afterMount fires loadTask + loadTaskRuns synchronously; nothing has resolved yet.
+            expect(logic.values.isTaskPending).toBe(true)
+            expect(logic.values.isRunPending).toBe(true)
+            expect(logic.values.isHeaderLoading).toBe(true)
+            logic.unmount()
+        })
+
+        it('clears pending once the task and its runs resolve', async () => {
+            global.fetch = createFetchMock({ runsList: [createMockRun('run-1', TaskRunStatus.COMPLETED)] })
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.isTaskPending).toBe(false)
+            expect(logic.values.isRunPending).toBe(false)
+            expect(logic.values.isHeaderLoading).toBe(false)
+            logic.unmount()
+        })
+
+        it('resolves immediately for a task that has never run (no perpetual skeleton)', async () => {
+            const logic = taskDetailSceneLogic({ taskId: 'task-123' })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.runs).toEqual([])
+            expect(logic.values.isRunPending).toBe(false)
+            expect(logic.values.isHeaderLoading).toBe(false)
+            logic.unmount()
+        })
+    })
+
     describe('loadTaskSuccess updates tasksLogic', () => {
         it('updates sidebar tasks list when task loads', async () => {
             const tasksLogicInstance = tasksLogic()

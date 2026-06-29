@@ -119,6 +119,7 @@ jobs:
                         - 'posthog/git.py'
                         - 'posthog/llm/**'
                         - 'posthog/person_db_router.py'
+                        - 'posthog/persons_db.py'
                         - 'posthog/redis.py'
                         - 'posthog/event_usage.py'
                         - 'posthog/products.py'

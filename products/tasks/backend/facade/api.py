@@ -514,16 +514,24 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
-    """Ids of runs stuck in QUEUED with ``updated_at`` older than the cutoff.
+def get_stale_queued_task_run_ids(
+    older_than: timedelta,
+    limit: int,
+    *,
+    created_hard_cap: timedelta | None = None,
+    hard_cap_min_queued: timedelta = timedelta(hours=1),
+) -> list[UUID]:
+    """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
-    cutoff = django_timezone.now() - older_than
+    now = django_timezone.now()
+    stale = Q(updated_at__lt=now - older_than)
+    if created_hard_cap is not None:
+        stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     return list(
-        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
-        )
+        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+        .filter(stale)
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
     )
@@ -1248,6 +1256,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_agent_turn_failed,
+    )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -1315,6 +1326,8 @@ def update_task_run(
     update_automation_run_result(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if new_status == TaskRun.Status.FAILED:
+            observe_agent_turn_failed(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -1433,8 +1446,9 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
-) -> dict[str, str | int]:
-    return {
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
         "id": artifact_id,
         "name": name,
         "type": artifact_type,
@@ -1444,6 +1458,9 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
 
 
 def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storage_path: str) -> dict | None:
@@ -1494,6 +1511,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                metadata=artifact.get("metadata"),
             )
         )
         logger.info(
@@ -1550,19 +1568,20 @@ def prepare_task_run_artifact_uploads(
         if not presigned_post:
             return None, False
 
-        prepared.append(
-            {
-                "id": artifact_id,
-                "name": safe_name,
-                "type": artifact["type"],
-                "source": artifact.get("source") or "",
-                "size": artifact["size"],
-                "content_type": content_type,
-                "storage_path": storage_path,
-                "expires_in": upload_expiration_seconds,
-                "presigned_post": presigned_post,
-            }
-        )
+        prepared_artifact = {
+            "id": artifact_id,
+            "name": safe_name,
+            "type": artifact["type"],
+            "source": artifact.get("source") or "",
+            "size": artifact["size"],
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "expires_in": upload_expiration_seconds,
+            "presigned_post": presigned_post,
+        }
+        if metadata := artifact.get("metadata"):
+            prepared_artifact["metadata"] = metadata
+        prepared.append(prepared_artifact)
     return prepared, True
 
 
@@ -1628,6 +1647,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
         finalized_entries.append(entry)
@@ -2808,6 +2828,7 @@ def prepare_task_staged_artifacts(
                 storage_path=storage_path,
                 expires_in=upload_expiration_seconds,
                 presigned_post=presigned_post,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -2875,6 +2896,7 @@ def finalize_task_staged_artifacts(
                 size=content_length,
                 content_type=content_type,
                 storage_path=storage_path,
+                metadata=artifact.get("metadata"),
             )
         )
 

@@ -3,9 +3,12 @@
 Default posture: leave the agent model unset (`None`) so the sandbox agent server uses its
 built-in default. The flag lets scouts be routed onto other models — for no-deploy A/B/n trials of
 new models (open-weights GLM, a newer GPT, …) against the default on the real scout workload. The
-resolved string is passed straight through `CustomPromptSandboxContext.model` → `Task.create_and_run`
-→ the agent server, and per-run model is tagged on each `$ai_generation` so runs are comparable by
-model in LLM analytics.
+resolved model is passed — together with the runtime adapter that can serve it — straight through
+`CustomPromptSandboxContext` → `Task.create_and_run` → the agent server, and per-run model is tagged
+on each `$ai_generation` so runs are comparable by model in LLM analytics. The runtime adapter must
+travel with the model: the agent server only knows two runtimes (`claude` → Anthropic, `codex` →
+OpenAI) and derives the provider from the runtime, so a model id handed over with no runtime can't be
+routed and silently falls back to the server default.
 
 Everything is driven by the flag's JSON payload, keyed by team → scout → model, so a single payload
 configures any number of teams (team 2, internal side projects, …) with a different model mix each —
@@ -30,7 +33,9 @@ distinct_id) is the single source of truth; a team with no entry runs entirely o
 - `scouts` — `{skill_name: {model_id: fraction}}`. Each value maps a model id to the fraction of
   that scout's runs (0..1) it serves. `signals-scout-team-self-driving` above runs 20% on glm-5.2,
   20% on gpt-5.5, and the remaining 60% on the agent-server default. `"*"` is the fallback
-  distribution for scouts not listed explicitly.
+  distribution for scouts not listed explicitly. A model's value may instead be an object
+  `{"fraction": 0.2, "runtime_adapter": "codex"}` to pin its runtime explicitly; with the bare-number
+  form the runtime is inferred from the id (`claude-*` → `claude`, everything else → `codex`).
 - The reserved `"default"` key inside a scout's map names the model the *remaining* (unallocated)
   runs use instead of the agent-server default — its value is a model-id string, not a fraction.
 
@@ -46,6 +51,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+from dataclasses import dataclass
 
 import posthoganalytics
 
@@ -75,6 +81,48 @@ WILDCARD = "*"
 # of the agent-server default). Its value is a model-id string, not a fraction — a model id of
 # literally "default" is not addressable, which is fine (real ids look like `@cf/...`, `gpt-5.5`).
 DEFAULT_MODEL_KEY = "default"
+
+# Keys recognized in the object form of a model entry (the alternative to a bare fraction):
+# `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex"}`.
+FRACTION_KEY = "fraction"
+RUNTIME_ADAPTER_KEY = "runtime_adapter"
+
+# The two agent runtimes the agent server exposes. A model id alone can't be routed — the server
+# derives its provider (Anthropic / OpenAI) from the runtime — so every routed model also carries a
+# runtime, either pinned in the payload or inferred from the id by `_infer_runtime_adapter`.
+RUNTIME_ADAPTER_CLAUDE = "claude"
+RUNTIME_ADAPTER_CODEX = "codex"
+
+# The runtimes a payload may pin explicitly. An unknown value (typo, unsupported runtime) is dropped
+# back to id inference rather than threaded onward: it would otherwise be written into the run state
+# and blow up downstream when cast to the `RuntimeAdapter` enum — failing the run the gate must never
+# be able to break.
+_KNOWN_RUNTIME_ADAPTERS = frozenset({RUNTIME_ADAPTER_CLAUDE, RUNTIME_ADAPTER_CODEX})
+
+
+@dataclass(frozen=True)
+class ScoutModel:
+    """The agent-model override resolved for one scout run.
+
+    `model` is the model id; `None` keeps the agent-server default (and `runtime_adapter` is then
+    also `None`). When a model is chosen, `runtime_adapter` names the agent runtime that can serve it
+    — it must travel with the model because the agent server derives the LLM provider from the
+    runtime, and a model id handed over with no runtime can't be routed (it silently falls back to
+    the server default, which is the bug this resolution exists to avoid).
+    """
+
+    model: str | None
+    runtime_adapter: str | None
+
+
+def _infer_runtime_adapter(model_id: str) -> str:
+    """The agent runtime that can serve `model_id`, inferred from the id.
+
+    Anthropic ids (`claude-*`, `bedrock/...anthropic.claude-*`) route to the `claude` runtime;
+    everything else — GPT ids and the open-weights `@cf/...` GLM ids, all OpenAI-compatible — routes
+    to the `codex` runtime. An explicit `runtime_adapter` in the payload overrides this.
+    """
+    return RUNTIME_ADAPTER_CLAUDE if "claude" in model_id.lower() else RUNTIME_ADAPTER_CODEX
 
 
 def _read_payload() -> dict | None:
@@ -124,34 +172,64 @@ def _team_scouts(payload: object, team_id: int, canonical_team_id: int) -> dict:
     return scouts if isinstance(scouts, dict) else {}
 
 
-def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], str | None]:
-    """The `(distribution, default_model)` for one scout from a team's scout map.
+def _parse_model_spec(spec: object) -> tuple[float | None, str | None]:
+    """A `(fraction, runtime_adapter)` from one model entry's value.
+
+    A model entry's value is either a bare number (its fraction; runtime inferred from the id) or an
+    object `{"fraction": <0..1>, "runtime_adapter": "claude"|"codex"}` that pins the runtime
+    explicitly. Returns `(None, ...)` for a malformed fraction (not a positive number, or a bool) so
+    the caller drops the entry rather than failing the run. A `runtime_adapter` that isn't one of the
+    known runtimes (non-string, typo, unsupported) is ignored (treated as unset → inferred from the
+    id), so a payload typo can't route the run onto a runtime the agent server can't honor.
+    """
+    if isinstance(spec, dict):
+        weight = spec.get(FRACTION_KEY)
+        adapter_value = spec.get(RUNTIME_ADAPTER_KEY)
+        # `isinstance` first: an unhashable value (JSON array/object) would raise from the set
+        # membership test, and that escapes `_read_payload`'s guard and would fail the run.
+        adapter = adapter_value if isinstance(adapter_value, str) and adapter_value in _KNOWN_RUNTIME_ADAPTERS else None
+    else:
+        weight = spec
+        adapter = None
+    if not isinstance(weight, int | float) or isinstance(weight, bool) or weight <= 0:
+        return None, adapter
+    return min(1.0, float(weight)), adapter
+
+
+def _scout_config(scouts: dict, skill_name: str) -> tuple[dict[str, float], dict[str, str], str | None]:
+    """The `(distribution, adapters, default_model)` for one scout from a team's scout map.
 
     Looks up `scouts[skill_name]`, falling back to the `"*"` scout wildcard. The reserved `"default"`
     string key is pulled out as `default_model` (the model for the unallocated remainder; `None` =
-    agent-server default); every other entry is a `model_id -> fraction` weight. Defensive — a
-    missing/non-object scout entry, or a malformed weight (not a positive number, or a bool) is
-    dropped rather than failing the run, so a typo can't crash a scout or route it unintended.
+    agent-server default); every other entry is a `model_id -> fraction | {fraction, runtime_adapter}`
+    weight. `adapters` carries only the model ids whose runtime was pinned explicitly in the payload;
+    the rest are inferred from the id at resolve time. Defensive — a missing/non-object scout entry,
+    or a malformed weight (not a positive number, or a bool) is dropped rather than failing the run,
+    so a typo can't crash a scout or route it unintended.
     """
     raw = scouts.get(skill_name)
     if not isinstance(raw, dict):
         raw = scouts.get(WILDCARD)
     if not isinstance(raw, dict):
-        return {}, None
+        return {}, {}, None
 
     default_value = raw.get(DEFAULT_MODEL_KEY)
     default_model = default_value if isinstance(default_value, str) and default_value else None
 
     distribution: dict[str, float] = {}
-    for model_id, weight in raw.items():
+    adapters: dict[str, str] = {}
+    for model_id, spec in raw.items():
         if model_id == DEFAULT_MODEL_KEY:
             continue
         if not isinstance(model_id, str) or not model_id:
             continue
-        if not isinstance(weight, int | float) or isinstance(weight, bool) or weight <= 0:
+        fraction, adapter = _parse_model_spec(spec)
+        if fraction is None:
             continue
-        distribution[model_id] = min(1.0, float(weight))
-    return distribution, default_model
+        distribution[model_id] = fraction
+        if adapter is not None:
+            adapters[model_id] = adapter
+    return distribution, adapters, default_model
 
 
 def _bucket(run_id: str) -> float:
@@ -181,16 +259,20 @@ def _select_model(run_id: str, distribution: dict[str, float], default_model: st
     return default_model
 
 
-def resolve_scout_model(team: Team, skill_name: str, run_id: str) -> str | None:
-    """The agent-model override for one scout run, or `None` to keep the agent-server default.
+def resolve_scout_model(team: Team, skill_name: str, run_id: str) -> ScoutModel:
+    """The agent-model override for one scout run, with the runtime that can serve it.
 
     Resolves this team's scout map from the `scouts-model-selection` payload, then this scout's
-    per-run model from its distribution. Returns `None` (agent-server default) when the team has no
-    entry, the scout has no distribution, or the run falls in the unallocated remainder with no
-    named `default`. A payload read failure is swallowed and falls back to the default model —
-    gating the model must never be able to fail a scout run.
+    per-run model from its distribution, then the runtime adapter for the chosen model (pinned in the
+    payload, else inferred from the id). Returns `ScoutModel(None, None)` (agent-server default) when
+    the team has no entry, the scout has no distribution, or the run falls in the unallocated
+    remainder with no named `default`. A payload read failure is swallowed and falls back to the
+    default model — gating the model must never be able to fail a scout run.
     """
     payload = _read_payload()
     scouts = _team_scouts(payload, team.id, team.parent_team_id or team.id)
-    distribution, default_model = _scout_config(scouts, skill_name)
-    return _select_model(run_id, distribution, default_model)
+    distribution, adapters, default_model = _scout_config(scouts, skill_name)
+    model = _select_model(run_id, distribution, default_model)
+    if model is None:
+        return ScoutModel(model=None, runtime_adapter=None)
+    return ScoutModel(model=model, runtime_adapter=adapters.get(model) or _infer_runtime_adapter(model))

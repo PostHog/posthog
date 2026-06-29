@@ -32,7 +32,7 @@ _HEADER = """
         author_handle, author_avatar_url, is_bot,
         repo_owner, repo_name, head_sha
     FROM __PR_SOURCE__ AS pr
-    WHERE number = {pr_number} __REPO_FILTER__
+    WHERE number = {pr_number} AND repo_owner = {repo_owner} AND repo_name = {repo_name}
     ORDER BY created_at DESC
     LIMIT 1
 """
@@ -49,17 +49,15 @@ def query_pr_lifecycle(
     *,
     curated: CuratedGitHubSource,
     pr_number: int,
-    repo_owner: str | None,
-    repo_name: str | None,
+    repo_owner: str,
+    repo_name: str,
 ) -> PRLifecycle | None:
-    placeholders: dict[str, ast.Expr] = {"pr_number": ast.Constant(value=pr_number)}
-    repo_filter = ""
-    if repo_owner and repo_name:
-        repo_filter = "AND repo_owner = {repo_owner} AND repo_name = {repo_name}"
-        placeholders["repo_owner"] = ast.Constant(value=repo_owner)
-        placeholders["repo_name"] = ast.Constant(value=repo_name)
-
-    header_sql = _HEADER.replace("__PR_SOURCE__", curated.pr_source()).replace("__REPO_FILTER__", repo_filter)
+    placeholders: dict[str, ast.Expr] = {
+        "pr_number": ast.Constant(value=pr_number),
+        "repo_owner": ast.Constant(value=repo_owner),
+        "repo_name": ast.Constant(value=repo_name),
+    }
+    header_sql = _HEADER.replace("__PR_SOURCE__", curated.pr_source())
     header = curated.run(
         header_sql,
         query_type="engineering_analytics.pr_lifecycle.header",
