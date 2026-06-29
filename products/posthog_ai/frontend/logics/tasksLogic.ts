@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { PaginatedResponse } from 'lib/api'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { userLogic } from 'scenes/userLogic'
 
@@ -26,9 +26,10 @@ export const tasksLogic = kea<tasksLogicType>([
         updateTask: (task: Task) => ({ task }),
         setSearchQuery: (search: string) => ({ search }),
         setAssigneeFilter: (assigneeFilter: TaskAssigneeFilter) => ({ assigneeFilter }),
+        setTasksNext: (next: string | null) => ({ next }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         tasks: [
             [] as Task[],
             {
@@ -37,7 +38,19 @@ export const tasksLogic = kea<tasksLogicType>([
                 loadTasks: async (params: TaskListParams = {}, breakpoint) => {
                     const response = await api.tasks.list(params)
                     breakpoint()
+                    actions.setTasksNext(response.next)
                     return response.results
+                },
+                // Appends the next page for infinite scroll. The cursor is the absolute `next`
+                // URL from the previous response, so it carries the active filters forward.
+                loadMoreTasks: async (_, breakpoint) => {
+                    if (!values.tasksNext) {
+                        return values.tasks
+                    }
+                    const response = await api.get<PaginatedResponse<Task>>(values.tasksNext)
+                    breakpoint()
+                    actions.setTasksNext(response.next)
+                    return [...values.tasks, ...response.results]
                 },
                 createTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const newTask = await api.tasks.create(data)
@@ -90,6 +103,25 @@ export const tasksLogic = kea<tasksLogicType>([
             {
                 loadTasks: () => null,
                 loadTasksFailure: (_, { error, errorObject }) => loadErrorMessage(error, errorObject),
+            },
+        ],
+        // Cursor for the next page; null once the list is exhausted. Reset on every fresh load so a
+        // filter/search change starts from page one.
+        tasksNext: [
+            null as string | null,
+            {
+                loadTasks: () => null,
+                setTasksNext: (_, { next }) => next,
+            },
+        ],
+        // Distinct from `tasksLoading` (which also flips for `loadMoreTasks`) so the infinite-scroll
+        // trigger can guard against firing again while a page is already in flight.
+        tasksLoadingMore: [
+            false,
+            {
+                loadMoreTasks: () => true,
+                loadMoreTasksSuccess: () => false,
+                loadMoreTasksFailure: () => false,
             },
         ],
     }),
