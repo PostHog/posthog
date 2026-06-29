@@ -1510,6 +1510,35 @@ condition becomes "skip unless the head moved **or** new comments arrived" the m
   no-publish run, or a not-yet-published head), the pipeline reuses `chunk_set` / `chunk_analysis` /
   `perspective_result` and only re-derives dedup + validation; a **new** head re-snapshots and re-reviews.
 
+**🔁 How a repeated run actually spends — we investigate-then-filter, not filter-then-investigate (clarified 2026-06-29).**
+The pipeline order is **search → combine → scope-clean → dedup → validate** (`workflow.py` stages 4→7): the
+perspective agents investigate each chunk in full **first**, and de-duplication is a **post-hoc filter**, not a
+pre-investigation skip. The only thing ahead of the dedup LLM call is `_select_dedup_candidates`, a deterministic
+**positional** pre-filter that just decides which already-found findings are worth sending to the dedup LLM — it
+does not reduce the search work. Consequences for cost on a re-run:
+
+- **The search agents _do_ see prior PR comments — as soft context, not a hard skip.** `build_chunk_prompt_context`
+  injects `{{PR_COMMENTS}}` into both the **review** and **chunk-analysis** prompts (`<pr_comments_for_chunk>`), and
+  Step 3 of each prompt instructs the agent to read all comments on the chunk's files and list issues already
+  identified / the author already agreed to fix. But it's **only inline review comments** that survive
+  `fetch_pr_comments` (no general/issue comments; test + filtered paths dropped; `id`/`created_at` stripped), it's
+  scoped to that chunk's files, and it is **prompt guidance** — the authoritative collapse is still the downstream
+  dedup, which likewise matches **only against PR comments**.
+- **The search agents do _not_ see our own sub-threshold history.** Sub-`should_fix` (`CONSIDER`) and
+  `is_valid=False` findings live **only as `issue_finding` / `validation_verdict` DB rows** — never posted (publish
+  filters to `is_valid=True ∩ {MUST_FIX, SHOULD_FIX} ∩ on-diff`), so never in `PR_COMMENTS`, and **neither the search
+  agents nor the dedup read DB findings**. So they are **re-discovered _and_ re-validated every turn** (real
+  sandbox $), then dropped again at publish — never reconciled. This is precisely the gap below.
+- **Where the spend lands:** a **new head** re-runs chunk/analyze/review **from scratch** (no resume) → full
+  re-investigation cost each turn; a **same head** _reuses_ chunk/analyze/review from DB working-state but still
+  **re-runs dedup + per-issue validation** (validation is the expensive repeated stage), unless the **early-exit
+  gate** short-circuits the whole turn (already-published head). So the wasted spend is concentrated in
+  re-investigating a moved head and in re-validating findings we already judged on a prior turn.
+
+The remedy is the gap's fix below: reconcile **before** re-validating/surfacing, by stable finding identity, against
+**(prior PR comments ∪ prior DB findings)** — moving the de-dup earlier and against the full prior set, not just PR
+comments after the fact.
+
 **⚠️ The sub-`should_fix` / invalid re-propose gap (raised 2026-06-26 — the key thing to fix for the loop).**
 We persist **every** post-dedup finding (all priorities incl. `CONSIDER`) as `issue_finding` rows and **every**
 verdict incl. `is_valid=False` (`_persistable_findings` has no priority filter; `persist_verdict(s)` stores all).

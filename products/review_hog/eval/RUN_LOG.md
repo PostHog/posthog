@@ -22,6 +22,26 @@ Purpose: record every end-to-end `run_review` so we can tell whether a prompt/co
 
 ---
 
+## 2026-06-29 · #66456 SHA-changed re-review (turn 2) — full re-review + fresh publish at new head ✅
+
+- **Setup:** moved #66456's head with an empty commit (`cbafae01`); a `test(backend): update query snapshots`
+  commit then landed on top, so the reviewed head was **`0d93d3ff`** (≠ the Friday `published_head_sha` `9575669d`).
+  (A first attempt stalled at chunking because ngrok was off — the Modal sandbox couldn't reach back; terminated +
+  re-ran after restart. The stalled turn left a `commit`+`pr_snapshot` for `cbafae01` but no `chunk_set`, so the
+  re-run cleanly re-investigated at `0d93d3ff` — incidentally confirming the partial-turn resume is safe.)
+- **Run:** `run_review --pr-url …/66456 --team-id 1 --user-id 1 --publish`, exit 0, report `019f0581-646e-…`.
+- **Result — gate did NOT fire; full turn ran and published at the new head:**
+  - **Temporal history** = the whole pipeline: validate → fetch → sync-skills → schema-gen → split-chunks →
+    **AnalyzeChunks** child → **ReviewPerspectives** child → combine → dedup → **ValidateIssues** child → build →
+    **publish** → completed (vs Scenario 1's validate+fetch-only early-exit).
+  - DB: `run_count` 1 → **2**, `status=idle`; `head_sha` → **`0d93d3ff`**; `published_head_sha` → **`0d93d3ff`**.
+  - GitHub: a fresh `posthog-local-dev[bot]` **COMMENTED review pinned to `commit_id=0d93d3ff`** (the head_sha pin
+    works), **+2 new inline comments** (5 → 7). **Promo NOT re-posted** — still exactly **1** "ReviewHog Alpha"
+    (`post_promo = published_head_sha is None` → False once a prior head was published; once-per-report gate holds
+    across turns). Deduped against our own Friday inline comments + the other bot's (greptile-apps[bot]).
+- **Together with the same-SHA run below, this validates both repeated-run behaviors end-to-end:** unchanged head →
+  no-op (gate); changed head → full re-review + fresh head-pinned publish, no promo, cross-reviewer dedup.
+
 ## 2026-06-29 · #66456 same-SHA re-trigger — early-exit gate validated (true no-op)
 
 - **Change under test:** new early-exit gate in `ReviewPRWorkflow` — return the report id right after fetch when
