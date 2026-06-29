@@ -76,6 +76,7 @@ the row lists both.
 | chargedesk          | HTTP                        | requests                                                        | ✅                          |
 | checkout_com        | HTTP                        | requests                                                        | ✅                          |
 | coda                | HTTP                        | requests                                                        | ✅                          |
+| coin_api            | HTTP                        | requests                                                        | ✅                          |
 | coingecko           | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap       | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools       | HTTP                        | requests                                                        | ✅                          |
@@ -351,7 +352,6 @@ doesn't conflict with concurrent PRs.
 - coassemble
 - cockroachdb
 - codefresh
-- coin_api
 - concord
 - configcat
 - constant_contact
