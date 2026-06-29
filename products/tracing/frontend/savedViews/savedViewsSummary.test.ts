@@ -41,6 +41,18 @@ describe('getTracingFiltersSummaryLines', () => {
         expect(lines).toEqual([{ label: 'Filter', value: 'http.status_code=500' }])
     })
 
+    it('includes attribute filters from every top-level group, not just the first', () => {
+        const filterGroup = {
+            type: 'AND',
+            values: [
+                { type: 'AND', values: [{ key: 'a', value: '1', type: 'span', operator: 'exact' }] },
+                { type: 'AND', values: [{ key: 'b', value: '2', type: 'span', operator: 'exact' }] },
+            ],
+        }
+        const lines = getTracingFiltersSummaryLines({ filterGroup })
+        expect(lines).toEqual([{ label: 'Filters', value: 'a=1, b=2' }])
+    })
+
     it('maps view mode and sort to readable lines', () => {
         const lines = getTracingFiltersSummaryLines({
             viewMode: 'spans',

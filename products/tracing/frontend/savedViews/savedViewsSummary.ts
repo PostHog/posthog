@@ -8,17 +8,22 @@ export interface FiltersSummaryLine {
 }
 
 function formatFilterGroupValues(filterGroup: Record<string, any> | undefined): string[] {
-    const group = filterGroup?.values?.[0]
-    if (!group || !('values' in group)) {
+    const groups = filterGroup?.values
+    if (!Array.isArray(groups)) {
         return []
     }
 
-    return group.values.filter(isValidPropertyFilter).map((filter: AnyPropertyFilter) => {
-        const key = filter.key || '?'
-        const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value ?? '')
-        const truncatedValue = value.length > 15 ? `${value.slice(0, 15)}...` : value
-        return `${key}=${truncatedValue}`
-    })
+    // The outer `values` array can hold multiple sibling groups — flatten leaf property filters
+    // across all of them so the summary doesn't silently drop groups past the first.
+    return groups
+        .filter((group) => group && Array.isArray(group.values))
+        .flatMap((group) => group.values.filter(isValidPropertyFilter))
+        .map((filter: AnyPropertyFilter) => {
+            const key = filter.key || '?'
+            const value = Array.isArray(filter.value) ? filter.value.join(', ') : String(filter.value ?? '')
+            const truncatedValue = value.length > 15 ? `${value.slice(0, 15)}...` : value
+            return `${key}=${truncatedValue}`
+        })
 }
 
 // Compact, human-readable summary of a saved view's filters — shown in the list and save dialog so a
