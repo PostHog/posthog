@@ -129,6 +129,45 @@ describe('subscriptionSceneLogic', () => {
         logic.unmount()
     })
 
+    it('triggers a test delivery and tracks the in-flight loading state', async () => {
+        // Guards the detail-page header "Test delivery" button: it must POST to the
+        // test-delivery endpoint and flip deliveringSubscriptionId so the button can
+        // show loading / disable itself and block a double-submit.
+        let testDeliveryCalls = 0
+        useMocks({
+            get: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/`]: [200, MOCK_SUBSCRIPTION],
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/deliveries/`]: [
+                    200,
+                    { results: [], next: null, previous: null },
+                ],
+            },
+            post: {
+                [`/api/projects/${MOCK_TEAM_ID}/subscriptions/1/test-delivery/`]: () => {
+                    testDeliveryCalls += 1
+                    return [202, {}]
+                },
+            },
+        })
+        initKeaTests()
+
+        const logic = subscriptionSceneLogic({ id: '1' })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.deliverSubscription(1)
+        })
+            .toDispatchActions(['deliverSubscription'])
+            .toMatchValues({ deliveringSubscriptionId: 1 })
+
+        await expectLogic(logic).toDispatchActions(['deliverSubscriptionSuccess']).toMatchValues({
+            deliveringSubscriptionId: null,
+        })
+        expect(testDeliveryCalls).toEqual(1)
+        logic.unmount()
+    })
+
     it('loads an AI prompt subscription and its deliveries', async () => {
         useMocks({
             get: {

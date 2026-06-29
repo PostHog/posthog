@@ -22,10 +22,11 @@ import { subscriptionsSceneLogic } from './subscriptionsSceneLogic'
 
 function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Element {
     const { push } = useActions(router)
-    const { setEnabled } = useActions(subscriptionSceneLogic)
-    const { subscriptionLoading } = useValues(subscriptionSceneLogic)
+    const { setEnabled, deliverSubscription } = useActions(subscriptionSceneLogic)
+    const { subscriptionLoading, deliveringSubscriptionId } = useValues(subscriptionSceneLogic)
     const editHref = subscriptionEditHref(sub)
     const enabled = isSubscriptionEnabled(sub)
+    const isDelivering = deliveringSubscriptionId === sub.id
 
     const deleteSubscription = (): void => {
         const name = subscriptionName(sub)
@@ -54,6 +55,15 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
                 data-attr="subscription-toggle-enabled"
             >
                 {enabled ? 'Disable subscription' : 'Enable subscription'}
+            </LemonButton>
+            <LemonButton
+                type="primary"
+                onClick={() => deliverSubscription(sub.id)}
+                loading={isDelivering}
+                disabledReason={isDelivering ? 'Sending test delivery…' : null}
+                data-attr="subscription-detail-header-test-delivery"
+            >
+                Test delivery
             </LemonButton>
             {editHref ? (
                 <LemonButton type="secondary" onClick={() => push(editHref)}>
