@@ -556,6 +556,12 @@ export function TaxonomicFilterMenu({
             if (target.closest?.('[data-quill-portal]')) {
                 return
             }
+            // Monaco suggestion/hover widgets (e.g. from a SQL expression editor) portal to a shared
+            // div at body level, outside our popover. Treat clicks there as inside so picking an
+            // autocomplete value doesn't close the whole filter and discard the in-progress query.
+            if (target.closest?.('[data-attr="monaco-overflow-root"]')) {
+                return
+            }
             if (triggerWrapRef.current?.contains(target)) {
                 return
             }

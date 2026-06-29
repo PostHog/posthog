@@ -1,3 +1,5 @@
+import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
+
 // Shared monaco-editor portal div for popups (tooltips, suggestion list,
 // etc). Monaco's global services (HoverService, ContextView) register
 // DomListeners against whatever node we hand them as overflowWidgetsDomNode
@@ -22,7 +24,11 @@ export function sharedMonacoOverflowRoot(): HTMLDivElement | undefined {
         return sharedMonacoOverflowRootEl
     }
     sharedMonacoOverflowRootEl = document.createElement('div')
-    sharedMonacoOverflowRootEl.classList.add('monaco-editor')
+    // This div lives at body level, outside any popover's DOM subtree, so a click on a
+    // suggestion/hover widget portaled here reads as an "outside click" and dismisses whatever
+    // popover hosts the editor (e.g. a SQL expression inside the TaxonomicFilter). The block class
+    // exempts it from both the floating-ui Popover dismiss path and useOutsideClickHandler.
+    sharedMonacoOverflowRootEl.classList.add('monaco-editor', CLICK_OUTSIDE_BLOCK_CLASS)
     sharedMonacoOverflowRootEl.style.zIndex = 'var(--z-tooltip)'
     sharedMonacoOverflowRootEl.setAttribute('data-attr', 'monaco-overflow-root')
     document.body.appendChild(sharedMonacoOverflowRootEl)
