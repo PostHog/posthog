@@ -473,18 +473,20 @@ class TestQuarantineRender(TestCase):
 
 
 class TestQuarantineRequest(BaseTest):
-    def _install(self, github: mock.Mock, *, has_integration: bool = True) -> mock.Mock:
+    def _install(self, github: mock.Mock, *, has_integration: bool = True, tracked: bool = True) -> mock.Mock:
         gh_patch = mock.patch(f"{_Q}.GitHubIntegration", return_value=github)
         integration_patch = mock.patch(f"{_Q}.Integration")
-        # The explicit repo override is authorized against the team's tracked repos; treat the
-        # test's repo as tracked so these cases exercise the write flow, not the authz gate.
-        tracked_patch = mock.patch(f"{_Q}._repo_is_tracked", return_value=True)
+        # The explicit repo override is authorized against the team's warehouse via the real
+        # _repo_is_tracked; mock the curated-source boundary so a matching (or empty) run row
+        # drives the actual authz path rather than stubbing our own helper.
+        rows = [("PostHog", "posthog")] if tracked else []
+        for_team_patch = mock.patch(_FOR_TEAM, return_value=_curated_source(rows))
         gh_patch.start()
         integration_cls = integration_patch.start()
-        tracked_patch.start()
+        for_team_patch.start()
         self.addCleanup(gh_patch.stop)
         self.addCleanup(integration_patch.stop)
-        self.addCleanup(tracked_patch.stop)
+        self.addCleanup(for_team_patch.stop)
         integration_cls.objects.filter.return_value.first.return_value = object() if has_integration else None
         return github
 
@@ -566,12 +568,11 @@ class TestQuarantineRequest(BaseTest):
             request_quarantine(team=self.team, request=_request())
 
     def test_explicit_repo_outside_the_team_is_rejected_before_any_write(self) -> None:
-        # A client-supplied repo the team doesn't track must not get the App's write token,
-        # even when it sits in the install's org.
-        github = self._install(_github_mock())
-        with mock.patch(f"{_Q}._repo_is_tracked", return_value=False):
-            with self.assertRaises(contracts.QuarantineWriteError):
-                request_quarantine(team=self.team, request=_request(repo="PostHog/not-ours"))
+        # A client-supplied repo the team doesn't track (no matching warehouse runs) must not get
+        # the App's write token, even when it sits in the install's org.
+        github = self._install(_github_mock(), tracked=False)
+        with self.assertRaises(contracts.QuarantineWriteError):
+            request_quarantine(team=self.team, request=_request(repo="PostHog/not-ours"))
         github.create_branch.assert_not_called()
         github.create_issue.assert_not_called()
 
@@ -614,11 +615,6 @@ class TestQuarantineRequest(BaseTest):
         self._install(_github_mock())
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request(**overrides))
-
-    @parameterized.expand([("tracked", [("PostHog", "posthog")], True), ("untracked", [], False)])
-    def test_repo_is_tracked_reflects_warehouse_runs(self, _name: str, results: list, expected: bool) -> None:
-        with mock.patch(_FOR_TEAM, return_value=_curated_source(results)):
-            assert _repo_is_tracked(self.team, "PostHog", "posthog") is expected
 
     def test_repo_is_tracked_is_false_without_a_connected_source(self) -> None:
         with mock.patch(_FOR_TEAM, side_effect=contracts.GitHubSourceNotConnectedError("no source")):
