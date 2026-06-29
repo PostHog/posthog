@@ -427,6 +427,28 @@ def _statement_timeout_as_non_retryable(
     )
 
 
+def _raised_while_closing_generator(error: BaseException) -> bool:
+    """True when `error` surfaced while the row generator was being closed.
+
+    Closing a suspended generator raises GeneratorExit at the yield; the server
+    cursor / connection `__exit__` then runs and can itself issue a round-trip
+    (closing the server cursor, the implicit rollback) that hits the
+    statement_timeout and raises QueryCanceled, with the GeneratorExit left as
+    its `__context__`. The consumer is already done — the sync finished, or the
+    activity is being cancelled — so a teardown error here is irrelevant to the
+    sync outcome and must not be re-raised: doing so masks the real cause (e.g.
+    the cancellation) and floods error tracking with phantom statement timeouts.
+    """
+    seen: set[int] = set()
+    ctx: BaseException | None = error.__context__
+    while ctx is not None and id(ctx) not in seen:
+        if isinstance(ctx, GeneratorExit):
+            return True
+        seen.add(id(ctx))
+        ctx = ctx.__context__
+    return False
+
+
 def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
     """Build the timeout error for the fallback `id` primary-key uniqueness probe.
 
@@ -3038,10 +3060,17 @@ def postgres_source(
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the
-                        # connection-dropped handler below. Retrying won't help, so map
-                        # it to the same non-retryable QueryTimeoutException the
-                        # server-cursor and windowed paths raise instead of leaking a
-                        # raw, retryable QueryCanceled that Temporal keeps re-attempting.
+                        # connection-dropped handler below.
+                        if _raised_while_closing_generator(e):
+                            # The generator is being closed and the cursor teardown
+                            # round-trip hit the statement_timeout — irrelevant to the
+                            # sync outcome, so swallow it and let close() complete cleanly.
+                            _safe_close_connection(connection)
+                            return
+                        # Retrying won't help, so map it to the same non-retryable
+                        # QueryTimeoutException the server-cursor and windowed paths
+                        # raise instead of leaking a raw, retryable QueryCanceled that
+                        # Temporal keeps re-attempting.
                         _safe_close_connection(connection)
                         timeout_error = _statement_timeout_as_non_retryable(
                             e,
@@ -3217,6 +3246,13 @@ def postgres_source(
                 # A FETCH against the server cursor exhausted the 10-min
                 # statement_timeout. QueryCanceled subclasses OperationalError, so
                 # this clause must precede the connection-dropped handler below.
+                if _raised_while_closing_generator(e):
+                    # Not a real read timeout: the generator is being closed and the
+                    # cursor/connection teardown round-trip hit the statement_timeout.
+                    # Swallow it so close() completes cleanly instead of masking the
+                    # real outcome (e.g. an activity cancellation) with a phantom timeout.
+                    _safe_close_connection(connection)
+                    return
                 # Retrying is futile (usually a missing index on the incremental
                 # field or a scan too large to finish in time), so map it to the
                 # same non-retryable QueryTimeoutException the offset-chunking and
