@@ -25,16 +25,18 @@
 # If these tests get too slow, look at increasing concurrency and re-timing the tests by manually dispatching
 # .depot/workflows/ci-backend-update-test-timing.yml action
 name: '[optional, does not block merge] Backend CI'
-# This is an OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must
-# never gate merging (hence the "[optional, does not block merge]" name). It runs on a
-# sampled fraction of runs set by the CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100;
-# 0 or unset = fully off). The `sample` job rolls a deterministic per-run dice and
-# `changes` (root of the needs graph) only runs when sampled in, so the whole workflow
-# cascades off on a miss. Applies to both PR and master (push) runs. This is a Depot
-# variable, NOT a GitHub one — Depot CI reads its own `vars` store. Set it with:
+# OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
+# merging (hence the "[optional, does not block merge]" name prefix). The
+# CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
+# master switch and the pull_request sample rate: when >0, every push (master — which
+# warms the shared schema cache), workflow_dispatch, and merge_group run, while
+# pull_request runs are sampled at that percent. The `sample` job rolls a deterministic
+# per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the
+# whole workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
+# Depot CI reads its own `vars` store. Set it with:
 #   depot ci vars add CI_DEPOT_SHADOW_PERCENT=<n> --repo PostHog/posthog    (n=0 disables)
-# The companion drift check (.github/workflows/ci-backend-shadow-drift.yml) runs on
-# GitHub Actions and reads a same-named GitHub repository variable — set both.
+# The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
+# with canonical; it runs whenever either file changes, independent of this variable.
 on:
     push:
         branches:
@@ -101,11 +103,9 @@ permissions:
     contents: read
     pull-requests: read
 jobs:
-    # Sampling gate. CI_DEPOT_SHADOW_PERCENT (Depot CI var; 0-100, 0/unset = off) controls
-    # what fraction of runs execute this optional, non-blocking workflow. The `if` skips
-    # everything when it is 0/unset; otherwise this rolls a deterministic per-run dice and
-    # `changes` only runs when sampled in, so the whole needs graph cascades off on a miss.
-    # Applies to PR and push (master) runs alike.
+    # Sampling gate (full design in the file header). The `if` keeps the whole workflow
+    # off when the percent is 0/unset; when >0 this job computes `sampled`, and `changes`
+    # — hence the rest of the graph — only runs when it is true.
     sample:
         if: vars.CI_DEPOT_SHADOW_PERCENT != '' && vars.CI_DEPOT_SHADOW_PERCENT != '0'
         runs-on: depot-ubuntu-latest
@@ -119,27 +119,34 @@ jobs:
               env:
                   PERCENT: ${{ vars.CI_DEPOT_SHADOW_PERCENT }}
                   RUN_ID: ${{ github.run_id }}
+                  EVENT: ${{ github.event_name }}
               run: |
                   set -euo pipefail
-                  # Non-integer or empty percent → treat as 0 (off).
+                  # Only pull_request runs are sampled. push (master — warms the shared schema
+                  # cache), workflow_dispatch (on-demand; exists to exercise the
+                  # clickhouseServerVersion input), and merge_group always run when enabled:
+                  # sampling them would skip cache priming or silently no-op a manual dispatch
+                  # with no way to force it through (run_id is stable across reruns).
+                  if [ "$EVENT" != "pull_request" ]; then
+                      echo "sampled=true" >> "$GITHUB_OUTPUT"
+                      echo "::notice::Optional Backend CI: $EVENT always runs when enabled."
+                      exit 0
+                  fi
+                  # Deterministic per-run dice. Non-integer percent → 0 (off).
                   case "$PERCENT" in ''|*[!0-9]*) PERCENT=0 ;; esac
-                  # run_id is a stable large int unique to this run; modulo gives a fixed
-                  # bucket so reruns of the same run stay consistent. No randomness.
                   bucket=$(( RUN_ID % 100 ))
                   if [ "$bucket" -lt "$PERCENT" ]; then
                       echo "sampled=true" >> "$GITHUB_OUTPUT"
-                      echo "::notice::Optional Backend CI: sampled IN (bucket $bucket < ${PERCENT}%)."
+                      echo "::notice::Optional Backend CI: PR sampled IN (bucket $bucket < ${PERCENT}%)."
                   else
                       echo "sampled=false" >> "$GITHUB_OUTPUT"
-                      echo "::notice::Optional Backend CI: sampled OUT (bucket $bucket >= ${PERCENT}%) — workflow skipped."
+                      echo "::notice::Optional Backend CI: PR sampled OUT (bucket $bucket >= ${PERCENT}%) — skipped."
                   fi
     # Job to decide if we should run backend ci
     # See https://github.com/dorny/paths-filter#conditional-execution for more details
     changes:
-        # Root of the `needs` graph: when `sample` says skip (or is itself skipped because
-        # the percent is 0/unset), `changes` is skipped and every downstream job cascades
-        # off. `django_tests` re-checks `sample` because its `always()` would otherwise
-        # survive the skip cascade.
+        # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
+        # at percent 0/unset), which cascades the whole workflow off.
         needs: sample
         if: needs.sample.outputs.sampled == 'true'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
