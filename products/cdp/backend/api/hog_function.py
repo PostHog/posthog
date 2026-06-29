@@ -245,7 +245,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # `context["instance"]` rather than `self.instance`, and a one-off invocation can execute
         # the changed code (or echo a secret into its logs), so the check must cover that path too.
         instance = cast(Optional[HogFunction], self.context.get("instance") or self.instance)
-        if not isinstance(instance, HogFunction) or attrs.get("deleted") is True:
+        if not isinstance(instance, HogFunction):
             return
 
         stored_secret_keys = {key for key, value in (instance.encrypted_inputs or {}).items() if value}
