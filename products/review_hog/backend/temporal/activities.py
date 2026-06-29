@@ -39,6 +39,7 @@ from products.review_hog.backend.reviewer.persistence import (
     load_chunk_set,
     load_perspective_results,
     load_pr_snapshot,
+    load_prior_findings,
     persist_chunk_analyses,
     persist_chunk_set,
     persist_commit_snapshot,
@@ -97,6 +98,9 @@ class ReviewMeta:
     head_sha: str
     branch: str
     repository: str
+    # This turn's 1-based index, stamped onto every finding/verdict so publishing can scope to a
+    # single turn instead of replaying the report's whole finding history.
+    run_index: int
     snapshotted: bool
     # Already reviewed AND posted this exact head (published_head_sha == head_sha): the parent's
     # early-exit gate skips a dead re-trigger turn. Distinct from `snapshotted` (head moved) because a
@@ -127,6 +131,7 @@ class SandboxStageInput:
     head_sha: str
     repository: str
     branch: str
+    run_index: int
 
 
 @dataclass
@@ -200,6 +205,7 @@ class PublishInput:
     team_id: int
     report_id: str
     head_sha: str
+    run_index: int
     owner: str
     repo: str
     pr_number: int
@@ -268,6 +274,10 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
     # and posted this exact head; new comments are surfaced for visibility but don't gate yet.
     report = ReviewReport.objects.for_team(input.team_id).get(id=report_id)
     already_published = bool(head_sha) and report.published_head_sha == head_sha
+    # `run_count` counts completed turns; this turn is the next one. `finalize_review_report` bumps
+    # run_count to match at the end, so a turn that fails before finalize and resumes reuses the same
+    # index (idempotent persist), while a fresh turn always gets a new one.
+    run_index = report.run_count + 1
     max_comment_id = max((c.id for c in pr_comments if c.id is not None), default=None)
     new_comment_count = sum(
         1
@@ -303,6 +313,7 @@ def _fetch_and_persist(input: FetchPRDataInput) -> ReviewMeta:
         head_sha=head_sha,
         branch=pr_metadata.head_branch,
         repository=input.repository,
+        run_index=run_index,
         snapshotted=snapshotted,
         already_published=already_published,
         new_comment_count=new_comment_count,
@@ -460,7 +471,14 @@ async def load_perspectives_activity(input: ValidateIntegrationInput) -> list[Lo
 
 
 def _prepare_review_prompt(
-    team_id: int, report_id: str, head_sha: str, chunk_id: int, pass_number: int, skill_name: str, skill_version: int
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    chunk_id: int,
+    pass_number: int,
+    skill_name: str,
+    skill_version: int,
+    run_index: int,
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
     done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
@@ -474,6 +492,7 @@ def _prepare_review_prompt(
     if chunk is None:
         raise ApplicationError(f"Chunk {chunk_id} not found in chunk set", non_retryable=True)
     analysis = load_chunk_analyses(team_id=team_id, report_id=report_id, head_sha=head_sha).get(chunk_id)
+    prior_findings = load_prior_findings(team_id=team_id, report_id=report_id, before_run_index=run_index)
     return build_review_prompt(
         skill_name=skill_name,
         skill_version=skill_version,
@@ -482,6 +501,7 @@ def _prepare_review_prompt(
         pr_metadata=snapshot.pr_metadata,
         pr_comments=snapshot.pr_comments,
         pr_files=snapshot.pr_files,
+        prior_findings=prior_findings,
     )
 
 
@@ -498,6 +518,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.pass_number,
         input.skill_name,
         input.skill_version,
+        input.run_index,
     )
     if prompt is None:
         return True
@@ -565,7 +586,7 @@ async def dedup_activity(input: DedupInput) -> DedupResult:
             repository=input.repository,
         )
     findings_count = await database_sync_to_async(persist_findings, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, issues=survivors
+        team_id=input.team_id, report_id=input.report_id, issues=survivors, run_index=input.run_index
     )
     return DedupResult(issues_json=[issue.model_dump_json() for issue in survivors], findings_count=findings_count)
 
@@ -641,7 +662,7 @@ async def validate_issue_activity(input: ValidateIssueInput) -> ValidateIssueRes
             step_name=f"validation-{issue.id}",
         )
     await database_sync_to_async(persist_verdict, thread_sensitive=False)(
-        team_id=input.team_id, report_id=input.report_id, issue=issue, validation=validation
+        team_id=input.team_id, report_id=input.report_id, issue=issue, validation=validation, run_index=input.run_index
     )
     return ValidateIssueResult(issue_id=issue.id, validation_json=validation.model_dump_json())
 
@@ -670,7 +691,9 @@ async def build_body_activity(input: BuildBodyInput) -> None:
     )
 
 
-def _publish(team_id: int, report_id: str, head_sha: str, owner: str, repo: str, pr_number: int) -> None:
+def _publish(
+    team_id: int, report_id: str, head_sha: str, run_index: int, owner: str, repo: str, pr_number: int
+) -> None:
     report = ReviewReport.objects.for_team(team_id).get(id=report_id)
     # Idempotency: publishing isn't naturally idempotent (it posts a review + a one-time promo
     # comment), but it runs under at-least-once activity + parent retries. Skip if we already
@@ -687,6 +710,7 @@ def _publish(team_id: int, report_id: str, head_sha: str, owner: str, repo: str,
         pr_number=pr_number,
         team_id=team_id,
         report_id=report_id,
+        run_index=run_index,
         pr_files=pr_files,
         token=token,
         head_sha=head_sha,
@@ -710,5 +734,5 @@ async def publish_review_activity(input: PublishInput) -> None:
     only when publishing is enabled, so reaching here means publish.
     """
     await database_sync_to_async(_publish, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.owner, input.repo, input.pr_number
+        input.team_id, input.report_id, input.head_sha, input.run_index, input.owner, input.repo, input.pr_number
     )
