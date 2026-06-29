@@ -35,8 +35,9 @@ class TestOrjsonJSONFieldDecode(SimpleTestCase):
         self.assertIs(JSONField.from_db_value, _orjson_from_db_value)
 
     def test_decodes_bytes_input(self) -> None:
-        self.assertEqual(JSONField().from_db_value(b'{"a": 1}', _NULL, _NULL), {"a": 1})
-        self.assertEqual(JSONField().from_db_value(bytearray(b'{"a": 1}'), _NULL, _NULL), {"a": 1})
+        # psycopg can hand back bytes; Django types value as str|None, so cast for the type checker.
+        self.assertEqual(JSONField().from_db_value(cast(Any, b'{"a": 1}'), _NULL, _NULL), {"a": 1})
+        self.assertEqual(JSONField().from_db_value(cast(Any, bytearray(b'{"a": 1}')), _NULL, _NULL), {"a": 1})
 
     def test_none_passes_through(self) -> None:
         self.assertIsNone(JSONField().from_db_value(None, _NULL, _NULL))
