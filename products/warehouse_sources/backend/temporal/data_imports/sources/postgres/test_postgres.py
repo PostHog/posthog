@@ -990,6 +990,13 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 "SSL connection has been closed unexpectedly"
             ),
+            # libpq's lower-level form of the same TLS drop — a socket-level EOF/reset during the
+            # SSL handshake or read. Transient (pooler/firewall idle cull, failover, network blip),
+            # not the permanent no-SSL-support case, so the in-process reconnect must catch it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "SSL SYSCALL error: EOF detected"
+            ),
             psycopg.OperationalError("terminating connection due to administrator command"),
             # psycopg's message when libpq finds the socket already gone (raised from
             # PGconn.socket inside the commit at the end of get_connection). A transient
@@ -1448,6 +1455,33 @@ class TestInvalidSSLNegotiationResponse:
                 _connect_to_postgres(
                     host="db", port=5432, database="db", user="postgres", password="x", require_ssl=True
                 )
+
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "SSL connection has been closed unexpectedly",
+            "SSL SYSCALL error: EOF detected",
+        ],
+    )
+    def test_transient_ssl_drop_is_not_wrapped_as_ssl_required(self, message):
+        # require_ssl=True, but the message is a transient TLS drop (pooler/firewall idle cull,
+        # failover, network blip) — it must surface raw so the connect-retry / Temporal can treat
+        # it as retryable, not as the non-retryable SSLRequiredError, which would permanently stop
+        # the sync with a misleading "enable SSL on your server" message.
+        connect_mock = mock.MagicMock(
+            side_effect=psycopg.OperationalError(
+                f'connection failed: connection to server at "10.0.0.1", port 5432 failed: {message}'
+            )
+        )
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.psycopg.connect",
+            connect_mock,
+        ):
+            with pytest.raises(psycopg.OperationalError) as exc_info:
+                _connect_to_postgres(
+                    host="db", port=5432, database="db", user="postgres", password="x", require_ssl=True
+                )
+        assert not isinstance(exc_info.value, SSLRequiredError)
 
 
 class TestStatementTimeoutAsNonRetryable:

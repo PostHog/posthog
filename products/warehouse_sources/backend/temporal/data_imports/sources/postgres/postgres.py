@@ -172,6 +172,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # no-SSL-support source fails with a different message ("server does not support SSL") and, on
     # require_ssl sources, is converted to SSLRequiredError before reaching this check.
     "ssl connection has been closed unexpectedly",
+    # The lower-level form of the same TLS drop: a socket-level failure during the SSL handshake or
+    # read (EOF, connection reset) surfaces as "... SSL SYSCALL error: EOF detected" (and similar).
+    # Same transient class as the bare SSL drop above — a pooler/firewall idle cull, failover, or
+    # network blip mid-handshake — and recovers on reconnect. Never the unsupported-SSL signal,
+    # which is the distinct "server does not support SSL" message.
+    "ssl syscall error",
     "no connection to the server",
     "terminating connection due to",
     # psycopg's own message when libpq finds the socket already gone (PGconn.socket
@@ -540,7 +546,12 @@ def _connect_to_postgres(
             **kwargs,
         )
     except psycopg.OperationalError as e:
-        if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+        if (
+            require_ssl
+            and "SSL" in str(e)
+            and not _is_invalid_ssl_negotiation_response(e)
+            and not _is_connection_dropped_error(e)
+        ):
             raise SSLRequiredError(
                 "SSL/TLS connection is required but your database does not support it. "
                 "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2539,7 +2550,12 @@ def postgres_source(
                     options=FORCE_UTF8_CLIENT_ENCODING,
                 )
             except psycopg.OperationalError as e:
-                if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+                if (
+                    require_ssl
+                    and "SSL" in str(e)
+                    and not _is_invalid_ssl_negotiation_response(e)
+                    and not _is_connection_dropped_error(e)
+                ):
                     raise SSLRequiredError(
                         "SSL/TLS connection is required but your database does not support it. "
                         "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
@@ -2858,7 +2874,12 @@ def postgres_source(
                         options=FORCE_UTF8_CLIENT_ENCODING,
                     )
                 except psycopg.OperationalError as e:
-                    if require_ssl and "SSL" in str(e) and not _is_invalid_ssl_negotiation_response(e):
+                    if (
+                        require_ssl
+                        and "SSL" in str(e)
+                        and not _is_invalid_ssl_negotiation_response(e)
+                        and not _is_connection_dropped_error(e)
+                    ):
                         raise SSLRequiredError(
                             "SSL/TLS connection is required but your database does not support it. "
                             "Please enable SSL/TLS on your PostgreSQL server or contact your database administrator."
