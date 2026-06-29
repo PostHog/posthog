@@ -8,6 +8,7 @@ import { Composer, QueuedMessageList } from 'products/posthog_ai/frontend/api/pr
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
+import { ComposerModelEffortPickers } from './ComposerModelEffortPickers'
 
 export interface TaskRunChatProps {
     taskId: string
@@ -24,9 +25,12 @@ export interface TaskRunChatProps {
  */
 export function TaskRunChat({ taskId, runId }: TaskRunChatProps): JSX.Element {
     const { setSelectedRunId, loadTaskRuns } = useActions(taskDetailSceneLogic({ taskId }))
+    const { selectedRun } = useValues(taskDetailSceneLogic({ taskId }))
     const logicProps: RunInteractionLogicProps = {
         taskId,
         runId,
+        currentModel: selectedRun?.state?.model,
+        currentEffort: selectedRun?.state?.reasoning_effort,
         onRunStarted: (newRunId) => {
             setSelectedRunId(newRunId, taskId)
             loadTaskRuns()
@@ -71,6 +75,12 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                                 </Composer.Placeholder>
                                 <Composer.Textarea data-attr="sandbox-composer-input" submitShortcut="cmd-enter" />
                             </Composer.Field>
+                            <Composer.Footer>
+                                {/* Model/effort picker: a live config switch while the run is in progress, and
+                                the config for the next run once it's terminal. Selection lives in the bound
+                                runInteractionLogic, so no props. */}
+                                <ComposerModelEffortPickers />
+                            </Composer.Footer>
                         </Composer.Frame>
                         <Composer.Submit data-attr="sandbox-composer-send" />
                     </Composer.Root>

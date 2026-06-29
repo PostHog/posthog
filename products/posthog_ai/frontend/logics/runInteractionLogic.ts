@@ -3,8 +3,17 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
 
+import {
+    DEFAULT_COMPOSER_EFFORT,
+    DEFAULT_COMPOSER_MODEL,
+    resolveEffortForModel,
+} from 'products/posthog_ai/frontend/utils/composerModels'
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
-import type { TaskRunResumeRequestSchemaApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ClaudeRuntimeAdapterEnumApi,
+    type ClaudeTaskRunCreateSchemaApi,
+    type ReasoningEffortEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import type { runInteractionLogicType } from './runInteractionLogicType'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
@@ -12,6 +21,10 @@ import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 export interface RunInteractionLogicProps {
     taskId: string
     runId: string
+    /** The run's stored model / reasoning effort, injected by the consumer. They seed the picker's display and
+     * the config a terminal-run send launches the next run with (override ?? this ?? default). */
+    currentModel?: string | null
+    currentEffort?: string | null
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string) => void
@@ -25,6 +38,11 @@ export interface QueuedMessage {
 
 /** Stable id for the single staged "Up next" message — the queue never holds more than one. */
 const QUEUED_MESSAGE_ID = 'queued'
+
+// Agent-server (ACP) session config option ids — see the `/code` agent's buildConfigOptions. The model
+// option's id is `model`; the effort option's id is `effort` (its category is `thought_level`).
+const MODEL_CONFIG_ID = 'model'
+const EFFORT_CONFIG_ID = 'effort'
 
 /**
  * Max-agnostic interaction facade for a single task run. The UI binds to this one logic to drive every
@@ -79,6 +97,14 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
         clearQueue: true,
         // Internal: drain the staged "Up next" message when the agent is idle.
         flushQueue: true,
+        // Live-switch the running agent's model / reasoning effort via a `set_config_option` command. The
+        // override is held client-side (the backend doesn't persist live changes back to the run state).
+        setModel: (model: string) => ({ model }),
+        setEffort: (effort: string) => ({ effort }),
+        // Internal: drop the optimistic override (e.g. the command failed) so the display falls back to the
+        // run's stored value.
+        resetModelOverride: true,
+        resetEffortOverride: true,
     }),
 
     reducers({
@@ -121,10 +147,37 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                 clearQueue: () => [],
             },
         ],
+        // Optimistic, client-side only — null means "use the run's stored model/effort". The logic is keyed by
+        // `runId`, so switching runs gets a fresh instance with the override reset.
+        modelOverride: [
+            null as string | null,
+            {
+                setModel: (_, { model }) => model,
+                resetModelOverride: () => null,
+            },
+        ],
+        effortOverride: [
+            null as string | null,
+            {
+                setEffort: (_, { effort }) => effort,
+                resetEffortOverride: () => null,
+            },
+        ],
     }),
 
     selectors({
         isTerminal: [(s) => [s.currentRunStatus], (status): boolean => isTerminalRunStatus(status)],
+        // The model/effort to display in the picker and launch the next run with: the optimistic client-side
+        // override, else the run's stored value, else the default. Effort is clamped to one the model supports.
+        selectedModel: [
+            (s) => [s.modelOverride, (_, p) => p.currentModel],
+            (override, current): string => override ?? current ?? DEFAULT_COMPOSER_MODEL,
+        ],
+        selectedEffort: [
+            (s) => [s.effortOverride, (_, p) => p.currentEffort, s.selectedModel],
+            (override, current, model): ReasoningEffortEnumApi =>
+                resolveEffortForModel(override ?? current ?? DEFAULT_COMPOSER_EFFORT, model),
+        ],
         // The agent is actively working a turn — a follow-up typed now should stage rather than send.
         isBusy: [(s) => [s.isThinking], (isThinking): boolean => isThinking],
         canSend: [
@@ -215,6 +268,38 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             actions.flushQueue()
         },
 
+        setModel: async ({ model }) => {
+            if (values.isTerminal || values.currentProjectId == null) {
+                return
+            }
+            try {
+                await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                    jsonrpc: '2.0',
+                    method: 'set_config_option',
+                    params: { configId: MODEL_CONFIG_ID, value: model },
+                })
+            } catch {
+                actions.resetModelOverride()
+                lemonToast.error('Failed to switch model. Please try again.')
+            }
+        },
+
+        setEffort: async ({ effort }) => {
+            if (values.isTerminal || values.currentProjectId == null) {
+                return
+            }
+            try {
+                await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
+                    jsonrpc: '2.0',
+                    method: 'set_config_option',
+                    params: { configId: EFFORT_CONFIG_ID, value: effort },
+                })
+            } catch {
+                actions.resetEffortOverride()
+                lemonToast.error('Failed to switch effort. Please try again.')
+            }
+        },
+
         startNewRun: async ({ content }) => {
             if (values.startingRun || !content.trim() || values.currentProjectId == null) {
                 return
@@ -222,13 +307,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             actions.setStartingRun(true)
             try {
                 // Same endpoint as the "Run again" button, but seeded with the user's message and chained
-                // from the finished run so the new run continues the thread. The response carries the new
-                // run id as `latest_run`; the consumer-provided `onRunStarted` re-points selection to it.
-                const resumeRequest: TaskRunResumeRequestSchemaApi = {
+                // from the finished run so the new run continues the thread, and carrying the picked model /
+                // reasoning effort (the resume schema can't, so we send the Claude create shape). The response
+                // carries the new run id as `latest_run`; the consumer-provided `onRunStarted` re-points to it.
+                const createRequest: ClaudeTaskRunCreateSchemaApi = {
+                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+                    model: values.selectedModel,
+                    reasoning_effort: values.selectedEffort,
                     resume_from_run_id: props.runId,
                     pending_user_message: content,
                 }
-                const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, resumeRequest)
+                const result = await tasksRunCreate(String(values.currentProjectId), props.taskId, createRequest)
                 actions.clearDraft()
                 if (result.latest_run) {
                     props.onRunStarted?.(result.latest_run)
