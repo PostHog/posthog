@@ -336,7 +336,6 @@ const STEPS: StepDef[] = [
         id: 'billing',
         title: 'Pick a plan',
         Content: ContextBillingStep,
-        skippable: true,
         hideContinue: true,
         maxWidth: 'max-w-3xl',
     },
@@ -422,27 +421,30 @@ export function ContextOnboarding(): JSX.Element {
                 <step.Content onContinue={goNext} />
             </ScrollableShadows>
 
-            {/* Pinned footer */}
-            <div className="shrink-0 flex items-center justify-between gap-2">
-                {step.skippable ? (
-                    <LemonButton type="tertiary" size="small" onClick={goNext}>
-                        Skip for now
-                    </LemonButton>
-                ) : (
-                    <span />
-                )}
-                {!step.hideContinue && (
-                    <LemonButton
-                        type="primary"
-                        status="alt"
-                        sideIcon={<IconArrowRight />}
-                        onClick={goNext}
-                        loading={isLast && isCompleting}
-                    >
-                        {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}
-                    </LemonButton>
-                )}
-            </div>
+            {/* Pinned footer — omitted when the step has neither Skip nor a footer Continue (it supplies
+                its own actions, e.g. the plan picks on billing). */}
+            {(step.skippable || !step.hideContinue) && (
+                <div className="shrink-0 flex items-center justify-between gap-2">
+                    {step.skippable ? (
+                        <LemonButton type="tertiary" size="small" onClick={goNext}>
+                            Skip for now
+                        </LemonButton>
+                    ) : (
+                        <span />
+                    )}
+                    {!step.hideContinue && (
+                        <LemonButton
+                            type="primary"
+                            status="alt"
+                            sideIcon={<IconArrowRight />}
+                            onClick={goNext}
+                            loading={isLast && isCompleting}
+                        >
+                            {isLast ? 'Finish' : isFirst ? 'Get started' : 'Continue'}
+                        </LemonButton>
+                    )}
+                </div>
+            )}
         </div>
     )
 }
