@@ -17,19 +17,28 @@ use crate::{
 // (rather than per-VM) so a pattern is compiled at most once fleet-wide instead of once per worker.
 static REGEX_CACHE: Lazy<Cache<(String, bool), Arc<Regex>>> = Lazy::new(|| Cache::new(8192));
 
+// Patterns longer than this are compiled fresh on every call instead of being cached. A Hog program
+// can build a regex from event properties, so without this an attacker could ingest many unique
+// large patterns and retain them all in the process-wide cache (bounded by entry count, not bytes).
+// Real rule patterns are far shorter than this.
+const MAX_CACHEABLE_PATTERN_LEN: usize = 1024;
+
 fn compiled_regex(pattern: &str, case_insensitive: bool) -> Result<Arc<Regex>, VmError> {
-    let key = (pattern.to_owned(), case_insensitive);
-    if let Some(regex) = REGEX_CACHE.get(&key) {
-        return Ok(regex);
-    }
-    let regex = Arc::new(
+    let compile = || {
         RegexBuilder::new(pattern)
             .case_insensitive(case_insensitive)
             .build()
-            .map_err(|e| VmError::InvalidRegex(pattern.to_string(), e.to_string()))?,
-    );
-    REGEX_CACHE.insert(key, regex.clone());
-    Ok(regex)
+            .map(Arc::new)
+            .map_err(|e| VmError::InvalidRegex(pattern.to_string(), e.to_string()))
+    };
+
+    if pattern.len() > MAX_CACHEABLE_PATTERN_LEN {
+        return compile();
+    }
+
+    // `get_or_insert_with` computes at most once per key even under concurrent first access, so two
+    // threads racing the same cold pattern don't both compile, and a failed compile isn't cached.
+    REGEX_CACHE.get_or_insert_with(&(pattern.to_owned(), case_insensitive), compile)
 }
 
 pub fn like(
@@ -230,6 +239,17 @@ mod tests {
         // Case variants are distinct cache entries, not aliases.
         let insensitive = compiled_regex("foo.*bar", true).unwrap();
         assert!(!Arc::ptr_eq(&a, &insensitive));
+    }
+
+    #[test]
+    fn test_oversized_patterns_are_not_cached() {
+        // Patterns past the length cap still compile and match correctly, but are recompiled each
+        // call rather than retained — so large attacker-controlled patterns can't accumulate.
+        let big = "x".repeat(MAX_CACHEABLE_PATTERN_LEN + 1);
+        let a = compiled_regex(&big, false).unwrap();
+        let b = compiled_regex(&big, false).unwrap();
+        assert!(!Arc::ptr_eq(&a, &b), "oversized pattern must not be cached");
+        assert!(regex_match(&big, &big, true).unwrap()); // the literal still matches itself
     }
 
     #[test]
