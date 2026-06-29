@@ -72,6 +72,7 @@ the row lists both.
 | campaign_monitor  | HTTP                        | requests                                                        | ✅                          |
 | canny             | HTTP                        | requests                                                        | ✅                          |
 | chargebee         | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| chargedesk        | HTTP                        | requests                                                        | ✅                          |
 | checkout_com      | HTTP                        | requests                                                        | ✅                          |
 | coda              | HTTP                        | requests                                                        | ✅                          |
 | coingecko         | HTTP                        | requests                                                        | ✅                          |
@@ -328,7 +329,6 @@ doesn't conflict with concurrent PRs.
 - cart_com
 - castor_edc
 - chameleon
-- chargedesk
 - chargify
 - chatwoot
 - chift

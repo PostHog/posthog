@@ -597,7 +597,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChargedeskSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
