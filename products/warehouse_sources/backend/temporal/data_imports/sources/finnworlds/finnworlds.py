@@ -1,3 +1,4 @@
+import re
 from collections.abc import Iterator
 from typing import Any
 from urllib.parse import urlencode
@@ -55,6 +56,15 @@ def _build_url(path: str, params: dict[str, str]) -> str:
     return f"{FINNWORLDS_BASE_URL}/{path}?{urlencode(params)}"
 
 
+# The API key rides in the `key` query param, so it ends up in `response.url`. `raise_for_status()`
+# embeds that URL in its message, which would otherwise leak the key into the sync's stored error and logs.
+_KEY_RE = re.compile(r"(key=)[^&\s]+", re.IGNORECASE)
+
+
+def _redact_key(text: str) -> str:
+    return _KEY_RE.sub(r"\1REDACTED", text)
+
+
 @retry(
     retry=retry_if_exception_type((FinnworldsRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -67,7 +77,12 @@ def _fetch(session: requests.Session, url: str, logger: FilteringBoundLogger) ->
     if response.status_code == 429 or response.status_code >= 500:
         raise FinnworldsRetryableError(f"Finnworlds API error (retryable): status={response.status_code}")
 
-    response.raise_for_status()
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as exc:
+        # Re-raise with the `key` redacted so the credential never reaches stored errors / logs, keeping the
+        # `... for url: https://api.finnworlds.com` prefix intact for `get_non_retryable_errors()`.
+        raise requests.HTTPError(_redact_key(str(exc)), response=exc.response) from None
 
     payload = response.json()
     if not isinstance(payload, dict):
@@ -161,9 +176,16 @@ def _fetch_endpoint_rows(
 
     period = None
     if config.include_period:
-        basics = payload.get("result", {})
-        basics = basics.get("basics", {}) if isinstance(basics, dict) else {}
+        result_dict = payload.get("result", {})
+        basics = result_dict.get("basics", {}) if isinstance(result_dict, dict) else {}
         period = basics.get("period") if isinstance(basics, dict) else None
+        if period is None:
+            # The primary key for fundamentals is (ticker, period, date); without a real period every row
+            # falls back to "annual", which would silently merge quarterly rows. Surface it when it happens.
+            logger.warning(
+                f"Finnworlds {config.name}: no period in response for ticker={ticker}; "
+                "defaulting to 'annual' (quarterly rows may collide on the primary key)",
+            )
 
     rows = _extract_rows(payload, config)
     return [_normalize_row(row, config, ticker, period) for row in rows]
@@ -193,20 +215,31 @@ def get_rows(
             yield rows
 
 
-def validate_credentials(api_key: str) -> bool:
-    """Probe a cheap ticker-keyed endpoint. The key is valid when the body carries no error."""
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
+    """Probe a cheap ticker-keyed endpoint. The key is valid when the body carries no error.
+
+    Returns (is_valid, error_message). A transient network failure during setup is reported distinctly
+    from a bad key so a brief connectivity blip isn't mistaken for an invalid credential — the sync path
+    retries the same transient errors via tenacity.
+    """
     url = _build_url("information", {"key": api_key, "ticker": "AAPL"})
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(url, timeout=10)
-        if not response.ok:
-            return False
+    except (requests.ConnectionError, requests.Timeout) as exc:
+        return False, f"Could not reach the Finnworlds API: {type(exc).__name__}. Please try again."
+
+    if not response.ok:
+        return False, "Invalid Finnworlds API key"
+    try:
         payload = response.json()
-    except Exception:
-        return False
+    except ValueError:
+        return False, "Invalid Finnworlds API key"
 
     if not isinstance(payload, dict):
-        return False
-    return _payload_error(payload) is None
+        return False, "Invalid Finnworlds API key"
+    if _payload_error(payload) is not None:
+        return False, "Invalid Finnworlds API key"
+    return True, None
 
 
 def finnworlds_source(

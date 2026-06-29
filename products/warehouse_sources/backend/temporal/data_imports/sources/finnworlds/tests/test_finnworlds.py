@@ -38,7 +38,7 @@ def _response(json_body: Any, status_code: int = 200) -> MagicMock:
 
     def _raise() -> None:
         if status_code >= 400:
-            raise requests.HTTPError(f"{status_code} error")
+            raise requests.HTTPError(f"{status_code} error", response=resp)
 
     resp.raise_for_status.side_effect = _raise
     return resp
@@ -109,7 +109,7 @@ class TestExtractRows:
         assert rows == [{"pe_ratio": "30", "date": "2025-06-01"}]
 
     def test_output_object_empty_yields_nothing(self) -> None:
-        payload = {"result": {"output": {}}}
+        payload: dict[str, Any] = {"result": {"output": {}}}
         assert _extract_rows(payload, FINNWORLDS_ENDPOINTS["financial_ratios"]) == []
 
     def test_output_bare(self) -> None:
@@ -230,11 +230,33 @@ class TestRetryClassification:
         session.get.return_value = _response({}, status_code=status_code)
         with pytest.MonkeyPatch.context() as mp:
             # Don't actually sleep between the bounded retries — keep the test fast.
-            mp.setattr(finnworlds._fetch.retry, "sleep", lambda *_: None)
+            mp.setattr(finnworlds._fetch.retry, "sleep", lambda *_: None)  # type: ignore[attr-defined]
             with pytest.raises(FinnworldsRetryableError):
                 finnworlds._fetch(session, "https://api.finnworlds.com/api/v1/bonds?key=k", _logger())
         # Exhausts the bounded attempts rather than giving up after one try.
         assert session.get.call_count == 5
+
+    def test_http_error_redacts_api_key(self) -> None:
+        # A 4xx raises through raise_for_status, whose message embeds the request URL (with ?key=...).
+        # The key must never reach the re-raised error that lands in job logs / stored errors.
+        resp = MagicMock()
+        resp.status_code = 401
+        resp.ok = False
+        resp.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized for url: "
+            "https://api.finnworlds.com/api/v1/information?key=SUPERSECRETKEY&ticker=AAPL",
+            response=resp,
+        )
+        session = MagicMock()
+        session.get.return_value = resp
+        with pytest.raises(requests.HTTPError) as exc_info:
+            finnworlds._fetch(session, "https://api.finnworlds.com/api/v1/information?key=SUPERSECRETKEY", _logger())
+
+        message = str(exc_info.value)
+        assert "SUPERSECRETKEY" not in message
+        assert "key=REDACTED" in message
+        # The host prefix is preserved so get_non_retryable_errors() matching still works.
+        assert "api.finnworlds.com" in message
 
 
 class TestValidateCredentials:
@@ -242,20 +264,27 @@ class TestValidateCredentials:
         session = _session_returning(_response({"result": {"output": {"name": "Apple"}}}))
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            assert validate_credentials("good") is True
+            assert validate_credentials("good") == (True, None)
 
     def test_invalid_key_body(self) -> None:
         session = _session_returning(_response({"error": "Invalid key"}))
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            assert validate_credentials("bad") is False
+            valid, message = validate_credentials("bad")
+        assert valid is False
+        assert message == "Invalid Finnworlds API key"
 
-    def test_request_exception_is_false(self) -> None:
+    def test_network_error_reports_distinctly_from_bad_key(self) -> None:
+        # A transient connection failure during setup must not be reported as an invalid key.
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError("boom")
         with pytest.MonkeyPatch.context() as mp:
             mp.setattr(finnworlds, "make_tracked_session", lambda **_: session)
-            assert validate_credentials("any") is False
+            valid, message = validate_credentials("any")
+        assert valid is False
+        assert message is not None
+        assert "Invalid" not in message
+        assert "reach the Finnworlds API" in message
 
 
 class TestFinnworldsSource:

@@ -84,10 +84,7 @@ class FinnworldsSource(SimpleSource[FinnworldsSourceConfig]):
     def validate_credentials(
         self, config: FinnworldsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_finnworlds_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Finnworlds API key"
+        return validate_finnworlds_credentials(config.api_key)
 
     def source_for_pipeline(self, config: FinnworldsSourceConfig, inputs: SourceInputs) -> SourceResponse:
         return finnworlds_source(

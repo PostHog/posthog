@@ -94,11 +94,13 @@ class TestFinnworldsSource:
         assert {t["name"] for t in tables} == set(ENDPOINTS)
 
     def test_validate_credentials_success(self) -> None:
-        with mock.patch.object(source_module, "validate_finnworlds_credentials", return_value=True):
+        with mock.patch.object(source_module, "validate_finnworlds_credentials", return_value=(True, None)):
             assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
 
     def test_validate_credentials_failure(self) -> None:
-        with mock.patch.object(source_module, "validate_finnworlds_credentials", return_value=False):
+        with mock.patch.object(
+            source_module, "validate_finnworlds_credentials", return_value=(False, "Invalid Finnworlds API key")
+        ):
             ok, message = self.source.validate_credentials(self.config, self.team_id)
         assert ok is False
         assert message is not None
