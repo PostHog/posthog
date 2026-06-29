@@ -93,6 +93,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactEditRequestSerializer,
     TaskRunLivingArtifactOpenResponseSerializer,
     TaskRunLivingArtifactResponseSerializer,
+    TaskRunLivingArtifactSendRequestSerializer,
     TaskRunLivingArtifactsResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
     TaskRunRelayMessageResponseSerializer,
@@ -1215,6 +1216,50 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             source_storage_path=request.validated_data.get("source_storage_path"),
             name=request.validated_data.get("name"),
             metadata=request.validated_data.get("metadata"),
+            slack_delivery_mode=request.validated_data.get("slack_delivery_mode"),
+            slack_channel_id=request.validated_data.get("slack_channel_id"),
+            slack_thread_ts=request.validated_data.get("slack_thread_ts"),
+        )
+        if artifact is None and error is None:
+            raise NotFound()
+        if error == "not_found":
+            raise NotFound()
+        if error is not None:
+            return Response(TaskRunErrorResponseSerializer({"error": error}).data, status=status.HTTP_400_BAD_REQUEST)
+        serializer = TaskRunLivingArtifactResponseSerializer(artifact)
+        return Response(serializer.data)
+
+    @validated_request(
+        request_serializer=TaskRunLivingArtifactSendRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=TaskRunLivingArtifactResponseSerializer,
+                description="Sent Slack message artifact",
+            ),
+            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid artifact send"),
+            404: OpenApiResponse(description="Living artifact not found"),
+        },
+        summary="Send a drafted Slack message artifact",
+        description=(
+            "Send an unsent slack_message living artifact that was created with slack_delivery_mode='draft'. "
+            "Use only after the user has explicitly approved the draft."
+        ),
+        strict_request_validation=True,
+        operation_id="tasks_runs_living_artifacts_send",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path=r"living_artifacts/(?P<artifact_id>[^/.]+)/send",
+        required_scopes=["task:write"],
+    )
+    def living_artifact_send(self, request, pk=None, artifact_id=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        artifact, error = tasks_facade.send_task_run_living_artifact(
+            pk,
+            task_id,
+            self.team_id,
+            artifact_id=artifact_id,
         )
         if artifact is None and error is None:
             raise NotFound()

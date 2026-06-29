@@ -59,6 +59,7 @@ TASK_RUN_SKILL_BUNDLE_FORMAT_CHOICES = ["zip"]
 TASK_RUN_SKILL_SOURCE_CHOICES = ["user", "repo", "marketplace", "codex"]
 TASK_RUN_LIVING_ARTIFACT_TYPE_CHOICES = [choice for choice, _label in TaskArtifact.ArtifactType.choices]
 TASK_RUN_LIVING_ARTIFACT_ADAPTER_CHOICES = [choice for choice, _label in TaskArtifact.Adapter.choices]
+TASK_RUN_SLACK_MESSAGE_DELIVERY_MODE_CHOICES = ["send", "draft"]
 
 
 def get_task_run_artifact_max_size_bytes(
@@ -695,6 +696,23 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
         default=dict,
         help_text="Optional metadata to persist with the living artifact.",
     )
+    slack_delivery_mode = serializers.ChoiceField(
+        choices=TASK_RUN_SLACK_MESSAGE_DELIVERY_MODE_CHOICES,
+        required=False,
+        help_text="For slack_message artifacts, use 'draft' to post a Slack approval card before sending or 'send' to preserve immediate delivery into the mapped Slack thread.",
+    )
+    slack_channel_id = serializers.CharField(
+        max_length=80,
+        required=False,
+        allow_blank=True,
+        help_text="For slack_message drafts, optional target Slack channel ID such as C123. Defaults to the run's mapped Slack channel.",
+    )
+    slack_thread_ts = serializers.CharField(
+        max_length=80,
+        required=False,
+        allow_blank=True,
+        help_text="For slack_message drafts, optional target Slack thread timestamp. Omit to post in the target channel root.",
+    )
 
     def validate(self, attrs):
         has_content = bool(attrs.get("content"))
@@ -722,7 +740,24 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
                 raise serializers.ValidationError(
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
                 )
+        self._validate_slack_message_fields(attrs)
         return attrs
+
+    def _validate_slack_message_fields(self, attrs):
+        uses_slack_message_fields = any(
+            attrs.get(field) for field in ("slack_delivery_mode", "slack_channel_id", "slack_thread_ts")
+        )
+        if not uses_slack_message_fields:
+            return
+        if (
+            attrs.get("artifact_type") != TaskArtifact.ArtifactType.SLACK_MESSAGE
+            and attrs.get("adapter") != TaskArtifact.Adapter.SLACK_MESSAGE
+        ):
+            raise serializers.ValidationError(
+                {
+                    "slack_delivery_mode": "Slack message delivery fields require artifact_type or adapter to be slack_message."
+                }
+            )
 
 
 class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
@@ -765,6 +800,23 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
         default=dict,
         help_text="Optional metadata to merge into the artifact registry record.",
     )
+    slack_delivery_mode = serializers.ChoiceField(
+        choices=TASK_RUN_SLACK_MESSAGE_DELIVERY_MODE_CHOICES,
+        required=False,
+        help_text="For unsent slack_message drafts, keep or switch the artifact to draft mode before approval.",
+    )
+    slack_channel_id = serializers.CharField(
+        max_length=80,
+        required=False,
+        allow_blank=True,
+        help_text="For unsent slack_message drafts, optional replacement target Slack channel ID such as C123.",
+    )
+    slack_thread_ts = serializers.CharField(
+        max_length=80,
+        required=False,
+        allow_blank=True,
+        help_text="For unsent slack_message drafts, optional replacement target Slack thread timestamp.",
+    )
 
     def validate(self, attrs):
         has_content = "content" in attrs and attrs.get("content") is not None
@@ -789,6 +841,10 @@ class TaskRunLivingArtifactEditRequestSerializer(serializers.Serializer):
                     {"content_base64": build_task_run_artifact_size_error(attrs.get("name"), max_size_bytes)}
                 )
         return attrs
+
+
+class TaskRunLivingArtifactSendRequestSerializer(serializers.Serializer):
+    pass
 
 
 class TaskRunArtifactPrepareUploadSerializer(serializers.Serializer):

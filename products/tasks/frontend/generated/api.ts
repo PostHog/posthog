@@ -954,6 +954,35 @@ export const tasksRunsLivingArtifactsEdit = async (
     )
 }
 
+export const getTasksRunsLivingArtifactsSendUrl = (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string
+) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/living_artifacts/${artifactId}/send/`
+}
+
+/**
+ * Send an unsent slack_message living artifact that was created with slack_delivery_mode='draft'. Use only after the user has explicitly approved the draft.
+ * @summary Send a drafted Slack message artifact
+ */
+export const tasksRunsLivingArtifactsSend = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    artifactId: string,
+    options?: RequestInit
+): Promise<TaskRunLivingArtifactResponseApi> => {
+    return apiMutator<TaskRunLivingArtifactResponseApi>(
+        getTasksRunsLivingArtifactsSendUrl(projectId, taskId, id, artifactId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
 export const getTasksRunsRelayMessageCreateUrl = (projectId: string, taskId: string, id: string) => {
     return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/relay_message/`
 }

@@ -31,6 +31,14 @@ DEFAULT_DOCUMENT_CONTENT_TYPE = "text/markdown; charset=utf-8"
 DEFAULT_BINARY_CONTENT_TYPE = "application/octet-stream"
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 XLSX_EXTENSION = ".xlsx"
+SLACK_MESSAGE_DELIVERY_MODE_SEND = "send"
+SLACK_MESSAGE_DELIVERY_MODE_DRAFT = "draft"
+SLACK_MESSAGE_STATUS_DRAFT = "draft"
+SLACK_MESSAGE_STATUS_SENT = "sent"
+SLACK_MESSAGE_STATUS_DISCARDED = "discarded"
+SLACK_MESSAGE_ACTION_SEND = "posthog_code_slack_message_send"
+SLACK_MESSAGE_ACTION_DISCARD = "posthog_code_slack_message_discard"
+SLACK_MESSAGE_PREVIEW_MAX_LENGTH = 2800
 
 
 @dataclass(frozen=True)
@@ -174,7 +182,16 @@ def create_living_artifact(
     source_artifact_id: str | None = None,
     source_storage_path: str | None = None,
     metadata: dict[str, Any] | None = None,
+    slack_delivery_mode: str | None = None,
+    slack_channel_id: str | None = None,
+    slack_thread_ts: str | None = None,
 ) -> TaskArtifact:
+    metadata = _with_slack_message_options(
+        metadata,
+        slack_delivery_mode=slack_delivery_mode,
+        slack_channel_id=slack_channel_id,
+        slack_thread_ts=slack_thread_ts,
+    )
     content_payload = resolve_artifact_content(
         run=run,
         name=name,
@@ -192,7 +209,12 @@ def create_living_artifact(
     selected_adapter = _resolve_adapter(adapter, artifact_type)
     artifact_id = uuid.uuid4()
     commit = selected_adapter.create(
-        run=run, name=name, artifact_type=artifact_type, content=content_payload, artifact_id=str(artifact_id)
+        run=run,
+        name=name,
+        artifact_type=artifact_type,
+        content=content_payload,
+        artifact_id=str(artifact_id),
+        metadata=metadata,
     )
 
     with transaction.atomic():
@@ -230,11 +252,20 @@ def edit_living_artifact(
     source_storage_path: str | None = None,
     name: str | None = None,
     metadata: dict[str, Any] | None = None,
+    slack_delivery_mode: str | None = None,
+    slack_channel_id: str | None = None,
+    slack_thread_ts: str | None = None,
 ) -> TaskArtifact:
     run = artifact.task_run
     selected_adapter = _adapter_for_existing_artifact(artifact)
     next_version = int(artifact.current_version or 0) + 1
     next_name = name or artifact.name
+    next_metadata = _with_slack_message_options(
+        {**(artifact.metadata or {}), **(metadata or {})},
+        slack_delivery_mode=slack_delivery_mode,
+        slack_channel_id=slack_channel_id,
+        slack_thread_ts=slack_thread_ts,
+    )
     content_payload = resolve_artifact_content(
         run=run,
         name=next_name,
@@ -260,6 +291,7 @@ def edit_living_artifact(
         version=next_version,
         content_type=content_payload.content_type,
         source_artifact=content_payload.source_artifact,
+        metadata=next_metadata,
     )
 
     with transaction.atomic():
@@ -269,7 +301,7 @@ def edit_living_artifact(
         locked.name = next_name
         locked.adapter = commit.adapter
         locked.location = commit.location
-        locked.metadata = {**(locked.metadata or {}), **(metadata or {}), **commit.metadata}
+        locked.metadata = {**(locked.metadata or {}), **next_metadata, **commit.metadata}
         locked.versions = versions
         locked.current_version = next_version
         locked.status = TaskArtifact.Status.ACTIVE
@@ -286,6 +318,119 @@ def edit_living_artifact(
             ]
         )
         return locked
+
+
+def send_living_artifact(
+    *,
+    artifact: TaskArtifact,
+    approved_by_slack_user_id: str | None = None,
+) -> TaskArtifact:
+    if artifact.adapter != TaskArtifact.Adapter.SLACK_MESSAGE:
+        raise ValueError("Only Slack message drafts can be sent")
+
+    with transaction.atomic():
+        locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
+        metadata = locked.metadata or {}
+        if metadata.get("slack_message_status") == SLACK_MESSAGE_STATUS_SENT:
+            return locked
+        if metadata.get("slack_message_status") == SLACK_MESSAGE_STATUS_DISCARDED:
+            raise ValueError("Slack message draft was discarded")
+        if not _is_slack_message_draft(locked):
+            raise ValueError("Slack message artifact is not a draft")
+
+        draft_prompt_location = locked.location or {}
+        expected_approver = metadata.get("slack_message_expected_approver_id")
+        if (
+            approved_by_slack_user_id
+            and isinstance(expected_approver, str)
+            and expected_approver
+            and approved_by_slack_user_id != expected_approver
+        ):
+            raise PermissionError("Only the draft requester can send this Slack message")
+
+        content = _latest_artifact_content(locked).strip() or locked.name
+        mapping = _get_slack_mapping(locked.task_run)
+        target_channel = str((locked.location or {}).get("channel") or mapping.channel)
+        target_thread_ts = _optional_str((locked.location or {}).get("thread_ts"))
+        response = _slack_client_for_mapping(mapping).chat_postMessage(
+            channel=target_channel,
+            thread_ts=target_thread_ts,
+            text=content,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+        message_ts = response.get("ts")
+        if not message_ts:
+            raise ValueError("Slack message delivery did not return a message timestamp")
+
+        sent_at = timezone.now().isoformat()
+        location = {
+            "kind": "slack_message",
+            "integration_id": mapping.integration_id,
+            "channel": target_channel,
+            "thread_ts": target_thread_ts,
+            "message_ts": message_ts,
+        }
+        locked.location = location
+        locked.metadata = {
+            **metadata,
+            "slack_message_status": SLACK_MESSAGE_STATUS_SENT,
+            "slack_message_sent_at": sent_at,
+            "slack_message_sent_by_slack_user_id": approved_by_slack_user_id,
+        }
+        locked.versions = [
+            {**version, "location": location, "slack_message_sent_at": sent_at}
+            if version.get("version") == locked.current_version
+            else version
+            for version in (locked.versions or [])
+        ]
+        locked.save(update_fields=["location", "metadata", "versions", "updated_at"])
+
+    _replace_slack_message_draft_prompt(
+        locked,
+        f"Sent to {_format_slack_target(target_channel, target_thread_ts)}.",
+        location=draft_prompt_location,
+    )
+    return locked
+
+
+def discard_living_artifact(
+    *,
+    artifact: TaskArtifact,
+    discarded_by_slack_user_id: str | None = None,
+) -> TaskArtifact:
+    if artifact.adapter != TaskArtifact.Adapter.SLACK_MESSAGE:
+        raise ValueError("Only Slack message drafts can be discarded")
+
+    with transaction.atomic():
+        locked = TaskArtifact.objects.for_team(artifact.team_id).select_for_update().get(pk=artifact.pk)
+        metadata = locked.metadata or {}
+        if metadata.get("slack_message_status") == SLACK_MESSAGE_STATUS_SENT:
+            raise ValueError("Slack message draft was already sent")
+        if metadata.get("slack_message_status") == SLACK_MESSAGE_STATUS_DISCARDED:
+            return locked
+        if not _is_slack_message_draft(locked):
+            raise ValueError("Slack message artifact is not a draft")
+
+        expected_approver = metadata.get("slack_message_expected_approver_id")
+        if (
+            discarded_by_slack_user_id
+            and isinstance(expected_approver, str)
+            and expected_approver
+            and discarded_by_slack_user_id != expected_approver
+        ):
+            raise PermissionError("Only the draft requester can discard this Slack message")
+
+        locked.metadata = {
+            **metadata,
+            "slack_message_status": SLACK_MESSAGE_STATUS_DISCARDED,
+            "slack_message_discarded_at": timezone.now().isoformat(),
+            "slack_message_discarded_by_slack_user_id": discarded_by_slack_user_id,
+        }
+        locked.save(update_fields=["metadata", "updated_at"])
+
+    _replace_slack_message_draft_prompt(locked, "Draft discarded.")
+    return locked
 
 
 def resolve_artifact_content(
@@ -419,6 +564,44 @@ def open_task_artifact(artifact: TaskArtifact) -> str | None:
     return _adapter_for_existing_artifact(artifact).open(artifact)
 
 
+def _with_slack_message_options(
+    metadata: dict[str, Any] | None,
+    *,
+    slack_delivery_mode: str | None,
+    slack_channel_id: str | None,
+    slack_thread_ts: str | None,
+) -> dict[str, Any]:
+    next_metadata = dict(metadata or {})
+    if slack_delivery_mode:
+        next_metadata["slack_message_delivery_mode"] = slack_delivery_mode
+    if slack_channel_id is not None:
+        next_metadata["slack_message_channel_id"] = slack_channel_id
+    if slack_thread_ts is not None:
+        next_metadata["slack_message_thread_ts"] = slack_thread_ts
+    return next_metadata
+
+
+def _latest_artifact_content(artifact: TaskArtifact) -> str:
+    if not artifact.versions:
+        return ""
+    content = artifact.versions[-1].get("content")
+    return content if isinstance(content, str) else ""
+
+
+def _optional_str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _is_slack_message_draft(artifact: TaskArtifact) -> bool:
+    metadata = artifact.metadata or {}
+    location = artifact.location or {}
+    return (
+        artifact.adapter == TaskArtifact.Adapter.SLACK_MESSAGE
+        and metadata.get("slack_message_status") == SLACK_MESSAGE_STATUS_DRAFT
+        and location.get("kind") == "slack_message_draft"
+    )
+
+
 def _artifact_type_from_manifest(manifest_entry: dict[str, Any]) -> str:
     raw_type = str(manifest_entry.get("type") or "")
     content_type = str(manifest_entry.get("content_type") or "").lower()
@@ -517,6 +700,7 @@ class LivingArtifactAdapter(ABC):
         artifact_type: str,
         content: ArtifactContent,
         artifact_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         return self.commit(
             artifact=None,
@@ -529,6 +713,7 @@ class LivingArtifactAdapter(ABC):
             content_type=content.content_type,
             content_bytes=content.content_bytes,
             source_artifact=content.source_artifact,
+            metadata=metadata,
         )
 
     @abstractmethod
@@ -552,6 +737,7 @@ class LivingArtifactAdapter(ABC):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         raise NotImplementedError
 
@@ -587,6 +773,7 @@ class S3ArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         artifact_key = str(artifact.id) if artifact is not None else artifact_id or uuid.uuid4().hex
         storage_path = build_living_artifact_storage_path(run, artifact_key, version, name)
@@ -636,6 +823,7 @@ class DocumentConnectorArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         connector = _document_connector_adapter_for_run(run)
         fallback_reason = "no_user_connector"
@@ -652,6 +840,7 @@ class DocumentConnectorArtifactAdapter(LivingArtifactAdapter):
                     content_type=content_type,
                     content_bytes=content_bytes,
                     source_artifact=source_artifact,
+                    metadata=metadata,
                 )
             except DocumentConnectorUnavailable:
                 fallback_reason = "connector_unavailable"
@@ -675,6 +864,7 @@ class DocumentConnectorArtifactAdapter(LivingArtifactAdapter):
             content_type=content_type,
             content_bytes=content_bytes,
             source_artifact=source_artifact,
+            metadata=metadata,
         )
         return ArtifactCommit(
             adapter=self.adapter,
@@ -712,9 +902,27 @@ class SlackMessageArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         text = content.strip() or name
+        metadata = metadata or {}
+        if _slack_message_delivery_mode(metadata) == SLACK_MESSAGE_DELIVERY_MODE_DRAFT or (
+            artifact is not None and _is_slack_message_draft(artifact)
+        ):
+            return _commit_slack_message_draft(
+                artifact=artifact,
+                run=run,
+                mapping=mapping,
+                name=name,
+                content=text,
+                version=version,
+                artifact_id=artifact_id,
+                content_type=content_type,
+                source_artifact=source_artifact,
+                metadata=metadata,
+            )
+
         if artifact is None:
             response = _slack_client_for_mapping(mapping).chat_postMessage(
                 channel=mapping.channel,
@@ -773,6 +981,7 @@ class SlackCanvasArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         slack_integration = _slack_integration_for_mapping(mapping)
@@ -861,6 +1070,7 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         content_type: str | None = None,
         content_bytes: bytes | None = None,
         source_artifact: dict[str, Any] | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> ArtifactCommit:
         mapping = _get_slack_mapping(run)
         slack_integration = _slack_integration_for_mapping(mapping)
@@ -909,6 +1119,224 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
                 "size": len(payload),
             },
             version=version_payload,
+        )
+
+
+def _slack_message_delivery_mode(metadata: dict[str, Any]) -> str:
+    value = metadata.get("slack_message_delivery_mode")
+    if value == SLACK_MESSAGE_DELIVERY_MODE_DRAFT:
+        return SLACK_MESSAGE_DELIVERY_MODE_DRAFT
+    return SLACK_MESSAGE_DELIVERY_MODE_SEND
+
+
+def _commit_slack_message_draft(
+    *,
+    artifact: TaskArtifact | None,
+    run: TaskRun,
+    mapping: Any,
+    name: str,
+    content: str,
+    version: int,
+    artifact_id: str | None,
+    content_type: str | None,
+    source_artifact: dict[str, Any] | None,
+    metadata: dict[str, Any],
+) -> ArtifactCommit:
+    target_channel = str(metadata.get("slack_message_channel_id") or mapping.channel)
+    target_thread_ts = _optional_str(metadata.get("slack_message_thread_ts"))
+    if target_channel == mapping.channel and target_thread_ts is None:
+        target_thread_ts = mapping.thread_ts
+
+    expected_approver = (
+        _optional_str(metadata.get("slack_message_expected_approver_id"))
+        or mapping.latest_actor_slack_user_id
+        or mapping.mentioning_slack_user_id
+    )
+    resolved_artifact_id = str(artifact.id) if artifact is not None else artifact_id
+    if not resolved_artifact_id:
+        raise ValueError("Slack message draft requires an artifact id")
+
+    approval_channel = (
+        _optional_str((artifact.location or {}).get("approval_channel")) if artifact is not None else None
+    ) or mapping.channel
+    approval_thread_ts = (
+        _optional_str((artifact.location or {}).get("approval_thread_ts")) if artifact is not None else None
+    ) or mapping.thread_ts
+    approval_message_ts = (
+        _optional_str((artifact.location or {}).get("approval_message_ts")) if artifact is not None else None
+    )
+
+    slack = _slack_client_for_mapping(mapping)
+    action_value = _slack_message_action_value(
+        integration_id=mapping.integration_id,
+        run_id=str(run.id),
+        artifact_id=resolved_artifact_id,
+    )
+    fallback_text = _slack_message_draft_fallback_text(target_channel, target_thread_ts)
+    blocks = _slack_message_draft_blocks(
+        content=content,
+        target_channel=target_channel,
+        target_thread_ts=target_thread_ts,
+        action_value=action_value,
+    )
+    if approval_message_ts:
+        slack.chat_update(
+            channel=approval_channel,
+            ts=approval_message_ts,
+            text=fallback_text,
+            blocks=blocks,
+        )
+    else:
+        response = slack.chat_postMessage(
+            channel=approval_channel,
+            thread_ts=approval_thread_ts,
+            text=fallback_text,
+            blocks=blocks,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+        approval_message_ts = response.get("ts")
+        if not approval_message_ts:
+            raise ValueError("Slack message draft did not return an approval message timestamp")
+
+    location = {
+        "kind": "slack_message_draft",
+        "integration_id": mapping.integration_id,
+        "channel": target_channel,
+        "thread_ts": target_thread_ts,
+        "approval_channel": approval_channel,
+        "approval_thread_ts": approval_thread_ts,
+        "approval_message_ts": approval_message_ts,
+    }
+    return ArtifactCommit(
+        adapter=TaskArtifact.Adapter.SLACK_MESSAGE,
+        location=location,
+        metadata={
+            "slack_workspace_id": mapping.slack_workspace_id,
+            "slack_message_status": SLACK_MESSAGE_STATUS_DRAFT,
+            "slack_message_delivery_mode": SLACK_MESSAGE_DELIVERY_MODE_DRAFT,
+            "slack_message_expected_approver_id": expected_approver,
+            "slack_message_target_channel": target_channel,
+            "slack_message_target_thread_ts": target_thread_ts,
+            "slack_message_approval_message_ts": approval_message_ts,
+        },
+        version=_version_payload(
+            version=version,
+            run=run,
+            adapter=TaskArtifact.Adapter.SLACK_MESSAGE,
+            location=location,
+            content_type=content_type or "text/plain",
+            source_artifact=source_artifact,
+            content=content,
+        ),
+    )
+
+
+def _slack_message_action_value(*, integration_id: int, run_id: str, artifact_id: str) -> str:
+    return json.dumps(
+        {
+            "integration_id": integration_id,
+            "run_id": run_id,
+            "artifact_id": artifact_id,
+        },
+        separators=(",", ":"),
+    )
+
+
+def _slack_message_draft_fallback_text(target_channel: str, target_thread_ts: str | None) -> str:
+    return f"Review this draft Slack message for {_format_slack_target(target_channel, target_thread_ts)}."
+
+
+def _format_slack_target(target_channel: str, target_thread_ts: str | None) -> str:
+    target = f"<#{target_channel}>"
+    if target_thread_ts:
+        return f"{target} thread `{target_thread_ts}`"
+    return target
+
+
+def _truncate_preview_text(value: str) -> str:
+    cleaned = value.strip()
+    if len(cleaned) <= SLACK_MESSAGE_PREVIEW_MAX_LENGTH:
+        return cleaned
+    return cleaned[: SLACK_MESSAGE_PREVIEW_MAX_LENGTH - 1].rstrip() + "…"
+
+
+def _slack_message_draft_blocks(
+    *,
+    content: str,
+    target_channel: str,
+    target_thread_ts: str | None,
+    action_value: str,
+) -> list[dict[str, Any]]:
+    preview = _truncate_preview_text(content)
+    return [
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f":memo: *Draft Slack message*\nTarget: {_format_slack_target(target_channel, target_thread_ts)}",
+                "verbatim": False,
+            },
+        },
+        {
+            "type": "section",
+            "text": {
+                "type": "mrkdwn",
+                "text": f"> {preview.replace(chr(10), chr(10) + '> ')}",
+                "verbatim": False,
+            },
+        },
+        {
+            "type": "actions",
+            "elements": [
+                {
+                    "type": "button",
+                    "action_id": SLACK_MESSAGE_ACTION_DISCARD,
+                    "text": {"type": "plain_text", "text": "Discard", "emoji": False},
+                    "value": action_value,
+                },
+                {
+                    "type": "button",
+                    "action_id": SLACK_MESSAGE_ACTION_SEND,
+                    "style": "primary",
+                    "text": {"type": "plain_text", "text": "Send message", "emoji": False},
+                    "value": action_value,
+                },
+            ],
+        },
+    ]
+
+
+def _replace_slack_message_draft_prompt(
+    artifact: TaskArtifact,
+    text: str,
+    *,
+    location: dict[str, Any] | None = None,
+) -> None:
+    location = location or artifact.location or {}
+    approval_channel = _optional_str(location.get("approval_channel"))
+    approval_message_ts = _optional_str(location.get("approval_message_ts"))
+    if not approval_channel or not approval_message_ts:
+        return
+
+    try:
+        mapping = _get_slack_mapping(artifact.task_run)
+        _slack_client_for_mapping(mapping).chat_update(
+            channel=approval_channel,
+            ts=approval_message_ts,
+            text=text,
+            blocks=[
+                {
+                    "type": "section",
+                    "text": {"type": "mrkdwn", "text": text, "verbatim": False},
+                }
+            ],
+        )
+    except Exception:
+        logger.warning(
+            "task_artifact.slack_message_draft_prompt_update_failed",
+            artifact_id=str(artifact.id),
+            exc_info=True,
         )
 
 
