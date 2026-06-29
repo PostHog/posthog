@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Optional, Union
 
@@ -59,6 +60,58 @@ _EVENT_SELECTION_LLM_TIMEOUT_SECONDS = 30.0
 
 class PromptRejectedError(ValueError):
     pass
+
+
+@dataclass(frozen=True)
+class ReportWindow:
+    """Code-computed, timezone-aware analysis bounds for a report run.
+
+    `start`/`end` are tz-aware in the team's timezone so the planner never has to do timezone math
+    in HogQL. The half-open convention is `timestamp >= start AND timestamp < end` — `start_iso`/
+    `end_iso` render the bounds for both the planner context and the query filter.
+    """
+
+    start: datetime
+    end: datetime
+
+    @property
+    def start_iso(self) -> str:
+        return self.start.isoformat(timespec="seconds")
+
+    @property
+    def end_iso(self) -> str:
+        return self.end.isoformat(timespec="seconds")
+
+
+def compute_report_window(
+    team: Team,
+    last_successful_delivery_at: Optional[datetime],
+    now: datetime,
+    window_days: int,
+) -> ReportWindow:
+    """Compute the `[start, end)` analysis window for a report run, timezone-aware in the team's tz.
+
+    `end` is the run's "now"; `start` is the last SUCCESSFUL delivery's `finished_at` (gap-free
+    "since last send"), falling back to `end - window_days` when there's no prior successful
+    delivery. Both bounds are returned in the team timezone. Pure (no DB / no `datetime.now`) so
+    it's unit-testable — callers resolve `last_successful_delivery_at` and `now` and pass them in.
+    """
+    tz = team.timezone_info
+    # Normalise to the team tz. Naive inputs are assumed UTC (Django stores tz-aware UTC datetimes,
+    # but management commands / tests may hand us a naive value).
+    end = (now if now.tzinfo is not None else now.replace(tzinfo=UTC)).astimezone(tz)
+
+    if last_successful_delivery_at is not None:
+        since = last_successful_delivery_at
+        start = (since if since.tzinfo is not None else since.replace(tzinfo=UTC)).astimezone(tz)
+        # A clock skew or a stale finished_at could land start after end; clamp to the fallback
+        # window so we never hand the planner an inverted range.
+        if start >= end:
+            start = end - timedelta(days=window_days)
+    else:
+        start = end - timedelta(days=window_days)
+
+    return ReportWindow(start=start, end=end)
 
 
 def sanitize_prompt(raw: str | None) -> str:

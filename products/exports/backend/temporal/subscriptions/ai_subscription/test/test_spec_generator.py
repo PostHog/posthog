@@ -1,4 +1,5 @@
 from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pytest
 from posthog.test.base import APIBaseTest
@@ -22,6 +23,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.spec_genera
     _person_property_names,
     _select_relevant_events,
     build_context_blob,
+    compute_report_window,
     generate_query_plan,
     sanitize_prompt,
 )
@@ -187,6 +189,86 @@ class TestEventPropertyNames(APIBaseTest):
         EventProperty.objects.create(team=self.team, event="export created", property="mine")
 
         assert _event_property_names(self.team, ["export created"], per_event_limit=15) == {"export created": ["mine"]}
+
+
+class TestComputeReportWindow:
+    """`compute_report_window` is the pure core of the timezone-aware window. It's the fix for the
+    UTC-anchored, send-time→midnight gap, so its three behaviours are pinned: since-last-delivery
+    anchoring, the no-prior-delivery fallback, and timezone correctness (a regression here is the
+    exact customer bug)."""
+
+    @staticmethod
+    def _team(timezone: str = "UTC") -> Team:
+        # In-memory only — compute_report_window is pure and timezone_info just wraps ZoneInfo(tz),
+        # so no DB row is needed and the test stays at the cheapest rung.
+        return Team(timezone=timezone)
+
+    def test_anchors_start_to_last_successful_delivery(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=1)
+
+        # Gap-free: start is exactly the previous send, not now - window_days (which would be identical
+        # here, but the next case proves they diverge when the prior send drifted).
+        assert window.start == last.astimezone(ZoneInfo("UTC"))
+        assert window.end == now.astimezone(ZoneInfo("UTC"))
+
+    def test_since_last_delivery_can_exceed_window_days(self) -> None:
+        # A weekly sub (window_days=7) whose prior delivery was 10 days ago must cover the whole gap,
+        # not just the last 7 days — proving start follows the delivery, not the cadence default.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 19, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=7)
+
+        assert window.start == last
+        assert (window.end - window.start) == timedelta(days=10)
+
+    def test_falls_back_to_window_days_without_prior_delivery(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=None, now=now, window_days=7)
+
+        assert window.end == now
+        assert window.start == now - timedelta(days=7)
+
+    @parameterized.expand(
+        [
+            ("sydney", "Australia/Sydney"),
+            ("la", "America/Los_Angeles"),
+        ]
+    )
+    def test_bounds_are_in_team_timezone(self, _name: str, timezone: str) -> None:
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(timezone), last_successful_delivery_at=None, now=now, window_days=1)
+
+        # Same instant, rendered in the team's tz — utcoffset proves the bound carries the team's
+        # offset (the UTC-anchored bug had a zero offset regardless of team timezone).
+        assert window.end.tzinfo == ZoneInfo(timezone)
+        assert window.end.utcoffset() == now.astimezone(ZoneInfo(timezone)).utcoffset()
+        # The ISO strings the planner sees carry the offset, so the LLM never does tz math.
+        assert window.end_iso == now.astimezone(ZoneInfo(timezone)).isoformat(timespec="seconds")
+
+    def test_clamps_inverted_range_to_fallback(self) -> None:
+        # A stale finished_at in the future would invert the range; clamp to the fallback window.
+        now = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
+        last = datetime(2026, 6, 30, 16, 0, tzinfo=UTC)
+
+        window = compute_report_window(self._team(), last_successful_delivery_at=last, now=now, window_days=1)
+
+        assert window.start == now - timedelta(days=1)
+        assert window.end == now
+
+    def test_naive_inputs_assumed_utc(self) -> None:
+        now = datetime(2026, 6, 29, 16, 0)
+        last = datetime(2026, 6, 28, 16, 0)
+
+        window = compute_report_window(self._team("UTC"), last_successful_delivery_at=last, now=now, window_days=1)
+
+        assert window.start == datetime(2026, 6, 28, 16, 0, tzinfo=UTC)
+        assert window.end == datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
 
 
 class TestContextBlob(APIBaseTest):
