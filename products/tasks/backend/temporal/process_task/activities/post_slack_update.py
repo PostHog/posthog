@@ -16,6 +16,56 @@ logger = get_logger(__name__)
 SLACK_TERMINAL_NOTIFIED_STATUS_KEY = "slack_terminal_notified_status"
 SLACK_TERMINAL_NOTIFIED_ERROR_KEY = "slack_terminal_notified_error_message"
 SLACK_PERMISSION_REJECTION_ERROR_FRAGMENT = "[ede_diagnostic] result_type=user"
+SLACK_RECOVERY_STRATEGY_KEY = "slack_recovery_strategy"
+SLACK_RECOVERY_PROMPT_KEY = "slack_recovery_prompt"
+
+SLACK_RECOVERY_STRATEGY_RETRY = "retry"
+SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN = "connect_then_replan"
+SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN = "unblock_and_replan"
+SLACK_RECOVERY_STRATEGY_CANCELLED = "cancelled_resume"
+
+_CONNECT_THEN_REPLAN_MARKERS = (
+    "not connected",
+    "connect github",
+    "connect your github",
+    "connect the missing",
+    "missing connector",
+    "missing integration",
+    "github integration",
+    "oauth",
+    "permission scope",
+    "missing scope",
+    "no connected github",
+    "repository selection expired",
+)
+_UNBLOCK_AND_REPLAN_MARKERS = (
+    "infeasible",
+    "cannot complete",
+    "can't complete",
+    "not possible",
+    "missing information",
+    "need more information",
+    "need clarification",
+    "blocked on",
+    "approval request",
+)
+
+_RECOVERY_PROMPTS = {
+    SLACK_RECOVERY_STRATEGY_RETRY: (
+        "Reply in this thread with `retry` to try again from the latest checkpoint, "
+        "or add instructions to change the approach."
+    ),
+    SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN: (
+        "Reply after connecting the missing tool, or tell me to continue without it. "
+        "I'll re-plan against the current connections before continuing."
+    ),
+    SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN: (
+        "Reply with the missing detail or constraint. I'll re-plan with that answer before continuing."
+    ),
+    SLACK_RECOVERY_STRATEGY_CANCELLED: (
+        "Reply in this thread when you want to resume, and include any new direction I should follow."
+    ),
+}
 
 
 @dataclass
@@ -161,8 +211,27 @@ def _mark_terminal_notified(task_run: Any, status: str, error: str | None = None
     updates = {SLACK_TERMINAL_NOTIFIED_STATUS_KEY: status}
     if status == TaskRun.Status.FAILED:
         updates[SLACK_TERMINAL_NOTIFIED_ERROR_KEY] = error or ""
+        recovery_strategy = _classify_failure_recovery(error or "")
+        updates[SLACK_RECOVERY_STRATEGY_KEY] = recovery_strategy
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[recovery_strategy]
+    elif status == TaskRun.Status.CANCELLED:
+        updates[SLACK_RECOVERY_STRATEGY_KEY] = SLACK_RECOVERY_STRATEGY_CANCELLED
+        updates[SLACK_RECOVERY_PROMPT_KEY] = _RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED]
 
     TaskRun.update_state_atomic(task_run.id, updates=updates)
+
+
+def _classify_failure_recovery(error: str) -> str:
+    normalized = error.lower()
+    if any(marker in normalized for marker in _CONNECT_THEN_REPLAN_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_CONNECT_THEN_REPLAN
+    if any(marker in normalized for marker in _UNBLOCK_AND_REPLAN_MARKERS):
+        return SLACK_RECOVERY_STRATEGY_UNBLOCK_AND_REPLAN
+    return SLACK_RECOVERY_STRATEGY_RETRY
+
+
+def _failure_recovery_prompt(error: str) -> str:
+    return _RECOVERY_PROMPTS[_classify_failure_recovery(error)]
 
 
 def _is_suppressed_permission_rejection_error(task_run: Any, error: str) -> bool:
@@ -182,7 +251,7 @@ def _post_error_once(task_run: Any, handler: Any, error: str, task_url: str | No
         handler.delete_progress()
     else:
         handler.update_reaction("x")
-        handler.post_error(error, task_url)
+        handler.post_error(error, task_url, recovery_hint=_failure_recovery_prompt(error))
     _mark_terminal_notified(task_run, TaskRun.Status.FAILED, error)
 
 
@@ -194,7 +263,7 @@ def _post_cancelled_once(task_run: Any, handler: Any, task_url: str | None) -> N
         return
 
     handler.update_reaction("hedgehog")
-    handler.post_cancelled(task_url)
+    handler.post_cancelled(task_url, recovery_hint=_RECOVERY_PROMPTS[SLACK_RECOVERY_STRATEGY_CANCELLED])
     _mark_terminal_notified(task_run, TaskRun.Status.CANCELLED)
 
 

@@ -20,6 +20,7 @@ from posthog.temporal.ai.slack_app import (
     enforce_posthog_code_billing_quota_activity,
     forward_posthog_code_followup_activity,
 )
+from posthog.temporal.ai.slack_app.activities.task_creation import _build_terminal_recovery_prompt
 from posthog.temporal.ai.slack_app.helpers import safe_react
 
 from products.slack_app.backend.api import SlackUserContext
@@ -48,6 +49,26 @@ def _assert_quota_denial_posted(mock_slack_instance: MagicMock, channel: str, th
     ]
     assert denial_calls, "Expected an in-thread denial message when over quota"
     assert "PostHog AI credits" in denial_calls[0].kwargs["text"]
+
+
+class TestTerminalRecoveryPrompt(UnitTestCase):
+    def test_failed_connector_recovery_prompts_replan(self):
+        previous_run = SimpleNamespace(
+            id="run-1",
+            status="failed",
+            error_message="No connected GitHub integration was found for this user",
+            state={
+                "slack_recovery_strategy": "connect_then_replan",
+                "slack_recovery_prompt": "Reply after connecting the missing tool.",
+            },
+        )
+
+        prompt = _build_terminal_recovery_prompt(previous_run, "I connected GitHub, try again")
+
+        assert "Recovery mode: connect_then_replan" in prompt
+        assert "Refresh the current connector/auth state" in prompt
+        assert "No connected GitHub integration" in prompt
+        assert "I connected GitHub, try again" in prompt
 
 
 class TestSlackThreadTaskMapping(TestCase):
@@ -700,6 +721,38 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         assert new_run.state.get("slack_notified_pr_url") == "https://github.com/org/repo/pull/1"
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("initial_prompt_override", "")
         assert "gh pr checkout https://github.com/org/repo/pull/1" in new_run.state.get("pending_user_message", "")
+
+    @patch("products.tasks.backend.facade.temporal.execute_task_processing_workflow")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_terminal_failed_run_resumes_with_structured_recovery_prompt(self, mock_slack_cls, mock_execute_workflow):
+        self.task_run.status = self.TaskRun.Status.FAILED
+        self.task_run.error_message = "No connected GitHub integration was found for this user"
+        self.task_run.output = {"pr_url": "https://github.com/org/repo/pull/1"}
+        self.task_run.state = {
+            "slack_recovery_strategy": "connect_then_replan",
+            "slack_recovery_prompt": "Reply after connecting the missing tool.",
+        }
+        self.task_run.save()
+        self._create_mapping()
+        mock_slack_cls.return_value = MagicMock()
+
+        inputs = _make_inputs(self.integration.id)
+        result = forward_posthog_code_followup_activity(
+            inputs, "C123", "1234.5678", "U_ALICE", "<@BOT> I connected GitHub, try again", "1234.5679"
+        )
+
+        assert result is True
+        new_run_id = mock_execute_workflow.call_args.kwargs["run_id"]
+        new_run = self.TaskRun.objects.get(id=new_run_id)
+        prompt = new_run.state["initial_prompt_override"]
+        assert "Recovery mode: connect_then_replan" in prompt
+        assert "Refresh the current connector/auth state" in prompt
+        assert "No connected GitHub integration" in prompt
+        assert "I connected GitHub, try again" in prompt
+        assert "gh pr checkout https://github.com/org/repo/pull/1" in prompt
+        assert new_run.state["slack_recovery_from_run_id"] == str(self.task_run.id)
+        assert new_run.state["slack_recovery_strategy"] == "connect_then_replan"
+        assert new_run.state["slack_recovery_user_message"] == "I connected GitHub, try again"
 
     @patch("products.slack_app.backend.api.resolve_slack_user", return_value=None)
     @patch("posthog.models.integration.SlackIntegration")
