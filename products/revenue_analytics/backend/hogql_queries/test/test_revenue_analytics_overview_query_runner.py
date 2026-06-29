@@ -25,7 +25,7 @@ from posthog.schema import (
 
 from posthog.models.utils import uuid7
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.revenue_analytics_overview_query_runner import (
     RevenueAnalyticsOverviewQueryRunner,

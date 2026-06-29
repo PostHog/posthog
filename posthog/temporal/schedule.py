@@ -66,6 +66,7 @@ from posthog.temporal.session_replay.summarization_sweep.reconciler import (
     create_summarization_sweep_reconciler_schedule,
 )
 from posthog.temporal.session_replay.surfacing_scoring_sweep.schedule import create_surfacing_scoring_sweep_schedule
+from posthog.temporal.sync_events_retention.types import SyncEventsRetentionInput
 from posthog.temporal.usage_report.types import RunUsageReportsInputs
 from posthog.temporal.warehouse_sources_queue_partition_management.schedule import (
     create_warehouse_sources_queue_partition_management_schedule,
@@ -313,6 +314,44 @@ async def create_enforce_max_replay_retention_schedule(client: Client):
             client,
             "enforce-max-replay-retention-schedule",
             enforce_max_replay_retention_schedule,
+            trigger_immediately=False,
+        )
+
+
+async def create_sync_events_retention_schedule(client: Client):
+    """Create or update the schedule for the events retention sync workflow.
+
+    Runs daily at 02:22 UTC — an off-the-hour minute so it doesn't pile onto the cluster of jobs that fire at the
+    top of the hour.
+    """
+    sync_events_retention_schedule = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "sync-events-retention",
+            SyncEventsRetentionInput(dry_run=False),
+            id="sync-events-retention-schedule",
+            task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+            retry_policy=common.RetryPolicy(
+                maximum_attempts=1,
+            ),
+        ),
+        spec=ScheduleSpec(
+            calendars=[
+                ScheduleCalendarSpec(
+                    comment="Daily at 02:22 UTC",
+                    hour=[ScheduleRange(start=2, end=2)],
+                    minute=[ScheduleRange(start=22, end=22)],
+                )
+            ]
+        ),
+    )
+
+    if await a_schedule_exists(client, "sync-events-retention-schedule"):
+        await a_update_schedule(client, "sync-events-retention-schedule", sync_events_retention_schedule)
+    else:
+        await a_create_schedule(
+            client,
+            "sync-events-retention-schedule",
+            sync_events_retention_schedule,
             trigger_immediately=False,
         )
 
@@ -656,6 +695,7 @@ schedules = [
     create_count_all_playlists_schedule,
     create_error_tracking_recommendations_refresh_schedule,
     create_enforce_max_replay_retention_schedule,
+    create_sync_events_retention_schedule,
     create_replay_count_metrics_schedule,
     create_weekly_digest_schedule,
     create_batch_trace_summarization_schedule,

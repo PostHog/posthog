@@ -418,6 +418,30 @@ def test_table_from_py_list_huge_int_column_falls_back_to_string():
     assert table.column("column").to_pylist() == [str(enormous), "5"]
 
 
+def test_table_from_py_list_decimal_exceeding_max_scale_is_rounded():
+    # An unconstrained Postgres `numeric` can carry more decimal places than Delta Lake's max
+    # scale (32). pyarrow refuses to rescale it ("Rescaling Decimal256 value would cause data
+    # loss"); the value must be rounded to the max scale rather than crashing the whole sync.
+    # A None is mixed in to exercise the null-passthrough in the quantize retry path.
+    value = decimal.Decimal("1." + "1" * 80)
+
+    table = table_from_py_list([{"column": value}, {"column": None}])
+
+    col_type = table.schema.field("column").type
+    assert pa.types.is_decimal256(col_type)
+    assert col_type.scale == 32
+    assert table.column("column").to_pylist() == [decimal.Decimal("1." + "1" * 32), None]
+
+
+def test_table_from_py_list_decimal_too_large_for_decimal256_raises():
+    # A value whose integer part can't fit decimal256(76, 32) even after rounding to the max
+    # scale is genuinely unrepresentable, so the hard ValueError must still surface.
+    value = decimal.Decimal("9" * 45 + "." + "1" * 40)
+
+    with pytest.raises(ValueError, match="Cannot build decimal array from values"):
+        table_from_py_list([{"column": value}])
+
+
 def test_table_from_py_list_normal_int_column_stays_int64():
     # Values within int64 are unaffected by the overflow handling.
     table = table_from_py_list([{"column": 1}, {"column": 2}, {"column": None}])

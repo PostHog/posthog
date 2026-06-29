@@ -3,8 +3,9 @@ from typing import Optional
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from posthog.schema import BaseMathType, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
+from posthog.schema import BaseMathType, CompareFilter, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
 
+from posthog.hogql.database.database import Database
 from posthog.hogql.parser import parse_select
 from posthog.hogql.test.utils import pretty_print_in_tests
 
@@ -78,3 +79,69 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
 
         # Snapshot the query
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot
+
+    def test_compare_shares_database_across_periods(self):
+        query = MarketingAnalyticsAggregatedQuery(
+            dateRange=self.default_date_range,
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+        )
+        runner = self._create_query_runner(query)
+
+        mock_adapter = Mock()
+        mock_adapter.get_source_id.return_value = "test_source"
+        mock_adapter.supports_level.return_value = True
+        mock_adapter.build_query.return_value = parse_select(
+            "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
+            "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
+            "25.0 as reported_conversion_value, 'Campaign' as match_key"
+        )
+
+        with (
+            patch.object(
+                MarketingAnalyticsAggregatedQueryRunner,
+                "_get_marketing_source_adapters",
+                return_value=[mock_adapter],
+            ),
+            patch.object(Database, "create_for", wraps=Database.create_for) as create_for_spy,
+        ):
+            runner.calculate_with_compare()
+
+        assert create_for_spy.call_count == 1, (
+            f"both periods must share one HogQL database (the previous runner has no user); "
+            f"Database.create_for ran {create_for_spy.call_count} times"
+        )
+
+    def test_compare_previous_period_not_zeroed_under_user_scoped_adapters(self):
+        # Adapters resolve only for a user-scoped runner (warehouse RBAC); a user-less previous runner
+        # gets none, falls back to the empty cost source, and zeroes the previous period.
+        query = MarketingAnalyticsAggregatedQuery(
+            dateRange=self.default_date_range,
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+        )
+        runner = MarketingAnalyticsAggregatedQueryRunner(query=query, team=self.team, user=self.user)
+
+        mock_adapter = Mock()
+        mock_adapter.get_source_id.return_value = "test_source"
+        mock_adapter.supports_level.return_value = True
+        mock_adapter.build_query.return_value = parse_select(
+            "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
+            "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
+            "25.0 as reported_conversion_value, 'Campaign' as match_key"
+        )
+
+        def rbac_adapters(runner_self, date_range):
+            return [mock_adapter] if runner_self.user is not None else []
+
+        with patch.object(
+            MarketingAnalyticsAggregatedQueryRunner,
+            "_get_marketing_source_adapters",
+            autospec=True,
+            side_effect=rbac_adapters,
+        ):
+            response = runner.calculate()
+
+        cost = response.results["Cost"]
+        assert cost.value == 50.0
+        assert cost.previous == 50.0, f"previous fell back to the empty cost source (user-less runner): {cost.previous}"

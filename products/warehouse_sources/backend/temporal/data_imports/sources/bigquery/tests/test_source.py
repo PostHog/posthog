@@ -960,6 +960,31 @@ def test_bigquery_dataset_not_found_in_location_is_non_retryable(location):
     assert any(pattern in error_msg for pattern in non_retryable_errors)
 
 
+@pytest.mark.parametrize(
+    "location",
+    ["ua", "us-fake1", "EU "],
+)
+def test_bigquery_unsupported_region_is_non_retryable(location):
+    """A custom/auto-detected region BigQuery can't run query jobs in surfaces from job creation as
+    a 400 BadRequest whose str() is "... Location <X> does not support this operation.". It's a
+    deterministic config error — retrying the same location always fails — so it must be recognised
+    as non-retryable via the "does not support this operation" pattern rather than retrying forever.
+    The volatile location code must not be part of the match."""
+    error_msg = str(
+        BadRequest(
+            f"POST https://bigquery.googleapis.com/bigquery/v2/projects/my-proj/jobs?prettyPrint=false: "
+            f"Location {location} does not support this operation."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "an unsupported-region 400 should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
+    assert all(location not in key for key in matching), "match must not depend on the volatile location"
+
+
 def test_bigquery_table_not_found_during_sync_is_non_retryable():
     """A table deleted/renamed after schema discovery surfaces from `get_table()` at sync time as a
     google NotFound whose str() is "... Not found: Table <project>:<dataset>.<table>" — distinct from

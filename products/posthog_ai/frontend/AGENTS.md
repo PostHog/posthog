@@ -41,8 +41,12 @@ The headline exports per module:
 
 - **`api/run`** — **`RunViewer`**, the lazy, code-split embeddable: calling `<RunViewer .../>` binds the
   stream logic and renders the default layout behind a `RunLogSkeleton` Suspense fallback (the heavy chunk —
-  stream logic, virtualized thread, tool/diff renderers — loads on demand). It is the only form any consumer
-  uses; the compound (`Root` + `.Thread/.Prompt/.Composer/.Resources/.ContextUsage` slots) stays internal to
+  stream logic, virtualized thread, tool/diff renderers — loads on demand). This is the form every **embed**
+  uses (the inbox detail views), where the viewer is a secondary panel worth splitting out. The one exception
+  is the **runner scene** (`scenes/TaskTracker`), which renders `components/RunViewerImpl` **directly (eager,
+  relative import)**: the `/tasks` route is already a code-split scene chunk and the viewer is its primary
+  content, so a second `lazy()` would only add a redundant chunk fetch + Suspense flash. The compound
+  (`Root` plus the `.Thread/.Prompt/.Composer/.Resources/.ContextUsage` slots) stays internal to
   `components/RunViewerImpl` backing the default layout, not surfaced (no consumer composes the slots, and
   lazy-wrapping each would only add Suspense boundaries that never fire). For a custom layout, bind
   `runStreamLogic` and compose the Tier 2 primitives. Also **`RunComposer`**.
