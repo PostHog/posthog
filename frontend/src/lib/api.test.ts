@@ -2,6 +2,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiConfig, ApiRequest } from 'lib/api'
 import type { ApiError } from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -200,6 +201,48 @@ describe('API helper', () => {
             const [url, options] = fakeFetch.mock.calls[0]
             expect(url).toEqual('/some/local/path/')
             expect(options.headers.Authorization).toBeUndefined()
+        })
+    })
+
+    describe('read-only impersonation', () => {
+        it('surfaces a toast explaining why a blocked request failed', async () => {
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            fakeFetch.mockResolvedValue({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers(),
+                json: () =>
+                    Promise.resolve({
+                        type: 'authentication_error',
+                        code: 'impersonation_read_only',
+                        detail: 'This action is not allowed during read-only user impersonation.',
+                    }),
+            })
+
+            await expect(api.create('/api/some/write/endpoint', {})).rejects.toThrow()
+            await new Promise((resolve) => setTimeout(resolve)) // let the dynamically imported toast resolve
+
+            expect(errorSpy).toHaveBeenCalledWith(
+                'This action is not allowed during read-only user impersonation.',
+                { hideButton: true }
+            )
+        })
+
+        it('does not toast for unrelated request failures', async () => {
+            const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast-id')
+            fakeFetch.mockResolvedValue({
+                ok: false,
+                status: 400,
+                statusText: 'Bad Request',
+                headers: new Headers(),
+                json: () => Promise.resolve({ type: 'validation_error', detail: 'Something else went wrong' }),
+            })
+
+            await expect(api.create('/api/some/write/endpoint', {})).rejects.toThrow()
+            await new Promise((resolve) => setTimeout(resolve))
+
+            expect(errorSpy).not.toHaveBeenCalled()
         })
     })
 
