@@ -12,7 +12,7 @@ import { userLogic } from 'scenes/userLogic'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
-import { ProductTab, TileId } from './common'
+import { GraphsTab, ProductTab, TileId } from './common'
 import { FOCUS_MODE_TILE_IDS } from './focus-mode/focusModeMapping'
 import { WebAnalyticsConcern, getFocusModeOnboardingSeenKey } from './focus-mode/types'
 import { webAnalyticsLogic } from './webAnalyticsLogic'
@@ -339,24 +339,98 @@ describe('webAnalyticsLogic URL restoration', () => {
         jest.restoreAllMocks()
     })
 
-    // Guards the rapid-URL-change cascade: when urlToAction restores state from a URL with several
-    // params it dispatches a flurry of setX actions. Without the isApplyingUrlState guard each of
-    // those re-enters actionToUrl and re-pushes the URL (each push strips then re-adds params),
-    // tripping the rapid-change detector. The only push that should happen is our own navigation.
-    it('applies tab state from the URL without re-pushing it', async () => {
-        const pushSpy = jest.spyOn(router.actions, 'push')
+    // These lock the full URL <-> state contract so the restore path can be refactored (centralising
+    // the per-action dispatches into a single un-mapped sync) without silently regressing it:
+    //  - every param restores into the right reducer (incl. state owned by the connected filter logic),
+    //  - restoration does not thrash the URL (the actionToUrl <-> urlToAction cascade),
+    //  - the bots tab keeps its flag-gating and last-day date default,
+    //  - actionToUrl still mirrors user changes back into the URL.
+    it.each<[string, Record<string, string>, () => unknown, unknown]>([
+        ['device_tab', { device_tab: 'BROWSER' }, () => logic.values._deviceTab, 'BROWSER'],
+        ['source_tab', { source_tab: 'REFERRING_DOMAIN' }, () => logic.values._sourceTab, 'REFERRING_DOMAIN'],
+        ['path_tab', { path_tab: 'INITIAL_PATH' }, () => logic.values._pathTab, 'INITIAL_PATH'],
+        ['graphs_tab', { graphs_tab: 'UNIQUE_USERS' }, () => logic.values._graphsTab, 'UNIQUE_USERS'],
+        ['geography_tab', { geography_tab: 'MAP' }, () => logic.values._geographyTab, 'MAP'],
+        ['active_hours_tab', { active_hours_tab: 'UNIQUE' }, () => logic.values._activeHoursTab, 'UNIQUE'],
+        ['path_cleaning', { path_cleaning: 'false' }, () => logic.values._isPathCleaningEnabled, false],
+        [
+            'filter_test_accounts',
+            { filter_test_accounts: 'true' },
+            () => logic.values.shouldFilterTestAccounts,
+            true,
+        ],
+        ['include_host_path', { include_host_path: 'true' }, () => logic.values.includeHostPath, true],
+        ['percentile', { percentile: 'p99' }, () => logic.values.webVitalsPercentile, 'p99'],
+        // domain and device_type are owned by the connected webAnalyticsFilterLogic, so these also lock
+        // restoration of cross-logic state.
+        ['domain', { domain: 'example.com' }, () => logic.values.domainFilter, 'example.com'],
+        ['device_type', { device_type: 'Desktop' }, () => logic.values.deviceTypeFilter, 'Desktop'],
+    ])('restores %s from the URL into logic state', async (_name, searchParams, read, expected) => {
+        router.actions.push('/web', searchParams)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(read()).toEqual(expected)
+    })
 
-        router.actions.push('/web', {
-            device_tab: 'BROWSER',
-            source_tab: 'REFERRING_DOMAIN',
-            path_tab: 'INITIAL_PATH',
-        })
-
+    it('restores an action conversion goal and couples the graphs tab to conversions', async () => {
+        router.actions.push('/web', { 'conversionGoal.actionId': '42' })
         await expectLogic(logic).toFinishAllListeners()
 
+        expect(logic.values.conversionGoal).toEqual({ actionId: 42 })
+        // Restoring a conversion goal must drag the graphs tab onto conversions — the same coupling the
+        // setConversionGoal reducer applies for a user-set goal.
+        expect(logic.values._graphsTab).toBe(GraphsTab.UNIQUE_CONVERSIONS)
+    })
+
+    it('restores the date range and interval from the URL', async () => {
+        router.actions.push('/web', { date_from: '-30d', date_to: '-1d', interval: 'week' })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.dateFilter).toMatchObject({ dateFrom: '-30d', dateTo: '-1d', interval: 'week' })
+    })
+
+    it.each<[string, Record<string, string>]>([
+        ['tab params', { device_tab: 'BROWSER', source_tab: 'REFERRING_DOMAIN', path_tab: 'INITIAL_PATH' }],
+        ['cross-logic filter params', { domain: 'example.com', device_type: 'Desktop', percentile: 'p99' }],
+        ['mixed params', { device_tab: 'BROWSER', domain: 'example.com', include_host_path: 'true' }],
+    ])('restores %s in a single router push, without the actionToUrl cascade', async (_name, searchParams) => {
+        const pushSpy = jest.spyOn(router.actions, 'push')
+
+        router.actions.push('/web', searchParams)
+        await expectLogic(logic).toFinishAllListeners()
+
+        // The only push is our own navigation; restoring state must not re-push the URL per param.
         expect(pushSpy).toHaveBeenCalledTimes(1)
-        expect(logic.values._deviceTab).toBe('BROWSER')
-        expect(logic.values._sourceTab).toBe('REFERRING_DOMAIN')
-        expect(logic.values._pathTab).toBe('INITIAL_PATH')
+    })
+
+    it('redirects off the bots tab when the bot-analysis flag is disabled', async () => {
+        router.actions.push('/web/bots')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe('/web')
+    })
+
+    it('defaults the bots tab to the last day when the URL carries no date', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS], {
+            [FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS]: true,
+        })
+
+        router.actions.push('/web/bots')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.productTab).toBe(ProductTab.BOT_ANALYTICS)
+        expect(logic.values.dateFilter.dateFrom).toBe('-1d')
+    })
+
+    it.each<[string, () => void, string, string]>([
+        ['setDeviceTab', () => logic.actions.setDeviceTab('BROWSER'), 'device_tab', 'BROWSER'],
+        ['setSourceTab', () => logic.actions.setSourceTab('REFERRING_DOMAIN'), 'source_tab', 'REFERRING_DOMAIN'],
+        ['setPathTab', () => logic.actions.setPathTab('INITIAL_PATH'), 'path_tab', 'INITIAL_PATH'],
+        ['setGeographyTab', () => logic.actions.setGeographyTab('MAP'), 'geography_tab', 'MAP'],
+        ['setIncludeHostPath', () => logic.actions.setIncludeHostPath(true), 'include_host_path', 'true'],
+    ])('mirrors %s back into the URL via actionToUrl', async (_name, act, key, expected) => {
+        act()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams[key]).toBe(expected)
     })
 })
