@@ -33,7 +33,9 @@ export class BlockMetadataBatcher {
 
     /** Buffers a batch and flushes once the buffer is old enough or large enough. */
     public async handleBatch(messages: Message[], nowMs: number): Promise<void> {
-        this.buffer.push(...parseBlockMetadataMessages(messages))
+        for (const row of parseBlockMetadataMessages(messages)) {
+            this.buffer.push(row)
+        }
         // Track the next offset to read per partition (highest seen + 1), accumulated across batches.
         for (const offset of findOffsetsToCommit(messages)) {
             this.pendingOffsets.set(`${offset.topic}:${offset.partition}`, offset)

@@ -2,75 +2,45 @@
 import { ParquetSchema, ParquetWriter } from '@dsnp/parquetjs'
 import { Writable } from 'stream'
 
+import { COLUMNS } from './block-metadata-columns'
 import { MlBlockMetadataRow } from './block-metadata-row'
 
 type SchemaDef = ConstructorParameters<typeof ParquetSchema>[0]
 
-const BASE_FIELDS: SchemaDef = {
-    session_id: { type: 'UTF8' },
-    team_id: { type: 'UTF8' },
-    distinct_id: { type: 'UTF8' },
-    block_url: { type: 'UTF8' },
-    block_s3_key: { type: 'UTF8' },
-    block_byte_start: { type: 'INT64', optional: true },
-    block_byte_end: { type: 'INT64', optional: true },
-    block_length: { type: 'INT64' },
-    first_ts: { type: 'TIMESTAMP_MILLIS' },
-    last_ts: { type: 'TIMESTAMP_MILLIS' },
-    event_count: { type: 'INT32' },
-    message_count: { type: 'INT32' },
-    click_count: { type: 'INT32' },
-    keypress_count: { type: 'INT32' },
-    mouse_activity_count: { type: 'INT32' },
-    active_milliseconds: { type: 'INT32' },
-    console_log_count: { type: 'INT32' },
-    console_warn_count: { type: 'INT32' },
-    console_error_count: { type: 'INT32' },
-    size: { type: 'INT64' },
-    first_url: { type: 'UTF8', optional: true },
-    urls: { type: 'UTF8', repeated: true },
-    snapshot_source: { type: 'UTF8', optional: true },
-    snapshot_library: { type: 'UTF8', optional: true },
-    retention_period_days: { type: 'INT32', optional: true },
-}
-
+// Schema and record mapping both derive from the single COLUMNS table (which also drives the row validator).
 // Snappy on every column — compression is a per-field option in parquetjs, not a writer option.
 const SCHEMA = new ParquetSchema(
     Object.fromEntries(
-        Object.entries(BASE_FIELDS).map(([name, def]) => [name, { ...def, compression: 'SNAPPY' }])
+        COLUMNS.map((col) => {
+            const def: Record<string, unknown> = { type: col.type, compression: 'SNAPPY' }
+            if (col.optional) {
+                def.optional = true
+            }
+            if (col.repeated) {
+                def.repeated = true
+            }
+            return [col.parquet, def]
+        })
     ) as SchemaDef
 )
 
-const bigintOrNull = (n: number | null): bigint | null => (n === null ? null : BigInt(Math.trunc(n)))
+const bigintOrNull = (n: unknown): bigint | null =>
+    n === null || n === undefined ? null : BigInt(Math.trunc(n as number))
 
 function toParquetRecord(row: MlBlockMetadataRow): Record<string, unknown> {
-    return {
-        session_id: row.session_id,
-        team_id: row.team_id,
-        distinct_id: row.distinct_id,
-        block_url: row.block_url,
-        block_s3_key: row.block_s3_key,
-        block_byte_start: bigintOrNull(row.block_byte_start),
-        block_byte_end: bigintOrNull(row.block_byte_end),
-        block_length: BigInt(Math.trunc(row.block_length)),
-        first_ts: new Date(row.first_ts_ms),
-        last_ts: new Date(row.last_ts_ms),
-        event_count: row.event_count,
-        message_count: row.message_count,
-        click_count: row.click_count,
-        keypress_count: row.keypress_count,
-        mouse_activity_count: row.mouse_activity_count,
-        active_milliseconds: row.active_milliseconds,
-        console_log_count: row.console_log_count,
-        console_warn_count: row.console_warn_count,
-        console_error_count: row.console_error_count,
-        size: BigInt(Math.trunc(row.size)),
-        first_url: row.first_url,
-        urls: row.urls,
-        snapshot_source: row.snapshot_source,
-        snapshot_library: row.snapshot_library,
-        retention_period_days: row.retention_period_days,
+    const record: Record<string, unknown> = {}
+    const r = row as unknown as Record<string, unknown>
+    for (const col of COLUMNS) {
+        const value = r[col.row]
+        if (col.type === 'TIMESTAMP_MILLIS') {
+            record[col.parquet] = new Date(value as number)
+        } else if (col.type === 'INT64') {
+            record[col.parquet] = bigintOrNull(value)
+        } else {
+            record[col.parquet] = value
+        }
     }
+    return record
 }
 
 export async function rowsToParquetBuffer(rows: MlBlockMetadataRow[]): Promise<Buffer> {
