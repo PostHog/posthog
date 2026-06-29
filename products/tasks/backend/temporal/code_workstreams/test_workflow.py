@@ -7,6 +7,7 @@ from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from products.tasks.backend.temporal.code_workstreams.activities.discover_branch_prs import DiscoverBranchPrsOutput
 from products.tasks.backend.temporal.code_workstreams.activities.list_active_teams import ListActiveCodeTeamsOutput
 from products.tasks.backend.temporal.code_workstreams.activities.load_pr_urls import (
     LoadTeamPrUrlsInput,
@@ -33,6 +34,11 @@ def _team_pipeline_activities(calls: list[str]):
             ]
         )
 
+    @activity.defn(name="discover_branch_prs")
+    async def discover(input) -> DiscoverBranchPrsOutput:
+        calls.append("discover")
+        return DiscoverBranchPrsOutput(prs=[])
+
     @activity.defn(name="poll_team_pull_requests")
     async def poll(input) -> PollTeamPullRequestsOutput:
         calls.append("poll")
@@ -43,7 +49,7 @@ def _team_pipeline_activities(calls: list[str]):
         calls.append("rebuild")
         return RebuildTeamWorkstreamsOutput(users=1, workstreams=2, pruned=0)
 
-    return [load, poll, rebuild]
+    return [load, discover, poll, rebuild]
 
 
 @pytest.mark.asyncio
@@ -64,7 +70,7 @@ async def test_team_workflow_runs_pipeline_in_order():
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
-    assert calls == ["load", "poll", "rebuild"]
+    assert calls == ["load", "discover", "poll", "rebuild"]
 
 
 @pytest.mark.asyncio
@@ -75,6 +81,11 @@ async def test_team_workflow_skips_poll_when_no_prs():
     async def load(input) -> LoadTeamPrUrlsOutput:
         calls.append("load")
         return LoadTeamPrUrlsOutput(prs=[])
+
+    @activity.defn(name="discover_branch_prs")
+    async def discover(input) -> DiscoverBranchPrsOutput:
+        calls.append("discover")
+        return DiscoverBranchPrsOutput(prs=[])
 
     @activity.defn(name="poll_team_pull_requests")
     async def poll(input) -> PollTeamPullRequestsOutput:
@@ -92,7 +103,7 @@ async def test_team_workflow_skips_poll_when_no_prs():
             env.client,
             task_queue=task_queue,
             workflows=[EvaluateTeamCodeWorkstreamsWorkflow],
-            activities=[load, poll, rebuild],
+            activities=[load, discover, poll, rebuild],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -101,7 +112,7 @@ async def test_team_workflow_skips_poll_when_no_prs():
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
-    assert calls == ["load", "rebuild"]
+    assert calls == ["load", "discover", "rebuild"]
 
 
 @pytest.mark.asyncio
@@ -117,6 +128,10 @@ async def test_dispatcher_fans_out_per_team():
         started_teams.append(input.team_id)
         return LoadTeamPrUrlsOutput(prs=[])
 
+    @activity.defn(name="discover_branch_prs")
+    async def discover(input) -> DiscoverBranchPrsOutput:
+        return DiscoverBranchPrsOutput(prs=[])
+
     @activity.defn(name="poll_team_pull_requests")
     async def poll(input) -> PollTeamPullRequestsOutput:
         return PollTeamPullRequestsOutput(polled=0, updated=0, rate_limited=False)
@@ -131,7 +146,7 @@ async def test_dispatcher_fans_out_per_team():
             env.client,
             task_queue=task_queue,
             workflows=[EvaluateCodeWorkstreamsWorkflow, EvaluateTeamCodeWorkstreamsWorkflow],
-            activities=[list_teams, load, poll, rebuild],
+            activities=[list_teams, load, discover, poll, rebuild],
             workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(

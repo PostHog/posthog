@@ -28,8 +28,6 @@
 import { fauxToolCall } from '@earendil-works/pi-ai'
 import request from 'supertest'
 
-import { AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
-
 import { buildCluster, closeSharedPool, Cluster, fakeAuthProvider, fauxCallTool, fauxText } from '../harness'
 
 // `@posthog/*` data tools act as the connected PostHog user, so the cases that
@@ -128,6 +126,8 @@ describe('approval-gated tools: real e2e', () => {
         kind?: 'native' | 'custom'
         path?: string
         allowEdit?: boolean
+        /** Approval authority. Omit for the `principal` default. */
+        approvalType?: 'principal' | 'agent'
         extraTools?: Array<Record<string, unknown>>
         files?: Record<string, string>
         auth?: Record<string, unknown>
@@ -139,13 +139,19 @@ describe('approval-gated tools: real e2e', () => {
                       id: opts.toolId,
                       path: opts.path ?? `tools/${opts.toolId}/`,
                       requires_approval: true,
-                      approval_policy: { allow_edit: !!opts.allowEdit },
+                      approval_policy: {
+                          allow_edit: !!opts.allowEdit,
+                          ...(opts.approvalType ? { type: opts.approvalType } : {}),
+                      },
                   }
                 : {
                       kind: 'native' as const,
                       id: opts.toolId,
                       requires_approval: true,
-                      approval_policy: { allow_edit: !!opts.allowEdit },
+                      approval_policy: {
+                          allow_edit: !!opts.allowEdit,
+                          ...(opts.approvalType ? { type: opts.approvalType } : {}),
+                      },
                   }
         return c.deployAgent({
             slug: opts.slug,
@@ -219,7 +225,9 @@ describe('approval-gated tools: real e2e', () => {
         expect(queued).not.toBeNull()
         expect(queued!.request_id).toMatch(/^[0-9a-f-]+$/)
         expect(queued!.approval_url).toMatch(/\/approvals\?request=/)
-        expect(queued!.approver_hint).toMatch(/admin/i)
+        // Default policy is `principal`, so the hint points at the session's own
+        // principal (not an owner/admin — that's the `agent` type).
+        expect(queued!.approver_hint).toMatch(/person who started this session/i)
 
         // The approval is queryable via janitor.
         const approvals = await listApprovals(application.id, 'queued')
@@ -252,6 +260,63 @@ describe('approval-gated tools: real e2e', () => {
         }>
         const finalText = assistantMessages[assistantMessages.length - 1]
         expect(finalText.content[0].text).toBe('done')
+    })
+
+    // ─────────────────────────────────────────────────────────────
+    // Case 1b — agent-level approval (owner/admin authority).
+    // Same queue → approve → dispatch flow as case 1, but the policy is
+    // `type: 'agent'`: the queued hint points at an owner/admin (not the
+    // principal), and the decision is the one Django forwards to the janitor.
+    // Proves an agent-type row flows all the way through decide → wake →
+    // dispatch (Django's team-admin authz over the decide is covered separately
+    // in backend/tests/test_approvals_api.py).
+    // ─────────────────────────────────────────────────────────────
+    it('case 1b: agent-type queue → approve → real result → completes', async () => {
+        c.setScript([
+            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
+            fauxText('queued for approval'),
+            fauxText('done'),
+        ])
+        const { application } = await deployGatedAgent({
+            slug: 'gated-agent-type',
+            toolId: '@posthog/query',
+            approvalType: 'agent',
+            auth: { modes: [{ type: 'posthog' }] },
+        })
+
+        const run = await request(c.ingress)
+            .post('/agents/gated-agent-type/run')
+            .set('authorization', `Bearer ${APPROVAL_PAT}`)
+            .send({ message: 'go' })
+        expect(run.status).toBe(200)
+        const sid = run.body.session_id
+
+        await c.drain()
+
+        const queued = findApproval((await c.queue.get(sid))!.conversation, 'queued')
+        expect(queued).not.toBeNull()
+        // Agent-type → the hint points at an owner/admin, not the principal.
+        expect(queued!.approver_hint).toMatch(/owner or admin/i)
+
+        const approvals = await listApprovals(application.id, 'queued')
+        expect(approvals).toHaveLength(1)
+        expect(approvals[0].id).toBe(queued!.request_id)
+
+        // Decide via the janitor route — the path Django forwards an owner/admin
+        // console decision to.
+        await decide(queued!.request_id, {
+            decision: 'approve',
+            decided_by: '00000000-0000-0000-0000-000000000001',
+        })
+
+        await c.drain()
+
+        const session = await c.queue.get(sid)
+        expect(session!.state).toBe('completed')
+        const approved = findApproval(session!.conversation, 'approved')
+        expect(approved).not.toBeNull()
+        expect(approved!.result).toMatchObject({ rows: [{ query: 'select 1' }] })
+        expect(approved!.decided_by).toBe('00000000-0000-0000-0000-000000000001')
     })
 
     // ─────────────────────────────────────────────────────────────
@@ -491,13 +556,10 @@ describe('approval-gated tools: real e2e', () => {
     })
 
     // ─────────────────────────────────────────────────────────────
-    // Case 8 — posthog-code client suppresses URL prose.
-    // Same flow as case 1 but the caller sets X-PostHog-Client: posthog-code,
-    // so the queued envelope must NOT carry approval_url / approver_hint —
-    // the desktop chat preview renders an in-line approval card and the
-    // standalone console (port 3040) is going away.
+    // Case 8 — the queued envelope always carries approval_url + approver_hint,
+    // regardless of the connecting client (no per-client suppression).
     // ─────────────────────────────────────────────────────────────
-    it('case 8: posthog-code client omits approval_url + approver_hint from the queued envelope', async () => {
+    it('case 8: queued envelope always includes approval_url + approver_hint', async () => {
         c.setScript([
             fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
             fauxText('queued for approval'),
@@ -511,190 +573,16 @@ describe('approval-gated tools: real e2e', () => {
         const run = await request(c.ingress)
             .post('/agents/gated-8/run')
             .set('authorization', `Bearer ${APPROVAL_PAT}`)
-            .set('X-PostHog-Client', 'posthog-code')
-            .send({ message: 'go' })
+            .send({ message: 'go', supported_client_tools: ['connect_mcp'] })
         expect(run.status).toBe(200)
         await c.drain()
 
         const session = await c.queue.get(run.body.session_id)
         const queued = findApproval(session!.conversation, 'queued')
         expect(queued).not.toBeNull()
-        // The model still sees the request_id + state so it knows the call
-        // is gated, but neither the URL nor the admin hint — its only
-        // option is to acknowledge the queued state in plain text.
         expect(queued!.request_id).toMatch(/^[0-9a-f-]+$/)
-        expect(queued!.approval_url).toBeUndefined()
-        expect(queued!.approver_hint).toBeUndefined()
-        // Sanity: client_kind landed on the session row.
-        expect(session!.trigger_metadata).toMatchObject({ client_kind: 'posthog-code' })
-    })
-})
-
-// ─────────────────────────────────────────────────────────────────────
-// Per-asker authorisation shortcut (#23 step 3).
-//
-// The dispatcher reads the most recent user-turn's `sender` and, if it
-// satisfies the tool's `approver_scope`, dispatches directly instead of
-// queueing for someone else to approve. Verifies the load-bearing demo
-// scenario: regular user → queues; admin user → dispatches.
-//
-// The harness doesn't carry a real posthog_organizationmembership table,
-// so we stub `isAskerInApproverScope` to "is the sender id the
-// admin PAT?". The dispatcher's real production code reads through the
-// identity store + posthog DB; that path is covered by
-// per-asker-auth.test.ts.
-//
-// We use PAT-based chat auth (rather than slack) because the chat
-// trigger stamps a `service`-kind sender carrying the pat_id verbatim
-// — easy to recognise — whereas the slack identity store mints
-// non-deterministic UUIDs.
-// ─────────────────────────────────────────────────────────────────────
-describe('approval-gated tools: per-asker shortcut (#23 step 3)', () => {
-    const ADMIN_PAT_ID = 'pat-admin'
-    const NORMAL_PAT_ID = 'pat-normal'
-
-    const authProvider: AuthProvider = {
-        verifiers: [
-            publicVerifier,
-            {
-                modeType: 'posthog',
-                async verify(req, _mode, application) {
-                    const bearer = readBearer(req)
-                    if (!bearer) {
-                        return { ok: false, status: 0, reason: 'skip' }
-                    }
-                    const userId =
-                        bearer === 'admin-token' ? ADMIN_PAT_ID : bearer === 'normal-token' ? NORMAL_PAT_ID : null
-                    if (!userId) {
-                        return { ok: false, status: 401, reason: 'invalid_token' }
-                    }
-                    return {
-                        ok: true,
-                        principal: {
-                            kind: 'posthog',
-                            user_id: userId,
-                            team_id: application.team_id,
-                        },
-                        credentials: { posthog_api: { kind: 'posthog_bearer', token: bearer } },
-                    }
-                },
-            },
-        ],
-    }
-
-    let c: Cluster
-
-    beforeEach(async () => {
-        c = await buildCluster({
-            authProvider,
-            // Stub the per-asker check to recognise the admin PAT id. The real
-            // production check resolves principal → AgentUser → posthog_user
-            // → OrganizationMembership level; the harness short-circuits all
-            // of that with a literal id match.
-            isAskerInApproverScope: async (conversation, _teamId, approverScope) => {
-                if (!approverScope.includes('team_admins')) {
-                    return false
-                }
-                for (let i = conversation.length - 1; i >= 0; i--) {
-                    const m = conversation[i] as {
-                        role: string
-                        sender?: { kind?: string; user_id?: string }
-                    }
-                    if (m.role !== 'user') {
-                        continue
-                    }
-                    if (m.sender?.kind === 'posthog' && m.sender.user_id === ADMIN_PAT_ID) {
-                        return true
-                    }
-                    if (m.sender) {
-                        return false
-                    }
-                }
-                return false
-            },
-        })
-    })
-
-    afterEach(async () => {
-        await c.teardown()
-    })
-
-    afterAll(async () => {
-        await closeSharedPool()
-    })
-
-    async function listQueuedApprovals(applicationId: string): Promise<Array<{ id: string }>> {
-        const res = await request(c.janitor).get('/approvals').query({ application_id: applicationId, state: 'queued' })
-        expect(res.status).toBe(200)
-        return res.body.results as Array<{ id: string }>
-    }
-
-    it('non-admin: gated call queues an approval (B.2 v0 behaviour preserved)', async () => {
-        c.setScript([
-            fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }),
-            fauxText('queued for approval'),
-        ])
-        const { application } = await c.deployAgent({
-            slug: 'shortcut-noadmin',
-            spec: {
-                auth: { modes: [{ type: 'posthog' }] },
-                tools: [
-                    {
-                        kind: 'native',
-                        id: '@posthog/query',
-                        requires_approval: true,
-                        approval_policy: { allow_edit: false },
-                    },
-                ],
-            },
-        })
-
-        await request(c.ingress)
-            .post('/agents/shortcut-noadmin/run')
-            .set('authorization', 'Bearer normal-token')
-            .send({ message: 'delete the cohort' })
-        await c.drain()
-
-        const queued = await listQueuedApprovals(application.id)
-        expect(queued).toHaveLength(1)
-    })
-
-    it('admin: gated call dispatches directly, NO approval row, model sees real tool result', async () => {
-        c.setScript([fauxCallTool('@posthog/query', { project_id: 1, query: 'select 1' }), fauxText('done')])
-        const { application } = await c.deployAgent({
-            slug: 'shortcut-admin',
-            spec: {
-                auth: { modes: [{ type: 'posthog' }] },
-                tools: [
-                    {
-                        kind: 'native',
-                        id: '@posthog/query',
-                        requires_approval: true,
-                        approval_policy: { allow_edit: false },
-                    },
-                ],
-            },
-        })
-
-        const run = await request(c.ingress)
-            .post('/agents/shortcut-admin/run')
-            .set('authorization', 'Bearer admin-token')
-            .send({ message: 'delete the cohort' })
-        await c.drain()
-
-        // No approval row written — the dispatcher took the shortcut.
-        const queued = await listQueuedApprovals(application.id)
-        expect(queued).toHaveLength(0)
-
-        // The conversation carries a real @posthog/query toolResult, not
-        // a synthetic queued envelope. The harness's PostHog internal
-        // client echoes `{ rows: [{query}], columns: ['query'] }`.
-        const session = await c.queue.get(run.body.session_id)
-        const toolResults = session!.conversation.filter((m) => (m as { role: string }).role === 'toolResult')
-        expect(toolResults).toHaveLength(1)
-        const result = toolResults[0] as { content: Array<{ type: string; text: string }>; toolName: string }
-        expect(result.toolName).toBe('@posthog/query')
-        expect(result.content[0].text).toContain('rows')
-        expect(result.content[0].text).not.toContain('queued')
+        expect(queued!.approval_url).not.toBeUndefined()
+        expect(queued!.approver_hint).not.toBeUndefined()
+        expect(session!.trigger_metadata).toEqual({ kind: 'chat', supported_client_tools: ['connect_mcp'] })
     })
 })

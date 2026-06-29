@@ -1,13 +1,6 @@
 import pytest
 from freezegun import freeze_time
-from posthog.test.base import (
-    BaseTest,
-    ClickhouseTestMixin,
-    _create_event,
-    _create_person,
-    events_cache_tests,
-    persons_cache_tests,
-)
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, events_cache_tests
 
 from parameterized import parameterized
 
@@ -29,7 +22,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models.event.util import bulk_create_events
-from posthog.models.person.util import bulk_create_persons
 
 from products.actions.backend.models.action import Action
 from products.marketing_analytics.backend.hogql_queries.conversion_goal_processor import (
@@ -54,13 +46,11 @@ def flush_persons_and_events_in_batches(batch_size: int = 25):
     Custom flush function that processes events in smaller batches to avoid memory limits.
     This helps prevent ClickHouse memory exceeded errors during bulk inserts.
     """
-    person_mapping = {}
-    if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests)
-        persons_cache_tests.clear()
+    from posthog.test.persons import flush_persons_to_db_and_clickhouse
+
+    person_mapping = flush_persons_to_db_and_clickhouse()
 
     if len(events_cache_tests) > 0:
-        # Process events in smaller batches to avoid memory issues
         for i in range(0, len(events_cache_tests), batch_size):
             batch = events_cache_tests[i : i + batch_size]
             bulk_create_events(batch, person_mapping)

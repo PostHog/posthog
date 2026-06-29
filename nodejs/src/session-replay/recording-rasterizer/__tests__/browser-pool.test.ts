@@ -1,8 +1,8 @@
 import { Browser, Page } from 'puppeteer'
 
-import { BrowserPool } from '../capture/browser-pool'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
 
-jest.mock('../logger', () => {
+jest.mock('~/session-replay/recording-rasterizer/logger', () => {
     const info = jest.fn()
     return {
         __mockLogInfo: info,

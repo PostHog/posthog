@@ -23,7 +23,7 @@ from products.notifications.backend.facade.api import (
     create_notification,
 )
 from products.web_analytics.backend.achievements.definitions import (
-    STREAK_ARM_HOLDOUT,
+    STREAK_ARM_CONTROL,
     TRACKS,
     AchievementScope,
     TrackDefinition,
@@ -75,9 +75,9 @@ def enqueue_recompute_web_analytics_achievements_debounced(team_id: int, user_id
     return False
 
 
-@shared_task(ignore_result=True)
-@skip_team_scope_audit
-def recompute_web_analytics_achievements(team_id: int, user_id: int | None = None) -> None:
+def recompute_web_analytics_achievements_sync(
+    team_id: int, user_id: int | None = None, cheap_only: bool = False
+) -> None:
     """Recompute achievement progress for one scope. With `user_id`, only user-scoped tracks run;
     without it, only team-scoped tracks run (driven by the periodic sweep)."""
     team = Team.objects.get(id=team_id)
@@ -87,7 +87,7 @@ def recompute_web_analytics_achievements(team_id: int, user_id: int | None = Non
     if user_id is not None:
         user = User.objects.get(id=user_id)
         arm = streak_arm_for_user(user)
-        if arm == STREAK_ARM_HOLDOUT:
+        if arm == STREAK_ARM_CONTROL:
             return
     ctx = EvalContext(team=team, user=user, today=today, arm=arm)
     for track in TRACKS.values():
@@ -95,7 +95,15 @@ def recompute_web_analytics_achievements(team_id: int, user_id: int | None = Non
             continue
         if track.scope == AchievementScope.TEAM and user is not None:
             continue
+        if cheap_only and track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS:
+            continue
         _recompute_track(ctx, track)
+
+
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def recompute_web_analytics_achievements(team_id: int, user_id: int | None = None) -> None:
+    recompute_web_analytics_achievements_sync(team_id, user_id=user_id)
 
 
 def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnalyticsAchievementProgress:
@@ -110,7 +118,7 @@ def get_or_create_progress(ctx: EvalContext, track: TrackDefinition) -> WebAnaly
     return progress
 
 
-def _is_due(ctx: EvalContext, progress: WebAnalyticsAchievementProgress) -> bool:
+def is_due(ctx: EvalContext, progress: WebAnalyticsAchievementProgress) -> bool:
     if progress.last_computed_at is None:
         return True
     last_local_date = progress.last_computed_at.astimezone(ctx.team.timezone_info).date()
@@ -149,7 +157,7 @@ def _recompute_track(ctx: EvalContext, track: TrackDefinition) -> None:
     progress = get_or_create_progress(ctx, track)
     if progress.current_stage >= len(track.stages):
         return
-    if track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS and not _is_due(ctx, progress):
+    if track.evaluator_key in EXPENSIVE_EVALUATOR_KEYS and not is_due(ctx, progress):
         return
     evaluator = EVALUATORS[track.evaluator_key]
     try:
@@ -219,9 +227,6 @@ def _send_unlock_notification(ctx: EvalContext, track: TrackDefinition, stage: i
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def sweep_web_analytics_achievement_team_tracks() -> None:
-    """Periodically recompute team-scoped tracks (Goal Hog, Mighty Hog) for teams with a recent
-    visit. Visits are only recorded while the achievements flag is on, so this naturally limits the
-    sweep to engaged, flag-on teams without evaluating the flag per team."""
     window_start = date.today() - timedelta(days=SWEEP_ACTIVE_WINDOW_DAYS)
     team_ids = (
         WebAnalyticsVisit.objects.unscoped()

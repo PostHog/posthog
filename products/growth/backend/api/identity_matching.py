@@ -1,29 +1,106 @@
-"""Read-only API over the identity matching link tables.
+"""Read-only API over the identity matching links.
 
-The tables are written by the `identity_matching_job` Dagster job
-(products/growth/dags/identity_matching.py) and only exist once that job has run, so every
-query first checks table existence and degrades to an empty result set.
+Each run of the `identity_matching_job` Dagster job (products/growth/dags/identity_matching.py)
+writes its links and candidate pairs as Parquet to a per-run S3 prefix
+(`<prefix>/team_<team_id>/<job_id>/...`); nothing is persisted on the ClickHouse cluster. Every
+query reads those objects back through the `s3(...)` table function and degrades to an empty
+result set when the team has no objects yet (a glob matching no files returns zero rows under
+`s3_throw_on_zero_files_match=0`). Cross-team isolation is enforced by the `team_<team_id>` path
+segment: a job_id belonging to another team resolves to a prefix this team never wrote.
 """
 
 from typing import Any
 
-from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.models import Person
+from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.permissions import IsStaffUser
 
 from products.growth.backend.constants import (
-    IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE,
-    IDENTITY_MATCHING_LINKS_TABLE,
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET,
+    IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE,
+    IDENTITY_MATCHING_LINKS_DATASET,
+    IDENTITY_MATCHING_LINKS_STRUCTURE,
+    IDENTITY_MATCHING_PERSON_PROPERTY_MAP,
+    IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE,
     IDENTITY_MATCHING_TIERS,
+    identity_matching_dataset_read_args,
+    identity_matching_s3_unconfigured,
 )
 
 MAX_RUNS_LISTED = 50
+
+
+def _person_summary(distinct_id: str, persons_by_distinct_id: dict[str, Person]) -> dict[str, Any] | None:
+    """Curated, display-ready summary of the person behind a distinct ID, or None when unresolved.
+
+    Only the properties in IDENTITY_MATCHING_PERSON_PROPERTY_MAP are surfaced (renamed to clean API
+    keys), so the payload stays bounded and the reviewer sees exactly the dimensions the models score
+    on. Anonymous orphans with no person profile (e.g. personless capture) resolve to None.
+    """
+    person = persons_by_distinct_id.get(distinct_id)
+    if person is None:
+        return None
+    properties = person.properties or {}
+    summary: dict[str, Any] = {
+        "distinct_id": distinct_id,
+        "first_seen": person.created_at,
+        "last_seen": person.last_seen_at,
+    }
+    for source_key, api_key in IDENTITY_MATCHING_PERSON_PROPERTY_MAP.items():
+        value = properties.get(source_key)
+        summary[api_key] = str(value) if value is not None else None
+    return summary
+
+
+# Let a glob matching no objects return zero rows (the "no run yet" path) instead of erroring.
+_S3_READ_SETTINGS = {"s3_throw_on_zero_files_match": "0"}
+
+# All-runs glob for one team: `<prefix>/team_<team_id>/*/links/*.parquet`. links is the smallest
+# dataset, so enumerating every run of a team this way is cheap.
+_ALL_RUNS = "*"
+
+
+class IdentityMatchingPersonSerializer(serializers.Serializer):
+    """The resolved person behind one side of a link, with a curated set of properties that mirror
+    the match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible."""
+
+    distinct_id = serializers.CharField(help_text="Distinct ID this person was resolved from.")
+    first_seen = serializers.DateTimeField(
+        allow_null=True, help_text="When this person was first seen — person created_at (UTC)."
+    )
+    last_seen = serializers.DateTimeField(
+        allow_null=True, help_text="When this person was last seen, when tracked — person last_seen_at (UTC)."
+    )
+    email = serializers.CharField(allow_null=True, help_text="Person's email, when set.")
+    name = serializers.CharField(allow_null=True, help_text="Person's name property, when set.")
+    city = serializers.CharField(allow_null=True, help_text="GeoIP city ($geoip_city_name).")
+    country = serializers.CharField(allow_null=True, help_text="GeoIP country code ($geoip_country_code).")
+    browser = serializers.CharField(allow_null=True, help_text="Browser ($browser).")
+    os = serializers.CharField(allow_null=True, help_text="Operating system ($os).")
+    device_type = serializers.CharField(
+        allow_null=True, help_text="Device type, e.g. Desktop or Mobile ($device_type)."
+    )
+    timezone = serializers.CharField(allow_null=True, help_text="Browser timezone ($timezone).")
+    utm_source = serializers.CharField(allow_null=True, help_text="Initial campaign source ($initial_utm_source).")
+    utm_medium = serializers.CharField(allow_null=True, help_text="Initial campaign medium ($initial_utm_medium).")
+    utm_campaign = serializers.CharField(allow_null=True, help_text="Initial campaign name ($initial_utm_campaign).")
+    referring_domain = serializers.CharField(
+        allow_null=True, help_text="Initial referring domain ($initial_referring_domain)."
+    )
+    gclid = serializers.CharField(
+        allow_null=True,
+        help_text="Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.",
+    )
 
 
 class IdentityMatchingLinkSerializer(serializers.Serializer):
@@ -68,6 +145,14 @@ class IdentityMatchingLinkSerializer(serializers.Serializer):
     anchor_paid_touch = serializers.BooleanField(
         help_text="The matched person already had a paid click ID inside the window."
     )
+    orphan_person = IdentityMatchingPersonSerializer(
+        allow_null=True,
+        help_text="Resolved person behind the anonymous distinct ID; null when no profile exists for it.",
+    )
+    anchor_person = IdentityMatchingPersonSerializer(
+        allow_null=True,
+        help_text="Resolved identified person behind the matched person key; null when no profile exists for it.",
+    )
 
 
 class IdentityMatchingLinksFilterSerializer(serializers.Serializer):
@@ -101,16 +186,42 @@ class IdentityMatchingLinksResponseSerializer(serializers.Serializer):
 class IdentityMatchingRunModelCountSerializer(serializers.Serializer):
     model_version = serializers.CharField(help_text="Scoring model, e.g. 'rules_v1' or 'logreg_v1'.")
     link_count = serializers.IntegerField(help_text="Number of links this model produced in the run.")
+    high_confidence = serializers.IntegerField(help_text="Links from this model in the 'high' tier.")
+    medium_confidence = serializers.IntegerField(help_text="Links from this model in the 'medium' tier.")
+    low_confidence = serializers.IntegerField(help_text="Links from this model in the 'low' tier.")
 
 
 class IdentityMatchingRunSerializer(serializers.Serializer):
     job_id = serializers.UUIDField(help_text="Identity matching run identifier (the Dagster run ID).")
     computed_at = serializers.DateTimeField(help_text="When the run wrote its links (UTC).")
     models = IdentityMatchingRunModelCountSerializer(many=True, help_text="Link counts per scoring model in this run.")
+    total_links = serializers.IntegerField(help_text="Total links across all models in this run.")
+    unique_orphans = serializers.IntegerField(help_text="Distinct anonymous visitors that were linked.")
+    paid_touches = serializers.IntegerField(
+        help_text="Links where a paid ad click was recovered for an anonymous visitor."
+    )
+    first_link_at = serializers.DateTimeField(help_text="Earliest link computed_at in the run (UTC).")
+    last_link_at = serializers.DateTimeField(help_text="Latest link computed_at in the run (UTC).")
 
 
 class IdentityMatchingRunsResponseSerializer(serializers.Serializer):
     results = IdentityMatchingRunSerializer(many=True, help_text="Runs ordered by recency, most recent first.")
+
+
+class IdentityMatchingErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable explanation of why the request could not be served.")
+
+
+class IdentityMatchingStorageUnavailable(APIException):
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    default_code = "identity_matching_storage_unavailable"
+    default_detail = IDENTITY_MATCHING_S3_UNCONFIGURED_MESSAGE
+
+
+_STORAGE_UNAVAILABLE_RESPONSE = OpenApiResponse(
+    response=IdentityMatchingErrorSerializer,
+    description="The identity matching scratch bucket is not configured on this deployment.",
+)
 
 
 class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
@@ -118,22 +229,49 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # Staff-only while identity matching is under development.
     permission_classes = [IsStaffUser]
 
-    def _links_table_exists(self) -> bool:
-        [[exists]] = sync_execute(f"EXISTS TABLE {IDENTITY_MATCHING_LINKS_TABLE}")
-        return bool(exists)
+    def _assert_storage_configured(self) -> None:
+        """Fail with a clear 503 if the scratch bucket env is missing, rather than letting every
+        s3() read hit the wrong (fallback) bucket and surface an opaque AccessDenied 500."""
+        if identity_matching_s3_unconfigured():
+            raise IdentityMatchingStorageUnavailable()
+
+    def _links_read_args(self, job_id: str) -> str:
+        """`s3(...)` args for one run's links objects (`job_id` is a validated UUID string)."""
+        return identity_matching_dataset_read_args(
+            self.team.pk, job_id, IDENTITY_MATCHING_LINKS_DATASET, IDENTITY_MATCHING_LINKS_STRUCTURE
+        )
+
+    def _candidate_pairs_read_args(self, job_id: str) -> str:
+        return identity_matching_dataset_read_args(
+            self.team.pk, job_id, IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET, IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE
+        )
+
+    def _all_runs_links_read_args(self) -> str:
+        """`s3(...)` args globbing every run's links objects for this team."""
+        return identity_matching_dataset_read_args(
+            self.team.pk, _ALL_RUNS, IDENTITY_MATCHING_LINKS_DATASET, IDENTITY_MATCHING_LINKS_STRUCTURE
+        )
+
+    def _all_runs_candidate_pairs_read_args(self) -> str:
+        """`s3(...)` args globbing every run's candidate_pairs objects for this team."""
+        return identity_matching_dataset_read_args(
+            self.team.pk,
+            _ALL_RUNS,
+            IDENTITY_MATCHING_CANDIDATE_PAIRS_DATASET,
+            IDENTITY_MATCHING_CANDIDATE_PAIRS_STRUCTURE,
+        )
 
     def _latest_job_id(self) -> str | None:
-        rows = sync_execute(
-            f"""
-            SELECT job_id
-            FROM {IDENTITY_MATCHING_LINKS_TABLE}
-            WHERE team_id = %(team_id)s
-            ORDER BY computed_at DESC
-            LIMIT 1
-            """,
-            {"team_id": self.team.pk},
-        )
-        return str(rows[0][0]) if rows else None
+        # argMax over an empty glob returns one row with the column's default (''); treat as no run.
+        with tags_context(product=Product.GROWTH, feature=Feature.QUERY):
+            result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — only the constant s3() structure/format and a team_id-derived path are interpolated; team_id is an int from the URL, all values parameterized
+                f"SELECT argMax(job_id, computed_at) FROM s3({self._all_runs_links_read_args()}) WHERE team_id = %(team_id)s",
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
+        job_id = result[0][0]
+        return str(job_id) if job_id else None
 
     @extend_schema(
         summary="List identity matching links",
@@ -141,24 +279,22 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         "evidence behind each link. Produced by the identity matching Dagster job; empty until that "
         "job has run for this project.",
         parameters=[IdentityMatchingLinksFilterSerializer],
-        responses={200: IdentityMatchingLinksResponseSerializer},
+        responses={200: IdentityMatchingLinksResponseSerializer, 503: _STORAGE_UNAVAILABLE_RESPONSE},
     )
     def list(self, request: Request, **kwargs: Any) -> Response:
+        self._assert_storage_configured()
         filters = IdentityMatchingLinksFilterSerializer(data=request.query_params)
         filters.is_valid(raise_exception=True)
         params = filters.validated_data
-
-        if not self._links_table_exists():
-            return Response({"results": [], "count": 0})
 
         job_id = str(params["job_id"]) if params.get("job_id") else self._latest_job_id()
         if job_id is None:
             return Response({"results": [], "count": 0})
 
-        conditions = ["lk.team_id = %(team_id)s", "lk.job_id = %(job_id)s"]
+        # job_id scopes the run via the S3 path; team_id stays as a defensive predicate.
+        conditions = ["lk.team_id = %(team_id)s"]
         query_params: dict[str, Any] = {
             "team_id": self.team.pk,
-            "job_id": job_id,
             "limit": params["limit"],
             "offset": params["offset"],
         }
@@ -178,49 +314,53 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
             query_params["search"] = params["search"]
         where = " AND ".join(conditions)
+        links_s3 = self._links_read_args(job_id)
+        candidate_pairs_s3 = self._candidate_pairs_read_args(job_id)
 
-        [[count]] = (  # nosemgrep: clickhouse-fstring-param-audit
-            sync_execute(
-                f"SELECT count() FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk WHERE {where}",
+        with tags_context(product=Product.GROWTH, feature=Feature.QUERY):
+            count_result = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+                f"SELECT count() FROM s3({links_s3}) AS lk WHERE {where}",
                 query_params,
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
             )
-        )
-        rows = sync_execute(  # nosemgrep: clickhouse-fstring-param-audit — constant table names, WHERE built from string literals, values parameterized
-            f"""
-            SELECT
-                lk.job_id,
-                lk.model_version,
-                lk.orphan_distinct_id,
-                lk.anchor_person_key,
-                lk.score,
-                lk.margin,
-                lk.tier,
-                lk.computed_at,
-                p.shared_ip_days,
-                p.shared_ips,
-                p.min_ip_block_size,
-                p.geo_city_match,
-                p.timezone_match,
-                p.language_match,
-                p.ua_exact_match,
-                p.orphan_is_webview,
-                p.device_type_complement,
-                p.days_overlap,
-                p.avg_path_jaccard,
-                p.orphan_paid_touch,
-                p.anchor_paid_touch
-            FROM {IDENTITY_MATCHING_LINKS_TABLE} AS lk
-            LEFT JOIN {IDENTITY_MATCHING_CANDIDATE_PAIRS_TABLE} AS p
-                ON lk.job_id = p.job_id
-                AND lk.team_id = p.team_id
-                AND lk.orphan_distinct_id = p.orphan_distinct_id
-                AND lk.anchor_person_key = p.anchor_person_key
-            WHERE {where}
-            ORDER BY lk.score DESC, lk.orphan_distinct_id, lk.model_version
-            LIMIT %(limit)s OFFSET %(offset)s
-            """,
-            query_params,
-        )
+            count = count_result[0][0]
+            rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int) and validated job_id UUID; WHERE built from literals, values parameterized
+                f"""
+                SELECT
+                    lk.job_id,
+                    lk.model_version,
+                    lk.orphan_distinct_id,
+                    lk.anchor_person_key,
+                    lk.score,
+                    lk.margin,
+                    lk.tier,
+                    lk.computed_at,
+                    p.shared_ip_days,
+                    p.shared_ips,
+                    p.min_ip_block_size,
+                    p.geo_city_match,
+                    p.timezone_match,
+                    p.language_match,
+                    p.ua_exact_match,
+                    p.orphan_is_webview,
+                    p.device_type_complement,
+                    p.days_overlap,
+                    p.avg_path_jaccard,
+                    p.orphan_paid_touch,
+                    p.anchor_paid_touch
+                FROM s3({links_s3}) AS lk
+                LEFT JOIN s3({candidate_pairs_s3}) AS p
+                    ON lk.orphan_distinct_id = p.orphan_distinct_id
+                    AND lk.anchor_person_key = p.anchor_person_key
+                WHERE {where}
+                ORDER BY lk.score DESC, lk.orphan_distinct_id, lk.model_version
+                LIMIT %(limit)s OFFSET %(offset)s
+                """,
+                query_params,
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
         field_names = [
             "job_id",
             "model_version",
@@ -245,35 +385,98 @@ class IdentityMatchingLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             "anchor_paid_touch",
         ]
         results = [dict(zip(field_names, row, strict=True)) for row in rows]
+
+        # Resolve the real persons behind each link (one batched lookup for the whole page) so the
+        # UI can show identity and the properties the models score on — letting a reviewer eyeball
+        # whether a match is plausible rather than guessing from a distinct ID string.
+        distinct_ids = {r["orphan_distinct_id"] for r in results} | {r["anchor_person_key"] for r in results}
+        persons_by_distinct_id = (
+            get_persons_mapped_by_distinct_id(self.team.pk, list(distinct_ids)) if distinct_ids else {}
+        )
+        for result in results:
+            result["orphan_person"] = _person_summary(result["orphan_distinct_id"], persons_by_distinct_id)
+            result["anchor_person"] = _person_summary(result["anchor_person_key"], persons_by_distinct_id)
+
         response = IdentityMatchingLinksResponseSerializer({"results": results, "count": count})
         return Response(response.data)
 
     @extend_schema(
         summary="List identity matching runs",
-        description="Recent identity matching runs for this project with link counts per scoring "
-        "model, most recent first.",
-        responses={200: IdentityMatchingRunsResponseSerializer},
+        description="Recent identity matching runs for this project with link counts, tier "
+        "breakdowns, and paid attribution stats per scoring model, most recent first.",
+        responses={200: IdentityMatchingRunsResponseSerializer, 503: _STORAGE_UNAVAILABLE_RESPONSE},
     )
     @action(detail=False, methods=["GET"])
     def runs(self, request: Request, **kwargs: Any) -> Response:
-        if not self._links_table_exists():
-            return Response({"results": []})
+        self._assert_storage_configured()
+        with tags_context(product=Product.GROWTH, feature=Feature.QUERY):
+            links_rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
+                f"""
+                SELECT
+                    job_id,
+                    max(computed_at) AS latest_computed_at,
+                    min(computed_at) AS earliest_computed_at,
+                    model_version,
+                    count() AS link_count,
+                    countIf(tier = 'high') AS high_count,
+                    countIf(tier = 'medium') AS medium_count,
+                    countIf(tier = 'low') AS low_count,
+                    groupUniqArray(orphan_distinct_id) AS orphans
+                FROM s3({self._all_runs_links_read_args()})
+                WHERE team_id = %(team_id)s
+                GROUP BY job_id, model_version
+                ORDER BY latest_computed_at DESC
+                """,
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
+            # Paid touch counts come from candidate_pairs (links Parquet has no paid-touch columns).
+            pairs_rows = sync_execute(  # nosemgrep: clickhouse-injection-taint,clickhouse-fstring-param-audit — s3 path from team_id (int); values parameterized
+                f"""
+                SELECT job_id, count(DISTINCT orphan_distinct_id) AS paid_touches
+                FROM s3({self._all_runs_candidate_pairs_read_args()})
+                WHERE team_id = %(team_id)s AND orphan_paid_touch = 1 AND anchor_paid_touch = 0
+                GROUP BY job_id
+                """,
+                {"team_id": self.team.pk},
+                settings=_S3_READ_SETTINGS,
+                team_id=self.team.pk,
+            )
+        paid_touches_by_run: dict[str, int] = {str(job_id): count for job_id, count in pairs_rows}
 
-        rows = sync_execute(
-            f"""
-            SELECT job_id, max(computed_at) AS computed_at, model_version, count() AS link_count
-            FROM {IDENTITY_MATCHING_LINKS_TABLE}
-            WHERE team_id = %(team_id)s
-            GROUP BY job_id, model_version
-            ORDER BY computed_at DESC
-            """,
-            {"team_id": self.team.pk},
-        )
         runs: dict[str, dict[str, Any]] = {}
-        for job_id, computed_at, model_version, link_count in rows:
-            run = runs.setdefault(str(job_id), {"job_id": job_id, "computed_at": computed_at, "models": []})
-            run["computed_at"] = max(run["computed_at"], computed_at)
-            run["models"].append({"model_version": model_version, "link_count": link_count})
+        for row in links_rows:
+            job_id, latest_at, earliest_at, model_version, link_count, high, medium, low, orphans = row
+            run = runs.setdefault(
+                str(job_id),
+                {
+                    "job_id": job_id,
+                    "computed_at": latest_at,
+                    "first_link_at": earliest_at,
+                    "last_link_at": latest_at,
+                    "models": [],
+                    "total_links": 0,
+                    "unique_orphans": 0,
+                    "paid_touches": paid_touches_by_run.get(str(job_id), 0),
+                },
+            )
+            run["computed_at"] = max(run["computed_at"], latest_at)
+            run["last_link_at"] = max(run["last_link_at"], latest_at)
+            run["first_link_at"] = min(run["first_link_at"], earliest_at)
+            run["models"].append(
+                {
+                    "model_version": model_version,
+                    "link_count": link_count,
+                    "high_confidence": high,
+                    "medium_confidence": medium,
+                    "low_confidence": low,
+                }
+            )
+            run["total_links"] += link_count
+            orphan_set = run.setdefault("_orphan_set", set())
+            orphan_set.update(orphans)
+            run["unique_orphans"] = len(orphan_set)
         results = list(runs.values())[:MAX_RUNS_LISTED]
         response = IdentityMatchingRunsResponseSerializer({"results": results})
         return Response(response.data)

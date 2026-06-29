@@ -90,11 +90,7 @@ import {
     TableOfContentData,
 } from '../types'
 import { updateContentHeading } from '../utils'
-import {
-    NotebookArtifactApplyMode,
-    insertMarkdownAfterNotebookAIChatMarker,
-    preserveNotebookAIChatMarker,
-} from './markdownNotebookRuntime'
+import { NotebookArtifactApplyMode } from './markdownNotebookRuntime'
 import {
     appendMarkdownNotebookBlock,
     buildMarkdownNotebookContent,
@@ -134,6 +130,14 @@ const NOTEBOOK_REFRESH_MS = window.location.origin === 'http://localhost:8000' ?
 
 function getNotebookTextContent(content: JSONContent | null | undefined, editorText: string): string {
     return getMarkdownNotebookTextContent(content) ?? editorText
+}
+
+function keepNewestNotebookResponse(current: NotebookType | null, incoming: NotebookType | null): NotebookType | null {
+    if (!current || !incoming || current.short_id !== incoming.short_id) {
+        return incoming
+    }
+
+    return incoming.version < current.version ? current : incoming
 }
 
 export type NotebookLogicMode = 'notebook' | 'canvas'
@@ -303,9 +307,9 @@ export const notebookLogic = kea<notebookLogicType>([
         setMarkdownEditorBuffer: (buffered: string | null) => ({ buffered }),
         applyNotebookArtifactMarkdown: (
             content: NotebookArtifactContent,
-            chatId?: string,
+            conversationId?: string,
             mode: NotebookArtifactApplyMode = 'replace'
-        ) => ({ content, chatId, mode }),
+        ) => ({ content, conversationId, mode }),
         setLocalContent: (jsonContent: JSONContent, updateEditor = false, skipCapture = false) => ({
             jsonContent,
             updateEditor,
@@ -909,8 +913,10 @@ export const notebookLogic = kea<notebookLogicType>([
         // Extends the loader reducer: canonical remote states (streamed diffs, 409 replays)
         // land in `notebook` without a refetch.
         notebook: {
+            loadNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
+            saveNotebookSuccess: (state, { notebook }) => keepNewestNotebookResponse(state, notebook),
             applyRemoteNotebookContent: (state, { content, version }) =>
-                state ? { ...state, content, version } : state,
+                state && version > state.version ? { ...state, content, version } : state,
         },
     }),
     selectors({
@@ -1066,11 +1072,18 @@ export const notebookLogic = kea<notebookLogicType>([
             },
         ],
         editingNodeLogicsForLeft: [
-            (s) => [s.editingNodeLogics, s.containerSize],
-            (editingNodeLogics, containerSize) =>
-                containerSize === 'small'
+            (s) => [s.editingNodeLogics, s.containerSize, s.content],
+            (
+                editingNodeLogics: BuiltLogic<notebookNodeLogicType>[],
+                containerSize: 'small' | 'medium',
+                content: JSONContent
+            ) =>
+                containerSize === 'small' || isMarkdownNotebookContent(content)
                     ? []
-                    : editingNodeLogics.filter((nodeLogic) => nodeLogic.values.settingsPlacement !== 'inline'),
+                    : editingNodeLogics.filter(
+                          (nodeLogic: BuiltLogic<notebookNodeLogicType>) =>
+                              nodeLogic.values.settingsPlacement !== 'inline'
+                      ),
         ],
         findNodeLogic: [
             (s) => [s.nodeLogics],
@@ -1145,11 +1158,23 @@ export const notebookLogic = kea<notebookLogicType>([
                 s.showTableOfContents,
                 s.showKernelInfo,
                 s.containerSize,
+                s.content,
             ],
-            (editingNodeLogicsForLeft, showHistory, showTableOfContents, showKernelInfo, containerSize) => {
-                const shouldShowSettings = editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
+            (
+                editingNodeLogicsForLeft: BuiltLogic<notebookNodeLogicType>[],
+                showHistory: boolean,
+                showTableOfContents: boolean,
+                showKernelInfo: boolean,
+                containerSize: 'small' | 'medium',
+                content: JSONContent
+            ) => {
+                const isMarkdownNotebook = isMarkdownNotebookContent(content)
+                const shouldShowSettings =
+                    !isMarkdownNotebook && editingNodeLogicsForLeft.length > 0 && containerSize !== 'small'
+                const shouldShowTableOfContents = !isMarkdownNotebook && showTableOfContents
+                const shouldShowKernelInfo = !isMarkdownNotebook && showKernelInfo
 
-                return showHistory || showTableOfContents || showKernelInfo || shouldShowSettings
+                return showHistory || shouldShowTableOfContents || shouldShowKernelInfo || shouldShowSettings
             },
         ],
 
@@ -1526,6 +1551,7 @@ export const notebookLogic = kea<notebookLogicType>([
                     appendMarkdownNotebookBlock(
                         values.content,
                         serializeMarkdownNotebookComponent('Query', {
+                            hideFilters: true,
                             query: {
                                 kind: NodeKind.SavedInsightNode,
                                 shortId: insightShortId,
@@ -1656,7 +1682,7 @@ export const notebookLogic = kea<notebookLogicType>([
             actions.setAutosavePaused(false)
         },
 
-        applyNotebookArtifactMarkdown: ({ content, chatId, mode }) => {
+        applyNotebookArtifactMarkdown: ({ content, mode }) => {
             const artifactMarkdown = notebookArtifactContentToMarkdown(content)
             if (!artifactMarkdown.trim()) {
                 return
@@ -1664,9 +1690,9 @@ export const notebookLogic = kea<notebookLogicType>([
 
             const currentMarkdown = values.markdownEditorValue
             const nextMarkdown =
-                mode === 'insert-after-chat'
-                    ? insertMarkdownAfterNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
-                    : preserveNotebookAIChatMarker(artifactMarkdown, currentMarkdown, chatId)
+                mode === 'insert-after-response'
+                    ? [currentMarkdown, artifactMarkdown].filter((block) => block.trim()).join('\n\n')
+                    : artifactMarkdown
             if (nextMarkdown === currentMarkdown) {
                 return
             }

@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
-import { ChartLegend, TimeSeriesBarChart, legendItemsFromSeries } from '@posthog/quill-charts'
-import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
+import { TimeSeriesBarChart } from '@posthog/quill-charts'
+import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { getBarColorFromStatus } from 'lib/colors'
@@ -20,6 +20,7 @@ import { QueryContext } from '~/queries/types'
 import type { LifecycleToggle } from '~/types'
 
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
+import { buildBaseLegendConfig } from '../shared/buildBaseLegendConfig'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import {
     handleTrendsChartClick,
@@ -48,7 +49,7 @@ const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datu
 
 export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useMemo(() => buildTheme(), [])
-    const { insightProps, insight } = useValues(insightLogic)
+    const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
         indexedResults,
@@ -65,8 +66,17 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         showValuesOnSeries,
         showPercentagesOnSeries,
         showLegend,
+        legendPosition,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
+
+    // Lifecycle statuses all share the same resultCustomizationKey (same action.order), so
+    // useInsightsLegendConfig can't distinguish them — build the config inline and let the
+    // chart manage toggle state internally.
+    const legendConfig = useMemo<ChartLegendConfig>(
+        () => buildBaseLegendConfig({ show: !!showLegend, legendPosition, canEditInsight, inSharedMode }),
+        [showLegend, legendPosition, canEditInsight, inSharedMode]
+    )
 
     const isStacked = lifecycleFilter?.stacked ?? true
 
@@ -104,6 +114,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 allDays: currentPeriodResult?.days ?? [],
                 valueLabels: showValuesOnSeries || showPercentagesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: LIFECYCLE_TOOLTIP_CONFIG,
+                legend: legendConfig,
             }),
         [
             indexedResults,
@@ -118,10 +129,9 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             showValuesOnSeries,
             showPercentagesOnSeries,
             valueLabelFormatter,
+            legendConfig,
         ]
     )
-
-    const legendItems = useMemo(() => legendItemsFromSeries(series, theme), [series, theme])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
@@ -206,22 +216,18 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     const annotationsDates = currentPeriodResult?.days ?? []
 
     return (
-        <ChartLegend show={!!showLegend} items={legendItems} position="top" legendDataAttr="trend-lifecycle-legend">
-            <TimeSeriesBarChart<TrendsSeriesMeta>
-                series={series}
-                labels={labels}
-                config={config}
-                theme={theme}
-                tooltip={renderTooltip}
-                onPointClick={canHandleClick ? onPointClick : undefined}
-                className="BarGraph"
-                dataAttr="trend-lifecycle-graph"
-                onError={handleChartError}
-            >
-                {showAnnotations && (
-                    <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />
-                )}
-            </TimeSeriesBarChart>
-        </ChartLegend>
+        <TimeSeriesBarChart<TrendsSeriesMeta>
+            series={series}
+            labels={labels}
+            config={config}
+            theme={theme}
+            tooltip={renderTooltip}
+            onPointClick={canHandleClick ? onPointClick : undefined}
+            className="BarGraph"
+            dataAttr="trend-lifecycle-graph"
+            onError={handleChartError}
+        >
+            {showAnnotations && <AnnotationsLayer insightNumericId={insight.id || 'new'} dates={annotationsDates} />}
+        </TimeSeriesBarChart>
     )
 }

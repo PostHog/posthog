@@ -1,6 +1,9 @@
 use core::str;
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone};
+use once_cell::sync::Lazy;
 use rand::Rng;
 use serde_json::{json, Value as JsonValue};
 
@@ -19,16 +22,23 @@ pub const TO_STRING_RECURSION_LIMIT: usize = 32;
 
 // A "native function" is a function that can be called from within the VM. It takes a list
 // of arguments, and returns either a value, or null. It's pure (cannot modify the VM state).
-pub type NativeFunction = Box<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError>>;
+// `Arc` (not `Box`) so the static registry below can be cloned cheaply per execution context.
+pub type NativeFunction =
+    Arc<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + Send + Sync>;
+
+// The native and hog STL registries are process-constant: build them once and hand out cheap clones
+// instead of reconstructing (and, for the hog STL, re-parsing its bytecode) on every context.
+static STL_NATIVE_FNS: Lazy<HashMap<String, NativeFunction>> =
+    Lazy::new(|| stl().into_iter().collect());
+static HOG_STL_MODULES: Lazy<HashMap<String, Module>> =
+    Lazy::new(|| HashMap::from([("stl".to_string(), hog_stl())]));
 
 pub fn stl_map() -> HashMap<String, NativeFunction> {
-    stl().into_iter().collect()
+    STL_NATIVE_FNS.clone()
 }
 
 pub fn hog_stl_map() -> HashMap<String, Module> {
-    let mut res = HashMap::new();
-    res.insert("stl".to_string(), hog_stl());
-    res
+    HOG_STL_MODULES.clone()
 }
 
 // NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvmrs_stl`
@@ -62,6 +72,17 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                     HogLiteral::Closure(_) => Ok(HogLiteral::String("function".to_string()).into()),
                     HogLiteral::Null => Ok(HogLiteral::String("null".to_string()).into()),
                 }
+            }),
+        ),
+        (
+            // Emitted by the `null_safe_comparisons=True` wrapper to guard missing-property leaves.
+            "isNull",
+            native_func(|vm, args| {
+                assert_argc(&args, 1, "isNull")?;
+                Ok(
+                    HogLiteral::Boolean(matches!(args[0].deref(&vm.heap)?, HogLiteral::Null))
+                        .into(),
+                )
             }),
         ),
         (
@@ -175,22 +196,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 match array {
                     HogLiteral::Array(arr) => {
-                        let (vals, errs): (Vec<_>, Vec<_>) = arr
-                            .iter()
-                            .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
-                            .partition(Result::is_ok);
-                        if errs.is_empty() {
-                            let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                            vals.sort_unstable_by(|a, b| a.compare(b));
-                            Ok(
-                                HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect())
-                                    .into(),
-                            )
-                        } else {
-                            Err(VmError::NativeCallFailed(
-                                "arraySort() only supports arrays of numbers".to_string(),
-                            ))
-                        }
+                        let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
+                        Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
                     _ => Err(VmError::NativeCallFailed(
                         "arraySort() only supports arrays".to_string(),
@@ -222,23 +229,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 match array {
                     HogLiteral::Array(arr) => {
-                        let (vals, errs): (Vec<_>, Vec<_>) = arr
-                            .iter()
-                            .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
-                            .partition(Result::is_ok);
-                        if errs.is_empty() {
-                            let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                            vals.sort_unstable_by(|a, b| a.compare(b));
-                            vals.reverse();
-                            Ok(
-                                HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect())
-                                    .into(),
-                            )
-                        } else {
-                            Err(VmError::NativeCallFailed(
-                                "arrayReverseSort() only supports arrays of numbers".to_string(),
-                            ))
-                        }
+                        let mut nums = collect_sorted_nums(&vm.heap, arr, "arrayReverseSort")?;
+                        nums.reverse();
+                        Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
                     _ => Err(VmError::NativeCallFailed(
                         "arrayReverseSort() only supports arrays".to_string(),
@@ -363,6 +356,10 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 construct_free_standing(res, 0)
             })),
         ),
+        // Wrapped in `err_to_null` so an unparseable input becomes `Null`, letting a leaf's
+        // `if(isNull(...), false, …)` guard yield `false` rather than erroring.
+        ("toDateTime", native_func(err_to_null(to_datetime))),
+        ("toDate", native_func(err_to_null(to_date))),
         (
             "multiSearchAnyCaseInsensitive",
             native_func(|vm, args| {
@@ -470,6 +467,125 @@ fn to_string(heap: &VmHeap, val: &HogValue, depth: usize) -> Result<String, VmEr
     }
 }
 
+/// `toDateTime(input[, zone])` → a Hog DateTime object `{ __hogDateTime__: true, dt, zone }`.
+///
+/// To match ClickHouse (the parity oracle), this VM orders Hog temporals by `dt` seconds
+/// ([`crate::values::compare_values`]) — the reference Python/TS HogVMs cannot order them, so their
+/// `is_date_before`/`is_date_after` always return `false`. Naive strings parse as UTC (or `zone` for
+/// the 2-arg form), not the process-local timezone; an explicit offset/`Z` is honored as written.
+fn to_datetime(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
+    if args.is_empty() || args.len() > 2 {
+        return Err(VmError::NativeCallFailed(
+            "toDateTime takes 1 or 2 arguments".to_string(),
+        ));
+    }
+    let zone = match args.get(1) {
+        Some(arg) => Some(arg.deref(&vm.heap)?.try_as::<str>()?.to_string()),
+        None => None,
+    };
+    let zone = zone.as_deref();
+    let dt_seconds = match args[0].deref(&vm.heap)? {
+        HogLiteral::Number(n) => n.to_float(),
+        HogLiteral::String(s) => parse_datetime_to_seconds(s, zone)?,
+        other => {
+            return Err(VmError::NativeCallFailed(format!(
+                "toDateTime expects a number or string, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    construct_free_standing(
+        json!({ "__hogDateTime__": true, "dt": dt_seconds, "zone": zone.unwrap_or("UTC") }),
+        0,
+    )
+}
+
+/// `toDate(input)` → a Hog Date object `{ __hogDate__: true, year, month, day }` in UTC.
+fn to_date(vm: &HogVM, args: Vec<HogValue>) -> Result<HogValue, VmError> {
+    assert_argc(&args, 1, "toDate")?;
+    let seconds = match args[0].deref(&vm.heap)? {
+        HogLiteral::Number(n) => n.to_float(),
+        HogLiteral::String(s) => parse_datetime_to_seconds(s, None)?,
+        other => {
+            return Err(VmError::NativeCallFailed(format!(
+                "toDate expects a number or string, got {}",
+                other.type_name()
+            )))
+        }
+    };
+    let dt = DateTime::from_timestamp(seconds as i64, 0).ok_or_else(|| {
+        VmError::NativeCallFailed(format!("toDate: timestamp {seconds} out of range"))
+    })?;
+    construct_free_standing(
+        json!({ "__hogDate__": true, "year": dt.year(), "month": dt.month(), "day": dt.day() }),
+        0,
+    )
+}
+
+const NAIVE_DATETIME_FORMATS: [&str; 2] = ["%Y-%m-%d %H:%M:%S%.f", "%Y-%m-%dT%H:%M:%S%.f"];
+
+fn parse_datetime_to_seconds(input: &str, zone: Option<&str>) -> Result<f64, VmError> {
+    let input = input.trim();
+    // An explicit offset/`Z` pins the absolute instant regardless of `zone`.
+    if let Ok(dt) = DateTime::parse_from_rfc3339(input) {
+        return Ok(datetime_to_seconds(dt));
+    }
+    for fmt in NAIVE_DATETIME_FORMATS {
+        if let Ok(naive) = NaiveDateTime::parse_from_str(input, fmt) {
+            return naive_to_seconds(naive, zone);
+        }
+    }
+    if let Some(naive) = NaiveDate::parse_from_str(input, "%Y-%m-%d")
+        .ok()
+        .and_then(|date| date.and_hms_opt(0, 0, 0))
+    {
+        return naive_to_seconds(naive, zone);
+    }
+    // A bare numeric string is unix seconds (e.g. an upstream `toString(<number>)`).
+    if let Ok(seconds) = input.parse::<f64>() {
+        return Ok(seconds);
+    }
+    Err(VmError::NativeCallFailed(format!(
+        "toDateTime could not parse {input:?}"
+    )))
+}
+
+fn naive_to_seconds(naive: NaiveDateTime, zone: Option<&str>) -> Result<f64, VmError> {
+    let Some(zone) = zone else {
+        return Ok(datetime_to_seconds(naive.and_utc()));
+    };
+    let tz: chrono_tz::Tz = zone
+        .parse()
+        .map_err(|_| VmError::NativeCallFailed(format!("toDateTime: unknown timezone {zone:?}")))?;
+    match tz.from_local_datetime(&naive) {
+        // DST fold: ClickHouse resolves to a single instant; take the earlier one.
+        LocalResult::Single(dt) | LocalResult::Ambiguous(dt, _) => Ok(datetime_to_seconds(dt)),
+        LocalResult::None => Err(VmError::NativeCallFailed(format!(
+            "toDateTime: {naive} does not exist in {zone}"
+        ))),
+    }
+}
+
+/// `f64` epoch seconds with sub-second precision, matching Python's `datetime.timestamp()`.
+fn datetime_to_seconds<Tz: TimeZone>(dt: DateTime<Tz>) -> f64 {
+    dt.timestamp() as f64 + f64::from(dt.timestamp_subsec_nanos()) / 1_000_000_000.0
+}
+
+// Extract every element as a Num and return them sorted ascending. Single allocation + early error,
+// rather than partitioning into (oks, errs) Vecs and unwrapping — the old path allocated several
+// intermediate Vecs per call, which showed up under profiling for sort-heavy workloads.
+fn collect_sorted_nums(heap: &VmHeap, arr: &[HogValue], name: &str) -> Result<Vec<Num>, VmError> {
+    let mut nums = Vec::with_capacity(arr.len());
+    for v in arr {
+        let n = v.deref(heap)?.try_as::<Num>().map_err(|_| {
+            VmError::NativeCallFailed(format!("{name}() only supports arrays of numbers"))
+        })?;
+        nums.push(n.clone());
+    }
+    nums.sort_unstable_by(|a, b| a.compare(b));
+    Ok(nums)
+}
+
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
     if test {
         Ok(())
@@ -497,7 +613,7 @@ fn err_to_null(
 /// Helper to construct a HogVM native function from a closure.
 pub fn native_func<F>(func: F) -> NativeFunction
 where
-    F: Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + 'static,
+    F: Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + Send + Sync + 'static,
 {
-    Box::new(func)
+    Arc::new(func)
 }

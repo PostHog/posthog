@@ -1,3 +1,4 @@
+import { combineUrl } from 'kea-router'
 import { useState } from 'react'
 
 import { IconExternal, IconList } from '@posthog/icons'
@@ -88,12 +89,22 @@ function EvidenceRow({ entry }: { entry: SignalsScoutEvidenceEntry }): JSX.Eleme
     )
 }
 
-/** Truncated mono identifier rendering for footer run/finding ids. */
-function MonoId({ label, value }: { label: string; value: string }): JSX.Element {
+/** Truncated mono identifier for footer run/finding ids. Becomes a deep link when `to` is set. */
+function MonoId({ label, value, to }: { label: string; value: string; to?: string }): JSX.Element {
+    const display = value.length > 12 ? `${value.slice(0, 12)}…` : value
+    if (to) {
+        return (
+            <Link to={to} className="inline-flex items-center gap-1 font-medium">
+                <span>{label}</span>
+                <span className="font-mono">{display}</span>
+                <IconExternal className="size-3" />
+            </Link>
+        )
+    }
     return (
         <span className="inline-flex items-center gap-1">
             <span>{label}</span>
-            <span className="font-mono">{value.length > 12 ? `${value.slice(0, 12)}…` : value}</span>
+            <span className="font-mono">{display}</span>
         </span>
     )
 }
@@ -114,12 +125,20 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
     const tags = extra.tags ?? []
     const timeRange = extra.time_range
 
+    // Deep link the run id straight to its Tasks run tab — only resolvable when the task id was
+    // captured at emit time (absent on older emissions).
+    const taskRunUrl = extra.task_id
+        ? combineUrl(urls.taskDetail(extra.task_id), { runId: extra.task_run_id }).url
+        : undefined
+
     return (
         <SignalCardShell
             signal={signal}
             label={
                 <span>
-                    {skillLabel}
+                    <Link to={urls.inboxScout(extra.skill_name)} className="font-medium">
+                        {skillLabel}
+                    </Link>
                     <span className="text-tertiary font-normal"> · v{extra.skill_version}</span>
                 </span>
             }
@@ -185,7 +204,8 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
             <div className="flex items-center flex-wrap gap-x-3 gap-y-1 border-t pt-2 mt-2 text-xs text-tertiary">
                 <MonoId label="Finding" value={extra.finding_id} />
                 <MonoId label="Scout run" value={extra.scout_run_id} />
-                <MonoId label="Task run" value={extra.task_run_id} />
+                {extra.task_id && <MonoId label="Task" value={extra.task_id} to={taskRunUrl} />}
+                <MonoId label="Task run" value={extra.task_run_id} to={taskRunUrl} />
                 {extra.mcp_trace_id && (
                     <>
                         <span className="flex-1" />

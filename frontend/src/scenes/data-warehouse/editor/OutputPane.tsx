@@ -30,6 +30,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights/EmptyStates'
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
@@ -54,7 +55,15 @@ import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVi
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
 import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayType, type ExportContext, ExporterFormat } from '~/types'
+import {
+    AccessControlLevel,
+    AccessControlResourceType,
+    ChartDisplayType,
+    ExporterFormat,
+    type ExportContext,
+} from '~/types'
+
+import { WarehouseWizardHint } from 'products/data_warehouse/frontend/shared/components/WarehouseWizardHint'
 
 import {
     copyTableToCsv,
@@ -434,6 +443,12 @@ function ResultsActions({
     isEmbeddedMode,
     onShareTab,
 }: ResultsActionsProps): JSX.Element {
+    // Copying or exporting results requires editor access to the export resource.
+    const exportAccessControlDisabledReason = getAccessControlDisabledReason(
+        AccessControlResourceType.Export,
+        AccessControlLevel.Editor
+    )
+
     return (
         <>
             <LemonMenu
@@ -451,7 +466,11 @@ function ResultsActions({
             >
                 <LemonButton
                     id="sql-editor-copy-dropdown"
-                    disabledReason={!response?.columns || !rows.length ? 'No results to copy' : undefined}
+                    disabledReason={
+                        (!response?.columns || !rows.length ? 'No results to copy' : undefined) ??
+                        exportAccessControlDisabledReason ??
+                        undefined
+                    }
                     type="secondary"
                     size="small"
                     icon={<IconCopy />}
@@ -1002,19 +1021,21 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
 
     return (
         <div className={clsx('flex-1 absolute top-0 left-0 right-0 bottom-0 overflow-auto')}>
-            <InsightErrorState
-                query={sourceQuery}
-                excludeDetail
-                title={
-                    <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
-                        {error}
-                    </pre>
-                }
-                excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
-                fixWithAIComponent={
-                    <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
-                }
-            />
+            <div className="flex min-h-full flex-col justify-center">
+                <InsightErrorState
+                    query={sourceQuery}
+                    excludeDetail
+                    title={
+                        <pre className="text-xs bg-danger-highlight p-2 rounded overflow-auto max-h-40 max-w-[80%] mx-auto text-left whitespace-pre-wrap break-words">
+                            {error}
+                        </pre>
+                    }
+                    excludeActions={queryCancelled} // Don't display fix/debugger buttons if the query was cancelled
+                    fixWithAIComponent={
+                        <FixErrorButton contentOverride="Fix error with AI" type="primary" source="query-error" />
+                    }
+                />
+            </div>
         </div>
     )
 }
@@ -1092,17 +1113,22 @@ const Content = ({
                         Query results will be visualized here. Press <KeyboardShortcut command enter /> to run the
                         query.
                     </span>
-                    <MCPUseCaseCard
-                        surfaceKey="sql.execute"
-                        expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                    <WarehouseWizardHint
                         className="max-w-140"
+                        fallback={
+                            <MCPUseCaseCard
+                                surfaceKey="sql.execute"
+                                expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                                className="max-w-140"
+                            />
+                        }
                     />
                 </div>
             )
         }
 
         return (
-            <div className="flex-1 absolute inset-0 hide-scrollbar border-t overflow-auto">
+            <div className="absolute inset-0 flex flex-col hide-scrollbar border-t overflow-auto">
                 <SyncWarningsBanner warnings={response?.warnings} />
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
@@ -1146,10 +1172,15 @@ const Content = ({
                     {msg} Press <KeyboardShortcut command enter /> to run the query at your cursor. Separate multiple
                     statements with <code>;</code> to run them independently.
                 </span>
-                <MCPUseCaseCard
-                    surfaceKey="sql.execute"
-                    expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                <WarehouseWizardHint
                     className="max-w-140"
+                    fallback={
+                        <MCPUseCaseCard
+                            surfaceKey="sql.execute"
+                            expiresAfterMs={ONE_DAY_IN_MILLISECONDS}
+                            className="max-w-140"
+                        />
+                    }
                 />
             </div>
         )

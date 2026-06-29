@@ -1297,6 +1297,12 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert data["range_pairs"][0]["column"] == "timestamp"
         assert set(data["range_pairs"][0]["variables"]) == {"start_ts", "end_ts"}
 
+        # The endpoint isn't materialized yet, so its backing table doesn't exist in the database.
+        # The execution-query preview must still be produced (printed without type resolution)
+        # rather than failing with "Unknown table".
+        assert data["execution_query"] is not None
+        assert data["display_execution_query"] is not None
+
     def test_preview_with_bucket_override(self):
         self._create_endpoint_with_variables()
 
@@ -1492,7 +1498,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # PATCH with same bucket_overrides — should NOT trigger refresh
         with mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.trigger_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.trigger_saved_query_schedule"
         ) as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/no-trigger-bucket/",

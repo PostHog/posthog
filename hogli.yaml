@@ -144,6 +144,9 @@ devbox:
     devbox:start:
         click: hogli_commands.devbox.cli:devbox_start
         description: Start or create your remote devbox
+    devbox:clone:
+        click: hogli_commands.devbox.cli:devbox_clone
+        description: Clone a running devbox into a new one (carries full disk state)
     devbox:stop:
         click: hogli_commands.devbox.cli:devbox_stop
         description: Stop your devbox (preserves disk, stops billing)
@@ -256,6 +259,13 @@ core:
         services:
             - postgresql
             - clickhouse
+    dev:bootstrap-project:
+        cmd: python manage.py bootstrap_local_project
+        description: Bootstrap a local project from an S3 events/persons dump (batch-export format)
+        services:
+            - postgresql
+            - clickhouse
+            - django
     dev:sync-flags:
         cmd: python manage.py sync_feature_flags
         description: Sync feature flags from configuration
@@ -362,6 +372,12 @@ start:
         services:
             - django
             - postgresql
+            - redis
+        hidden: true
+    start:agent-proxy:
+        cmd: pnpm --filter @posthog/agent-proxy dev
+        description: Run the agent-proxy Node service for task-run live streaming with auto-reload
+        services:
             - redis
         hidden: true
     start:celery:
@@ -535,7 +551,7 @@ build:
         description: Generate OpenAPI schema and TypeScript types from the backend
     build:grammar:
         cmd: pnpm grammar:build
-        description: Generate HogQL grammar definitions (Python and C++)
+        description: Generate HogQL grammar definitions (C++)
     build:products:
         cmd: pnpm --filter=@posthog/frontend run build:products
         description: Build products manifest from TypeScript/JSX files
@@ -626,6 +642,13 @@ migrations:
         description: Run all database migrations (ClickHouse, Postgres, async) in parallel
         env:
             DEBUG: '1'
+    migrations:clickhouse:
+        cmd: bin/migrate --scope=clickhouse
+        description: Initialize ClickHouse - run all ClickHouse migrations (and sync replicated schema)
+        env:
+            DEBUG: '1'
+        services:
+            - clickhouse
     migrations:check:
         bin_script: migrate-check
         description: Verify all migrations are ready without applying them
@@ -955,6 +978,10 @@ tools:
         bin_script: find-affected-stories
         description: Compute the set of stories affected by changed files during storybook builds
         hidden: true
+    ci:frontend_exclude_filter:
+        bin_script: frontend-exclude-filter
+        description: Emit the dorny paths-filter excluding Node-only product workspaces (from pnpm-workspace.yaml) for frontend/storybook CI gating
+        hidden: true
     ci:insights:
         click: hogli_commands.ci_insights:ci_insights
         description: Show CI insights for the current repo + branch (search/view/plan subcommands)
@@ -1070,4 +1097,24 @@ environment:
     inject_mcp_intents:
         bin_script: inject_mcp_intents.py
         description: 'Used when developing MCP Analytics locally and trying to load some intents'
+        hidden: true
+    dev:sandbox:shims:selftest:
+        bin_script: dev-sandbox-shims-selftest
+        description: 'Verify the uv/pnpm dev-sandbox shims route install subcommands correctly'
+        hidden: true
+    setup:gateway:e2e:
+        bin_script: setup-gateway-e2e
+        description: 'Provision the local ai-gateway e2e: enable the team, mint a phs_, publish the credential blob, fund the ledger'
+        hidden: true
+    dev:open:when:ready:
+        bin_script: dev-open-when-ready
+        description: 'Open a URL in the browser once its server is listening (internal; runs unsandboxed so sandboxed procs can auto-open)'
+        hidden: true
+    migrate:agent:test:db:
+        bin_script: migrate-agent-test-db
+        description: Create + migrate the agent_platform test database from the Django migrations (single source of truth)
+        hidden: true
+    docker:agent:proxy:
+        cmd: node dist/agent-proxy-server.mjs
+        description: 'Production entrypoint: run the agent-proxy Node service'
         hidden: true

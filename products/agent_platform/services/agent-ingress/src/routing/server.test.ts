@@ -1,9 +1,10 @@
-import { createHmac } from 'crypto'
+import { createHmac, randomUUID } from 'crypto'
 import { Pool } from 'pg'
 import request from 'supertest'
 
 import {
     AgentSpecSchema,
+    PgApprovalStore,
     PgCredentialBroker,
     PgRevisionStore,
     PgSessionQueue,
@@ -12,7 +13,46 @@ import {
 import type { AgentApplication, AgentRevision } from '@posthog/agent-shared'
 import { reset } from '@posthog/agent-shared/testing'
 
+import type { AuthProvider } from '../enqueue/auth'
+import { buildDefaultVerifiers, type PosthogIdentityIntrospector, type TeamOrgLookup } from '../enqueue/verifiers'
 import { buildApp } from './server'
+
+// Fake PostHog identity introspection for the principal-authed read routes.
+// `owner-token` is a real user on the agent's team (1) / org (org-A);
+// `org-peer-token` is a different user in the same org (admitted by an
+// `organization`-audience agent, but NOT the session owner). No token → the
+// public path yields an anonymous principal.
+const OWNER_TOKEN = 'owner-token'
+const ORG_PEER_TOKEN = 'org-peer-token'
+const testIntrospector: PosthogIdentityIntrospector = {
+    async introspect(bearer) {
+        if (bearer === OWNER_TOKEN) {
+            return { uuid: 'owner', email: 'owner@test', team: { id: 1 }, organization: { id: 'org-A' } }
+        }
+        if (bearer === ORG_PEER_TOKEN) {
+            return { uuid: 'peer', email: 'peer@test', organizations: [{ id: 'org-A' }] }
+        }
+        return null
+    },
+    async canAccessTeam(bearer, teamId) {
+        return bearer === OWNER_TOKEN && teamId === 1
+    },
+}
+const testTeamOrg: TeamOrgLookup = {
+    async orgForTeam(teamId) {
+        return teamId === 1 ? 'org-A' : null
+    },
+}
+const noSecret = { resolve: async (): Promise<string | null> => null }
+const testAuthProvider: AuthProvider = {
+    verifiers: buildDefaultVerifiers({
+        introspector: testIntrospector,
+        teamOrg: testTeamOrg,
+        jwtSecretResolver: noSecret,
+        sharedSecretResolver: noSecret,
+        internalSecret: 'test-internal',
+    }),
+}
 
 const TEST_SLACK_SECRET = 'test-slack-secret'
 
@@ -42,7 +82,7 @@ async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: Age
         created_by_id: null,
         bundle_uri: 's3://x/',
         spec: AgentSpecSchema.parse({
-            model: 'x',
+            model: 'test/x',
             // These tests exercise the routing surface, not auth — keep the
             // "open agent" behaviour so request flows succeed without a verifier.
             // Public exposure is opt-in (see AuthModeSchema) so each declarative
@@ -56,6 +96,38 @@ async function seedApp(store: PgRevisionStore, slug: string): Promise<{ app: Age
                     auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] },
                 },
                 { type: 'mcp', config: {}, auth: { modes: [{ type: 'public', acknowledge_public_exposure: true }] } },
+            ],
+        }),
+    })
+    await store.setRevisionState(rev.id, 'live')
+    await store.setLiveRevision(app.id, rev.id)
+    return { app, rev }
+}
+
+/**
+ * Like {@link seedApp} but the chat trigger requires a PostHog
+ * `organization`-audience principal — the agent-builder's auth shape, where any
+ * org member may invoke (cross-project) but session ownership is still
+ * per-user. Pair with `mk({}, { withAuth: true })`.
+ */
+async function seedPosthogApp(
+    store: PgRevisionStore,
+    slug: string
+): Promise<{ app: AgentApplication; rev: AgentRevision }> {
+    const app = await store.createApplication({ team_id: 1, slug, name: slug, description: '' })
+    const rev = await store.createRevision({
+        application_id: app.id,
+        parent_revision_id: null,
+        created_by_id: null,
+        bundle_uri: 's3://x/',
+        spec: AgentSpecSchema.parse({
+            model: 'test/x',
+            triggers: [
+                {
+                    type: 'chat',
+                    config: {},
+                    auth: { modes: [{ type: 'posthog', scopes: [], audience: 'organization' }] },
+                },
             ],
         }),
     })
@@ -86,22 +158,31 @@ describe('ingress HTTP server (path mode)', () => {
         await pool.end()
     })
 
-    function mk(routing?: { routingMode: 'domain' | 'path'; domainSuffix?: string }): {
+    function mk(
+        routing?: { routingMode: 'domain' | 'path'; domainSuffix?: string },
+        opts?: { withAuth?: boolean }
+    ): {
         revisions: PgRevisionStore
         queue: PgSessionQueue
+        approvals: PgApprovalStore
         bus: RedisSessionEventBus
         app: ReturnType<typeof buildApp>
     } {
         const revisions = new PgRevisionStore(pool)
         const queue = new PgSessionQueue(pool)
+        const approvals = new PgApprovalStore(pool)
         const credentialBroker = new PgCredentialBroker(pool, {
             encryptionSaltKeys: HARNESS_ENCRYPTION_SALT_KEYS,
         })
         const app = buildApp({
             revisions,
             queue,
+            approvals,
             bus,
             credentialBroker,
+            // Opt in to the PostHog identity verifiers for the principal-authed
+            // read-route tests; default stays public-only like the rest.
+            ...(opts?.withAuth ? { authProvider: testAuthProvider } : {}),
             routingMode: routing?.routingMode ?? 'path',
             domainSuffix: routing?.domainSuffix,
             pathPrefix: '/agents',
@@ -115,7 +196,7 @@ describe('ingress HTTP server (path mode)', () => {
                 },
             },
         })
-        return { revisions, queue, bus, app }
+        return { revisions, queue, approvals, bus, app }
     }
 
     it('GET /healthz returns ok', async () => {
@@ -521,7 +602,7 @@ describe('ingress HTTP server (path mode)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'mcp', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             }),
         })
@@ -610,7 +691,7 @@ describe('ingress HTTP server (path mode)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [{ type: 'mcp', config: {}, auth: { modes: [{ type: 'posthog' }] } }],
             }),
         })
@@ -641,7 +722,7 @@ describe('ingress HTTP server (path mode)', () => {
             created_by_id: null,
             bundle_uri: 's3://x/',
             spec: AgentSpecSchema.parse({
-                model: 'x',
+                model: 'test/x',
                 triggers: [
                     {
                         type: 'chat',
@@ -691,5 +772,177 @@ describe('ingress HTTP server (path mode)', () => {
         const res = await request(app).post('/agents/x/run').set('Content-Type', 'application/json').send('{not json')
         expect(res.status).toBe(400)
         expect(res.body.error).toBe('invalid_json')
+    })
+
+    // Principal-authed read routes — the inline approval card + transcript reload
+    // fetch straight from the ingress (cross-project), gated by principal-match.
+    // The owner reads their own session; a same-org peer can't; and a public
+    // (anonymous) caller is refused outright — `principalsMatch` treats all
+    // anonymous principals as equal, so it can't gate a public agent.
+
+    async function queueApproval(
+        approvals: PgApprovalStore,
+        opts: { sessionId: string; appId: string; revId: string; type: 'principal' | 'agent' }
+    ): Promise<string> {
+        const id = randomUUID()
+        await approvals.upsertQueued({
+            id,
+            session_id: opts.sessionId,
+            application_id: opts.appId,
+            team_id: 1,
+            revision_id: opts.revId,
+            turn: 0,
+            tool_call_id: 'tc-1',
+            tool_name: 'danger',
+            proposed_args: { x: 1 },
+            assistant_message: { role: 'assistant', content: [{ type: 'text', text: '' }], timestamp: Date.now() },
+            approver_scope: { type: opts.type, allow_edit: false },
+            expires_at: new Date(Date.now() + 60_000).toISOString(),
+        })
+        return id
+    }
+
+    it('GET /sessions/:id returns the transcript for the session principal', async () => {
+        const { revisions, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'sess')
+        const run = await request(app)
+            .post('/agents/sess/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'hello' })
+        const res = await request(app)
+            .get(`/agents/sess/sessions/${run.body.session_id}`)
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+        expect(res.status).toBe(200)
+        expect(res.body.id).toBe(run.body.session_id)
+        expect(res.body.conversation).toHaveLength(1)
+        expect(res.body.conversation_trimmed).toBe(false)
+    })
+
+    // The security property the whole feature rests on: a public-auth agent
+    // hands every caller the same anonymous principal, so the read routes MUST
+    // refuse it — otherwise any anonymous caller could read any session by id.
+    it('GET /sessions/:id refuses an anonymous (public-auth) caller', async () => {
+        const { revisions, app } = mk()
+        await seedApp(revisions, 'pubsess')
+        const run = await request(app).post('/agents/pubsess/run').send({ message: 'secret' })
+        const res = await request(app).get(`/agents/pubsess/sessions/${run.body.session_id}`)
+        expect(res.status).toBe(403)
+        expect(res.body.error).toBe('forbidden')
+    })
+
+    it('GET /sessions/:id refuses a same-org peer who is not the session owner', async () => {
+        const { revisions, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'sesspeer')
+        const run = await request(app)
+            .post('/agents/sesspeer/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'hello' })
+        const res = await request(app)
+            .get(`/agents/sesspeer/sessions/${run.body.session_id}`)
+            .set('Authorization', `Bearer ${ORG_PEER_TOKEN}`)
+        expect(res.status).toBe(403)
+        expect(res.body.error).toBe('not_session_principal')
+    })
+
+    it('GET /sessions/:id 404s an unknown session', async () => {
+        const { revisions, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'sess404')
+        const res = await request(app)
+            .get(`/agents/sess404/sessions/${randomUUID()}`)
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+        expect(res.status).toBe(404)
+    })
+
+    // Regression: `slice(-0)` is `slice(0)` (the whole array), so `last_n=0` must
+    // fall through to the untrimmed branch — not return zero messages.
+    it('GET /sessions/:id?last_n=0 returns the full transcript, untrimmed', async () => {
+        const { revisions, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'sess0')
+        const run = await request(app)
+            .post('/agents/sess0/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'hello' })
+        const res = await request(app)
+            .get(`/agents/sess0/sessions/${run.body.session_id}?last_n=0`)
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+        expect(res.status).toBe(200)
+        expect(res.body.conversation).toHaveLength(1)
+        expect(res.body.conversation_trimmed).toBe(false)
+    })
+
+    it('GET /sessions/:id?last_n trims to the trailing messages', async () => {
+        const { revisions, queue, app } = mk(undefined, { withAuth: true })
+        await seedPosthogApp(revisions, 'sesstrim')
+        const run = await request(app)
+            .post('/agents/sesstrim/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'one' })
+        const sid = run.body.session_id
+        await queue.appendConversation(sid, {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'two' }],
+            timestamp: Date.now(),
+        })
+        const res = await request(app)
+            .get(`/agents/sesstrim/sessions/${sid}?last_n=1`)
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+        expect(res.status).toBe(200)
+        expect(res.body.conversation).toHaveLength(1)
+        expect(res.body.conversation_trimmed).toBe(true)
+        expect(res.body.conversation_total_turns).toBe(2)
+    })
+
+    it('GET /approvals/:id returns a queued principal approval for the owner', async () => {
+        const { revisions, approvals, app } = mk(undefined, { withAuth: true })
+        const { app: seeded, rev } = await seedPosthogApp(revisions, 'appr')
+        const run = await request(app)
+            .post('/agents/appr/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'do it' })
+        const id = await queueApproval(approvals, {
+            sessionId: run.body.session_id,
+            appId: seeded.id,
+            revId: rev.id,
+            type: 'principal',
+        })
+        const res = await request(app).get(`/agents/appr/approvals/${id}`).set('Authorization', `Bearer ${OWNER_TOKEN}`)
+        expect(res.status).toBe(200)
+        expect(res.body.id).toBe(id)
+        expect(res.body.tool_name).toBe('danger')
+        expect(res.body.approver_scope).toEqual({ type: 'principal', allow_edit: false })
+    })
+
+    it('GET /approvals/:id refuses an anonymous (public-auth) caller', async () => {
+        const { revisions, approvals, app } = mk()
+        const { app: seeded, rev } = await seedApp(revisions, 'pubappr')
+        const run = await request(app).post('/agents/pubappr/run').send({ message: 'do it' })
+        const id = await queueApproval(approvals, {
+            sessionId: run.body.session_id,
+            appId: seeded.id,
+            revId: rev.id,
+            type: 'principal',
+        })
+        const res = await request(app).get(`/agents/pubappr/approvals/${id}`)
+        expect(res.status).toBe(403)
+        expect(res.body.error).toBe('forbidden')
+    })
+
+    it('GET /approvals/:id 404s an agent-scope row (console-only surface)', async () => {
+        const { revisions, approvals, app } = mk(undefined, { withAuth: true })
+        const { app: seeded, rev } = await seedPosthogApp(revisions, 'appragent')
+        const run = await request(app)
+            .post('/agents/appragent/run')
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+            .send({ message: 'do it' })
+        const id = await queueApproval(approvals, {
+            sessionId: run.body.session_id,
+            appId: seeded.id,
+            revId: rev.id,
+            type: 'agent',
+        })
+        const res = await request(app)
+            .get(`/agents/appragent/approvals/${id}`)
+            .set('Authorization', `Bearer ${OWNER_TOKEN}`)
+        expect(res.status).toBe(404)
     })
 })

@@ -34,6 +34,10 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
+    flag_dependency_warnings?: string[]
+    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    schedule_copy_warning?: string
 }
 
 export interface CopyFlagsResultApi {
@@ -48,6 +52,38 @@ export interface CopyFlagsResponseApi {
     success: CopyFlagsSuccessItemApi[]
     /** List of failed copy attempts */
     failed: CopyFlagsResultApi[]
+}
+
+export interface OrganizationFeatureFlagRowApi {
+    /** ID of the representative feature flag for this key */
+    id: number
+    /** Team ID the representative feature flag belongs to */
+    team_id: number
+    /** Feature flag key, unique within the compared projects */
+    key: string
+    /** Human-readable name of the representative feature flag */
+    name: string
+    /** Whether the representative feature flag is enabled */
+    active: boolean
+    /** Release condition filters of the representative feature flag */
+    filters: unknown
+}
+
+export interface OrganizationFeatureFlagKeysResponseApi {
+    /** Total number of distinct flag keys across the compared projects */
+    count: number
+    /**
+     * URL for the next page of results, or null if none
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL for the previous page of results, or null if none
+     * @nullable
+     */
+    previous: string | null
+    /** One representative flag per distinct key across the compared projects */
+    results: OrganizationFeatureFlagRowApi[]
 }
 
 export interface EvaluationContextSuggestionRequestApi {
@@ -193,6 +229,8 @@ export interface FeatureFlagApi {
     filters?: FeatureFlagApiFilters
     deleted?: boolean
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     readonly created_by: UserBasicApi
     created_at?: string
     /** @nullable */
@@ -692,6 +730,8 @@ export interface FeatureFlagCreateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -728,6 +768,8 @@ export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
     filters?: FeatureFlagFiltersSchemaApi
     /** Whether the feature flag is active. */
     active?: boolean
+    /** Whether the flag is archived. Archived flags are hidden from the flag list by default and must be disabled (`active: false`). */
+    archived?: boolean
     /** Organizational tags for this feature flag. */
     tags?: string[]
     /** Evaluation contexts that control where this flag evaluates at runtime. */
@@ -837,7 +879,7 @@ export interface FeatureFlagRolloutSummaryApi {
 }
 
 export interface FeatureFlagStatusResponseApi {
-    /** Flag staleness/evaluation status: active, stale, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
+    /** Flag staleness/evaluation status: active, stale, archived, deleted, or unknown. 'active' means the flag was recently evaluated (or has no usage data yet) — it does NOT mean the flag is fully rolled out. Use the `rollout` object to determine rollout completeness. */
     status: string
     /** Human-readable explanation of the status */
     reason: string
@@ -1053,8 +1095,12 @@ export interface BulkDeleteFiltersApi {
     excluded_properties?: string
     /** Tag names to filter by. Flags carrying at least one of these tags match. */
     tags?: string[]
+    /** Tag names to exclude. Flags carrying any of these tags are filtered out. */
+    excluded_tags?: string[]
     /** When true, only matches flags with at least one evaluation context. */
     has_evaluation_contexts?: boolean
+    /** Filter by archived state. When omitted, archived flags are excluded. */
+    archived?: boolean
 }
 
 export interface BulkDeleteRequestApi {
@@ -1388,6 +1434,25 @@ export interface PatchedScheduledChangeApi {
     readonly timezone?: string | null
 }
 
+export type OrgFeatureFlagsKeysParams = {
+    /**
+     * Page size (max 100)
+     */
+    limit?: number
+    /**
+     * Pagination offset
+     */
+    offset?: number
+    /**
+     * Filter by key or name
+     */
+    search?: string
+    /**
+     * Teams to compare, in priority order. Defaults to all accessible teams in the org.
+     */
+    team_ids?: number[]
+}
+
 export type OrganizationsProjectsEvaluationContextSuggestionsDestroyParams = {
     /**
      * Name of the evaluation context to restore to suggestions.
@@ -1405,6 +1470,10 @@ export type EnvironmentsEvaluationContextSuggestionsDestroyParams = {
 export type FeatureFlagsListParams = {
     active?: FeatureFlagsListActive
     /**
+     * Filter by archived state. When omitted, archived flags are excluded.
+     */
+    archived?: FeatureFlagsListArchived
+    /**
      * Filter by the user(s) who created the feature flag. Accepts a single user ID, or a JSON-encoded / comma-separated list of user IDs to match any of them.
      */
     created_by_id?: string
@@ -1416,6 +1485,10 @@ export type FeatureFlagsListParams = {
      * JSON-encoded list of feature flag keys to exclude from the results.
      */
     excluded_properties?: string
+    /**
+     * JSON-encoded list of tag names to exclude. Flags carrying any of these tags are filtered out.
+     */
+    excluded_tags?: string
     /**
      * Filter feature flags by presence of evaluation contexts. 'true' returns only flags with at least one evaluation context, 'false' returns only flags without.
      */
@@ -1443,6 +1516,13 @@ export type FeatureFlagsListActive = (typeof FeatureFlagsListActive)[keyof typeo
 
 export const FeatureFlagsListActive = {
     Stale: 'STALE',
+    False: 'false',
+    True: 'true',
+} as const
+
+export type FeatureFlagsListArchived = (typeof FeatureFlagsListArchived)[keyof typeof FeatureFlagsListArchived]
+
+export const FeatureFlagsListArchived = {
     False: 'false',
     True: 'true',
 } as const

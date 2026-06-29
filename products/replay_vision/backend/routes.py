@@ -4,6 +4,7 @@ from products.replay_vision.backend.api import (
     ReplayObservationViewSet,
     ReplayScannerViewSet,
     SessionReplayObservationViewSet,
+    VisionActionViewSet,
     VisionQuotaViewSet,
 )
 
@@ -22,3 +23,4 @@ def register_routes(routers: RouterRegistry) -> None:
         r"vision/observations", SessionReplayObservationViewSet, "project_vision_observations", ["team_id"]
     )
     routers.register_legacy_dual_route(r"vision/quota", VisionQuotaViewSet, "project_vision_quota", ["team_id"])
+    routers.projects.register(r"vision/actions", VisionActionViewSet, "project_vision_actions", ["team_id"])

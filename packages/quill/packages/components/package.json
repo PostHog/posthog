@@ -24,12 +24,19 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./metric": {
+            "types": "./dist/metric.d.ts",
+            "import": "./dist/metric.js",
+            "require": "./dist/metric.cjs",
+            "default": "./dist/metric.js"
+        },
         "./package.json": "./package.json"
     },
     "scripts": {
         "build": "vite build"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:^",
         "@posthog/quill-primitives": "workspace:^",
         "@posthog/quill-tokens": "workspace:^",
         "date-fns": "^4.0.0",

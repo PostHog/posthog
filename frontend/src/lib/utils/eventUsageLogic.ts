@@ -7,11 +7,13 @@ import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { DashboardAddTileType } from 'scenes/dashboard/addTilePickerModalLogic'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
+import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 
 import {
     Breakdown,
@@ -72,6 +74,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import type { eventUsageLogicType } from './eventUsageLogicType'
 
@@ -583,6 +587,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardAddTileOptionClicked: (tileType: DashboardAddTileType, variant: 'control' | 'test') => ({
+            tileType,
+            variant,
+        }),
+        reportDashboardTileAdded: (tileType: DashboardAddTileType) => ({ tileType }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -1622,6 +1631,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
+        reportDashboardAddTileOptionClicked: async ({ tileType, variant }) => {
+            posthog.capture('dashboard add tile option clicked', { tile_type: tileType, variant })
+        },
+        reportDashboardTileAdded: async ({ tileType }) => {
+            posthog.capture('dashboard tile added', { tile_type: tileType })
+        },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
                 ...payload,
@@ -2498,15 +2513,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsFilterApplied: ({ props }) => {
             posthog.capture('web analytics filter applied', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsFilterRemoved: ({ props }) => {
             posthog.capture('web analytics filter removed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsDateRangeChanged: ({ props }) => {
             posthog.capture('web analytics date range changed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsCompareToggled: ({ props }) => {
             posthog.capture('web analytics compare toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
@@ -2525,6 +2544,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {

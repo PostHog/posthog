@@ -81,10 +81,11 @@ _CREATE_OBSERVATION_RETRY = common.RetryPolicy(
     non_retryable_error_types=["ValueError"],
 )
 
+# Generous because fetch's deterministic errors are non_retryable; this budget only covers transient infra (e.g. ClickHouse at capacity).
 _FETCH_RETRY = common.RetryPolicy(
     initial_interval=dt.timedelta(seconds=2),
-    maximum_interval=dt.timedelta(seconds=30),
-    maximum_attempts=3,
+    maximum_interval=dt.timedelta(seconds=60),
+    maximum_attempts=6,
 )
 
 # Asset get-or-create has no transient failure modes worth retrying.
@@ -225,13 +226,14 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     file_uri=uploaded.file_uri,
                     mime_type=uploaded.mime_type,
                 ),
-                start_to_close_timeout=dt.timedelta(minutes=5),
+                # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single call.
+                start_to_close_timeout=dt.timedelta(minutes=10),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
             self._advance_phase("finalizing")
             await self._apply_scanner_side_effects(inputs, observation_id, call_output.model_output)
             signals_count = 0
-            if call_output.signal is not None:
+            if call_output.signals:
                 # The activity fails soft (returns 0 on any error), so there's nothing to retry. The local
                 # catch covers Temporal-level failures (timeout, worker loss) — emission is advisory and
                 # must never demote an otherwise-successful observation to FAILED.
@@ -241,7 +243,8 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                         EmitObservationSignalInputs(
                             team_id=inputs.team_id,
                             observation_id=observation_id,
-                            signal=call_output.signal,
+                            exported_asset_id=asset_result.asset_id,
+                            signals=call_output.signals,
                         ),
                         start_to_close_timeout=dt.timedelta(seconds=30),
                         retry_policy=common.RetryPolicy(maximum_attempts=1),

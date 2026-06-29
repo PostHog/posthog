@@ -1,4 +1,4 @@
-import { defaultConfig } from '~/config/config'
+import { defaultConfig } from '~/common/config/config'
 
 import { EmailTrackingCodeSigner } from './tracking-code'
 

@@ -1,3 +1,5 @@
+"""Temporal workflow that generates and persists signal report summaries."""
+
 import json
 import asyncio
 from dataclasses import dataclass, field

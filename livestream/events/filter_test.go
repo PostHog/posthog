@@ -208,7 +208,7 @@ func TestFilterRunWithMultipleSubscribersDifferentProperties(t *testing.T) {
 		EventChan:     eventChan1,
 		ShouldClose:   &atomic.Bool{},
 		DroppedEvents: &atomic.Uint64{},
-		Columns:    []string{"url"},
+		Columns:       []string{"url"},
 	}
 
 	eventChan2 := make(chan interface{}, 1)
@@ -219,7 +219,7 @@ func TestFilterRunWithMultipleSubscribersDifferentProperties(t *testing.T) {
 		EventChan:     eventChan2,
 		ShouldClose:   &atomic.Bool{},
 		DroppedEvents: &atomic.Uint64{},
-		Columns:    []string{"url", "$browser"},
+		Columns:       []string{"url", "$browser"},
 	}
 
 	eventChan3 := make(chan interface{}, 1)
@@ -230,7 +230,7 @@ func TestFilterRunWithMultipleSubscribersDifferentProperties(t *testing.T) {
 		EventChan:     eventChan3,
 		ShouldClose:   &atomic.Bool{},
 		DroppedEvents: &atomic.Uint64{},
-		Columns:    nil,
+		Columns:       nil,
 	}
 
 	subChan <- sub1
@@ -298,61 +298,235 @@ func TestMatchesPropertyFilters(t *testing.T) {
 	tests := []struct {
 		name    string
 		props   map[string]interface{}
-		filters map[string][]string
+		filters []CompiledPropertyFilter
 		want    bool
 	}{
 		{
-			name:    "single key match",
+			name:    "exact single key match",
 			props:   map[string]interface{}{"$browser": "Chrome"},
-			filters: map[string][]string{"$browser": {"Chrome"}},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"})},
 			want:    true,
 		},
 		{
-			name:    "single key miss",
+			name:    "exact single key miss",
 			props:   map[string]interface{}{"$browser": "Firefox"},
-			filters: map[string][]string{"$browser": {"Chrome"}},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"})},
 			want:    false,
 		},
 		{
-			name:    "multiple values OR match",
+			name:    "exact multiple values OR match",
 			props:   map[string]interface{}{"$browser": "Firefox"},
-			filters: map[string][]string{"$browser": {"Chrome", "Firefox"}},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome", "Firefox"})},
 			want:    true,
 		},
 		{
 			name:  "multi-key AND match",
 			props: map[string]interface{}{"$browser": "Chrome", "plan": "enterprise"},
-			filters: map[string][]string{
-				"$browser": {"Chrome"},
-				"plan":     {"enterprise"},
+			filters: []CompiledPropertyFilter{
+				NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"}),
+				NewCompiledPropertyFilter("plan", OpExact, []string{"enterprise"}),
 			},
 			want: true,
 		},
 		{
 			name:  "multi-key AND miss on one key",
 			props: map[string]interface{}{"$browser": "Chrome", "plan": "free"},
-			filters: map[string][]string{
-				"$browser": {"Chrome"},
-				"plan":     {"enterprise"},
+			filters: []CompiledPropertyFilter{
+				NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"}),
+				NewCompiledPropertyFilter("plan", OpExact, []string{"enterprise"}),
 			},
 			want: false,
 		},
 		{
-			name:    "missing key fails",
+			name:    "exact missing key fails",
 			props:   map[string]interface{}{"$os": "Linux"},
-			filters: map[string][]string{"$browser": {"Chrome"}},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"})},
 			want:    false,
 		},
 		{
-			name:    "numeric value coerced",
+			name:    "numeric value coerced for exact",
 			props:   map[string]interface{}{"count": 42},
-			filters: map[string][]string{"count": {"42"}},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpExact, []string{"42"})},
 			want:    true,
 		},
 		{
-			name:    "boolean value coerced",
+			name:    "boolean value coerced for exact",
 			props:   map[string]interface{}{"is_admin": true},
-			filters: map[string][]string{"is_admin": {"true"}},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("is_admin", OpExact, []string{"true"})},
+			want:    true,
+		},
+		{
+			name:    "is_not match",
+			props:   map[string]interface{}{"$browser": "Firefox"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNot, []string{"Chrome"})},
+			want:    true,
+		},
+		{
+			name:    "is_not miss",
+			props:   map[string]interface{}{"$browser": "Chrome"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNot, []string{"Chrome"})},
+			want:    false,
+		},
+		{
+			name:    "is_not on missing key matches",
+			props:   map[string]interface{}{"$os": "Linux"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNot, []string{"Chrome"})},
+			want:    true,
+		},
+		{
+			name:    "is_not multi-value none match",
+			props:   map[string]interface{}{"$browser": "Safari"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNot, []string{"Chrome", "Firefox"})},
+			want:    true,
+		},
+		{
+			name:    "is_not multi-value one matches",
+			props:   map[string]interface{}{"$browser": "Firefox"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNot, []string{"Chrome", "Firefox"})},
+			want:    false,
+		},
+		{
+			name:    "icontains case-insensitive substring match",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/CheckOut"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpIContains, []string{"checkout"})},
+			want:    true,
+		},
+		{
+			name:    "icontains miss",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/insights"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpIContains, []string{"checkout"})},
+			want:    false,
+		},
+		{
+			name:    "not_icontains match",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/insights"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotIContains, []string{"checkout"})},
+			want:    true,
+		},
+		{
+			name:    "not_icontains miss",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/checkout"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotIContains, []string{"checkout"})},
+			want:    false,
+		},
+		{
+			name:    "not_icontains on missing key matches",
+			props:   map[string]interface{}{"$os": "Linux"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotIContains, []string{"checkout"})},
+			want:    true,
+		},
+		{
+			name:    "regex match",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/insights/123"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpRegex, []string{`/insights/\d+`})},
+			want:    true,
+		},
+		{
+			name:    "regex miss",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/insights/abc"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpRegex, []string{`/insights/\d+`})},
+			want:    false,
+		},
+		{
+			name:    "invalid regex fails closed",
+			props:   map[string]interface{}{"$current_url": "anything"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpRegex, []string{`(`})},
+			want:    false,
+		},
+		{
+			name:    "not_regex match",
+			props:   map[string]interface{}{"$current_url": "https://app.posthog.com/insights/abc"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotRegex, []string{`/insights/\d+`})},
+			want:    true,
+		},
+		{
+			name:    "not_regex with invalid pattern fails closed",
+			props:   map[string]interface{}{"$current_url": "anything"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotRegex, []string{`(`})},
+			want:    false,
+		},
+		{
+			name:    "not_regex with invalid pattern and missing property fails closed",
+			props:   map[string]interface{}{},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$current_url", OpNotRegex, []string{`(`})},
+			want:    false,
+		},
+		{
+			name:    "gt numeric match",
+			props:   map[string]interface{}{"count": 42},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpGreaterThan, []string{"10"})},
+			want:    true,
+		},
+		{
+			name:    "gt numeric miss",
+			props:   map[string]interface{}{"count": 5},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpGreaterThan, []string{"10"})},
+			want:    false,
+		},
+		{
+			name:    "gte boundary match",
+			props:   map[string]interface{}{"count": 10},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpGreaterEqual, []string{"10"})},
+			want:    true,
+		},
+		{
+			name:    "lt numeric match",
+			props:   map[string]interface{}{"count": 3},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpLessThan, []string{"10"})},
+			want:    true,
+		},
+		{
+			name:    "lte boundary match",
+			props:   map[string]interface{}{"count": 10},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpLessEqual, []string{"10"})},
+			want:    true,
+		},
+		{
+			name:    "numeric op on non-numeric event value fails",
+			props:   map[string]interface{}{"count": "not-a-number"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpGreaterThan, []string{"10"})},
+			want:    false,
+		},
+		{
+			name:    "numeric op skips non-numeric filter value",
+			props:   map[string]interface{}{"count": 42},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("count", OpGreaterThan, []string{"abc"})},
+			want:    false,
+		},
+		{
+			name:    "is_set on present key matches",
+			props:   map[string]interface{}{"$browser": "Chrome"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsSet, nil)},
+			want:    true,
+		},
+		{
+			name:    "is_set on missing key fails",
+			props:   map[string]interface{}{"$os": "Linux"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsSet, nil)},
+			want:    false,
+		},
+		{
+			name:    "is_not_set on missing key matches",
+			props:   map[string]interface{}{"$os": "Linux"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNotSet, nil)},
+			want:    true,
+		},
+		{
+			name:    "is_not_set on present key fails",
+			props:   map[string]interface{}{"$browser": "Chrome"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpIsNotSet, nil)},
+			want:    false,
+		},
+		{
+			name:    "unknown operator fails closed",
+			props:   map[string]interface{}{"$browser": "Chrome"},
+			filters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", "totally_made_up", []string{"Chrome"})},
+			want:    false,
+		},
+		{
+			name:    "no filters matches everything",
+			props:   map[string]interface{}{"$browser": "Chrome"},
+			filters: nil,
 			want:    true,
 		},
 	}
@@ -378,7 +552,7 @@ func TestFilterRunWithPropertyFilter(t *testing.T) {
 		SubID:           1,
 		TeamId:          1,
 		Token:           "token1",
-		PropertyFilters: map[string][]string{"$browser": {"Chrome"}},
+		PropertyFilters: []CompiledPropertyFilter{NewCompiledPropertyFilter("$browser", OpExact, []string{"Chrome"})},
 		EventChan:       eventChan,
 		ShouldClose:     &atomic.Bool{},
 		DroppedEvents:   &atomic.Uint64{},
@@ -438,7 +612,7 @@ func TestFilterRunWithPropertyAndEventTypeFilter(t *testing.T) {
 		TeamId:          1,
 		Token:           "token1",
 		EventTypes:      []string{"checkout_completed"},
-		PropertyFilters: map[string][]string{"plan": {"enterprise"}},
+		PropertyFilters: []CompiledPropertyFilter{NewCompiledPropertyFilter("plan", OpExact, []string{"enterprise"})},
 		EventChan:       eventChan,
 		ShouldClose:     &atomic.Bool{},
 		DroppedEvents:   &atomic.Uint64{},

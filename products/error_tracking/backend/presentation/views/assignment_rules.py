@@ -5,7 +5,7 @@ import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers, status, viewsets
-from rest_framework.exceptions import NotFound
+from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
@@ -78,6 +78,15 @@ class ErrorTrackingAssignmentRuleCreateRequestSerializer(serializers.Serializer)
     assignee = ErrorTrackingAssignmentRuleAssigneeRequestSerializer(
         help_text="User or role to assign matching issues to."
     )
+    order_key = serializers.IntegerField(
+        required=False,
+        default=0,
+        help_text=(
+            "Evaluation priority among rules; lower is evaluated first and the first matching rule wins. "
+            "Defaults to 0. Pass distinct ascending values when creating several rules at once to give them a "
+            "deterministic order."
+        ),
+    )
 
 
 class ErrorTrackingAssignmentRuleUpdateRequestSerializer(serializers.Serializer):
@@ -136,12 +145,15 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         return Response(self.get_serializer(rule).data)
 
     def _apply_rule_update(self, request: ValidatedRequest, pk: str) -> Response:
-        rule = error_tracking_api.update_assignment_rule(
-            self.team.id,
-            pk,
-            filters=request.validated_data.get("filters"),
-            assignee=request.validated_data.get("assignee"),
-        )
+        try:
+            rule = error_tracking_api.update_assignment_rule(
+                self.team.id,
+                pk,
+                filters=request.validated_data.get("filters"),
+                assignee=request.validated_data.get("assignee"),
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         if rule is None:
             raise NotFound()
         posthoganalytics.capture(
@@ -178,11 +190,15 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.Generi
         responses={201: OpenApiResponse(response=ErrorTrackingAssignmentRuleSerializer)},
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        rule = error_tracking_api.create_assignment_rule(
-            self.team.id,
-            filters=request.validated_data["filters"],
-            assignee=request.validated_data["assignee"],
-        )
+        try:
+            rule = error_tracking_api.create_assignment_rule(
+                self.team.id,
+                filters=request.validated_data["filters"],
+                assignee=request.validated_data["assignee"],
+                order_key=request.validated_data.get("order_key", 0),
+            )
+        except error_tracking_api.InvalidBytecodeError as err:
+            raise ValidationError(str(err)) from err
         posthoganalytics.capture(
             "error_tracking_assignment_rule_created",
             groups=groups(self.team.organization, self.team),

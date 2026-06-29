@@ -252,7 +252,10 @@ mod tests {
             regex_filter.compiled_regex,
             Some(CompiledRegex::InvalidPattern)
         ));
-        assert_eq!(match_property(&regex_filter, &props, false), Ok(false));
+        assert_eq!(
+            match_property(&regex_filter, &props, false, chrono_tz::Tz::UTC),
+            Ok(false)
+        );
 
         let mut not_regex_filter = PropertyFilter {
             key: "email".to_string(),
@@ -272,7 +275,10 @@ mod tests {
         // InvalidPattern returns Ok(false) for NotRegex too — matches existing
         // on-the-fly behavior where a failed compilation returns Ok(false)
         // regardless of operator.
-        assert_eq!(match_property(&not_regex_filter, &props, false), Ok(false));
+        assert_eq!(
+            match_property(&not_regex_filter, &props, false, chrono_tz::Tz::UTC),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -348,11 +354,11 @@ mod tests {
             compiled_regex: None,
             extra: Default::default(),
         };
-        let result_raw = match_property(&filter_raw, &props, false);
+        let result_raw = match_property(&filter_raw, &props, false, chrono_tz::Tz::UTC);
 
         let mut filter_compiled = filter_raw.clone();
         filter_compiled.prepare_regex();
-        let result_compiled = match_property(&filter_compiled, &props, false);
+        let result_compiled = match_property(&filter_compiled, &props, false, chrono_tz::Tz::UTC);
 
         assert_eq!(result_raw, result_compiled);
         assert_eq!(result_compiled, expected);

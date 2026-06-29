@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconPencil, IconPlus, IconRefresh, IconSearch, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonSwitch, LemonTable, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { XRayHog } from 'lib/components/hedgehogs'
@@ -51,6 +51,7 @@ export function ReplayScannersScene(): JSX.Element {
         createdByOptions,
         hasActiveFilters,
         scannerStats,
+        scannerStatsLoading,
     } = useValues(replayScannersLogic)
     const { loadScanners, deleteScanner, toggleScannerEnabled, setScannersFilters, clearFilters } =
         useActions(replayScannersLogic)
@@ -86,6 +87,7 @@ export function ReplayScannersScene(): JSX.Element {
                             size="small"
                             data-attr="vision-scanner-toggle-enabled"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
                         />
                     </AccessControlAction>
                     <span className={`inline-block min-w-[4.5rem] ${scanner.enabled ? 'text-success' : 'text-muted'}`}>
@@ -218,7 +220,13 @@ export function ReplayScannersScene(): JSX.Element {
                 action={() => push(urls.replayVisionTemplates())}
             />
 
-            {(scannerStats?.total ?? 0) > 0 && <VisionMetrics />}
+            {(scannerStats?.total ?? 0) > 0 ? (
+                <VisionMetrics />
+            ) : scannerStatsLoading ? (
+                <div className="flex items-center justify-center h-72 bg-bg-light rounded">
+                    <Spinner className="text-2xl" />
+                </div>
+            ) : null}
 
             <div className="flex flex-col gap-3">
                 <div className="flex items-center gap-2">
