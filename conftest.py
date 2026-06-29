@@ -1,3 +1,7 @@
+# NOTE (chore/devex-test-resource-profiler, DO NOT MERGE): this throwaway branch loads
+# tools/pytest_resource_profiler via PYTEST_ADDOPTS in ci-backend.yml to harvest a
+# full-suite resource profile. This one-line touch only exists to flip the `backend`
+# path filter true so the Django (Core/Temporal) matrix runs and uploads its profile.
 import gc
 import warnings
 
