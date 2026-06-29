@@ -32,14 +32,22 @@ def get_or_create_team_extension(
     """
     defaults = defaults or {}
     try:
-        return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+        config = model_class.objects.get(team=team)  # type: ignore[attr-defined]
     except model_class.DoesNotExist:  # type: ignore[attr-defined]
         try:
             with transaction.atomic():
-                return model_class.objects.create(team=team, **defaults)  # type: ignore[attr-defined]
+                config = model_class.objects.create(team=team, **defaults)  # type: ignore[attr-defined]
         except IntegrityError:
             # Race condition: another thread created it first
-            return model_class.objects.get(team=team)  # type: ignore[attr-defined]
+            config = model_class.objects.get(team=team)  # type: ignore[attr-defined]
+
+    # Back-populate the reverse relation so `config.team` resolves the Team we already
+    # hold in memory instead of firing a fresh SELECT. `objects.get(team=team)` filters
+    # by the FK but doesn't seed the relation cache, so without this every `config.team`
+    # access (e.g. `to_cache_key_dict`'s `self.team.base_currency`, run on the query
+    # cache-key hot path) hits the DB again.
+    config.team = team
+    return config
 
 
 def register_team_extension_signal(
