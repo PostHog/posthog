@@ -151,6 +151,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                 'compareFilter',
                 'webAnalyticsFilters',
                 'isPathCleaningEnabled',
+                'controls',
             ],
             featureFlagLogic,
             ['featureFlags'],
@@ -228,13 +229,10 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                                 // gate requires includeBounceRate, so request it even though the
                                 // picker only reads the path column (the URL set/order is unchanged).
                                 // A search term adds a pathname filter, which the gate rejects, so
-                                // those queries stay on the live path.
+                                // those queries stay on the live path. Reuse the dashboard's resolved
+                                // tri-state so an explicit user opt-out in the menu is honored here too.
                                 includeBounceRate: true,
-                                useWebAnalyticsPrecompute: values.featureFlags[
-                                    FEATURE_FLAGS.WEB_ANALYTICS_PRECOMPUTE_TOGGLE
-                                ]
-                                    ? true
-                                    : undefined,
+                                useWebAnalyticsPrecompute: values.controls.useWebAnalyticsPrecompute,
                                 dateRange,
                                 properties: searchTerm
                                     ? [
