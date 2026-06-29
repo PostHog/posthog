@@ -1546,7 +1546,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
         return response.Response(status=202)
 
-    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids")
+    @action(methods=["POST"], detail=False, url_path="batch_by_distinct_ids", required_scopes=["person:read"])
     def batch_by_distinct_ids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         distinct_ids = request.data.get("distinct_ids", [])
 
@@ -1583,7 +1583,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         return response.Response({"results": results})
 
-    @action(methods=["POST"], detail=False, url_path="batch_by_uuids")
+    @action(methods=["POST"], detail=False, url_path="batch_by_uuids", required_scopes=["person:read"])
     def batch_by_uuids(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         uuids = request.data.get("uuids", [])
 
