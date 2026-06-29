@@ -160,7 +160,7 @@ async def test_postgres_export_workflow_with_integration(
     exclude_events,
     ateam,
     table_name,
-    model: BatchExportModel | BatchExportSchema | None,
+    model: BatchExportModel | None,
     generate_test_data,
     data_interval_start,
     data_interval_end,
