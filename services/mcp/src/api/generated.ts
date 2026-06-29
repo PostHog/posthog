@@ -34306,62 +34306,6 @@ export namespace Schemas {
       completed_at?: string | null;
     }
 
-    /**
-     * @nullable
-     */
-    export type TaskDetailDTOJsonSchema = { [key: string]: unknown } | null;
-
-    /**
-     * Detail response for a task.
-     *
-     * Reads from a frozen ``TaskDetailDTO`` produced by the facade. ``github_integration`` /
-     * ``github_user_integration`` are integration ids, ``signal_report`` is the report id, and
-     * ``latest_run`` nests the run-detail shape. ``created_by`` mirrors core ``UserBasicSerializer``.
-     */
-    export interface TaskDetailDTO {
-      id: string;
-      /** @nullable */
-      task_number: number | null;
-      slug: string;
-      title: string;
-      title_manually_set: boolean;
-      description: string;
-      origin_product: string;
-      task_kind: string;
-      /** @nullable */
-      repository: string | null;
-      /** @nullable */
-      github_integration: number | null;
-      /** @nullable */
-      github_user_integration: string | null;
-      /** @nullable */
-      signal_report: string | null;
-      /** @nullable */
-      json_schema: TaskDetailDTOJsonSchema;
-      internal: boolean;
-      archived: boolean;
-      /** @nullable */
-      archived_at: string | null;
-      /** Latest run details for this task */
-      latest_run?: TaskRunDetailDTO | null;
-      /** @nullable */
-      created_at?: string | null;
-      /** @nullable */
-      updated_at?: string | null;
-      created_by?: TaskUserBasicInfo | null;
-      /** @nullable */
-      ci_prompt: string | null;
-    }
-
-    export interface PaginatedTaskDetailDTOList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: TaskDetailDTO[];
-    }
-
     export interface PaginatedTaskRunDetailDTOList {
       count: number;
       /** @nullable */

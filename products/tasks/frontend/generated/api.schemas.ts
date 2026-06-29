@@ -318,7 +318,6 @@ export interface TaskDetailDTOApi {
     title_manually_set: boolean
     description: string
     origin_product: string
-    task_kind: string
     /** @nullable */
     repository: string | null
     /** @nullable */
