@@ -77,13 +77,17 @@ impl ExecutionContext {
     }
 
     pub fn with_defaults(bytecode: Program) -> Self {
-        // TODO - these values are basically randomly chosen
         Self::new(
             bytecode,
             json!({}),
-            128,
-            1024 * 1024,
-            10_000,
+            // Operand-stack ceiling. The reference (Node) VM imposes no operand-stack limit — it is
+            // bounded only by memory — so the old default of 128 spuriously overflowed valid programs
+            // that build large array/object literals. `max_steps` below already caps total pushes (a
+            // program can't push more values than it executes ops), so this is a generous safety
+            // ceiling rather than a functional bound (a prod hog-function survey hit 128 on real fns).
+            1 << 20,
+            1024 * 1024, // max_heap_size
+            10_000,      // max_steps
             stl_map(),
             hog_stl_map(),
         )
