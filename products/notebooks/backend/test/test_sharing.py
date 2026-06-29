@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from posthog.test.base import APIBaseTest
+from unittest import TestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -51,7 +52,7 @@ def _markdown_doc(markdown: str) -> dict[str, Any]:
     }
 
 
-class TestExtractReferencedInsightShortIds(APIBaseTest):
+class TestExtractReferencedInsightShortIds(TestCase):
     @parameterized.expand(
         [
             ("none", None, set()),
@@ -134,6 +135,11 @@ class TestExtractReferencedInsightShortIds(APIBaseTest):
                 {"abc123"},
             ),
             (
+                "markdown_saved_insight_with_even_backslashes_before_quote",
+                _markdown_doc(r'<Query query={{"kind":"SavedInsightNode","shortId":"abc123","path":"C:\\\\"}} />'),
+                {"abc123"},
+            ),
+            (
                 "markdown_query_inside_code_block_ignored",
                 _markdown_doc('```md\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />\n```'),
                 set(),
@@ -157,7 +163,7 @@ class TestExtractReferencedInsightShortIds(APIBaseTest):
         self.assertEqual(extract_referenced_insight_short_ids(doc), {"abc123"})
 
 
-class TestExtractInlineQueryNodes(APIBaseTest):
+class TestExtractInlineQueryNodes(TestCase):
     @parameterized.expand(
         [
             ("none", None, []),
@@ -228,6 +234,21 @@ class TestExtractInlineQueryNodes(APIBaseTest):
                         {
                             "kind": "DataTableNode",
                             "source": {"kind": "EventsQuery", "select": ["event"], "after": "-24h", "limit": 1},
+                        },
+                    )
+                ],
+            ),
+            (
+                "markdown_inline_query_with_even_backslashes_before_quote",
+                _markdown_doc(
+                    r'<Query nodeId="inline-node-1" query={{"kind":"DataTableNode","source":{"kind":"EventsQuery","select":["event"],"path":"C:\\\\"}}} />'
+                ),
+                [
+                    (
+                        "inline-node-1",
+                        {
+                            "kind": "DataTableNode",
+                            "source": {"kind": "EventsQuery", "select": ["event"], "path": "C:\\\\"},
                         },
                     )
                 ],

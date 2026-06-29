@@ -409,10 +409,8 @@ def _read_balanced_markdown_expression(source: str, index: int) -> tuple[str, in
 
     while next_index < len(source):
         character = source[next_index]
-        previous_character = source[next_index - 1] if next_index > 0 else ""
-
         if quote:
-            if character == quote and previous_character != "\\":
+            if character == quote and not _is_escaped_markdown_expression_quote(source, next_index):
                 quote = None
             next_index += 1
             continue
@@ -431,6 +429,15 @@ def _read_balanced_markdown_expression(source: str, index: int) -> tuple[str, in
         next_index += 1
 
     return None
+
+
+def _is_escaped_markdown_expression_quote(source: str, quote_index: int) -> bool:
+    backslash_count = 0
+    index = quote_index - 1
+    while index >= 0 and source[index] == "\\":
+        backslash_count += 1
+        index -= 1
+    return backslash_count % 2 == 1
 
 
 def _parse_markdown_expression_value(raw: str) -> Any:
