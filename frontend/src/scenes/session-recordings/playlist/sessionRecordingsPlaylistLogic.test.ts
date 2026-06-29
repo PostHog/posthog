@@ -1,7 +1,9 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -20,6 +22,7 @@ import { sessionRecordingDataCoordinatorLogic } from '../player/sessionRecording
 import { playlistFiltersLogic } from './playlistFiltersLogic'
 import {
     DEFAULT_RECORDING_FILTERS,
+    DEFAULT_RECORDING_FILTERS_ORDER_BY,
     convertLegacyFiltersToUniversalFilters,
     convertUniversalFiltersToRecordingsQuery,
     getDefaultFilters,
@@ -1290,6 +1293,36 @@ describe('sessionRecordingsPlaylistLogic', () => {
             const result = getDefaultFilters(undefined, pinnedFilters)
             const firstGroup = result.filter_group.values[0] as any
             expect(firstGroup.values).toContainEqual(pinnedFilters.values[0])
+        })
+    })
+
+    describe('relevance sort experiment', () => {
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        const mockFlags = (flags: Record<string, string | boolean>): void => {
+            jest.spyOn(posthog, 'getFeatureFlag').mockImplementation((key) => flags[key as string] as any)
+        }
+
+        it('defaults the sort order to relevance for the test arm', () => {
+            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'test' })
+            expect(getDefaultFilters().order).toBe('surfacing_score')
+        })
+
+        it('keeps the recency sort order for the control arm', () => {
+            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT]: 'control' })
+            expect(getDefaultFilters().order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+        })
+
+        it('keeps the recency sort order when not enrolled in the experiment', () => {
+            mockFlags({})
+            expect(getDefaultFilters().order).toBe(DEFAULT_RECORDING_FILTERS_ORDER_BY)
+        })
+
+        it('still defaults to relevance when the surfacing-score rollout flag is enabled', () => {
+            mockFlags({ [FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE]: true })
+            expect(getDefaultFilters().order).toBe('surfacing_score')
         })
     })
 
