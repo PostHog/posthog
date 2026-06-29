@@ -998,6 +998,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                         producer_task=producer_task,
                         transformer=transformer,
                         json_columns=(),
+                        records_total=inputs.records_total,
                     )
                 finally:
                     if merge_settings.requires_merge:

@@ -24,12 +24,12 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     let capture = posthog
         .mock_async(|when, then| {
             when.method(POST)
-                .path("/i/v0/e/")
+                .path("/i/v1/analytics/events")
                 .body_contains("\"$exception\"")
                 .body_contains("UnhandledError")
                 .body_contains("\"service\":\"cymbal-test\"")
                 .body_contains("\"request_id\"");
-            then.status(200).body("{\"status\": 1}");
+            then.status(200).body("{\"results\":{}}");
         })
         .await;
     // Catch-all so an unexpected payload shape fails the specific assertion
@@ -37,7 +37,7 @@ async fn pipeline_failure_is_captured_as_posthog_exception(db: PgPool) {
     let fallback = posthog
         .mock_async(|when, then| {
             when.path_contains("/");
-            then.status(200).body("{\"status\": 1}");
+            then.status(200).body("{\"results\":{}}");
         })
         .await;
 

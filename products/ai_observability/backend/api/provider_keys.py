@@ -29,6 +29,7 @@ from ..llm.providers.azure_openai import (
     is_allowed_azure_endpoint,
 )
 from ..models.evaluation_config import EvaluationConfig
+from ..models.evaluation_configs import EvaluationType
 from ..models.evaluations import Evaluation
 from ..models.model_configuration import LLMModelConfiguration
 from ..models.provider_keys import LLMProvider, LLMProviderKey
@@ -439,9 +440,11 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         if provider == "openai":
             trial_filter |= Q(model_configuration__isnull=True)
 
-        trial_evals = Evaluation.objects.filter(trial_filter, team_id=self.team_id, deleted=False).values(
-            "id", "name", "enabled"
-        )[:50]
+        # Only LLM-as-a-judge evaluations use a provider key — Hog and Sentiment never do, so the
+        # legacy "no model_configuration" clause above would otherwise sweep them in.
+        trial_evals = Evaluation.objects.filter(
+            trial_filter, team_id=self.team_id, deleted=False, evaluation_type=EvaluationType.LLM_JUDGE
+        ).values("id", "name", "enabled")[:50]
 
         return Response({"evaluations": list(trial_evals)})
 

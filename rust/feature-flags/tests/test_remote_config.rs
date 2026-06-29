@@ -552,7 +552,140 @@ async fn test_remote_config_at_current_with_token_resolves_project() {
 }
 
 #[tokio::test]
-async fn test_remote_config_at_current_without_token_returns_404() {
+async fn test_remote_config_at_current_secret_token_resolves_project() {
+    // `@current` with no `?token=`, authenticated by a team secret token: the project resolves
+    // from the credential's own team (Django: `team_from_request`). This server-SDK shape
+    // previously 404'd before auth.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-current-secret",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-current-secret/remote_config",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_personal_key_resolves_current_team() {
+    // `@current` with no `?token=`, authenticated by a personal API key: the project resolves
+    // from the key user's current team (Django: `user.current_team`). This is how server SDKs
+    // fetch remote config with a personal key, and it previously 404'd before auth.
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+    let team = context.insert_new_team(None).await.unwrap();
+    let org_id = context.get_organization_id_for_team(&team).await.unwrap();
+    let user_email = TestContext::generate_test_email("rc_current_pak");
+    let user_id = context
+        .create_user(&user_email, &org_id, team.id)
+        .await
+        .unwrap();
+    context
+        .add_user_to_organization(user_id, &org_id, 15)
+        .await
+        .unwrap();
+    let (_pak_id, api_key) = context
+        .create_personal_api_key(user_id, "RC Current", vec!["feature_flag:read"], None, None)
+        .await
+        .unwrap();
+    insert_rc_flag(
+        &context,
+        team.id,
+        "rc-current-pak",
+        "plain-payload",
+        true,
+        false,
+    )
+    .await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/rc-current-pak/remote_config",
+            server.addr
+        ))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 200);
+    assert_eq!(
+        response.json::<Value>().await.unwrap(),
+        Value::String("plain-payload".to_string())
+    );
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_without_credentials_returns_401() {
+    // `@current` with neither a `?token=` nor a bearer credential cannot resolve a project and is
+    // unauthenticated (Django: AuthenticationFailed) — resolution must not leak as a 404.
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/whatever/remote_config",
+            server.addr
+        ))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_invalid_personal_key_returns_401() {
+    // `@current` with a personal-key-shaped bearer that doesn't exist must be 401 (invalid
+    // credential), not 404: an unknown key can't resolve a project, but it's an auth failure
+    // rather than a missing project, matching the numeric-id path and Django.
+    let config = Config::default_test_config();
+    let _context = TestContext::new(Some(&config)).await;
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let response = reqwest::Client::new()
+        .get(format!(
+            "http://{}/api/projects/@current/feature_flags/whatever/remote_config",
+            server.addr
+        ))
+        .header("Authorization", "Bearer phx_nonexistent_key")
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_remote_config_at_current_resolves_then_404s_missing_flag() {
+    // `@current` resolves the project from the credential, then a flag that doesn't exist (or
+    // isn't a remote-config flag) still 404s — the resolution must not over-serve.
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
     let (_team, secret_token, _) = context
@@ -561,11 +694,9 @@ async fn test_remote_config_at_current_without_token_returns_404() {
         .unwrap();
 
     let server = common::ServerHandle::for_config(config.clone()).await;
-    // `@current` without a `?token=` needs the caller's current team (not an SDK path, not
-    // ported), and any other non-numeric segment is Django's int() ValueError -> 404.
     let response = reqwest::Client::new()
         .get(format!(
-            "http://{}/api/projects/@current/feature_flags/x/remote_config",
+            "http://{}/api/projects/@current/feature_flags/does-not-exist/remote_config",
             server.addr
         ))
         .header("Authorization", format!("Bearer {secret_token}"))

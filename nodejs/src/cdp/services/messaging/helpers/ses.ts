@@ -2,9 +2,9 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { fetch } from '~/utils/request'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
 
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 

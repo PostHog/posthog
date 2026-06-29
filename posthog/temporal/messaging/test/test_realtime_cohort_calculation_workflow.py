@@ -1711,6 +1711,11 @@ class TestFinalQueryMembershipStatuses:
         # The inner subquery is embedded correctly
         assert "SELECT id FROM nowhere" in sql
 
+        # GROUP BY spill settings (the OOM fix) must survive future edits to build_final_query
+        assert "join_use_nulls = 1" in sql
+        assert "max_bytes_ratio_before_external_group_by = 0.5" in sql
+        assert "distributed_aggregation_memory_efficient = 1" in sql
+
     def test_if_expression_matches_full_outer_join_semantics(self):
         """The if() expression and WHERE clause encode the FULL OUTER JOIN membership diff contract.
 

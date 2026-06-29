@@ -4,6 +4,7 @@ import { Counter } from 'prom-client'
 import { type RedisV2 } from '~/common/redis/redis-v2'
 import { KeyedRateLimitRequest, KeyedRateLimiterService } from '~/common/services/keyed-rate-limiter.service'
 import { instrumented } from '~/common/tracing/tracing-utils'
+import { logger } from '~/common/utils/logger'
 import { type PiiScrubStats } from '~/logs/log-pii-scrub'
 import {
     type LogRecord,
@@ -12,7 +13,6 @@ import {
     transformDecodedLogRecordsInPlace,
 } from '~/logs/log-record-avro'
 import type { LogsSettings } from '~/types'
-import { logger } from '~/utils/logger'
 
 import type { CompiledRuleSet, EvaluateResult, RateLimitPendingByRule, SamplingClassifyResult } from './evaluate'
 import {

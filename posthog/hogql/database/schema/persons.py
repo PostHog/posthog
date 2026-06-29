@@ -294,6 +294,10 @@ def join_with_persons_table(
 
 
 class RawPersonsTable(Table):
+    description: str = (
+        "Raw, un-deduplicated persons rows (one per version). Query `persons` instead unless you need to "
+        "resolve the latest version yourself via `is_deleted`/`version`."
+    )
     fields: dict[str, FieldOrTable] = {
         **PERSONS_FIELDS,
         "is_deleted": BooleanDatabaseField(name="is_deleted", nullable=False),

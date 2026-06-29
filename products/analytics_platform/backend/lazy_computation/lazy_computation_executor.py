@@ -374,6 +374,7 @@ class LazyComputationTable(StrEnum):
     CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     MARKETING_CONVERSIONS_PREAGGREGATED = "marketing_conversions_preaggregated"
+    MARKETING_COSTS_PREAGGREGATED = "marketing_costs_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
     WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
     WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
@@ -395,6 +396,7 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+    LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
 }
 
 

@@ -220,3 +220,12 @@ export const McpAnalyticsSessionsGenerateIntentParams = /* @__PURE__ */ zod.obje
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const McpAnalyticsSessionsGenerateIntentQueryParams = /* @__PURE__ */ zod.object({
+    date_from: zod.iso
+        .datetime({ offset: true })
+        .optional()
+        .describe(
+            "Absolute ISO timestamp lower bound for the intent scan — pass the session's start so older sessions resolve. Defaults to a 7-day lookback when omitted."
+        ),
+})

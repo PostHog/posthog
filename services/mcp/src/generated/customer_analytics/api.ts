@@ -115,6 +115,8 @@ export const AccountsNotebooksListParams = /* @__PURE__ */ zod.object({
 export const AccountsNotebooksListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
+    ordering: zod.string().optional().describe("Sort by creation date or author. Defaults to '-created_at'."),
+    search: zod.string().optional().describe('Full-text search across notebook title and content.'),
 })
 
 export const AccountsNotebooksCreateParams = /* @__PURE__ */ zod.object({

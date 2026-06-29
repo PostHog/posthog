@@ -66,6 +66,12 @@
                     <port>9000</port>
                 </replica>
             </shard>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
         </posthog_migrations>
 
         <ai_events>
@@ -100,6 +106,14 @@
                 </replica>
             </shard>
         </sessions>
+        <logs>
+            <shard>
+                <replica>
+                    <host>clickhouse-logs</host>
+                    <port>9000</port>
+                </replica>
+            </shard>
+        </logs>
     </remote_servers>
 
     <named_collections>
@@ -121,6 +135,9 @@
         <warpstream_cyclotron>
             <kafka_broker_list from_env="KAFKA_HOSTS"/>
         </warpstream_cyclotron>
+        <warpstream_logs>
+            <kafka_broker_list from_env="KAFKA_HOSTS"/>
+        </warpstream_logs>
     </named_collections>
 
     <macros>

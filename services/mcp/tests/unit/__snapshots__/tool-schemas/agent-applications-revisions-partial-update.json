@@ -26,10 +26,6 @@
         },
         "spec": {
             "properties": {
-                "entrypoint": {
-                    "default": "agent.md",
-                    "type": "string"
-                },
                 "framework_prompt": {
                     "properties": {
                         "omit": {
@@ -271,9 +267,80 @@
                     },
                     "type": "array"
                 },
-                "model": {
-                    "minLength": 1,
-                    "type": "string"
+                "models": {
+                    "anyOf": [
+                        {
+                            "properties": {
+                                "level": {
+                                    "default": "medium",
+                                    "description": "Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start.",
+                                    "enum": ["low", "medium", "high"],
+                                    "type": "string"
+                                },
+                                "mode": {
+                                    "const": "auto",
+                                    "type": "string"
+                                },
+                                "optimize_for": {
+                                    "default": "cost",
+                                    "description": "Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend.",
+                                    "enum": ["cost", "availability"],
+                                    "type": "string"
+                                },
+                                "reasoning": {
+                                    "description": "Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default.",
+                                    "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["mode"],
+                            "type": "object"
+                        },
+                        {
+                            "properties": {
+                                "mode": {
+                                    "const": "manual",
+                                    "type": "string"
+                                },
+                                "models": {
+                                    "description": "Explicit priority-ordered fallback list — the runner tries entries in order (primary first).",
+                                    "items": {
+                                        "properties": {
+                                            "model": {
+                                                "description": "Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).",
+                                                "minLength": 1,
+                                                "pattern": "^[a-z0-9_-]+\\/[a-zA-Z0-9._:-]+$",
+                                                "type": "string"
+                                            },
+                                            "reasoning": {
+                                                "description": "Per-model reasoning effort override (else the spec default).",
+                                                "enum": ["minimal", "low", "medium", "high", "xhigh"],
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["model"],
+                                        "type": "object"
+                                    },
+                                    "minItems": 1,
+                                    "type": "array"
+                                },
+                                "optimize_for": {
+                                    "default": "cost",
+                                    "description": "Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold).",
+                                    "enum": ["cost", "availability"],
+                                    "type": "string"
+                                }
+                            },
+                            "required": ["mode", "models"],
+                            "type": "object"
+                        }
+                    ],
+                    "default": {
+                        "level": "medium",
+                        "mode": "auto",
+                        "optimize_for": "cost"
+                    },
+                    "description": "How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns."
                 },
                 "reasoning": {
                     "enum": ["minimal", "low", "medium", "high", "xhigh"],
@@ -343,8 +410,11 @@
                             "path": {
                                 "type": "string"
                             },
+                            "source_version_id": {
+                                "type": "string"
+                            },
                             "version": {
-                                "minimum": 0,
+                                "minimum": 1,
                                 "type": "number"
                             }
                         },
@@ -450,7 +520,7 @@
                                         "type": "string"
                                     },
                                     "version": {
-                                        "minimum": 0,
+                                        "minimum": 1,
                                         "type": "number"
                                     }
                                 },
@@ -938,7 +1008,6 @@
                     "type": "array"
                 }
             },
-            "required": ["model"],
             "type": "object"
         }
     },

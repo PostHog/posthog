@@ -2,27 +2,27 @@ import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'
 
+import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID, KAFKA_PERSON_MERGE_EVENTS } from '~/common/config/kafka-topics'
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs'
+import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT, PERSON_MERGE_EVENTS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
 import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { KAFKA_PERSON, KAFKA_PERSON_DISTINCT_ID } from '~/config/kafka-topics'
+import { UUIDT } from '~/common/utils/utils'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { BatchBoundPersonsStore } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isOkResult } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { createOrganization, createTeam, getTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { EventHeaders, Hub, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { UUIDT } from '~/utils/utils'
+import { EventHeaders, InternalPerson, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
 
 import { createNormalizeEventStep } from './normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from './normalize-process-person-flag-step'
 import { ProcessPersonlessInput, createProcessPersonlessStep } from './process-personless-step'
 
-function createPersonOutputs(_hub: Hub) {
+function createPersonOutputs(_infra: IngestionTestInfra) {
     return new IngestionOutputs({
         [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
         [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
@@ -35,7 +35,7 @@ function createPersonOutputs(_hub: Hub) {
 }
 
 async function createPerson(
-    hub: Hub,
+    infra: IngestionTestInfra,
     createdAt: DateTime,
     properties: Properties,
     propertiesLastUpdatedAt: PropertiesLastUpdatedAt,
@@ -47,7 +47,7 @@ async function createPerson(
     primaryDistinctId: { distinctId: string; version?: number },
     extraDistinctIds?: { distinctId: string; version?: number }[]
 ): Promise<InternalPerson> {
-    const personRepository = new PostgresPersonRepository(hub.postgres)
+    const personRepository = new PostgresPersonRepository(infra.postgres)
     const result = await personRepository.createPerson(
         createdAt,
         properties,
@@ -63,13 +63,13 @@ async function createPerson(
     if (!result.success) {
         throw new Error('Failed to create person')
     }
-    const personOutputs = createPersonOutputs(hub)
+    const personOutputs = createPersonOutputs(infra)
     await Promise.all(result.messages.map((msg) => personOutputs.produce(msg.output, { value: msg.value, key: null })))
     return result.person
 }
 
 describe('createProcessPersonlessStep', () => {
-    let hub: Hub
+    let infra: IngestionTestInfra
     let teamId: number
     let team: Team
     let pluginEvent: PluginEvent
@@ -78,12 +78,12 @@ describe('createProcessPersonlessStep', () => {
 
     beforeEach(async () => {
         await resetTestDatabase()
-        hub = await createHub()
-        const organizationId = await createOrganization(hub.postgres)
-        teamId = await createTeam(hub.postgres, organizationId)
-        team = (await getTeam(hub.postgres, teamId))!
+        infra = await createIngestionTestInfra()
+        const organizationId = await createOrganization(infra.postgres)
+        teamId = await createTeam(infra.postgres, organizationId)
+        team = (await getTeam(infra.postgres, teamId))!
 
-        const personRepository = new PostgresPersonRepository(hub.postgres)
+        const personRepository = new PostgresPersonRepository(infra.postgres)
         const storeOutputs = new IngestionOutputs({
             [PERSONS_OUTPUT]: new SingleIngestionOutput(PERSONS_OUTPUT, KAFKA_PERSON, mockProducer, 'test'),
             [PERSON_DISTINCT_IDS_OUTPUT]: new SingleIngestionOutput(
@@ -95,6 +95,12 @@ describe('createProcessPersonlessStep', () => {
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
                 INGESTION_WARNINGS_OUTPUT,
                 'ingestion_warnings_test',
+                mockProducer,
+                'test'
+            ),
+            [PERSON_MERGE_EVENTS_OUTPUT]: new SingleIngestionOutput(
+                PERSON_MERGE_EVENTS_OUTPUT,
+                KAFKA_PERSON_MERGE_EVENTS,
                 mockProducer,
                 'test'
             ),
@@ -116,7 +122,7 @@ describe('createProcessPersonlessStep', () => {
     })
 
     afterEach(async () => {
-        await closeHub(hub)
+        await infra.close()
     })
 
     const createInput = (overrides: Partial<ProcessPersonlessInput> = {}): ProcessPersonlessInput => ({
@@ -156,7 +162,7 @@ describe('createProcessPersonlessStep', () => {
         it('keeps the event personful when a person already exists', async () => {
             const personUuid = new UUIDT().toString()
 
-            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -286,7 +292,7 @@ describe('createProcessPersonlessStep', () => {
 
         it('keeps the event personful when the distinct ID turns out to be merged', async () => {
             const personUuid = new UUIDT().toString()
-            const person = await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, personUuid, {
+            const person = await createPerson(infra, timestamp, {}, {}, {}, teamId, null, false, personUuid, {
                 distinctId: 'merge-target',
             })
 
@@ -427,7 +433,7 @@ describe('createProcessPersonlessStep', () => {
         it('returns existing person with empty properties when person exists', async () => {
             const personUuid = new UUIDT().toString()
 
-            await createPerson(hub, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, timestamp, { name: 'John' }, {}, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -471,7 +477,7 @@ describe('createProcessPersonlessStep', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -490,7 +496,7 @@ describe('createProcessPersonlessStep', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:14:30Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -511,7 +517,7 @@ describe('createProcessPersonlessStep', () => {
             const personUuid = new UUIDT().toString()
             const personCreatedAt = DateTime.fromISO('2020-02-23T02:00:00Z')
 
-            await createPerson(hub, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
+            await createPerson(infra, personCreatedAt, {}, {}, {}, teamId, null, false, personUuid, {
                 distinctId: pluginEvent.distinct_id,
             })
 
@@ -533,7 +539,7 @@ describe('createProcessPersonlessStep', () => {
             const personCreatedAt = DateTime.fromISO('2020-02-20T00:00:00Z')
 
             const person = await createPerson(
-                hub,
+                infra,
                 personCreatedAt,
                 { name: 'John' },
                 {},

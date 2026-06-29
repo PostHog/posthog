@@ -271,9 +271,15 @@ Presentation may only import `facade` and other `presentation` modules within th
 
 If both presentation and logic need the same utility (caching, permissions, etc.), putting it at `backend/cache.py` and importing from both layers creates an "accidental shared kernel" — a hidden coupling that bypasses the facade. Instead:
 
-- **Presentation concern** (response caching, rate limiting) → `presentation/`
-- **Business concern** (domain-level caching, permission checks) → `logic/`, exposed through the facade
+- **Presentation concern** (response caching, rate limiting, user RBAC — see below) → `presentation/`
+- **Business concern** (domain-level caching, tenant scoping, domain invariants) → `logic/`, exposed through the facade
 - **Both layers need it** → that's a signal the boundary is drawn wrong; refactor
+
+### Who owns RBAC?
+
+User RBAC stays on the **viewset** — it depends on the authenticated `request`/`user`, which the facade doesn't have (facades also run from Celery, CLIs, and other products). Declare it the standard way: `scope_object` plus `scope_object_read_actions`/`scope_object_write_actions`, and let the shared permission classes (`APIScopePermission`, `AccessControlPermission`) on `TeamAndOrgViewSetMixin` enforce API-scope and resource access. See `products/visual_review/backend/presentation/views.py`.
+
+The facade owns **tenant scoping** (`team_id` enforced via `for_team(team_id)` / a `ProductTeamModel` fail-closed manager) and **domain invariants** (state machines, idempotency) — these must hold for every caller, so they live below the HTTP boundary; user RBAC must not. Keeping RBAC in the shared DRF stack also lets cross-cutting permission tests enforce it consistently across products.
 
 ### Why not mix with the facade?
 

@@ -1570,6 +1570,7 @@ class OAuthAuthorizationServerMetadataView(_PublicMetadataView):
                 "refresh_token",
                 id_jag.JWT_BEARER_GRANT_TYPE,
             ],
+            "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
             "token_endpoint_auth_methods_supported": ["none", "client_secret_post"],
             "code_challenge_methods_supported": ["S256"],
             # Service documentation

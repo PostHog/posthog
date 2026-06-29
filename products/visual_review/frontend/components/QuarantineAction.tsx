@@ -213,7 +213,13 @@ export function QuarantineAction({
 
                     <div>
                         <label className="text-sm font-medium mb-1 block">{copy.expiresLabel}</label>
-                        <DatePicker value={expiresAt} onChange={setExpiresAt} placeholder="No expiry" clearable />
+                        <DatePicker
+                            value={expiresAt}
+                            onChange={setExpiresAt}
+                            placeholder="No expiry"
+                            clearable
+                            maxDate={dayjs().add(1, 'year')}
+                        />
                     </div>
                 </div>
             </LemonModal>

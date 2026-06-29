@@ -9,6 +9,13 @@ import { HighLevelProducer } from 'node-rdkafka'
 import snappy from 'snappy'
 import { v4 as uuidv4 } from 'uuid'
 
+import { defaultConfig, overrideWithEnv } from '~/common/config/config'
+import {
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
+    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
+    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
+} from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import {
     DLQ_OUTPUT,
     INGESTION_WARNINGS_OUTPUT,
@@ -18,26 +25,19 @@ import {
 } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
-import { defaultConfig, overrideWithEnv } from '~/config/config'
-import {
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
-    KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
-    KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
-} from '~/config/kafka-topics'
+import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
+import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/common/utils/event-ingestion-restrictions/redis-schema'
+import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingIngester } from '~/ingestion/pipelines/sessionreplay/consumer'
 import { MouseInteractions, RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 import { REPLAY_EVENTS_OUTPUT, SESSION_FEATURES_OUTPUT } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { waitForExpect } from '~/tests/helpers/expectations'
+import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 import { TEST_KAFKA_TOPICS, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { createOrganization, createTeam, getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
-import { Hub, Team } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
-import { PostgresRouter, PostgresUse } from '~/utils/db/postgres'
-import { REDIS_KEY_PREFIX, RedisRestrictionType } from '~/utils/event-ingestion-restrictions/redis-schema'
-import { parseJSON } from '~/utils/json-parse'
+import { Team } from '~/types'
 
 // Test configuration - matches local dev environment (MinIO API on port 19000)
 const TEST_CONFIG = {
@@ -839,7 +839,7 @@ const testCases: TestCase[] = [
 describe('Session Recording Consumer Integration', () => {
     jest.setTimeout(60000)
 
-    let hub: Hub
+    let infra: IngestionTestInfra
     let team: Team
     let s3Client: S3Client
     let clickhouse: Clickhouse
@@ -850,8 +850,8 @@ describe('Session Recording Consumer Integration', () => {
     }
 
     async function createIngester(): Promise<IngesterWithProducers> {
-        const kafkaMetadataProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
-        const kafkaMessageProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+        const kafkaMetadataProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
+        const kafkaMessageProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
 
         const outputs = new IngestionOutputs({
             [INGESTION_WARNINGS_OUTPUT]: new SingleIngestionOutput(
@@ -898,7 +898,13 @@ describe('Session Recording Consumer Integration', () => {
             ),
         })
 
-        const ingester = new SessionRecordingIngester(hub as any, hub.postgres, outputs, hub.redisPool, hub.redisPool)
+        const ingester = new SessionRecordingIngester(
+            infra.config as any,
+            infra.postgres,
+            outputs,
+            infra.redisPool,
+            infra.redisPool
+        )
 
         return { ingester, kafkaMetadataProducer }
     }
@@ -952,7 +958,7 @@ describe('Session Recording Consumer Integration', () => {
         await ensureKafkaTopics(TEST_KAFKA_TOPICS)
         await resetTestDatabase()
 
-        hub = await createHub({
+        infra = await createIngestionTestInfra({
             SESSION_RECORDING_V2_S3_BUCKET: TEST_CONFIG.S3_BUCKET,
             SESSION_RECORDING_V2_S3_PREFIX: TEST_CONFIG.S3_PREFIX,
             SESSION_RECORDING_V2_S3_ENDPOINT: TEST_CONFIG.S3_ENDPOINT,
@@ -964,10 +970,10 @@ describe('Session Recording Consumer Integration', () => {
             SESSION_RECORDING_MAX_BATCH_AGE_MS: 1000,
         })
 
-        team = await getFirstTeam(hub.postgres)
+        team = await getFirstTeam(infra.postgres)
 
         // Enable console log capture for the primary team so console log tests work
-        await hub.postgres.query(
+        await infra.postgres.query(
             PostgresUse.COMMON_WRITE,
             'UPDATE posthog_team SET capture_console_log_opt_in = true WHERE id = $1',
             [team.id],
@@ -975,12 +981,12 @@ describe('Session Recording Consumer Integration', () => {
         )
 
         // Create a second team with a known token that will have DROP_EVENT restriction
-        const restrictedOrgId = await createOrganization(hub.postgres)
-        await createTeam(hub.postgres, restrictedOrgId, RESTRICTED_TEAM_TOKEN)
+        const restrictedOrgId = await createOrganization(infra.postgres)
+        await createTeam(infra.postgres, restrictedOrgId, RESTRICTED_TEAM_TOKEN)
 
         // Set up DROP_EVENT restriction in Redis for the restricted team
         // The ingester's restriction manager will read this when it starts
-        const redisClient = await hub.redisPool.acquire()
+        const redisClient = await infra.redisPool.acquire()
         try {
             const key = `${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`
             const restriction = [
@@ -992,24 +998,24 @@ describe('Session Recording Consumer Integration', () => {
             ]
             await redisClient.set(key, JSON.stringify(restriction))
         } finally {
-            await hub.redisPool.release(redisClient)
+            await infra.redisPool.release(redisClient)
         }
     })
 
     afterAll(async () => {
         // Clean up the DROP_EVENT restriction from Redis
-        if (hub?.redisPool) {
-            const redisClient = await hub.redisPool.acquire()
+        if (infra?.redisPool) {
+            const redisClient = await infra.redisPool.acquire()
             try {
                 const key = `${REDIS_KEY_PREFIX}:${RedisRestrictionType.DROP_EVENT_FROM_INGESTION}`
                 await redisClient.del(key)
             } finally {
-                await hub.redisPool.release(redisClient)
+                await infra.redisPool.release(redisClient)
             }
         }
 
-        if (hub) {
-            await closeHub(hub)
+        if (infra) {
+            await infra.close()
         }
         await cleanupS3TestData(s3Client)
         s3Client?.destroy()
@@ -1029,8 +1035,8 @@ describe('Session Recording Consumer Integration', () => {
             const expectedSessionIds =
                 expectedOutcome === 'written' ? new Set(payloadConfigs.map((p) => p.sessionId)) : new Set<string>()
 
-            // Create a fresh producer for this test (not shared with hub)
-            const testProducer = await KafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
+            // Create a fresh producer for this test (not shared with infra)
+            const testProducer = await KafkaProducerWrapper.create(infra.config.KAFKA_CLIENT_RACK)
 
             // Create and start ingester
             const { ingester, kafkaMetadataProducer } = await createIngester()

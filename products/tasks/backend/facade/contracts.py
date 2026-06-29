@@ -187,6 +187,7 @@ class StagedArtifactPreparedDTO:
     storage_path: str
     expires_in: int
     presigned_post: dict
+    metadata: dict | None = None
 
 
 @dataclass(frozen=True)
@@ -581,6 +582,14 @@ class SignalReportPrUrlDTO:
 
     report_id: str
     pr_url: str
+
+
+@dataclass(frozen=True)
+class WarmTaskDTO:
+    """The draft Task + warm Run birthed by a Code-app warm request."""
+
+    task_id: UUID
+    run_id: UUID
 
 
 @dataclass(frozen=True)

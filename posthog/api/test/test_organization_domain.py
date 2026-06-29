@@ -6,12 +6,15 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import ANY, patch
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
 import dns.rrset
 import dns.resolver
-from rest_framework import status
+from parameterized import parameterized
+from rest_framework import serializers, status
 
+from posthog.api.organization_domain import OrganizationDomainSerializer, OrganizationDomainViewset
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Team
 
@@ -172,29 +175,23 @@ class TestOrganizationDomainsAPI(APIBaseTest):
         self.assertEqual(OrganizationDomain.objects.count(), count)
 
     def test_cannot_create_invalid_domain(self):
+        # Wiring guard + no-persist check: the endpoint rejects an invalid domain and writes nothing.
+        # The full invalid/valid matrix is exercised without a DB in TestOrganizationDomainValidationNoDB.
         count = OrganizationDomain.objects.count()
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        invalid_domains = [
-            "test@posthog.com",
-            "🦔🦔🦔.com",
-            "one.two.c",
-            "--alpha.com",
-            "javascript: alert(1)",
-        ]
 
-        for _domain in invalid_domains:
-            response = self.client.post("/api/organizations/@current/domains/", {"domain": _domain})
-            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-            self.assertEqual(
-                response.json(),
-                {
-                    "type": "validation_error",
-                    "code": "invalid_input",
-                    "detail": "Please enter a valid domain or subdomain name.",
-                    "attr": "domain",
-                },
-            )
+        response = self.client.post("/api/organizations/@current/domains/", {"domain": "test@posthog.com"})
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(
+            response.json(),
+            {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Please enter a valid domain or subdomain name.",
+                "attr": "domain",
+            },
+        )
 
         self.assertEqual(OrganizationDomain.objects.count(), count)
 
@@ -897,3 +894,34 @@ class TestSCIMRequestLogsAPI(APILicensedTest):
         assert "identity_provider" in result
         assert "duration_ms" in result
         assert "created_at" in result
+
+
+class TestOrganizationDomainValidationNoDB(SimpleTestCase):
+    # OrganizationDomainSerializer.is_valid() hits the DB (the `domain` field carries a
+    # UniqueValidator), but validate_domain is a pure regex check — call it directly, no DB.
+    # The endpoint path is guarded by test_cannot_create_invalid_domain and the meta test below.
+    @parameterized.expand(
+        [
+            ["email address", "test@posthog.com"],
+            ["emoji", "🦔🦔🦔.com"],
+            ["tld too short", "one.two.c"],
+            ["leading dashes", "--alpha.com"],
+            ["javascript scheme", "javascript: alert(1)"],
+        ]
+    )
+    def test_validate_domain_rejects_invalid(self, _name: str, domain: str) -> None:
+        with self.assertRaises(serializers.ValidationError):
+            OrganizationDomainSerializer().validate_domain(domain)
+
+    @parameterized.expand(
+        [
+            ["bare domain", "posthog.com"],
+            ["subdomain", "eu.posthog.com"],
+        ]
+    )
+    def test_validate_domain_accepts_valid(self, _name: str, domain: str) -> None:
+        assert OrganizationDomainSerializer().validate_domain(domain) == domain
+
+    def test_validation_serializer_is_wired_to_viewset(self) -> None:
+        # Wiring guard (no DB): the ModelViewSet validates input through this serializer.
+        assert OrganizationDomainViewset.serializer_class is OrganizationDomainSerializer
