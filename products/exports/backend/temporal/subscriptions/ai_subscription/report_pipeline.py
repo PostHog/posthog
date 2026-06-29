@@ -27,6 +27,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.prompts imp
     resolve_prompt,
 )
 from products.exports.backend.temporal.subscriptions.ai_subscription.schemas import (
+    MAX_QUERY_PLAN_STEPS,
     EnrichedPromptSpec,
     HogQLFix,
     QueryPlanStep,
@@ -55,10 +56,10 @@ _QUERY_RESULT_MAX_CHARS = 50_000
 # Total result budget across all steps entering the synthesis prompt: without it, the per-step backstop
 # alone would let MAX_QUERY_PLAN_STEPS x _QUERY_RESULT_MAX_CHARS into one synthesis call. `per_step_cap`
 # derives from this — the outer min() lets small plans keep the full per-step backstop, while the floor
-# guarantees each step a minimum budget so a large plan can't starve any single step. The floor is
-# forward-defense: at today's cap it's inert (200_000 // 25 == 8_000) and only bites if the step cap rises.
+# (the budget split evenly across a full-size plan) guarantees each step a minimum so a max-size plan
+# can't starve any single step. Deriving the floor from the cap keeps the total within budget at any cap.
 _SYNTHESIS_RESULTS_CHAR_BUDGET = 200_000
-_MIN_STEP_RESULT_CHARS = 8_000
+_MIN_STEP_RESULT_CHARS = _SYNTHESIS_RESULTS_CHAR_BUDGET // MAX_QUERY_PLAN_STEPS
 
 # The marker a failed step renders. The synthesis prompt keys off it to report "could not be computed"
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
