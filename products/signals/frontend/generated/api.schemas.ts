@@ -1814,6 +1814,28 @@ export type SignalsScoutRunsListParams = {
     text?: string
 }
 
+export type SignalsScoutRunsRecentEmissionsParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
+     */
+    date_from?: string
+    /**
+     * ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission from the prior page).
+     */
+    date_to?: string
+    /**
+     * Max rows to return (default 50, hard cap 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
+    /**
+     * Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows to findings one specialist surfaced; omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string
+}
+
 export type SignalsScoutScratchpadSearchParams = {
     /**
      * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.

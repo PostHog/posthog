@@ -459,6 +459,71 @@ class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["mine"]
 
 
+class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/recent/"
+
+    def test_flattens_emissions_across_runs_newest_first_without_run_ids(self) -> None:
+        # The cross-run reader: unlike the per-run `emissions` action (one run) and the batch action
+        # (caller supplies run_ids), this returns the team's recent findings across every run in one
+        # call, each row tagged with its own run_id. Guards that an agent can ask "what has the fleet
+        # surfaced lately?" without first listing runs and fanning out.
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        _make_emission(self.team, run_a, finding_id="a-old")
+        _make_emission(self.team, run_b, finding_id="b-mid")
+        _make_emission(self.team, run_a, finding_id="a-new")
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [row["finding_id"] for row in body] == ["a-new", "b-mid", "a-old"]
+        run_by_finding = {row["finding_id"]: row["run_id"] for row in body}
+        assert run_by_finding["a-new"] == str(run_a.id)
+        assert run_by_finding["b-mid"] == str(run_b.id)
+
+    def test_does_not_leak_emissions_from_another_team(self) -> None:
+        own_run = _make_run(self.team)
+        _make_emission(self.team, own_run, finding_id="mine")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        _make_emission(other, other_run, finding_id="theirs")
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+    def test_skill_name_filter_scopes_to_the_emitting_scout(self) -> None:
+        # The filter walks the FK to the emitting run's skill (`scout_run__skill_name`) — a distinct
+        # join path from the run-list's own-column filter, easy to break independently.
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        llm_run = _make_run(self.team, skill_name="signals-scout-llm")
+        _make_emission(self.team, errors_run, finding_id="err")
+        _make_emission(self.team, llm_run, finding_id="llm")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["err"]
+
+    def test_limit_caps_the_page(self) -> None:
+        run = _make_run(self.team)
+        for i in range(3):
+            _make_emission(self.team, run, finding_id=f"f-{i}")
+        response = self.client.get(self._url(), data={"limit": 2})
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 2
+
+    def test_date_to_excludes_emissions_at_or_after_the_bound(self) -> None:
+        # `date_to` is the exclusive upper bound that backs cursor pagination; guard the half-open
+        # window so a caller can walk back without re-seeing the boundary row.
+        run = _make_run(self.team)
+        older = _make_emission(self.team, run, finding_id="older")
+        newer = _make_emission(self.team, run, finding_id="newer")
+        # emitted_at is auto_now_add, so pin distinct timestamps after the fact.
+        SignalScoutEmission.objects.filter(id=older.id).update(emitted_at="2026-01-01T00:00:00Z")
+        SignalScoutEmission.objects.filter(id=newer.id).update(emitted_at="2026-01-02T00:00:00Z")
+        response = self.client.get(self._url(), data={"date_to": "2026-01-02T00:00:00Z"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["older"]
+
+
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()

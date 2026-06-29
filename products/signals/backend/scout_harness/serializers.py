@@ -243,6 +243,41 @@ class ScoutRunIdsBatchRequestSerializer(serializers.Serializer):
     )
 
 
+class RecentEmissionsQuerySerializer(serializers.Serializer):
+    """Query parameters for `recent-emissions` — recent findings across every run on the team.
+
+    The cross-run counterpart to the per-run `emissions` action: instead of resolving a list of
+    run ids first, ask for the team's recent emitted findings directly, newest-first, optionally
+    scoped to one scout or a time window. Pure Postgres — no ClickHouse round-trip.
+    """
+
+    date_from = serializers.DateTimeField(
+        required=False,
+        help_text="ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.",
+    )
+    date_to = serializers.DateTimeField(
+        required=False,
+        help_text=(
+            "ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result "
+            "cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission "
+            "from the prior page)."
+        ),
+    )
+    skill_name = serializers.CharField(
+        required=False,
+        help_text=(
+            "Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows "
+            "to findings one specialist surfaced; omit to span every scout on the team."
+        ),
+    )
+    limit = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=200,
+        help_text="Max rows to return (default 50, hard cap 200).",
+    )
+
+
 class SearchRecentRunsQuerySerializer(serializers.Serializer):
     """Query parameters for `search-recent-runs`."""
 
