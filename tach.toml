@@ -750,7 +750,7 @@ from = [
 expose = [
     "backend\\.temporal\\.ACTIVITIES",
     "backend\\.temporal\\.WORKFLOWS",
-    "backend\\.temporal\\.schedule\\.create_billing_alerts_schedule",
+    "backend\\.temporal\\.schedule\\.create_schedule_due_billing_alert_checks_schedule",
 ]
 from = [
     "products.billing_alerts",
