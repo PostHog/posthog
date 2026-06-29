@@ -451,6 +451,9 @@ class ProcessAISubscriptionWorkflow(PostHogWorkflow):
         final_status = DeliveryStatus.SKIPPED
         delivery_recipient_results: list[dict] = []
         caught_error: BaseException | None = None
+        # Set when a delivered-but-degraded report should record a reason without an exception
+        # (every generated query failed). Falls through to update_delivery_record's error column.
+        generation_error: dict | None = None
 
         try:
             delivery_id = await temporalio.workflow.execute_activity(

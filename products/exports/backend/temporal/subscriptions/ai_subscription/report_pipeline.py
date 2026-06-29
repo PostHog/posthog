@@ -74,6 +74,14 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
 )
 
 
+def _all_queries_failed_notice(total_steps: int) -> str:
+    noun = "the query" if total_steps == 1 else f"all {total_steps} queries"
+    return (
+        f"> ⚠️ This report could not be generated — {noun} the assistant wrote failed to run. "
+        "Check the subscription's delivery history in PostHog for the generated queries and errors.\n\n"
+    )
+
+
 class ReportStage(StrEnum):
     PLANNER = "planner"
     QUERY = "query"
@@ -154,6 +162,11 @@ async def generate_ai_report(
                 failed_steps=failed_count,
                 total_steps=total_steps,
             )
+        if total_steps and failed_count == total_steps:
+            # Every query failed, so the body is all "could not be computed" placeholders. Lead with a
+            # deterministic notice (not left to the synthesis LLM) so the recipient gets a clear signal
+            # instead of a confident-looking but empty report.
+            report = _all_queries_failed_notice(total_steps) + report
         return AiReportResult(markdown=report, diagnostics=tuple(diagnostics))
 
 

@@ -24,6 +24,17 @@ class DeliveryStatus:
 # workflow sandbox can route by resource type without importing the Django model.
 AI_PROMPT_RESOURCE_TYPE = "ai_prompt"
 
+# `SubscriptionDelivery.content_snapshot` keys for the AI report. The markdown and prompt can
+# exceed Temporal's ~2 MiB payload cap, so they travel through Postgres by reference rather than
+# on the wire (the same pattern insight snapshots use). These live here — not activities.py — so
+# the API serializer can import them without pulling in the LLM delivery stack.
+AI_REPORT_SNAPSHOT_KEY = "ai_report"
+# The prompt that generated the report, captured at generation time so the delivery is reproducible.
+AI_REPORT_PROMPT_SNAPSHOT_KEY = "ai_report_prompt"
+# Per-step query diagnostics (generated HogQL + failure type) so a degraded report is debuggable
+# after the fact. Written alongside the markdown; never shipped to recipients.
+AI_REPORT_DIAGNOSTICS_KEY = "ai_report_diagnostics"
+
 
 class SubscriptionTriggerType:
     """How a subscription delivery was triggered.
@@ -167,11 +178,26 @@ class GenerateAIReportResult:
     subscription; the workflow records `recipient_results` as FAILED and skips delivery.
     `skipped` signals an over-AI-credit-budget skip: generation rescheduled the sub past
     the credit reset and notified the owner — the workflow records SKIPPED (not FAILED,
-    the sub isn't broken) and skips delivery."""
+    the sub isn't broken) and skips delivery.
+
+    The `*_step_count` / `query_error_types` fields report how many of the AI-generated
+    queries failed to run. The workflow uses them to flag a fully-degraded report (every
+    query failed → recorded FAILED, not COMPLETED) and to attach a human-readable reason.
+    The per-query detail (generated HogQL + error type) lives in the delivery's
+    content_snapshot, kept off the Temporal wire."""
 
     aborted: bool = False
     skipped: bool = False
     recipient_results: list[RecipientResult] = dataclasses.field(default_factory=list)
+    failed_step_count: int = 0
+    total_step_count: int = 0
+    query_error_types: list[str] = dataclasses.field(default_factory=list)
+
+    @property
+    def all_queries_failed(self) -> bool:
+        # Every generated query failed → the report computed nothing. The single source of truth for
+        # this "fully degraded" judgement, so callers don't re-derive it from the raw counts.
+        return bool(self.total_step_count) and self.failed_step_count >= self.total_step_count
 
 
 @dataclasses.dataclass
