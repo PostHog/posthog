@@ -291,10 +291,10 @@ async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(
     assert result == []
 
 
-def _create_mock_catalog():
-    """Create a mock DuckLakeCatalog."""
-    mock_catalog = MagicMock()
-    mock_catalog.to_public_config.return_value = {
+def _create_mock_server():
+    """Create a mock DuckgresServer (catalog connection config + bucket)."""
+    mock_server = MagicMock()
+    mock_server.to_catalog_public_config.return_value = {
         "DUCKLAKE_RDS_HOST": "localhost",
         "DUCKLAKE_RDS_PORT": "5432",
         "DUCKLAKE_RDS_DATABASE": "ducklake",
@@ -305,8 +305,9 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_ACCESS_KEY": "",
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
-    mock_catalog.bucket = "test-bucket"
-    return mock_catalog
+    mock_server.catalog_password = "password"
+    mock_server.bucket = "test-bucket"
+    return mock_server
 
 
 def test_resolve_data_imports_staging_uri_returns_none_in_dev(monkeypatch):
@@ -316,7 +317,7 @@ def test_resolve_data_imports_staging_uri_returns_none_in_dev(monkeypatch):
     )
     mock_get_catalog = MagicMock(side_effect=AssertionError("catalog lookup should not run in dev mode"))
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_by_team_org",
         mock_get_catalog,
     )
 
@@ -334,25 +335,25 @@ def test_resolve_data_imports_staging_uri_raises_without_prod_catalog(monkeypatc
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_by_team_org",
         MagicMock(return_value=None),
     )
 
     with pytest.raises(ApplicationError) as exc_info:
         ducklake_module._resolve_data_imports_staging_uri("s3://source/team_1/customers", team_id=1)
 
-    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert "No DuckgresServer configured for team 1" in str(exc_info.value)
     assert exc_info.value.non_retryable is True
 
 
 def test_resolve_data_imports_staging_uri_uses_prod_catalog(monkeypatch):
-    catalog = _create_mock_catalog()
+    catalog = _create_mock_server()
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_by_team_org",
         MagicMock(return_value=catalog),
     )
 
@@ -456,13 +457,8 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         MagicMock(return_value="org-123"),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_organization",
-        MagicMock(return_value=_create_mock_catalog()),
-    )
-    mock_server = MagicMock()
-    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_for_organization",
-        MagicMock(return_value=mock_server),
+        MagicMock(return_value=_create_mock_server()),
     )
     mock_stage = MagicMock()
     monkeypatch.setattr(
@@ -939,7 +935,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         MagicMock(return_value="org-123"),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_organization",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_for_organization",
         MagicMock(return_value=None),
     )
 
@@ -958,7 +954,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
     with pytest.raises(ApplicationError) as exc_info:
         copy_data_imports_to_ducklake_activity(inputs)
 
-    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert "No DuckgresServer configured for team 1" in str(exc_info.value)
     assert exc_info.value.non_retryable is True
 
 

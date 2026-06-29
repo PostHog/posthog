@@ -275,6 +275,11 @@ class ApolloSourceConfig(config.Config):
 
 
 @config.config
+class AppLovinSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AppcuesSourceConfig(config.Config):
     pass
 
@@ -388,8 +393,13 @@ class BasecampSourceConfig(config.Config):
 
 
 @config.config
-class BeamerSourceConfig(config.Config):
+class BaserowSourceConfig(config.Config):
     pass
+
+
+@config.config
+class BeamerSourceConfig(config.Config):
+    api_key: str
 
 
 @config.config
@@ -399,7 +409,7 @@ class BigCommerceSourceConfig(config.Config):
 
 @config.config
 class BigMailerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -587,7 +597,7 @@ class ChargebeeSourceConfig(config.Config):
 
 @config.config
 class ChargedeskSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -937,7 +947,8 @@ class DockerhubSourceConfig(config.Config):
 
 @config.config
 class DocusealSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -1059,7 +1070,7 @@ class EventzillaSourceConfig(config.Config):
 
 @config.config
 class EverhourSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1117,17 +1128,21 @@ class FinageSourceConfig(config.Config):
 
 @config.config
 class FinancialModellingSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
 class FinnhubSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str | None = None
+    exchange: str | None = None
 
 
 @config.config
 class FinnworldsSourceConfig(config.Config):
-    pass
+    api_key: str
+    tickers: str
 
 
 @config.config
@@ -2057,6 +2072,11 @@ class NewsDataSourceConfig(config.Config):
 
 @config.config
 class NexiopaySourceConfig(config.Config):
+    pass
+
+
+@config.config
+class NextdoorAdsSourceConfig(config.Config):
     pass
 
 
@@ -3089,6 +3109,11 @@ class TaboolaSourceConfig(config.Config):
 
 
 @config.config
+class TalkwalkerSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class TavusSourceConfig(config.Config):
     pass
 
@@ -3593,6 +3618,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AMPLITUDE: AmplitudeSourceConfig,
         ExternalDataSourceType.APIFYDATASET: ApifyDatasetSourceConfig,
         ExternalDataSourceType.APOLLO: ApolloSourceConfig,
+        ExternalDataSourceType.APPLOVIN: AppLovinSourceConfig,
         ExternalDataSourceType.APPCUES: AppcuesSourceConfig,
         ExternalDataSourceType.APPFIGURES: AppfiguresSourceConfig,
         ExternalDataSourceType.APPFOLLOW: AppfollowSourceConfig,
@@ -3615,6 +3641,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.BABELFORCE: BabelforceSourceConfig,
         ExternalDataSourceType.BAMBOOHR: BambooHRSourceConfig,
         ExternalDataSourceType.BASECAMP: BasecampSourceConfig,
+        ExternalDataSourceType.BASEROW: BaserowSourceConfig,
         ExternalDataSourceType.BEAMER: BeamerSourceConfig,
         ExternalDataSourceType.BIGCOMMERCE: BigCommerceSourceConfig,
         ExternalDataSourceType.BIGMAILER: BigMailerSourceConfig,
@@ -3928,6 +3955,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.NEWSAPI: NewsApiSourceConfig,
         ExternalDataSourceType.NEWSDATA: NewsDataSourceConfig,
         ExternalDataSourceType.NEXIOPAY: NexiopaySourceConfig,
+        ExternalDataSourceType.NEXTDOORADS: NextdoorAdsSourceConfig,
         ExternalDataSourceType.NINJAONERMM: NinjaOneRMMSourceConfig,
         ExternalDataSourceType.NOCRM: NoCRMSourceConfig,
         ExternalDataSourceType.NORTHPASSLMS: NorthpassLMSSourceConfig,
@@ -4121,6 +4149,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.TMDB: TMDbSourceConfig,
         ExternalDataSourceType.TVMAZE: TVMazeSourceConfig,
         ExternalDataSourceType.TABOOLA: TaboolaSourceConfig,
+        ExternalDataSourceType.TALKWALKER: TalkwalkerSourceConfig,
         ExternalDataSourceType.TAVUS: TavusSourceConfig,
         ExternalDataSourceType.TAWKTO: TawkToSourceConfig,
         ExternalDataSourceType.TEAMTAILOR: TeamtailorSourceConfig,

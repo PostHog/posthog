@@ -124,6 +124,22 @@ tools:
             List every agent application in the project. Returns id, slug, name, description, live_revision, archived
             state. Use the slug to drive subsequent calls — it's stable and human-readable. Playbook: read the
             `reading-an-agent` playbook via `agent-resolve-resource` for how to inspect and summarize an agent.
+    agent-applications-models:
+        operation: agent_applications_models
+        enabled: true
+        scopes:
+            - agents:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List models + what each auto level resolves to
+        description: >
+            Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display
+            name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto`
+            level (`low` / `medium` / `high`) currently resolves to. Use this to answer "what will auto/medium actually
+            run?" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live
+            against the catalog, so it reflects what the runner picks today, not a hardcoded list.
     agent-applications-partial-update:
         operation: agent_applications_partial_update
         enabled: true

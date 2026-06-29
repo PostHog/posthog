@@ -6,7 +6,7 @@ from django.conf import settings
 
 import structlog
 
-from products.data_warehouse.backend.s3 import ensure_bucket_exists, get_s3_client
+from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 
 logger = structlog.get_logger(__name__)
 

@@ -22,7 +22,13 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
+import {
+    InAppNotification,
+    InsightShortId,
+    ResourceEditedEvent,
+    SidePanelTab,
+    WebAnalyticsDigestMetadata,
+} from '~/types'
 
 import {
     notificationsList,
@@ -36,6 +42,7 @@ import {
     NotificationEventSourceTypeEnumApi,
     NotificationsListParams,
 } from 'products/notifications/frontend/generated/api.schemas'
+import { RESOURCE_EDITED_EVENT_TYPE, resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
@@ -105,6 +112,15 @@ export function buildWebAnalyticsDigestMaxPrompt(metadata: WebAnalyticsDigestMet
     return `!Here's my web analytics digest for ${metadata.period_label.toLowerCase()} on ${metadata.project_name}: ${metricsLine}. What are the most important changes, and what should I dig into?`
 }
 
+// When the recap experience is enabled, send digest clicks to the recap page instead of the raw
+// dashboard. The digest's source_url is `/project/{id}/web?...`; only the `/web` segment is rewritten.
+export function withRecapSourceUrl(notification: InAppNotification): InAppNotification {
+    if (!notification.source_url) {
+        return notification
+    }
+    return { ...notification, source_url: notification.source_url.replace(/\/web(?=$|[?#])/, '/web/recap') }
+}
+
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
@@ -127,7 +143,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+        ],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -459,6 +482,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                     token,
                                     abortController.signal,
                                     (notification) => {
+                                        // Transient "edited elsewhere" events ride this stream but are
+                                        // not inbox notifications — forward them to interested editors and
+                                        // skip the unread-count / toast / list handling below.
+                                        if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
+                                            actions.resourceEdited(notification as unknown as ResourceEditedEvent)
+                                            return
+                                        }
                                         if (!values.isInitialLoadComplete) {
                                             return
                                         }
@@ -579,12 +609,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 })
             },
             viewWebAnalyticsFromDigest: ({ notification }) => {
+                const recapEnabled = !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
                 posthog.capture('web_analytics_digest_notification_clicked', {
-                    cta: 'view_web_analytics',
+                    cta: recapEnabled ? 'view_recap' : 'view_web_analytics',
                     notification_id: notification.id,
                     team_id: notification.team_id,
                 })
-                actions.navigateToNotification(notification)
+                actions.navigateToNotification(recapEnabled ? withRecapSourceUrl(notification) : notification)
             },
             askMaxAboutDigest: ({ notification }) => {
                 posthog.capture('web_analytics_digest_notification_clicked', {

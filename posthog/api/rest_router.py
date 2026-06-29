@@ -15,7 +15,6 @@ from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
-from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -597,20 +596,6 @@ register_legacy_dual_route_team_nested_viewset(
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
-
-register_legacy_dual_route_team_nested_viewset(
-    r"change_requests",
-    approval_api.ChangeRequestViewSet,
-    "project_change_requests",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"approval_policies",
-    approval_api.ApprovalPolicyViewSet,
-    "project_approval_policies",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"core_events",

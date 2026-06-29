@@ -219,6 +219,8 @@ export interface _TracingCountRequestApi {
 export interface _TracingCountResponseApi {
     /** Number of spans matching the filters. */
     count: number
+    /** Number of distinct traces whose root span matches the filters — the trace count shown in the Traces view. */
+    traceCount: number
 }
 
 export interface _TracingTimeseriesQueryBodyApi {

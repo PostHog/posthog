@@ -7,6 +7,7 @@ from collections.abc import AsyncGenerator
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 from django.conf import settings
 from django.http import HttpResponse, JsonResponse
@@ -216,19 +217,18 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         description="Get a list of tasks for the current project, with optional filtering by origin product, stage, organization, repository, and created_by.",
     )
     def list(self, request, *args, **kwargs):
-        # Flatten the query-param multidict to single values, matching the original `params.get(...)`.
         filters = {key: request.query_params.get(key) for key in request.query_params}
-        # internal/archived come from the validated query serializer (typed bool / choice).
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
         is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade.list_tasks(
+        tasks = tasks_facade._list_tasks_queryset(
             self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
         )
         page = self.paginate_queryset(tasks)
-        if page is not None:
-            return self.get_paginated_response(TaskSerializer(page, many=True).data)
-        return Response(TaskSerializer(tasks, many=True).data)
+        assert page is not None, "TaskViewSet list requires an active paginator"
+        return self.get_paginated_response(
+            TaskSerializer(tasks_facade._tasks_to_dtos(page, self.team_id), many=True).data
+        )
 
     @extend_schema(
         responses={200: OpenApiResponse(response=TaskSerializer, description="Task")},
@@ -743,6 +743,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         task_id = self.kwargs.get("parent_lookup_task_id")
         if not task_id:
             raise NotFound("Task ID is required")
+        try:
+            UUID(task_id)
+        except (ValueError, TypeError):
+            raise NotFound("Task not found")
         return task_id
 
     def _user_id(self) -> int | None:
@@ -1560,7 +1564,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         timer = ServerTimingsGathered()
 
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_session_log_content(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 

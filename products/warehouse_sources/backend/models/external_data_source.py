@@ -109,9 +109,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         Safely access revenue_analytics_config with automatic creation fallback.
         Use this instead of direct access when you need to guarantee the config exists.
         """
-        from products.data_warehouse.backend.models.revenue_analytics_config import (
-            ExternalDataSourceRevenueAnalyticsConfig,
-        )
+        from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
 
         try:
             return self.revenue_analytics_config
@@ -139,7 +137,7 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # this is a models module; the service import below pulls it anyway, but only at call time
         import temporalio.service  # noqa: PLC0415
 
-        from products.data_warehouse.backend.logic.data_load.service import (
+        from products.data_warehouse.backend.facade.api import (
             sync_external_data_job_workflow,
             trigger_external_data_workflow,
         )

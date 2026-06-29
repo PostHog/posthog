@@ -10,7 +10,7 @@ import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { Task } from 'products/tasks/frontend/types'
+import { Task } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
