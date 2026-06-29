@@ -3,6 +3,7 @@ use std::sync::Arc;
 use anyhow::{Context, Error};
 use chrono::Duration;
 use common_types::{InternallyCapturedEvent, RawEvent};
+use metrics::counter;
 use rayon::iter::IntoParallelIterator;
 use rayon::prelude::*;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -29,6 +30,26 @@ pub enum FormatConfig {
 
 pub type ParserFn =
     Box<dyn Fn(Vec<u8>) -> Result<Parsed<Vec<InternallyCapturedEvent>>, Error> + Send + Sync>;
+
+/// Per-event drops the transform discards as `Ok(None)` (e.g. Mixpanel
+/// `skip_no_distinct_id`, geoip/filter skips) vanish through `filter_map` +
+/// `transpose` with no other signal. Count them so the worker board can see
+/// pre-sink silent loss — the worker is the only place this is observable.
+fn record_transform_drops(format: &'static str, input_len: usize, output_len: usize) {
+    let dropped = input_len.saturating_sub(output_len);
+    if dropped > 0 {
+        counter!("batch_import_events_dropped_total", "format" => format, "stage" => "transform")
+            .increment(dropped as u64);
+    }
+}
+
+/// A chunk that fails to parse or transform aborts the entire chunk and pauses
+/// the job; today that is only visible as a paused job. Count it by stage so a
+/// parse failure (malformed source bytes) is distinguishable from a transform
+/// failure (a record that cannot be mapped) on the board.
+fn record_chunk_error(format: &'static str, stage: &'static str) {
+    counter!("batch_import_chunk_errors_total", "format" => format, "stage" => stage).increment(1);
+}
 
 impl FormatConfig {
     pub async fn get_parser(
@@ -68,19 +89,31 @@ impl FormatConfig {
                 );
 
                 let parser = move |data| {
-                    let parsed: Parsed<Vec<MixpanelEvent>> = format_parse(data)?;
+                    let parsed: Parsed<Vec<MixpanelEvent>> = match format_parse(data) {
+                        Ok(parsed) => parsed,
+                        Err(e) => {
+                            record_chunk_error("mixpanel", "parse");
+                            return Err(e);
+                        }
+                    };
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> = parsed
+                    let input_len = parsed.data.len();
+                    let result: Result<Vec<_>, Error> = parsed
                         .data
                         .into_par_iter()
                         .map(&event_transform)
                         .filter_map(|x| x.transpose())
                         .collect();
+                    let data = match result {
+                        Ok(data) => data,
+                        Err(e) => {
+                            record_chunk_error("mixpanel", "transform");
+                            return Err(e);
+                        }
+                    };
+                    record_transform_drops("mixpanel", input_len, data.len());
 
-                    Ok(Parsed {
-                        data: result?,
-                        consumed,
-                    })
+                    Ok(Parsed { data, consumed })
                 };
 
                 Ok(Box::new(parser))
@@ -89,21 +122,32 @@ impl FormatConfig {
                 let format_parse = json_nd(*skip_blanks);
                 let event_transform = AmplitudeEvent::parse_fn(transform_context, skip_geoip());
                 let parser = move |data| {
-                    let parsed: Parsed<Vec<AmplitudeEvent>> = format_parse(data)?;
+                    let parsed: Parsed<Vec<AmplitudeEvent>> = match format_parse(data) {
+                        Ok(parsed) => parsed,
+                        Err(e) => {
+                            record_chunk_error("amplitude", "parse");
+                            return Err(e);
+                        }
+                    };
                     let consumed = parsed.consumed;
                     // Propagate the first transform error rather than silently
                     // dropping events (matches the Mixpanel/Captured paths).
                     // Each Amplitude input event may produce multiple output
                     // events (the event itself plus optional identify and group
                     // identify events), so we collect into Vec<Vec<_>> and
-                    // flatten after the error check.
+                    // flatten after the error check. There is no Ok(None) drop
+                    // path here, so no transform-drop count applies.
                     let result: Result<Vec<Vec<_>>, Error> =
                         parsed.data.into_par_iter().map(&event_transform).collect();
+                    let data = match result {
+                        Ok(rows) => rows.into_iter().flatten().collect(),
+                        Err(e) => {
+                            record_chunk_error("amplitude", "transform");
+                            return Err(e);
+                        }
+                    };
 
-                    Ok(Parsed {
-                        data: result?.into_iter().flatten().collect(),
-                        consumed,
-                    })
+                    Ok(Parsed { data, consumed })
                 };
 
                 Ok(Box::new(parser))
@@ -112,19 +156,31 @@ impl FormatConfig {
                 let format_parse = json_nd(*skip_blanks);
                 let event_transform = captured_parse_fn(transform_context, skip_geoip());
                 let parser = move |data| {
-                    let parsed: Parsed<Vec<RawEvent>> = format_parse(data)?;
+                    let parsed: Parsed<Vec<RawEvent>> = match format_parse(data) {
+                        Ok(parsed) => parsed,
+                        Err(e) => {
+                            record_chunk_error("captured", "parse");
+                            return Err(e);
+                        }
+                    };
                     let consumed = parsed.consumed;
-                    let result: Result<_, Error> = parsed
+                    let input_len = parsed.data.len();
+                    let result: Result<Vec<_>, Error> = parsed
                         .data
                         .into_par_iter()
                         .map(&event_transform)
                         .filter_map(|x| x.transpose())
                         .collect();
+                    let data = match result {
+                        Ok(data) => data,
+                        Err(e) => {
+                            record_chunk_error("captured", "transform");
+                            return Err(e);
+                        }
+                    };
+                    record_transform_drops("captured", input_len, data.len());
 
-                    Ok(Parsed {
-                        data: result?,
-                        consumed,
-                    })
+                    Ok(Parsed { data, consumed })
                 };
 
                 Ok(Box::new(parser))
@@ -509,5 +565,74 @@ mod tests {
             msg.contains("comma"),
             "Missing comma should be mentioned: {msg}"
         );
+    }
+
+    fn counter_snapshot<F: FnOnce()>(
+        f: F,
+    ) -> Vec<(String, std::collections::HashMap<String, String>, u64)> {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let _guard = metrics::set_default_local_recorder(&recorder);
+        f();
+        snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter_map(|(key, _, _, value)| match value {
+                DebugValue::Counter(c) => {
+                    let labels = key
+                        .key()
+                        .labels()
+                        .map(|l| (l.key().to_string(), l.value().to_string()))
+                        .collect();
+                    Some((key.key().name().to_string(), labels, c))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn transform_drops_counted_by_format_and_stage() {
+        // 10 parsed, 7 kept -> the 3 events the transform discarded as Ok(None)
+        // must be counted (this is the silent pre-sink loss the board needs).
+        let snap = counter_snapshot(|| record_transform_drops("mixpanel", 10, 7));
+        let found = snap.iter().find(|(n, l, _)| {
+            n == "batch_import_events_dropped_total"
+                && l.get("format").map(String::as_str) == Some("mixpanel")
+                && l.get("stage").map(String::as_str) == Some("transform")
+        });
+        assert_eq!(found.map(|(_, _, c)| *c), Some(3));
+    }
+
+    #[test]
+    fn transform_drops_not_emitted_when_nothing_dropped() {
+        // No drop -> the series must not fire, so a healthy import does not
+        // create a permanent zero line on the board.
+        let snap = counter_snapshot(|| record_transform_drops("captured", 5, 5));
+        assert!(snap
+            .iter()
+            .all(|(n, _, _)| n != "batch_import_events_dropped_total"));
+    }
+
+    #[test]
+    fn chunk_error_counted_by_stage() {
+        // parse vs transform must stay distinguishable for the board.
+        let snap = counter_snapshot(|| {
+            record_chunk_error("mixpanel", "parse");
+            record_chunk_error("mixpanel", "transform");
+        });
+        let val = |stage: &str| {
+            snap.iter()
+                .find(|(n, l, _)| {
+                    n == "batch_import_chunk_errors_total"
+                        && l.get("stage").map(String::as_str) == Some(stage)
+                })
+                .map(|(_, _, c)| *c)
+        };
+        assert_eq!(val("parse"), Some(1));
+        assert_eq!(val("transform"), Some(1));
     }
 }
