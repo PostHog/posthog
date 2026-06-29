@@ -5,7 +5,7 @@ import { DashboardTile, InsightModel } from '~/types'
 import type { insightSelectorLogicType } from './insightSelectorLogicType'
 
 // Keep in sync with DEFAULT_MAX_ASSET_COUNT in ee/tasks/subscriptions/subscription_utils.py
-export const MAX_INSIGHTS = 6
+export const MAX_INSIGHTS = 25
 
 export interface InsightSelectorLogicProps {
     tiles: DashboardTile[]

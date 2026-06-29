@@ -143,7 +143,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     )
     dashboard_export_insights = DashboardExportInsightsField(
         required=False,
-        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 6.",
+        help_text="List of insight IDs from the dashboard to include. Required for dashboard subscriptions, max 25.",
     )
     insight_short_id = serializers.SerializerMethodField()
     resource_name = serializers.SerializerMethodField()
