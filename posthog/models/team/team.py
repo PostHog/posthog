@@ -126,11 +126,21 @@ class TeamManager(models.Manager):
         team.extra_settings.setdefault("recorder_script", "posthog-recorder")
 
         # Create default dashboards (demo projects skip above)
-        from posthog.helpers.signup_dashboard import (  # noqa: PLC0415 — breaks team import cycle
-            create_signup_primary_dashboard,
+        from posthog.helpers.dashboard_templates import create_from_template  # noqa: PLC0415 — breaks team import cycle
+
+        from products.dashboards.backend.models.dashboard import Dashboard  # noqa: PLC0415 — breaks team import cycle
+        from products.dashboards.backend.models.dashboard_templates import (  # noqa: PLC0415 — breaks team import cycle
+            DashboardTemplate,
         )
 
-        dashboard = create_signup_primary_dashboard(team, using=self.db)
+        template = DashboardTemplate.default_signup_template()
+        dashboard = Dashboard.objects.db_manager(self.db).create(
+            name="Your starter dashboard",
+            pinned=True,
+            team=team,
+            description=template.dashboard_description or "",
+        )
+        create_from_template(dashboard, template)
         team.primary_dashboard = dashboard
 
         # Create default session recording playlists
