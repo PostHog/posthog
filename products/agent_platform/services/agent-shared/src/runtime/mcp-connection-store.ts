@@ -139,7 +139,18 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             }
             const refreshToken = asNonEmptyString(sensitive.refresh_token)
             if (!refreshToken) {
-                throw new Error(`mcp_connection_refresh_failed: ${connectionId} (no refresh token)`)
+                // No refresh token (e.g. an OAuth install via DCR that never
+                // issued one) + an expiring access token fails identically on
+                // every future session. Flag `needs_reauth` in the SAME locked
+                // transaction — exactly like the permanent-HTTP-rejection path
+                // below — so `resolve()` short-circuits to "owner must reconnect"
+                // next run instead of re-acquiring the lock and rolling back each
+                // time.
+                await this.writeSensitive(client, connectionId, { ...sensitive, needs_reauth: true })
+                await client.query('COMMIT')
+                committed = true
+                this.log.warn({ connection_id: connectionId }, 'mcp_connection.no_refresh_token_needs_reauth')
+                throw new Error(`mcp_connection_needs_reauth: ${connectionId} (no refresh token)`)
             }
             const ctx = this.resolveOauthContext(row, sensitive)
 

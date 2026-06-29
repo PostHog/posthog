@@ -59,7 +59,7 @@ function makeFakePool(row: Record<string, unknown> | null): { pool: Pool; calls:
 }
 
 function oauthRow(
-    opts: { expiring?: boolean; needsReauth?: boolean; isEnabled?: boolean } = {}
+    opts: { expiring?: boolean; needsReauth?: boolean; isEnabled?: boolean; noRefreshToken?: boolean } = {}
 ): Record<string, unknown> {
     const sensitive: Record<string, unknown> = {
         access_token: 'tok-1',
@@ -67,6 +67,9 @@ function oauthRow(
         token_retrieved_at: String(opts.expiring ? nowSec - 7200 : nowSec),
         expires_in: '3600',
         dcr_client_id: 'client-1',
+    }
+    if (opts.noRefreshToken) {
+        delete sensitive.refresh_token
     }
     if (opts.needsReauth) {
         sensitive.needs_reauth = 'True'
@@ -184,6 +187,20 @@ describe('PgMcpConnectionStore', () => {
         await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
         // Wrote needs_reauth back so the next resolve short-circuits instead of
         // re-hitting the token endpoint every session.
+        expect(writes).toHaveLength(1)
+        const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
+        expect(written.needs_reauth).toBe('True')
+    })
+
+    it('flags needs_reauth (and stops retrying) when an expiring oauth token has no refresh token', async () => {
+        const { pool, writes } = makeFakePool(oauthRow({ expiring: true, noRefreshToken: true }))
+        const http = makeFakeHttp(fakeResponse({ ok: true }))
+        const store = new PgMcpConnectionStore(pool, enc, http)
+        await expect(store.resolve('c', 1)).rejects.toThrow(/mcp_connection_needs_reauth/)
+        // Nothing to refresh with → no token-endpoint call…
+        expect(http.calls).toHaveLength(0)
+        // …but needs_reauth is written back so the next resolve short-circuits
+        // instead of re-acquiring the lock and rolling back every session.
         expect(writes).toHaveLength(1)
         const written = enc.decryptJsonFieldValue(JSON.parse(writes[0].values[0] as string)) as Record<string, unknown>
         expect(written.needs_reauth).toBe('True')
