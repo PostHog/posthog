@@ -9,12 +9,12 @@ a deterministic name (``preview-pr-1234``), persists and carries the
 hogland repo.
 
 Why the SDK and not the ``hogland`` CLI: the SDK is the whole PreviewBackend
-surface, keyless, with one ``pip install``. ``client.create(snapshot_id=...)``
-restores; ``box.exec`` / ``box.write_file`` run commands and write files over
-hogplane's HTTP API (no SSH); ``box.destroy`` tears down; ``create_pen`` /
-``update_pen`` track the stable identity. CI already proves the box path
-(``bin/hogbox-ci.py``). The CLI route meant shipping a private-repo binary to the
-runner plus an SSH-key secret for exec — neither is needed.
+surface, keyless, with one dependency (``uv run --with posthog-hogland``).
+``client.create(snapshot_id=...)`` restores; ``box.exec`` / ``box.write_file``
+run commands and write files over hogplane's HTTP API (no SSH); ``box.delete``
+tears down; ``create_pen`` / ``update_pen`` track the stable identity. The CLI
+route meant shipping a private-repo binary to the runner plus an SSH-key secret
+for exec — neither is needed.
 
 ``create(web_port=...)`` opts the box into HTTP exposure, and ``box.web_url()``
 returns its own per-box edge hostname (``https://<box>.<box-edge>/``, TLS
@@ -35,7 +35,7 @@ import subprocess
 import urllib.request
 from urllib.parse import urlsplit
 
-from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError
+from hogland import AccessType, AuthenticationError, ConflictError, Hogland, NotFoundError
 
 from .backend import ExecResult, PreviewBackend
 
@@ -159,7 +159,7 @@ class HoglandBackend(PreviewBackend):
         except ConflictError:
             stale = self._resolve_box()
             if stale is not None:
-                stale.destroy()
+                stale.delete()
         # Retry while the freed name propagates; the final attempt is outside the
         # guard so a lingering ConflictError surfaces instead of being swallowed.
         for _ in range(10):
@@ -245,7 +245,7 @@ class HoglandBackend(PreviewBackend):
         # best-effort — a half-torn-down preview shouldn't wedge cleanup.
         box = self._resolve_box()
         if box is not None:
-            box.destroy()
+            box.delete()
         try:
             self._client.delete_pen(self.name)
         except NotFoundError:
@@ -282,22 +282,22 @@ class HoglandBackend(PreviewBackend):
             # A racing run created it between our get and create — fetch the winner.
             self._pen = self._client.get_pen(self.name)
 
-    def _pen_spec(self) -> BoxSpec:
-        """The BoxSpec the pen remembers — sizing, the golden it seeds from, and
-        the exposed web port. Not enforced server-side yet (that's the
-        hibernate/wake rung), but it records enough for a future EnsureUp/wake to
-        rebuild the box from the pen alone, and the exposed port is what makes
-        ``wake=on-request`` a valid policy."""
-        return BoxSpec(
-            snapshot_id=self.snapshot,
-            cpus=self.cpus,
-            memory_mib=self.memory_mib,
-            disk_gib=self.disk_gib,
-            disk_class=self.disk_class,
-            kind=self.kind,
-            expose={"http_port": self.web_port},
-            ttl_seconds=self.ttl_seconds,
-        )
+    def _pen_spec(self) -> dict:
+        """The spec the pen remembers — sizing, the golden it seeds from, and the
+        exposed web port. It records enough for a wake/EnsureUp to rebuild the box
+        from the pen alone, and the exposed port is what makes ``wake=on-request``
+        a valid policy. A plain dict because the wire wants a flat ``web_port``
+        (the SDK's BoxSpec model carries sizing but not the exposure port)."""
+        return {
+            "snapshot_id": self.snapshot,
+            "cpus": self.cpus,
+            "memory_mib": self.memory_mib,
+            "disk_gib": self.disk_gib,
+            "disk_class": self.disk_class,
+            "kind": self.kind,
+            "web_port": self.web_port,
+            "ttl_seconds": self.ttl_seconds,
+        }
 
     def _source_alias(self) -> str | None:
         """The seed alias the pen can re-restore from if its snapshots are GC'd.
@@ -394,6 +394,14 @@ class HoglandBackend(PreviewBackend):
                 if r.exit_code == 0:
                     return
                 last = r.stderr or ""
+            except AuthenticationError as e:
+                # A multi-minute restore can outlive the CI OIDC bearer, and this
+                # poll runs before the first exec()/write_file() that would refresh
+                # it — so re-mint here too, or readiness spins to timeout on a
+                # token that expired mid-restore. _refresh_auth swaps self._box to
+                # the fresh client's handle.
+                last = str(e)
+                self._refresh_auth()
             except Exception as e:  # noqa: BLE001 — keep polling through transient API errors
                 last = str(e)
             time.sleep(interval)

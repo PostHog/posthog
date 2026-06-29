@@ -43,11 +43,9 @@ from .backend import PreviewBackend
 # never drifts per-box. JS_URL="" makes the SPA load assets relative to the
 # request origin; the wildcard CSRF origin trusts every box's edge host for the
 # login POST. One recipe then serves any box at its own edge URL.
-_CSRF_TRUSTED_ORIGINS = (
-    "https://*.boxes.hogland.dev.posthog.dev,"
-    "https://*.boxes.hogland.prod-us.posthog.dev,"
-    "https://*.boxes.hogland.prod-eu.posthog.dev"
-)
+# Built as a single comma-separated string (Django's get_list() splits on commas)
+# — a join, not a tuple, so there's no ambiguity about what reaches the env.
+_CSRF_TRUSTED_ORIGINS = ",".join(f"https://*.boxes.hogland.{env}.posthog.dev" for env in ("dev", "prod-us", "prod-eu"))
 # PostHog's prod settings refuse to boot on the default SECRET_KEY, so the
 # override must supply one (the migrate `run --rm web` one-off needs it too). A
 # *random* per-restore key (the old approach) drifted web's config every
@@ -142,10 +140,11 @@ class PostHogPreviewStack:
 
     # --- steps (each usable standalone, mirroring bin/hobby-ci.py) -----------
     def start_runtime(self) -> None:
-        # The golden is baked with docker STOPPED (so the restore comes up with
-        # a clean container runtime — a snapshot taken with docker running
-        # resumes a corrupted one). Start it and wait for the daemon before any
-        # docker/compose command. No-op if docker is already up.
+        # Ensure docker is up before any compose command. The current golden is
+        # baked WARM (stack already running — see tools/hogbox-preview/STARTUP.md),
+        # so this is a no-op there; it stays as a safety net for a cold/stopped
+        # golden or a box whose daemon didn't auto-start. Idempotent either way —
+        # returns once `docker info` answers.
         self.backend.run_long(
             "systemctl start docker; "
             "for _ in $(seq 1 30); do docker info >/dev/null 2>&1 && break; sleep 2; done; "

@@ -174,9 +174,12 @@ class SSHBackend(PreviewBackend):
         except subprocess.TimeoutExpired as e:
             return ExecResult(124, e.stdout or "", f"ssh exec timed out after {timeout}s")
 
-    def write_file(self, remote_path: str, content: str) -> None:
-        # Pipe the body over stdin into `cat >` so no quoting/heredoc games.
+    def write_file(self, remote_path: str, content: bytes | str) -> None:
+        # Pipe the body over stdin into `cat >` so no quoting/heredoc games. The
+        # contract is bytes|str (stack.swap_frontend ships a binary tar), so run
+        # in binary mode and encode text — text=True would corrupt raw bytes.
+        data = content.encode() if isinstance(content, str) else content
         argv = [*self._ssh_argv(self.ssh_target()), f"cat > {shlex.quote(remote_path)}"]
-        p = subprocess.run(argv, input=content, text=True, capture_output=True, timeout=60)
+        p = subprocess.run(argv, input=data, capture_output=True, timeout=60)
         if p.returncode != 0:
-            raise RuntimeError(f"write_file({remote_path}) failed: {p.stderr.strip()}")
+            raise RuntimeError(f"write_file({remote_path}) failed: {p.stderr.decode(errors='replace').strip()}")
