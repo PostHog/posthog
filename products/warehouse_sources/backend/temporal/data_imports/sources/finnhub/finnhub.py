@@ -17,6 +17,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.finnhub.se
 FINNHUB_BASE_URL = "https://finnhub.io/api/v1"
 DEFAULT_EXCHANGE = "US"
 REQUEST_TIMEOUT_SECONDS = 60
+# Per-symbol endpoints fan out one request per ticker, so bound the parsed list to keep a
+# pathological Symbols value from spawning unbounded outbound requests (each with its own
+# retry loop). Real ticker symbols are short, so anything longer is dropped as noise.
+MAX_SYMBOLS = 500
+MAX_SYMBOL_LENGTH = 20
 
 
 class FinnhubRetryableError(Exception):
@@ -27,7 +32,7 @@ def _headers(api_key: str) -> dict[str, str]:
     return {"X-Finnhub-Token": api_key, "Accept": "application/json"}
 
 
-def _parse_symbols(symbols: str | None) -> list[str]:
+def _parse_symbols(symbols: str | None, logger: FilteringBoundLogger | None = None) -> list[str]:
     if not symbols:
         return []
     # Accept comma, whitespace, or newline separated tickers; normalize to upper-case and dedupe
@@ -37,9 +42,19 @@ def _parse_symbols(symbols: str | None) -> list[str]:
     out: list[str] = []
     for token in raw:
         ticker = token.strip().upper()
-        if ticker and ticker not in seen:
-            seen.add(ticker)
-            out.append(ticker)
+        # Drop oversized junk tokens — real tickers are short, and this stops a single huge
+        # value from being treated as a "symbol" we'd query.
+        if not ticker or len(ticker) > MAX_SYMBOL_LENGTH or ticker in seen:
+            continue
+        seen.add(ticker)
+        out.append(ticker)
+    if len(out) > MAX_SYMBOLS:
+        if logger is not None:
+            logger.warning(
+                f"Finnhub: {len(out)} symbols configured, capping per-symbol fan-out at {MAX_SYMBOLS}. "
+                "Reduce the Symbols list to sync the rest."
+            )
+        return out[:MAX_SYMBOLS]
     return out
 
 
@@ -161,7 +176,7 @@ def get_rows(
     session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     if config.requires_symbol:
-        tickers = _parse_symbols(symbols)
+        tickers = _parse_symbols(symbols, logger)
         if not tickers:
             logger.warning(
                 f"Finnhub: endpoint '{endpoint}' needs symbols but none are configured; nothing to sync. "

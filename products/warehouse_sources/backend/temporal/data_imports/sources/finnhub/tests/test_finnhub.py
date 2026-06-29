@@ -41,6 +41,18 @@ class TestParseSymbols:
     def test_parse_symbols(self, _name: str, raw: str | None, expected: list[str]) -> None:
         assert _parse_symbols(raw) == expected
 
+    def test_drops_oversized_tokens(self) -> None:
+        # A pathologically long "symbol" is junk, not a ticker — it must not become a request.
+        oversized = "A" * (finnhub.MAX_SYMBOL_LENGTH + 1)
+        assert _parse_symbols(f"AAPL,{oversized},MSFT") == ["AAPL", "MSFT"]
+
+    def test_caps_fan_out_and_warns(self) -> None:
+        raw = ",".join(f"SYM{i}" for i in range(finnhub.MAX_SYMBOLS + 50))
+        logger = MagicMock()
+        parsed = _parse_symbols(raw, logger)
+        assert len(parsed) == finnhub.MAX_SYMBOLS
+        logger.warning.assert_called_once()
+
 
 class TestToDate:
     @parameterized.expand(
