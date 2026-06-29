@@ -1,8 +1,10 @@
 import json
 from typing import Any, Optional, Union, cast
 
-from posthog.test.base import APIBaseTest, BaseTest
+from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, patch
+
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
@@ -1012,15 +1014,27 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert "$virt_bot_name" in virtual_names
 
 
-class TestPropertyDefinitionQuerySerializer(BaseTest):
-    def test_validation(self):
-        assert PropertyDefinitionQuerySerializer(data={}).is_valid()
-        assert PropertyDefinitionQuerySerializer(data={"type": "event", "event_names": '["foo","bar"]'}).is_valid()
-        assert PropertyDefinitionQuerySerializer(data={"type": "person"}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "person", "event_names": '["foo","bar"]'}).is_valid()
+class TestPropertyDefinitionQuerySerializer(SimpleTestCase):
+    # Pure in-memory validation (Serializer.validate has no context and no DB), so no APIBaseTest/BaseTest needed.
+    @parameterized.expand(
+        [
+            ["defaults", {}],
+            ["event with event_names", {"type": "event", "event_names": '["foo","bar"]'}],
+            ["person", {"type": "person"}],
+            ["group with valid index", {"type": "group", "group_type_index": 3}],
+        ]
+    )
+    def test_valid_query(self, _name: str, data: dict) -> None:
+        assert PropertyDefinitionQuerySerializer(data=data).is_valid()
 
-        assert PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 3}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group"}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": 77}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "group", "group_type_index": -1}).is_valid()
-        assert not PropertyDefinitionQuerySerializer(data={"type": "event", "group_type_index": 3}).is_valid()
+    @parameterized.expand(
+        [
+            ["event_names set for non-event type", {"type": "person", "event_names": '["foo","bar"]'}],
+            ["group type without index", {"type": "group"}],
+            ["group_type_index at or above limit", {"type": "group", "group_type_index": 77}],
+            ["negative group_type_index", {"type": "group", "group_type_index": -1}],
+            ["group_type_index set for non-group type", {"type": "event", "group_type_index": 3}],
+        ]
+    )
+    def test_invalid_query(self, _name: str, data: dict) -> None:
+        assert not PropertyDefinitionQuerySerializer(data=data).is_valid()
