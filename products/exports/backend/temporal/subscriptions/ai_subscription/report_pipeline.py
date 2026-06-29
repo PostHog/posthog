@@ -52,6 +52,11 @@ _HOGQL_STEP_TIMEOUT_SECONDS = 60.0
 # Backstop length cap on a single step's formatted results before they enter the synthesis prompt.
 # The executor already truncates; this is defense-in-depth against a giant value.
 _QUERY_RESULT_MAX_CHARS = 50_000
+# Total result budget across all steps entering the synthesis prompt. A plan can have up to 25 steps,
+# and the per-step backstop alone would allow 25 x _QUERY_RESULT_MAX_CHARS into one LLM call; this caps
+# the combined size. Split across steps with a floor so small plans keep the full per-step backstop.
+_SYNTHESIS_RESULTS_CHAR_BUDGET = 200_000
+_MIN_STEP_RESULT_CHARS = 8_000
 
 # The marker a failed step renders. The synthesis prompt keys off it to report "could not be computed"
 # instead of "no data"; it's injected into that prompt (the {{{failure_marker}}} placeholder) from this
@@ -251,6 +256,13 @@ async def _run_steps(
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
 
+    # Scale each step's result cap so the combined results stay within the synthesis budget even at the
+    # max plan size; a small plan still gets the full per-step backstop.
+    per_step_cap = min(
+        _QUERY_RESULT_MAX_CHARS,
+        max(_MIN_STEP_RESULT_CHARS, _SYNTHESIS_RESULTS_CHAR_BUDGET // len(spec.plan.steps)),
+    )
+
     async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
@@ -265,7 +277,7 @@ async def _run_steps(
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
                 )
                 # result values are attacker-influenceable (public project tokens) — strip framing markers
-                safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
+                safe_formatted = strip_llm_framing_markers(formatted, per_step_cap)
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
                     QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=True, error_type=None),
