@@ -167,6 +167,10 @@ def _get_group_blast_radius(team: Team, filter: Filter, group_type_index: GroupT
 
     # Validate all group properties have correct group_type_index
     for property in properties:
+        if property.type == "flag":
+            # Flag dependencies are evaluated at flag-matching time, not in the group query,
+            # and carry no group_type_index — skip validation and let property_to_expr neutralize them.
+            continue
         if property.key == "$group_key":
             # Special case: $group_key doesn't need a group_type_index as it refers to the key itself
             property.group_type_index = group_type_index
@@ -441,6 +445,10 @@ def _get_group_blast_radius_persons(
 
     # Validate all group properties have correct group_type_index
     for property in properties:
+        if property.type == "flag":
+            # Flag dependencies are evaluated at flag-matching time, not in the group query,
+            # and carry no group_type_index — skip validation and let property_to_expr neutralize them.
+            continue
         if property.key == "$group_key":
             property.group_type_index = group_type_index
         elif property.group_type_index is None or property.group_type_index != group_type_index:

@@ -19,8 +19,7 @@ procs:
             DEBUG: '1'
             E2E_TESTING: '1'
             PERSON_ON_EVENTS_OVERRIDE: '1'
-            PERSONHOG_ENABLED: '0'
-            PERSONHOG_ADDR: ''
+            PERSONHOG_ADDR: 'localhost:50052'
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && ./bin/start-celery worker'
@@ -34,8 +33,7 @@ procs:
             SKIP_SERVICE_VERSION_REQUIREMENTS: '1'
             DEBUG: '1'
             E2E_TESTING: '1'
-            PERSONHOG_ENABLED: '0'
-            PERSONHOG_ADDR: ''
+            PERSONHOG_ADDR: 'localhost:50052'
 
     frontend:
         shell: './bin/start-frontend'
@@ -44,7 +42,7 @@ procs:
             E2E_TESTING: '1'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml logs --tail=100 -f'
+        shell: 'docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up --pull always -d && docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile ingestion up -d personhog-replica personhog-router && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml logs --tail=100 -f'
         ready_pattern: 'docker-compose ready'
 
     reset-db:
@@ -81,6 +79,7 @@ procs:
             SECRET_KEY: 'e2e_test'
             DEBUG: '1'
             E2E_TESTING: '1'
+            PERSONHOG_ADDR: 'localhost:50052'
 
 mouse_scroll_speed: 1
 scrollback: 10000

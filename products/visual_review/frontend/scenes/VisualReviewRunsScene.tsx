@@ -24,6 +24,7 @@ import { RunSummaryStats } from '../components/RunSummaryStats'
 import { VisualReviewIntro } from '../components/VisualReviewIntro'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { RunApi } from '../generated/api.schemas'
+import { isReportingOnlyRun } from '../lib/runPredicates'
 import { ReviewState, VisualReviewRunsSceneLogicProps, visualReviewRunsSceneLogic } from './visualReviewRunsSceneLogic'
 
 export const scene: SceneExport = {
@@ -114,7 +115,8 @@ export function VisualReviewRunsScene(): JSX.Element {
             align: 'right',
             render: (_, run) => {
                 const hasChanges = run.summary.changed > 0 || run.summary.new > 0 || run.summary.removed > 0
-                const needsReview = run.status === 'completed' && hasChanges && !run.approved
+                const needsReview =
+                    run.status === 'completed' && hasChanges && !run.approved && !isReportingOnlyRun(run)
 
                 return (
                     <LemonButton

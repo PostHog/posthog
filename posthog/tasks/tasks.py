@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 from uuid import UUID
 
 from django.conf import settings
-from django.db import connection, transaction
+from django.db import ProgrammingError, connection, transaction
 from django.utils import timezone
 
 import requests
@@ -135,41 +135,32 @@ def kill_stale_queued_task_runs() -> None:
     refetch with status=QUEUED handles the race where a worker picks up the run
     between selection and update.
 
-    Staleness is keyed on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
+    Staleness is keyed primarily on `updated_at`, not `created_at`. `prepare_for_cloud_handoff`
     re-queues an existing run (status=QUEUED, completed_at=None) without resetting
     `created_at`; using `created_at` would cause the cleanup to kill freshly
     re-queued long-lived runs. `updated_at` (auto_now=True) advances on every save,
     so a re-queued run won't appear in this candidate set until it has actually
-    been QUEUED for the full STALE_AFTER window.
+    been QUEUED for the full STALE_AFTER window. `CREATED_HARD_CAP` is a backstop for a
+    run whose `updated_at` keeps being bumped while it stays QUEUED.
     """
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.facade import api as tasks_facade
 
     BATCH_SIZE = 500
     STALE_AFTER = datetime.timedelta(hours=24)
+    CREATED_HARD_CAP = datetime.timedelta(hours=48)
     REASON = "Run was stuck in QUEUED state for over 24h and was killed by the cleanup job."
 
-    cutoff = timezone.now() - STALE_AFTER
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    stale_ids = list(
-        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
-        )
-        .order_by("updated_at")
-        .values_list("id", flat=True)[:BATCH_SIZE]
-    )
+    stale_ids = tasks_facade.get_stale_queued_task_run_ids(STALE_AFTER, BATCH_SIZE, created_hard_cap=CREATED_HARD_CAP)
     swept = 0
     errors = 0
     for run_id in stale_ids:
-        # Refetching by pk from the candidate set above; cross-team is intentional.
-        run = TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            pk=run_id, status=TaskRun.Status.QUEUED
-        ).first()
-        if run is None:
-            continue
         try:
-            run.mark_failed(REASON)
-            swept += 1
-            STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
+            # fail_task_run refetches with status=QUEUED, handling the race where a worker
+            # picked up the run between selection and update (returns False -> skip).
+            if tasks_facade.fail_task_run(run_id, REASON):
+                swept += 1
+                STALE_QUEUED_TASK_RUN_SWEPT_COUNTER.inc()
         except Exception as exc:  # noqa: BLE001 - one run must not block the sweep
             errors += 1
             STALE_QUEUED_TASK_RUN_ERRORS_COUNTER.inc()
@@ -189,7 +180,7 @@ def kill_stale_queued_task_runs() -> None:
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def clear_expired_sessions() -> None:
-    from django.contrib.sessions.models import Session
+    from posthog.session.models import Session
 
     deleted_count, _ = Session.objects.filter(expire_date__lt=timezone.now()).delete()
 
@@ -593,9 +584,7 @@ _TASKS_RUN_TERMINAL_STATUSES = ("completed", "failed", "cancelled")
 @skip_team_scope_audit
 def capture_task_run_state_metrics() -> None:
     """Emit gauges describing the current state of the Tasks product's TaskRun table"""
-    from django.db.models import Count, Min
-
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.facade import api as tasks_facade
 
     try:
         with pushed_metrics_registry("tasks_run_state") as registry:
@@ -627,60 +616,46 @@ def capture_task_run_state_metrics() -> None:
                 labelnames=["status", "origin_product", "run_environment"],
             )
 
-            counts = (
-                TaskRun.objects.filter(status__in=_TASKS_RUN_OPEN_STATUSES)
-                .values("status", "environment", "task__origin_product")
-                .annotate(count=Count("id"))
+            # Terminal runs are approximated by updated_at since completed_at can be null for
+            # FAILED/CANCELLED paths that didn't take the happy-path write.
+            metrics = tasks_facade.collect_task_run_state_metrics(
+                open_statuses=_TASKS_RUN_OPEN_STATUSES,
+                age_statuses=_TASKS_RUN_AGE_STATUSES,
+                terminal_statuses=_TASKS_RUN_TERMINAL_STATUSES,
+                window_seconds=int(datetime.timedelta(hours=1).total_seconds()),
             )
-            for row in counts:
+            for row in metrics.runs_in_status:
                 runs_in_status_gauge.labels(
-                    status=row["status"],
-                    origin_product=row["task__origin_product"] or "unknown",
-                    run_environment=row["environment"],
-                ).set(row["count"])
+                    status=row.status,
+                    origin_product=row.origin_product,
+                    run_environment=row.environment,
+                ).set(row.value)
 
-            oldest = (
-                TaskRun.objects.filter(status__in=_TASKS_RUN_AGE_STATUSES)
-                .values("status", "environment", "task__origin_product")
-                .annotate(oldest_created_at=Min("created_at"))
-            )
-            now = timezone.now()
-            for row in oldest:
-                age_seconds = (now - row["oldest_created_at"]).total_seconds()
+            for row in metrics.oldest_open_age_seconds:
                 oldest_age_gauge.labels(
-                    status=row["status"],
-                    origin_product=row["task__origin_product"] or "unknown",
-                    run_environment=row["environment"],
-                ).set(age_seconds)
+                    status=row.status,
+                    origin_product=row.origin_product,
+                    run_environment=row.environment,
+                ).set(row.value)
 
-            created_1h = (
-                TaskRun.objects.filter(created_at__gte=now - datetime.timedelta(hours=1))
-                .values("environment", "task__origin_product")
-                .annotate(count=Count("id"))
-            )
-            for row in created_1h:
+            for row in metrics.created_recently:
                 runs_created_1h_gauge.labels(
-                    origin_product=row["task__origin_product"] or "unknown",
-                    run_environment=row["environment"],
-                ).set(row["count"])
+                    origin_product=row.origin_product,
+                    run_environment=row.environment,
+                ).set(row.value)
 
-            # Terminal runs: approximated by updated_at since completed_at can be null for FAILED/CANCELLED
-            # paths that didn't take the happy-path write.
-            terminal_1h = (
-                TaskRun.objects.filter(
-                    status__in=_TASKS_RUN_TERMINAL_STATUSES,
-                    updated_at__gte=now - datetime.timedelta(hours=1),
-                )
-                .values("status", "environment", "task__origin_product")
-                .annotate(count=Count("id"))
-            )
-            for row in terminal_1h:
+            for row in metrics.terminal_recently:
                 runs_terminal_1h_gauge.labels(
-                    status=row["status"],
-                    origin_product=row["task__origin_product"] or "unknown",
-                    run_environment=row["environment"],
-                ).set(row["count"])
+                    status=row.status,
+                    origin_product=row.origin_product,
+                    run_environment=row.environment,
+                ).set(row.value)
 
+    except ProgrammingError as err:
+        # The tasks-product table isn't present in every environment/database. When the migration
+        # hasn't been applied the COUNT query raises UndefinedTable — a benign, expected condition,
+        # not an error worth reporting every minute.
+        logger.debug("capture_task_run_state_metrics_missing_table", exception=err)
     except Exception as err:
         logger.exception("capture_task_run_state_metrics", exception=err)
         capture_exception(err)

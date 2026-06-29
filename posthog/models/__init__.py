@@ -15,7 +15,7 @@ from .comment import Comment
 from .core_event import CoreEvent
 from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
-from ..ducklake.models import DuckgresServer, DuckLakeBackfill, DuckLakeCatalog
+from ..ducklake.models import DuckgresServer, DuckgresServerTeam, DuckgresSinkSchemaState
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
@@ -85,12 +85,7 @@ from .oauth import (
     OAuthRefreshToken,
 )
 
-from ..approvals.models import Approval, ApprovalPolicy, ChangeRequest
-
 __all__ = [
-    "Approval",
-    "ApprovalPolicy",
-    "ChangeRequest",
     "ActivityLog",
     "AsyncDeletion",
     "AsyncMigration",
@@ -105,8 +100,8 @@ __all__ = [
     "DataColorTheme",
     "DeletionType",
     "DuckgresServer",
-    "DuckLakeBackfill",
-    "DuckLakeCatalog",
+    "DuckgresServerTeam",
+    "DuckgresSinkSchemaState",
     "Element",
     "ElementGroup",
     "Entity",

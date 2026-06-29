@@ -5,6 +5,7 @@ import {
     IconCursor,
     IconDashboard,
     IconDatabase,
+    IconDownload,
     IconFlask,
     IconHome,
     IconLive,
@@ -47,6 +48,8 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
             return <IconApps />
         case 'experiment':
             return <IconFlask />
+        case 'export':
+            return <IconDownload />
         case 'external_data_source':
             return <IconDatabase />
         case 'warehouse_objects':

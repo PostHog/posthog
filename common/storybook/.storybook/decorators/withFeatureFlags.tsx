@@ -2,7 +2,7 @@ import type { Decorator } from '@storybook/react'
 
 import { setFeatureFlags } from '~/mocks/browser'
 
-declare module '@storybook/types' {
+declare module 'storybook/internal/types' {
     interface Parameters {
         featureFlags?: string[] | Record<string, string | boolean>
     }
@@ -17,7 +17,7 @@ declare module '@storybook/types' {
  *
  * Multivariate flags — pin a specific variant with the record form:
  * ```ts
- * parameters: { featureFlags: { [FEATURE_FLAGS.PROMOTED_PRODUCT]: 'intent_plus' } }
+ * parameters: { featureFlags: { [FEATURE_FLAGS.THEME_OVERRIDE]: 'intent_plus' } }
  * ```
  */
 export const withFeatureFlags: Decorator = (Story, { parameters: { featureFlags = [] } }) => {

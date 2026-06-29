@@ -119,7 +119,7 @@ ANALYTICS_SERVICE_ID = "analytics"
 FREE_PLAN_SERVICE_ID = "free"
 PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
 
-ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
+ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai", "observability"]
 
 SERVICES_CACHE_KEY = "agentic_provisioning:services"
 SERVICES_CACHE_TTL = 3600
@@ -129,7 +129,7 @@ SERVICES_CACHE_STORE_TTL = 86400
 
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-_FALLBACK_DESCRIPTION = "PostHog — product analytics, session replay, realtime destinations, feature flags & experiments, surveys, data warehouse, error tracking, AI observability, logs, posthog ai, emails, and more."
+_FALLBACK_DESCRIPTION = "PostHog — AI infrastructure for your product: product & web analytics, session replay, feature flags & experiments, error tracking, AI observability, logs & traces, and more."
 
 
 def _build_free_plan_service() -> dict[str, Any]:
@@ -152,7 +152,7 @@ def _build_pay_as_you_go_service() -> dict[str, Any]:
             "type": "paid",
             "paid": {
                 "type": "freeform",
-                "freeform": "$0/mo base, usage-based pricing. See https://posthog.com/pricing for rates.",
+                "freeform": "$0/mo base, usage-based pricing, generous free tier. See https://posthog.com/pricing for rates.",
             },
         },
         "kind": "plan",
@@ -539,7 +539,7 @@ def _handle_existing_user(
                 },
                 status=400,
             )
-        if not scopes_within_ceiling(scopes, partner.scopes):
+        if not scopes_within_ceiling(scopes, partner.ceiling_scopes):
             return Response(
                 {
                     "id": request_id,
@@ -629,6 +629,9 @@ def _require_user_consent(
             "region": region,
             "code_challenge": code_challenge,
             "code_challenge_method": code_challenge_method,
+            # We only reach consent because the partner could not skip it for this user, so
+            # the authorize step must require it too — never silently auto-approve this state.
+            "consent_required": True,
         },
         timeout=PENDING_AUTH_TTL_SECONDS,
     )
@@ -847,7 +850,11 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
                 cache.delete(pending_key)
                 _capture_provisioning_event("authorize", "partner_deactivated")
                 return HttpResponseRedirect(f"{settings.SITE_URL}?error=partner_deactivated")
-            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent
+            # Fail closed: a partner-identified pending state missing the flag (e.g. created by an
+            # older pod mid-deploy) must still require consent, never silently auto-approve.
+            is_trusted_partner = partner_app.provisioning_skip_existing_user_consent and not pending.get(
+                "consent_required", True
+            )
         except OAuthApplication.DoesNotExist:
             pass
 
@@ -1126,7 +1133,7 @@ def _exchange_authorization_code(request: Request) -> Response:
         # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
         # ceiling has to be enforced here before the token is created by hand.
         requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
-        app_scopes = locked_app.scopes if locked_app else []
+        app_scopes = locked_app.ceiling_scopes if locked_app else []
         if not scopes_within_ceiling(requested_scopes, app_scopes):
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
             return Response(
@@ -1277,7 +1284,7 @@ def _exchange_refresh_token(request: Request) -> Response:
         # token rows — a since-tightened ceiling must drop the removed scopes, and a
         # token now fully outside the ceiling has to re-authorize rather than refresh.
         # Done up front so a rejected refresh never revokes the caller's only token.
-        app_scopes = oauth_app.scopes if oauth_app else []
+        app_scopes = oauth_app.ceiling_scopes if oauth_app else []
         narrowed_scopes = narrow_scopes_to_ceiling(old_scope.split(), app_scopes)
         if narrowed_scopes is None:
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="refresh_token")
@@ -1474,7 +1481,7 @@ def _extract_label_prefix(request: Request) -> str | None:
 
 
 def _maybe_create_provisioned_pat(
-    user: User, team: Team, app: OAuthApplication | None, label_prefix: str | None = None
+    user: User, team: Team, app: OAuthApplication | None, granted_scope: str | None, label_prefix: str | None = None
 ) -> str | None:
     """Create a Personal API Key for a provisioned user and return the raw key value.
 
@@ -1483,11 +1490,13 @@ def _maybe_create_provisioned_pat(
     Returns ``None`` when the gate is off, and the caller omits ``personal_api_key``
     from the response entirely.
 
-    When enabled (the grandfathered legacy Stripe app), the key is scoped to the
-    app's ``scopes`` ceiling rather than ``["*"]`` so a provisioned PAT can never
-    exceed what the issuing app is itself allowed. A flag-on app with an unseeded
-    ceiling mints nothing: an empty-scope PAT fails every scope check, and widening
-    to a wildcard would bypass the ceiling.
+    When enabled (the grandfathered legacy Stripe app), the key carries the granted
+    OAuth token's scopes (``granted_scope``) narrowed to the app's current ceiling,
+    so a provisioned PAT can exceed neither what the user granted nor what the app
+    may hold. Minting from the ceiling alone would hand out optional scopes the
+    grant never included. A flag-on app with an unseeded ceiling mints nothing: an
+    empty-scope PAT fails every scope check, and widening to a wildcard would
+    bypass the ceiling.
 
     scoped_teams is set to [team.id] so the PAT only grants access to the team
     being provisioned, matching the scoping of the OAuth token issued in the
@@ -1499,8 +1508,17 @@ def _maybe_create_provisioned_pat(
     """
     if not app or not app.provisioning_issues_personal_api_key:
         return None
-    if not app.scopes:
+    if not app.ceiling_scopes:
         _capture_provisioning_event("pat_mint", "skipped_unseeded_ceiling", partner=app, team_id=team.id)
+        return None
+    granted = (granted_scope or "").split()
+    if "*" in granted:
+        # A legacy wildcard token covers everything, so the ceiling is the cap.
+        pat_scopes = app.ceiling_scopes
+    else:
+        pat_scopes = narrow_scopes_to_ceiling([s for s in granted if ":" in s], app.ceiling_scopes) or []
+    if not pat_scopes:
+        _capture_provisioning_event("pat_mint", "skipped_no_granted_scopes", partner=app, team_id=team.id)
         return None
     try:
         api_key_value = generate_random_token_personal()
@@ -1514,7 +1532,7 @@ def _maybe_create_provisioned_pat(
             label=label,
             secure_value=hash_key_value(api_key_value),
             mask_value=mask_key_value(api_key_value),
-            scopes=list(app.scopes),
+            scopes=pat_scopes,
             scoped_teams=[team.id],
             scoped_organizations=[str(team.organization_id)],
         )
@@ -1849,7 +1867,7 @@ def provisioning_resources_create(request: Request) -> Response:
         "host": host,
     }
     if personal_api_key := _maybe_create_provisioned_pat(
-        user, team, access_token.application, label_prefix=label_prefix
+        user, team, access_token.application, access_token.scope, label_prefix=label_prefix
     ):
         access_configuration["personal_api_key"] = personal_api_key
 
@@ -1921,7 +1939,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         return _error_response("not_found", "Resource not found", resource_id=resource_id, status=404)
 
     try:
-        team.reset_token_and_save(user=user, is_impersonated_session=False)
+        # Bearer flow resolves the token outside DRF, so read impersonation off the token directly.
+        team.reset_token_and_save(user=user, is_impersonated_session=access_token.impersonated_by_id is not None)
     except Exception:
         capture_exception(additional_properties={"team_id": team_id})
         _capture_provisioning_event("credential_rotation", "failed", team_id=team_id)
@@ -1940,7 +1959,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
         "host": host,
     }
     if personal_api_key := _maybe_create_provisioned_pat(
-        user, team, access_token.application, label_prefix=label_prefix
+        user, team, access_token.application, access_token.scope, label_prefix=label_prefix
     ):
         access_configuration["personal_api_key"] = personal_api_key
 

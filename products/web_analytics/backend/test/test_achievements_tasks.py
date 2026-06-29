@@ -128,10 +128,10 @@ class TestRecomputeTask(BaseTest):
         progress.refresh_from_db()
         self.assertEqual(progress.state["pending_celebrations"], [])
 
-    def test_holdout_user_gets_no_compute(self) -> None:
+    def test_control_user_gets_no_compute(self) -> None:
         with (
             patch.object(tasks, "EVALUATORS", make_evaluators(loyal_days=lambda ctx: 50)),
-            patch.object(tasks, "streak_arm_for_user", return_value="holdout"),
+            patch.object(tasks, "streak_arm_for_user", return_value="control"),
         ):
             tasks.recompute_web_analytics_achievements(self.team.id, self.user.id)
         self.assertFalse(WebAnalyticsAchievementProgress.objects.for_team(self.team.id).filter(user=self.user).exists())

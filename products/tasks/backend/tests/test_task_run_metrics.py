@@ -39,6 +39,7 @@ class TestTaskRunMetrics(TestCase):
             "mode": "background",
             "run_source": "manual",
             "runtime_adapter": "codex",
+            "prewarmed": "false",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
@@ -56,6 +57,7 @@ class TestTaskRunMetrics(TestCase):
             "mode": "other",
             "run_source": "other",
             "runtime_adapter": "other",
+            "prewarmed": "false",
         }
         before = _sample_value("posthog_tasks_task_run_created_total", labels)
 
@@ -66,6 +68,59 @@ class TestTaskRunMetrics(TestCase):
         )
 
         assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
+
+    def test_prewarmed_run_created_carries_prewarmed_true_label(self) -> None:
+        labels = {
+            "origin_product": "user_created",
+            "run_environment": "cloud",
+            "mode": "interactive",
+            "run_source": "unknown",
+            "runtime_adapter": "unknown",
+            "prewarmed": "true",
+        }
+        before = _sample_value("posthog_tasks_task_run_created_total", labels)
+
+        self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"await_user_message": True, "prewarmed": True},
+        )
+
+        assert _sample_value("posthog_tasks_task_run_created_total", labels) == before + 1
+
+    def test_activate_warm_run_increments_prewarmed_activated_counter(self) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"await_user_message": True, "prewarmed": True},
+        )
+        labels = {"origin_product": "user_created"}
+        before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
+
+        with patch.object(facade, "signal_task_run_user_message", return_value=True):
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+
+        assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before + 1
+
+    def test_activating_run_without_prewarmed_marker_does_not_increment(self) -> None:
+        # Warm Runs provisioned before this ships have await_user_message but no prewarmed marker;
+        # activating them must not inflate the numerator (would push hit rate above 1).
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"await_user_message": True},
+        )
+        labels = {"origin_product": "user_created"}
+        before = _sample_value("posthog_tasks_prewarmed_activated_total", labels)
+
+        with patch.object(facade, "signal_task_run_user_message", return_value=True):
+            facade._activate_warm_run(run, self.task, self.team.id, message="go", artifact_ids=[])
+
+        assert _sample_value("posthog_tasks_prewarmed_activated_total", labels) == before
 
     @parameterized.expand(
         [
@@ -101,6 +156,7 @@ class TestTaskRunMetrics(TestCase):
             "mode": "background",
             "run_source": "unknown",
             "runtime_adapter": "unknown",
+            "prewarmed": "false",
         }
         labels_by_outcome = [
             {**base_labels, "outcome": outcome, "reason": reason} for outcome, reason in expected_outcomes
@@ -172,3 +228,35 @@ class TestTaskRunMetrics(TestCase):
             )
 
         assert _sample_value("posthog_tasks_task_run_failed_total", labels) == before + 1
+
+    @parameterized.expand(
+        [
+            ("failed", 1.0),
+            ("completed", 0.0),
+        ]
+    )
+    def test_agent_turn_failure_counter_only_on_failed_transition(self, new_status: str, expected_delta: float) -> None:
+        from products.tasks.backend.facade import api as facade
+
+        run = self.task.create_run(
+            environment=TaskRun.Environment.CLOUD,
+            mode="interactive",
+            extra_state={"run_source": "manual", "runtime_adapter": "codex"},
+        )
+        labels = {
+            "origin_product": "user_created",
+            "mode": "interactive",
+            "run_source": "manual",
+            "runtime_adapter": "codex",
+        }
+        before = _sample_value("posthog_tasks_agent_turn_failed_total", labels)
+
+        with patch.object(facade, "signal_workflow_completion"):
+            facade.update_task_run(
+                run.id,
+                self.task.id,
+                self.team.id,
+                validated_data={"status": new_status, "error_message": "boom"},
+            )
+
+        assert _sample_value("posthog_tasks_agent_turn_failed_total", labels) == before + expected_delta

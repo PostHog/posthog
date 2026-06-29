@@ -1,11 +1,15 @@
 import { DateTime } from 'luxon'
-import { Pool } from 'pg'
+import { Pool, PoolClient } from 'pg'
 import { v7 as uuidv7 } from 'uuid'
 
-import { logger } from '../../../utils/logger'
+import { logger } from '~/common/utils/logger'
+
 import { assignEmailDequeueSeq } from './manager'
 import {
+    CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
+    CyclotronV2JobInit,
+    CyclotronV2JobInitSchema,
     CyclotronV2RescheduleOptions,
     CyclotronV2RescheduleOptionsSchema,
     CyclotronV2WorkerConfig,
@@ -32,6 +36,163 @@ export function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+/**
+ * Insert N new jobs within an open transaction. Mirrors the bulk-insert shape
+ * from `CyclotronV2Manager.bulkCreateJobs` but runs on a caller-provided
+ * client so the inserts can be wrapped in the same transaction as a sibling
+ * UPDATE (used by `bulkCreateAndCheckIn`).
+ *
+ * Intentionally narrower than manager.bulkCreateJobs: no `overwriteExisting`
+ * path, no email-queue `dequeue_seq` computation (the resolver enqueues
+ * children onto 'hogflow', not 'email'). Email re-routing happens later via
+ * the worker's reschedule path which already handles dequeue_seq assignment.
+ */
+async function insertNewJobsInTx(client: PoolClient, newJobs: CyclotronV2JobInit[]): Promise<string[]> {
+    if (newJobs.length === 0) {
+        return []
+    }
+
+    const now = new Date()
+    const ids: string[] = []
+    const teamIds: number[] = []
+    const functionIds: (string | null)[] = []
+    const queueNames: string[] = []
+    const priorities: number[] = []
+    const scheduleds: Date[] = []
+    const parentRunIds: (string | null)[] = []
+    const states: (Buffer | null)[] = []
+    const distinctIds: (string | null)[] = []
+    const personIds: (string | null)[] = []
+    const actionIds: (string | null)[] = []
+
+    for (const job of newJobs) {
+        ids.push(job.id ?? uuidv7())
+        teamIds.push(job.teamId)
+        functionIds.push(job.functionId ?? null)
+        queueNames.push(job.queueName)
+        priorities.push(job.priority ?? 0)
+        scheduleds.push(job.scheduled ?? now)
+        parentRunIds.push(job.parentRunId ?? null)
+        states.push(job.state ?? null)
+        distinctIds.push(job.distinctId ?? null)
+        personIds.push(job.personId ?? null)
+        actionIds.push(job.actionId ?? null)
+    }
+
+    await client.query(
+        `INSERT INTO cyclotron_jobs
+         (id, team_id, function_id, queue_name, status, priority, scheduled, created,
+          lock_id, last_heartbeat, janitor_touch_count, transition_count, last_transition,
+          parent_run_id, state, distinct_id, person_id, action_id)
+         SELECT
+            unnest($1::uuid[]),
+            unnest($2::int[]),
+            unnest($3::uuid[]),
+            unnest($4::text[]),
+            'available'::CyclotronJobStatus,
+            unnest($5::smallint[]),
+            unnest($6::timestamptz[]),
+            $12::timestamptz,
+            NULL::uuid,
+            NULL::timestamptz,
+            0::smallint,
+            0::smallint,
+            $12::timestamptz,
+            unnest($7::text[]),
+            unnest($8::bytea[]),
+            unnest($9::text[]),
+            unnest($10::text[]),
+            unnest($11::text[])`,
+        [
+            ids,
+            teamIds,
+            functionIds,
+            queueNames,
+            priorities,
+            scheduleds,
+            parentRunIds,
+            states,
+            distinctIds,
+            personIds,
+            actionIds,
+            now,
+        ]
+    )
+
+    return ids
+}
+
+/**
+ * Update the current worker's job row to reflect the chosen disposition
+ * (reschedule for next page / ack / fail). Mirrors the SQL shapes used by
+ * the wrapper's `ack`, `fail`, and `reschedule` methods, but runs in a
+ * caller-provided transaction so it can be atomic with sibling inserts.
+ *
+ * Throws if the UPDATE doesn't match exactly one row. The `WHERE lock_id`
+ * filter can match zero rows if the janitor reassigns the lock between
+ * dequeue and commit (stall-recovery race) — without this guard the child
+ * inserts would commit while the self UPDATE silently no-ops, leaving the
+ * cursor un-advanced for the new lock-holder to replay.
+ */
+async function updateSelfInTx(
+    client: PoolClient,
+    jobId: string,
+    lockId: string,
+    disposition: CyclotronV2BulkCreateAndCheckInInput['selfDisposition']
+): Promise<void> {
+    if (disposition.kind === 'ack') {
+        const result = await client.query(
+            `UPDATE cyclotron_jobs
+             SET status = 'completed', lock_id = NULL, last_heartbeat = NULL,
+                 last_transition = NOW(), transition_count = transition_count + 1
+             WHERE id = $1 AND lock_id = $2`,
+            [jobId, lockId]
+        )
+        assertSelfRowAffected(result.rowCount, jobId, 'ack')
+        return
+    }
+    if (disposition.kind === 'fail') {
+        const result = await client.query(
+            `UPDATE cyclotron_jobs
+             SET status = 'failed', lock_id = NULL, last_heartbeat = NULL,
+                 last_transition = NOW(), transition_count = transition_count + 1
+             WHERE id = $1 AND lock_id = $2`,
+            [jobId, lockId]
+        )
+        assertSelfRowAffected(result.rowCount, jobId, 'fail')
+        return
+    }
+    // reschedule
+    const scheduled = disposition.scheduledAt ?? new Date()
+    const setClauses = [
+        `status = 'available'`,
+        `lock_id = NULL`,
+        `last_heartbeat = NULL`,
+        `last_transition = NOW()`,
+        `transition_count = transition_count + 1`,
+        `scheduled = $3`,
+    ]
+    const params: any[] = [jobId, lockId, scheduled]
+    if (disposition.state !== undefined) {
+        params.push(disposition.state ?? null)
+        setClauses.push(`state = $${params.length}`)
+    }
+    const result = await client.query(
+        `UPDATE cyclotron_jobs SET ${setClauses.join(', ')}
+         WHERE id = $1 AND lock_id = $2`,
+        params
+    )
+    assertSelfRowAffected(result.rowCount, jobId, 'reschedule')
+}
+
+function assertSelfRowAffected(rowCount: number | null, jobId: string, kind: string): void {
+    if (rowCount !== 1) {
+        throw new Error(
+            `bulkCreateAndCheckIn(${kind}) self UPDATE matched ${rowCount} rows for job ${jobId} — lock_id may have been reassigned`
+        )
+    }
+}
+
 export class CyclotronV2Worker {
     private pool: Pool
     protected isConsuming = false
@@ -54,7 +215,11 @@ export class CyclotronV2Worker {
         this.pollDelayMs = config.pollDelayMs ?? 50
         this.heartbeatTimeoutMs = config.heartbeatTimeoutMs ?? 30000
         this.includeEmptyBatches = config.includeEmptyBatches ?? false
-        this.fairDequeue = config.fairDequeue ?? false
+        // Fair (per-team round-robin) dequeue is the email queue's ordering.
+        // `dequeue_seq` is only ever assigned for email jobs (see
+        // CyclotronV2Manager), so deriving this from the queue name keeps the
+        // worker's ORDER BY in lockstep with where the sort key actually exists.
+        this.fairDequeue = config.queueName === 'email'
     }
 
     async connect(processBatch: (jobs: CyclotronV2DequeuedJob[]) => Promise<void>): Promise<void> {
@@ -352,6 +517,37 @@ export class CyclotronV2Worker {
                      WHERE id = $1 AND lock_id = $2`,
                     [row.id, lockId]
                 )
+            },
+
+            async bulkCreateAndCheckIn(input: CyclotronV2BulkCreateAndCheckInInput): Promise<{ newJobIds: string[] }> {
+                releaseGuard('bulkCreateAndCheckIn')
+
+                // Validate new jobs up front, outside the TX, so a malformed
+                // input doesn't burn a connection slot mid-transaction.
+                const newJobs: CyclotronV2JobInit[] = input.newJobs.map((j) => CyclotronV2JobInitSchema.parse(j))
+
+                const client = await pool.connect()
+                try {
+                    await client.query('BEGIN')
+
+                    const newJobIds = await insertNewJobsInTx(client, newJobs)
+                    await updateSelfInTx(client, row.id, lockId, input.selfDisposition)
+
+                    await client.query('COMMIT')
+                    return { newJobIds }
+                } catch (err) {
+                    try {
+                        await client.query('ROLLBACK')
+                    } catch (rollbackErr) {
+                        logger.warn('bulkCreateAndCheckIn rollback failed', {
+                            error: String(rollbackErr),
+                            originalError: String(err),
+                        })
+                    }
+                    throw err
+                } finally {
+                    client.release()
+                }
             },
         }
     }

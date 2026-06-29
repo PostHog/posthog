@@ -62,6 +62,9 @@ export interface UserBasicApi {
     role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | null
 }
 
+/**
+ * A holdout group — a stable slice of users excluded from experiment exposure.
+ */
 export interface ExperimentHoldoutApi {
     readonly id: number
     /** @maxLength 400 */
@@ -75,6 +78,11 @@ export interface ExperimentHoldoutApi {
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level: string | null
 }
 
 export interface PaginatedExperimentHoldoutListApi {
@@ -86,6 +94,9 @@ export interface PaginatedExperimentHoldoutListApi {
     results: ExperimentHoldoutApi[]
 }
 
+/**
+ * A holdout group — a stable slice of users excluded from experiment exposure.
+ */
 export interface PatchedExperimentHoldoutApi {
     readonly id?: number
     /** @maxLength 400 */
@@ -99,6 +110,11 @@ export interface PatchedExperimentHoldoutApi {
     readonly created_by?: UserBasicApi
     readonly created_at?: string
     readonly updated_at?: string
+    /**
+     * The effective access level the user has for this object
+     * @nullable
+     */
+    readonly user_access_level?: string | null
 }
 
 /**
@@ -235,15 +251,20 @@ export interface ExperimentVariantApi {
     split_percent?: number | null
 }
 
+/**
+ * Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL.
+ */
+export type ExperimentParametersApiVariantNotes = { [key: string]: string } | null
+
 export interface ExperimentParametersApi {
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[] | null
     /** Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20. */
     feature_flag_variants?: ExperimentVariantApi[] | null
     /** Minimum detectable effect as a percentage. Lower values need more users but catch smaller changes. Suggest 20–30% for most experiments. */
     minimum_detectable_effect?: number | null
     /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number | null
+    /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
+    variant_notes?: ExperimentParametersApiVariantNotes
 }
 
 export type ConversionRateInputTypeApi = (typeof ConversionRateInputTypeApi)[keyof typeof ConversionRateInputTypeApi]
@@ -359,10 +380,15 @@ export interface ExperimentBasicApi {
     readonly holdout: ExperimentHoldoutApi
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
-    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
+    /**
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
+     * @nullable
+     */
+    excluded_variants?: string[] | null
     /** Whether the experiment is archived. */
     archived?: boolean
     /** @nullable */
@@ -385,6 +411,7 @@ export interface ExperimentBasicApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -484,9 +511,18 @@ export interface ExperimentApiExposureConfigApi {
     properties: EventPropertyFilterApi[]
 }
 
+export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]
+
+export const MultipleVariantHandlingApi = {
+    Exclude: 'exclude',
+    FirstSeen: 'first_seen',
+} as const
+
 export interface ExperimentApiExposureCriteriaApi {
     exposure_config?: ExperimentApiExposureConfigApi | null
     filterTestAccounts?: boolean | null
+    /** How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure. */
+    multiple_variant_handling?: MultipleVariantHandlingApi | null
 }
 
 export type KindApi = (typeof KindApi)[keyof typeof KindApi]
@@ -663,10 +699,15 @@ export interface ExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
-    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
+    /**
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
+     * @nullable
+     */
+    excluded_variants?: string[] | null
     secondary_metrics?: unknown
     readonly saved_metrics: readonly ExperimentToSavedMetricApi[]
     /**
@@ -708,6 +749,7 @@ export interface ExperimentApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -763,10 +805,15 @@ export interface PatchedExperimentApi {
     holdout_id?: number | null
     /** @nullable */
     readonly exposure_cohort?: number | null
-    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `custom_exposure_filter`, and `excluded_variants` (list of variant keys to drop from statistical analysis; the baseline variant and holdout pseudo-variants cannot be excluded). The running-time calculator keys (`minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, `exposure_estimate_config`) are deprecated here — prefer `running_time_calculation`. */
+    /** Experiment parameters JSON. Supported keys include `feature_flag_variants`, `rollout_percentage`, `custom_exposure_filter`, and `variant_notes` (free-text notes per variant, keyed by variant key). Excluded variants live on the top-level `excluded_variants` field, not here. */
     parameters?: ExperimentParametersApi | null
-    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`; values are kept in sync with `parameters` during the deprecation window. */
+    /** Running-time calculator state: `minimum_detectable_effect`, `recommended_running_time`, `recommended_sample_size`, and `exposure_estimate_config`. Canonical home for these keys, which historically lived in `parameters`. */
     running_time_calculation?: ExperimentRunningTimeCalculationApi | null
+    /**
+     * Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. The baseline variant and holdout pseudo-variants cannot be excluded. Canonical home for what historically lived in `parameters.excluded_variants`.
+     * @nullable
+     */
+    excluded_variants?: string[] | null
     secondary_metrics?: unknown
     readonly saved_metrics?: readonly ExperimentToSavedMetricApi[]
     /**
@@ -808,6 +855,7 @@ export interface PatchedExperimentApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -825,6 +873,11 @@ export interface PatchedExperimentApi {
      * @nullable
      */
     readonly user_access_level?: string | null
+}
+
+export interface ArchiveExperimentApi {
+    /** When the linked feature flag is still enabled, also disable and archive it along with the experiment. Has no effect if the flag is already disabled (it is archived either way). */
+    disable_feature_flag?: boolean
 }
 
 export interface CopyExperimentToProjectApi {
@@ -847,6 +900,7 @@ export interface EndExperimentApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null
@@ -1027,6 +1081,7 @@ export interface ShipVariantApi {
     conclusion?: ConclusionEnumApi | null
     /**
      * Optional comment about the experiment conclusion.
+     * @maxLength 4000
      * @nullable
      */
     conclusion_comment?: string | null

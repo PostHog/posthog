@@ -1,6 +1,6 @@
 from unittest.mock import patch
 
-from products.tasks.backend.services.custom_prompt_internals import _check_logs, _stream_new_lines
+from products.tasks.backend.logic.services.custom_prompt_internals import _check_logs, _stream_new_lines
 from products.tasks.backend.tests.agent_log_fixtures import (
     FakeTaskRun,
     _agent_message_line,

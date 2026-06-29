@@ -51,9 +51,11 @@ export function useRestrictedArea({
             }
             scopeAccessLevel = currentOrganization.membership_level
         }
+
         if (scopeAccessLevel === null) {
             return `You don't have access to the current ${scope}.`
         }
+
         if (scopeAccessLevel < minimumAccessLevel) {
             if (minimumAccessLevel === OrganizationMembershipLevel.Owner) {
                 return `This area is restricted to the ${scope} owner.`

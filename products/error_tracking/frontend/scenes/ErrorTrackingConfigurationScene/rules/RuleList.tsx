@@ -4,8 +4,8 @@ import { SortableContext, arrayMove, verticalListSortingStrategy } from '@dnd-ki
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
-import { IconWarning } from '@posthog/icons'
-import { LemonButton, LemonCard, LemonDivider, Spinner } from '@posthog/lemon-ui'
+import { IconTrash, IconWarning } from '@posthog/icons'
+import { LemonButton, LemonCard, LemonCheckbox, LemonDialog, LemonDivider, Spinner } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -27,6 +27,8 @@ interface RuleListProps {
     description?: ReactNode
     renderCardHeaderExtra?: (rule: any) => ReactNode
     onMount?: () => void
+    /** Extra actions rendered to the left of the Reorder/Add rule buttons (e.g. bulk import). */
+    headerActions?: ReactNode
 }
 
 export function RuleList({
@@ -38,11 +40,23 @@ export function RuleList({
     description,
     renderCardHeaderExtra,
     onMount,
+    headerActions,
 }: RuleListProps): JSX.Element {
     const logic = rulesLogic({ ruleType })
-    const { rules, allRules, isReorderingRules, rulesLoading, initialLoadComplete } = useValues(logic)
-    const { loadRules, startReorderingRules, finishReorderingRules, cancelReorderingRules, reorderLocalRules } =
-        useActions(logic)
+    const { rules, allRules, isReorderingRules, isSelectingRules, selectedRuleIds, rulesLoading, initialLoadComplete } =
+        useValues(logic)
+    const {
+        loadRules,
+        startReorderingRules,
+        finishReorderingRules,
+        cancelReorderingRules,
+        reorderLocalRules,
+        startSelectingRules,
+        cancelSelectingRules,
+        toggleSelectedRule,
+        setSelectedRuleIds,
+        deleteSelectedRules,
+    } = useActions(logic)
     const { openModal } = useActions(modalLogic)
 
     useEffect(() => {
@@ -55,6 +69,8 @@ export function RuleList({
     }
 
     const displayRules = (isReorderingRules ? allRules : rules) as ErrorTrackingRule[]
+    const selectedRuleCount = selectedRuleIds.length
+    const allRulesSelected = rules.length > 0 && selectedRuleCount === rules.length
 
     return (
         <>
@@ -80,12 +96,59 @@ export function RuleList({
                                 Finish reordering
                             </LemonButton>
                         </>
+                    ) : isSelectingRules ? (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={() => setSelectedRuleIds(allRulesSelected ? [] : rules.map((rule) => rule.id))}
+                            >
+                                {allRulesSelected ? 'Deselect all' : 'Select all'}
+                            </LemonButton>
+                            <LemonButton type="secondary" size="small" onClick={cancelSelectingRules}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                status="danger"
+                                size="small"
+                                icon={<IconTrash />}
+                                disabled={selectedRuleCount === 0}
+                                loading={rulesLoading}
+                                onClick={() =>
+                                    LemonDialog.open({
+                                        title: 'Delete rules',
+                                        description: `Are you sure you want to delete ${selectedRuleCount} ${
+                                            selectedRuleCount === 1 ? 'rule' : 'rules'
+                                        }?`,
+                                        secondaryButton: {
+                                            type: 'secondary',
+                                            children: 'Cancel',
+                                        },
+                                        primaryButton: {
+                                            type: 'primary',
+                                            status: 'danger',
+                                            onClick: deleteSelectedRules,
+                                            children: 'Delete',
+                                        },
+                                    })
+                                }
+                            >
+                                Delete{selectedRuleCount > 0 ? ` ${selectedRuleCount}` : ''}
+                            </LemonButton>
+                        </>
                     ) : (
                         <>
+                            {headerActions}
                             {rules.length > 1 && (
-                                <LemonButton type="secondary" size="small" onClick={startReorderingRules}>
-                                    Reorder
-                                </LemonButton>
+                                <>
+                                    <LemonButton type="secondary" size="small" onClick={startSelectingRules}>
+                                        Select
+                                    </LemonButton>
+                                    <LemonButton type="secondary" size="small" onClick={startReorderingRules}>
+                                        Reorder
+                                    </LemonButton>
+                                </>
                             )}
                             <LemonButton type="primary" size="small" onClick={() => openModal()}>
                                 Add rule
@@ -110,11 +173,28 @@ export function RuleList({
                             const disabled = !!rule.disabled_data
 
                             return (
-                                <SortableRuleItem key={rule.id} ruleId={rule.id} reorderable={isReorderingRules}>
+                                <SortableRuleItem
+                                    key={rule.id}
+                                    ruleId={rule.id}
+                                    reorderable={isReorderingRules}
+                                    leading={
+                                        isSelectingRules ? (
+                                            <LemonCheckbox
+                                                checked={selectedRuleIds.includes(rule.id)}
+                                                onChange={() => toggleSelectedRule(rule.id)}
+                                            />
+                                        ) : null
+                                    }
+                                >
                                     <LemonCard
                                         hoverEffect={false}
-                                        className={cn('flex flex-col p-0', !isReorderingRules && 'cursor-pointer')}
-                                        onClick={isReorderingRules ? undefined : () => openModal(rule)}
+                                        className={cn(
+                                            'flex flex-col p-0',
+                                            !isReorderingRules && !isSelectingRules && 'cursor-pointer'
+                                        )}
+                                        onClick={
+                                            isReorderingRules || isSelectingRules ? undefined : () => openModal(rule)
+                                        }
                                     >
                                         <div className="flex items-center justify-between px-3 py-2">
                                             {renderCardHeaderExtra ? (

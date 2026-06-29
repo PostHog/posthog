@@ -12,8 +12,8 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 
 from products.signals.backend.report_generation.research import ReportResearchOutput
-from products.tasks.backend.services.custom_prompt_internals import CustomPromptSandboxContext
-from products.tasks.backend.services.mts_example import run_cursed_identifier_research
+from products.tasks.backend.logic.services.custom_prompt_internals import CustomPromptSandboxContext
+from products.tasks.backend.logic.services.mts_example import run_cursed_identifier_research
 
 REPOSITORY = "PostHog/posthog"
 BRANCH: str | None = None
@@ -87,19 +87,21 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(f"Title:   {result.title}"))
         self.stdout.write(f"Summary: {result.summary}")
         self.stdout.write("")
+        actionability = result.effective_actionability()
         self.stdout.write(
-            f"Actionability: {result.actionability.actionability.value} "
-            f"(already_addressed={result.actionability.already_addressed})"
+            f"Actionability: {actionability.actionability.value} (already_addressed={actionability.already_addressed})"
         )
-        self.stdout.write(f"  Reason: {result.actionability.explanation}")
-        if result.priority:
-            self.stdout.write(f"Priority: {result.priority.priority.value}")
-            self.stdout.write(f"  Reason: {result.priority.explanation}")
+        self.stdout.write(f"  Reason: {actionability.explanation}")
+        priority = result.effective_priority()
+        if priority:
+            self.stdout.write(f"Priority: {priority.priority.value}")
+            self.stdout.write(f"  Reason: {priority.explanation}")
         else:
             self.stdout.write("Priority: N/A (not actionable)")
         self.stdout.write("")
-        for i, finding in enumerate(result.findings, start=1):
-            self.stdout.write(self.style.WARNING(f"--- Finding {i}/{len(result.findings)} ({finding.signal_id}) ---"))
+        findings = result.effective_findings()
+        for i, finding in enumerate(findings, start=1):
+            self.stdout.write(self.style.WARNING(f"--- Finding {i}/{len(findings)} ({finding.signal_id}) ---"))
             self.stdout.write(f"  Paths: {', '.join(finding.relevant_code_paths) or '(none)'}")
             self.stdout.write(f"  Verified: {finding.verified}")
             for sha, reason in finding.relevant_commit_hashes.items():

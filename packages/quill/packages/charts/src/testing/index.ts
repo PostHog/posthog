@@ -7,9 +7,10 @@ export type { RenderHogChartOptions } from './render'
 export { makeOverlayContext, renderOverlayInChart } from './overlay'
 export type { OverlayContextOverrides } from './overlay'
 export {
+    createDefaultTooltipAccessor,
     createHogChartTooltip,
     getHogChartTooltip,
     HOG_CHARTS_TOOLTIP_SELECTOR,
     waitForHogChartTooltip,
 } from './tooltip'
-export type { HogChartTooltip } from './tooltip'
+export type { DefaultTooltipAccessor, HogChartTooltip } from './tooltip'

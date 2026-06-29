@@ -282,7 +282,7 @@ class SharingConfiguration(models.Model):
         elif self.notebook:
             # Recompute on every call so that edits to the notebook automatically grant/revoke access
             # to the insights it embeds. Mirrors dashboard semantics.
-            from products.notebooks.backend.util import extract_referenced_insight_short_ids
+            from products.notebooks.backend.facade.content import extract_referenced_insight_short_ids
 
             if self.notebook.deleted:
                 return []
