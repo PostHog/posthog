@@ -2,8 +2,8 @@ import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconBug, IconCursorClick, IconExternal, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
+import { IconBug, IconCursorClick, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
+import { LemonButton, LemonTag } from '@posthog/lemon-ui'
 import type { LemonTagType } from '@posthog/lemon-ui'
 
 import ViewRecordingButton, {
@@ -14,7 +14,6 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
 import type { SessionProblemEventEntry, SessionProblemSignalExtra } from '~/queries/schema/schema-signals'
@@ -134,11 +133,6 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
         openPlayerIn: RecordingPlayerType.Modal,
     })
 
-    const replayUrl = urls.replaySingle(
-        extra.session_id,
-        segmentSeekTime ? { unixTimestampMillis: segmentSeekTime.valueOf() } : undefined
-    )
-
     const events = extra.event_history ?? []
     const visibleEvents = showAllEvents ? events : events.slice(0, TIMELINE_PREVIEW_COUNT)
 
@@ -238,13 +232,6 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                     )}
                 </div>
             )}
-
-            <div className="flex items-center mt-2">
-                <span className="flex-1" />
-                <Link to={replayUrl} className="flex items-center gap-1 text-xs font-medium shrink-0">
-                    Open replay <IconExternal className="size-3" />
-                </Link>
-            </div>
         </SignalCardShell>
     )
 }
