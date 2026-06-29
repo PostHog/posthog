@@ -68,13 +68,13 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
-def _github_source_params(source: ExternalDataSource) -> tuple[int, str] | None:
-    """``(integration_id, repo)`` from a GitHub source's job_inputs, or None if unusable.
+def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] | None:
+    """``(integration_id, repo)`` from a GitHub source's ``job_inputs``, or None if unusable.
 
     job_inputs is team-writable, so guard its shape: a non-dict ``auth_method`` or a repo that isn't a
     plain ``owner/repo`` (which would steer the authenticated fetch elsewhere) yields None, not a crash.
     """
-    job_inputs = source.job_inputs or {}
+    job_inputs = job_inputs or {}
     auth_method = job_inputs.get("auth_method")
     auth = auth_method if isinstance(auth_method, dict) else {}
     integration_id = auth.get("github_integration_id")
@@ -95,7 +95,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         .select_related("team")
     )
     for source in sources.iterator():
-        params = _github_source_params(source)
+        params = _github_source_params(source.job_inputs)
         prefix = source.prefix or ""
         if params is None or not _PREFIX.match(prefix):
             continue

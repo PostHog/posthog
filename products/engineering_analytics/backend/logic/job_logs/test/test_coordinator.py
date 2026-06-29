@@ -1,5 +1,3 @@
-from types import SimpleNamespace
-
 from parameterized import parameterized
 
 from products.engineering_analytics.backend.logic.job_logs.coordinator import _github_source_params
@@ -7,10 +5,8 @@ from products.engineering_analytics.backend.logic.job_logs.coordinator import _g
 
 class TestGithubSourceParams:
     def test_extracts_integration_and_repo(self):
-        source = SimpleNamespace(
-            job_inputs={"auth_method": {"github_integration_id": "42"}, "repository": "PostHog/posthog"}
-        )
-        assert _github_source_params(source) == (42, "PostHog/posthog")
+        job_inputs = {"auth_method": {"github_integration_id": "42"}, "repository": "PostHog/posthog"}
+        assert _github_source_params(job_inputs) == (42, "PostHog/posthog")
 
     @parameterized.expand(
         [
@@ -25,4 +21,4 @@ class TestGithubSourceParams:
         ]
     )
     def test_returns_none_for_unusable_source(self, _name, job_inputs):
-        assert _github_source_params(SimpleNamespace(job_inputs=job_inputs)) is None
+        assert _github_source_params(job_inputs) is None
