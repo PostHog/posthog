@@ -185,6 +185,45 @@ class TestPromptBuilder(BaseTest):
         # surface (markdown, front-loaded into the ~300-char collapsed preview),
         # while leaving a skill body free to impose its own structure.
         assert "Writing the description (how it renders in the inbox)" in prompt
+        # A signal scout never sees the report-channel guidance — it fires weak
+        # signals, it does not author reports.
+        assert "signals-scout-emit-report" not in prompt
+        assert "Suggested reviewers route the report" not in prompt
+
+    def test_report_channel_renders_report_persona_and_guidance(self) -> None:
+        LLMSkill.objects.create(
+            team=self.team,
+            name="signals-scout-errors-reports",
+            description="Errors scout that authors reports",
+            body="watch for spikes",
+            allowed_tools=["emit_report", "edit_report"],
+        )
+        loaded = load_skill_for_run(self.team, "signals-scout-errors-reports")
+        prompt = build_run_prompt(
+            loaded,
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=self.team.id,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+        )
+        # A report scout authors via the report channel, so the persona and the
+        # run-identity emit reference point at emit-report, not emit-signal.
+        assert "signals-scout-emit-report" in prompt
+        assert "signals-scout-edit-report" in prompt
+        # The two highest-leverage nudges the report channel adds: search the inbox
+        # and edit before authoring a duplicate, and set suggested reviewers (what
+        # actually routes a report).
+        assert "Authoring vs. editing: search the inbox first" in prompt
+        assert "inbox-reports-list" in prompt
+        assert "Suggested reviewers route the report" in prompt
+        assert "suggested_reviewers" in prompt
+        # Signal-only sections (weak-finding schema, tagging taxonomy) are dropped
+        # for a report scout — it doesn't fire `emit_signal`.
+        assert "signals-scout-emit-signal" not in prompt
+        assert "Tagging your findings" not in prompt
+        # Shared scaffolding is still present on both personas.
+        assert "First: read your skill" in prompt
+        assert "Report operational friction" in prompt
+        assert "Output format" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses

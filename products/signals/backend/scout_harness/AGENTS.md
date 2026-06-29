@@ -25,10 +25,18 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
 - `prompt.py`
   Assembles the system prompt: persona + skill body + relevant scratchpad entries +
   project profile inventory + recent run summaries. Scratchpad and run history are
-  filtered by skill so a specialist only sees its own past work.
+  filtered by skill so a specialist only sees its own past work. `build_run_prompt`
+  forks on the run's channel via `skill_loader.skill_uses_report_channel`: a scout that
+  opted into the report channel gets the report persona + report-authoring guidance
+  (search the inbox first, edit before authoring a duplicate, set `suggested_reviewers`
+  to route the report); every other scout gets the signal persona that fires weak
+  `emit_signal` findings. The bootstrap, scratchpad, recency, and close-out sections
+  are shared between both.
 - `skill_loader.py`
   Resolves `signals-scout-*` skills from the team's `LLMSkill` rows. Defines
-  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools).
+  `SIGNALS_SCOUT_SKILL_PREFIX` and `LoadedSkill` (body + version + allowed_tools), plus
+  `REPORT_CHANNEL_TOOLS` / `skill_uses_report_channel` — the shared report-channel opt-in
+  predicate the runner (scope posture) and prompt builder (persona fork) both resolve from.
 - `lazy_seed.py`
   Canonical skill sync. Reads `products/signals/skills/signals-scout-*/` from disk and
   reconciles them against the team's `LLMSkill` rows: creates missing rows, updates
