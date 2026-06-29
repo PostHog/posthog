@@ -19,6 +19,8 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
+    LoadPerspectivesInput,
+    LoadValidationInput,
     PublishInput,
     ResolveActingUserResult,
     ReviewChunkInput,
@@ -63,6 +65,9 @@ async def _run_full_review_pr_workflow(
     review_calls: list[tuple[int, int]] = []
     validate_calls: list[str] = []
     publish_calls: list[int] = []
+    # The user id the parent threads into the perspective + validation loads (should be the RESOLVED
+    # value, not the None workflow input) — guards the per-user perspective/validator selection seam.
+    load_user_ids: list[int | None] = []
 
     @activity.defn(name="validate_github_integration_activity")
     async def validate_integration(input) -> None:
@@ -100,7 +105,8 @@ async def _run_full_review_pr_workflow(
         return [1, 2]
 
     @activity.defn(name="load_perspectives_activity")
-    async def load_perspectives(input) -> list[LoadedPerspectiveDTO]:
+    async def load_perspectives(input: LoadPerspectivesInput) -> list[LoadedPerspectiveDTO]:
+        load_user_ids.append(input.acting_user_id)
         return [
             LoadedPerspectiveDTO(pass_number=1, skill_name="s-logic", version=1),
             LoadedPerspectiveDTO(pass_number=2, skill_name="s-sec", version=1),
@@ -126,7 +132,8 @@ async def _run_full_review_pr_workflow(
         return DedupResult(issues_json=["issue-json"], findings_count=1)
 
     @activity.defn(name="load_validation_skill_activity")
-    async def load_validation(input) -> LoadedValidationSkillDTO:
+    async def load_validation(input: LoadValidationInput) -> LoadedValidationSkillDTO:
+        load_user_ids.append(input.acting_user_id)
         return LoadedValidationSkillDTO(skill_name="s-val", version=1)
 
     @activity.defn(name="validate_issue_activity")
@@ -189,6 +196,7 @@ async def _run_full_review_pr_workflow(
         "review": review_calls,
         "validate": validate_calls,
         "publish": publish_calls,
+        "load_user_ids": load_user_ids,
     }
 
 
@@ -201,6 +209,9 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     assert len(recorded["review"]) == 6  # 3 perspectives × 2 chunks
     assert recorded["validate"] == ["issue-json"]  # one post-dedup issue
     assert recorded["publish"] == []  # publish=False → never posts to GitHub
+    # The RESOLVED acting user (3 from the resolve stub), not the None workflow input, threads into
+    # both the perspective and validation loads — the per-user selection seam for each.
+    assert recorded["load_user_ids"] == [3, 3]
 
 
 @pytest.mark.asyncio
@@ -314,7 +325,7 @@ async def test_validate_issues_workflow_collects_kept_drops_skips():
         ):
             validations = await env.client.execute_workflow(
                 ValidateIssuesWorkflow.run,
-                ValidateIssuesInputs(**_stage_kwargs(), issues_json=["keep", "drop"]),
+                ValidateIssuesInputs(**_stage_kwargs(), issues_json=["keep", "drop"], acting_user_id=3),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
             )
@@ -348,7 +359,7 @@ async def test_validate_issues_workflow_fails_above_failure_floor():
             with pytest.raises(WorkflowFailureError):
                 await env.client.execute_workflow(
                     ValidateIssuesWorkflow.run,
-                    ValidateIssuesInputs(**_stage_kwargs(), issues_json=["a", "b"]),
+                    ValidateIssuesInputs(**_stage_kwargs(), issues_json=["a", "b"], acting_user_id=3),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
                 )

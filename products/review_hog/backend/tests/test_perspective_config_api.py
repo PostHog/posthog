@@ -7,6 +7,7 @@ from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspe
 from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
+    REVIEW_HOG_VALIDATION_SKILL_NAME,
     register_missing_perspective_configs,
 )
 from products.skills.backend.models.skills import LLMSkill
@@ -61,6 +62,21 @@ class TestReviewPerspectiveConfigAPI(APIBaseTest):
         assert res.status_code == 400
         last = ReviewSkillConfig.objects.for_team(self.team.id).get(user_id=self.user.id, skill_name=names[2])
         assert last.enabled is True
+
+    def test_an_enabled_validator_does_not_satisfy_the_perspective_floor(self) -> None:
+        # The min-1 floor counts only perspectives: an enabled validator in the shared table must not
+        # let a user disable their last perspective.
+        register_missing_perspective_configs(self.team.id, self.user.id)
+        names = sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
+        for name in names[:2]:
+            assert self.client.patch(f"{self.base}/{name}/", {"enabled": False}, format="json").status_code == 200
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME, enabled=True
+        )
+
+        res = self.client.patch(f"{self.base}/{names[2]}/", {"enabled": False}, format="json")
+
+        assert res.status_code == 400
 
     @parameterized.expand(
         [

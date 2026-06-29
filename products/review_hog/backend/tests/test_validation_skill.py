@@ -3,18 +3,32 @@ from posthog.test.base import BaseTest
 
 from django.core.management import call_command
 
+from posthog.models import User
+
+from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import (
     REVIEW_HOG_SKILL_CATEGORY,
     discover_canonical_validation,
     sync_canonical_validation,
 )
 from products.review_hog.backend.reviewer.skill_loader import (
+    CANONICAL_VALIDATION_SKILL_NAMES,
+    REVIEW_HOG_VALIDATION_PREFIX,
     REVIEW_HOG_VALIDATION_SKILL_NAME,
     ValidationSkillNotFoundError,
     load_validation_skill_for_run,
+    register_missing_validation_config,
 )
 from products.skills.backend.api.skill_services import publish_skill_version
 from products.skills.backend.models.skills import LLMSkill
+
+_CUSTOM_VALIDATOR = f"{REVIEW_HOG_VALIDATION_PREFIX}strict"
+
+
+def _author_validator_skill(team, name: str) -> LLMSkill:
+    return LLMSkill.objects.create(
+        team=team, name=name, description="custom", body="x" * 250, version=1, is_latest=True
+    )
 
 
 def test_discover_finds_the_validation_criteria_skill() -> None:
@@ -51,11 +65,43 @@ class TestSyncCanonicalValidation(BaseTest):
         assert latest.body == "the team rewrote the validation bar"
 
 
+class TestRegisterMissingValidationConfig(BaseTest):
+    def test_seeds_the_canonical_validator_enabled_and_is_idempotent(self) -> None:
+        # Seeding enables the canonical validator for the user (so a cold user has a default selected)
+        # and must NOT auto-create a config for a custom validator. Re-running must not duplicate rows.
+        _author_validator_skill(self.team, _CUSTOM_VALIDATOR)
+        register_missing_validation_config(self.team.id, self.user.id)
+        register_missing_validation_config(self.team.id, self.user.id)
+
+        rows = ReviewSkillConfig.objects.for_team(self.team.id).filter(
+            user_id=self.user.id, skill_name__startswith=REVIEW_HOG_VALIDATION_PREFIX
+        )
+        assert {r.skill_name for r in rows} == set(CANONICAL_VALIDATION_SKILL_NAMES)
+        assert all(r.enabled for r in rows)
+
+    def test_does_not_re_enable_the_disabled_canonical(self) -> None:
+        # Single-active: after a user selects a custom validator (canonical off), the next run's seed
+        # must NOT flip the canonical back on — that would leave two validators active.
+        register_missing_validation_config(self.team.id, self.user.id)
+        ReviewSkillConfig.objects.for_team(self.team.id).filter(
+            user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME
+        ).update(enabled=False)
+
+        register_missing_validation_config(self.team.id, self.user.id)
+
+        config = ReviewSkillConfig.objects.for_team(self.team.id).get(
+            user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME
+        )
+        assert config.enabled is False
+
+
 class TestLoadValidationSkillForRun(BaseTest):
-    def test_resolves_pinned_version_after_sync(self) -> None:
+    def test_cold_user_gets_the_canonical_pinned(self) -> None:
+        # A user who never selected anything: seeding enables the canonical, the loader resolves it
+        # pinned to the synced latest version.
         sync_canonical_validation(self.team)
 
-        loaded = load_validation_skill_for_run(self.team.id)
+        loaded = load_validation_skill_for_run(self.team.id, self.user.id)
 
         assert loaded.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
         assert loaded.version == 1
@@ -72,16 +118,71 @@ class TestLoadValidationSkillForRun(BaseTest):
             base_version=1,
         )
 
-        loaded = load_validation_skill_for_run(self.team.id)
+        loaded = load_validation_skill_for_run(self.team.id, self.user.id)
 
         assert loaded.version == 2
         pinned = LLMSkill.objects.get(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, version=loaded.version)
         assert pinned.body == "only flag issues that block the merge"
 
-    def test_raises_when_missing(self) -> None:
-        # No sync ran, so the team has no validation row — a real setup error, not a soft miss.
+    def test_resolves_the_selected_custom_validator(self) -> None:
+        # The core "author a custom validator and run it" path: with the custom selected (canonical
+        # off), the run resolves the custom validator, not the canonical default.
+        sync_canonical_validation(self.team)
+        _author_validator_skill(self.team, _CUSTOM_VALIDATOR)
+        register_missing_validation_config(self.team.id, self.user.id)
+        configs = ReviewSkillConfig.objects.for_team(self.team.id)
+        configs.filter(user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME).update(enabled=False)
+        configs.create(team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM_VALIDATOR, enabled=True)
+
+        loaded = load_validation_skill_for_run(self.team.id, self.user.id)
+
+        assert loaded.skill_name == _CUSTOM_VALIDATOR
+
+    def test_falls_back_to_canonical_when_none_enabled(self) -> None:
+        # No min-1 floor: if the user has no enabled validator row at all, the loader resolves the
+        # canonical default rather than raising (the validator always has a fallback).
+        sync_canonical_validation(self.team)
+        register_missing_validation_config(self.team.id, self.user.id)
+        ReviewSkillConfig.objects.for_team(self.team.id).filter(user_id=self.user.id).update(enabled=False)
+
+        loaded = load_validation_skill_for_run(self.team.id, self.user.id)
+
+        assert loaded.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
+
+    def test_raises_when_the_selected_skill_row_is_missing(self) -> None:
+        # The user selected a custom validator whose skill row was later archived — surfaced loudly,
+        # like a missing perspective, rather than silently swapped.
+        sync_canonical_validation(self.team)
+        configs = ReviewSkillConfig.objects.for_team(self.team.id)
+        register_missing_validation_config(self.team.id, self.user.id)
+        configs.filter(user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME).update(enabled=False)
+        configs.create(
+            team_id=self.team.id, user_id=self.user.id, skill_name=f"{REVIEW_HOG_VALIDATION_PREFIX}ghost", enabled=True
+        )
+
         with pytest.raises(ValidationSkillNotFoundError):
-            load_validation_skill_for_run(self.team.id)
+            load_validation_skill_for_run(self.team.id, self.user.id)
+
+    def test_raises_when_no_skill_synced(self) -> None:
+        # No sync ran, so even the canonical fallback has no skill row — a real setup error.
+        with pytest.raises(ValidationSkillNotFoundError):
+            load_validation_skill_for_run(self.team.id, self.user.id)
+
+    def test_selection_is_per_user(self) -> None:
+        # Selecting a custom validator for one user must not affect another user's run.
+        sync_canonical_validation(self.team)
+        _author_validator_skill(self.team, _CUSTOM_VALIDATOR)
+        other = User.objects.create(email="other-validator@example.com")
+        configs = ReviewSkillConfig.objects.for_team(self.team.id)
+        register_missing_validation_config(self.team.id, self.user.id)
+        configs.filter(user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME).update(enabled=False)
+        configs.create(team_id=self.team.id, user_id=self.user.id, skill_name=_CUSTOM_VALIDATOR, enabled=True)
+
+        mine = load_validation_skill_for_run(self.team.id, self.user.id)
+        theirs = load_validation_skill_for_run(self.team.id, other.id)
+
+        assert mine.skill_name == _CUSTOM_VALIDATOR
+        assert theirs.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
 
 
 class TestSyncCommandSeedsValidation(BaseTest):

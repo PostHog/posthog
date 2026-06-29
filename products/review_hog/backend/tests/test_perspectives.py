@@ -19,6 +19,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     CANONICAL_PERSPECTIVE_SKILL_NAMES,
     PERSPECTIVES,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
+    REVIEW_HOG_VALIDATION_SKILL_NAME,
     NoEnabledPerspectivesError,
     PerspectiveSkillNotFoundError,
     load_perspectives_for_run,
@@ -203,6 +204,20 @@ class TestLoadPerspectivesForRun(BaseTest):
 
         assert _CUSTOM in {lp.skill_name for lp in loaded}
         assert [lp.pass_number for lp in loaded] == [1, 2, 3, 4]
+
+    def test_ignores_an_enabled_validator_row(self) -> None:
+        # Perspectives and validators share one config table; an enabled validator row must not be
+        # loaded as a review perspective (the loader's prefix filter scopes the query).
+        sync_canonical_perspectives(self.team)
+        register_missing_perspective_configs(self.team.id, self.user.id)
+        ReviewSkillConfig.objects.for_team(self.team.id).create(
+            team_id=self.team.id, user_id=self.user.id, skill_name=REVIEW_HOG_VALIDATION_SKILL_NAME, enabled=True
+        )
+
+        loaded = load_perspectives_for_run(self.team.id, self.user.id)
+
+        assert REVIEW_HOG_VALIDATION_SKILL_NAME not in {lp.skill_name for lp in loaded}
+        assert [lp.skill_name for lp in loaded] == sorted(CANONICAL_PERSPECTIVE_SKILL_NAMES)
 
     def test_raises_when_user_has_zero_enabled(self) -> None:
         sync_canonical_perspectives(self.team)
