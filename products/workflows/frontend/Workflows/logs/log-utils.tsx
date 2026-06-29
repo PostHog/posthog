@@ -18,10 +18,6 @@ const ACTION_REGEX = /\[Action:([a-zA-Z0-9_-]+)\]/
 const PERSON_REGEX = /\[Person:([a-zA-Z0-9_-]+)\|(.*?)\]/
 const EVENT_REGEX = /\[Event:([a-zA-Z0-9_-]+)\|(.*?)\|(.*?)\]/
 const ACTOR_REGEX = /\[Actor:(.*?)\]/
-// `[Email:<invocation_id>:<action_id>]` — emitted by the email service alongside the
-// success log when an asset row will be captured. Renders as an inline "View email"
-// chip that opens the rendered HTML in a modal in place (no tab navigation). Both ids
-// are needed because /assets/content takes the (invocation_id, action_id) tuple.
 const EMAIL_REGEX = /\[Email:([a-zA-Z0-9_-]+):([a-zA-Z0-9_-]*)\]/
 
 function EmailViewerChip({
@@ -49,7 +45,7 @@ function EmailViewerChip({
                 View email
             </Link>
             <LemonModal isOpen={open} onClose={() => setOpen(false)} width={720} title="Email">
-                {/* sandbox with no allow-scripts: render the email HTML + images but neutralize any JS. */}
+                {/* sandbox="" disables scripts so the captured email HTML can't run anything. */}
                 <iframe
                     title="Rendered email"
                     sandbox=""

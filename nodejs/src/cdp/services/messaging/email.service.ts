@@ -179,16 +179,10 @@ export class EmailService {
                     throw new Error('Email delivery mode not supported')
             }
 
-            // Build the asset row eagerly so the success log can carry an inline
-            // `[Email:<invocation_id>:<action_id>]` token — `renderWorkflowLogMessage`
-            // substitutes that with a "View email" chip that opens the rendered HTML in
-            // a modal in place (no navigation off the logs tab). Both ids are needed
-            // because the assets/content endpoint takes the (invocation_id, action_id)
-            // tuple — they together identify the unique email a step sent.
-            //
-            // Emitting the token only when an asset will actually be captured (skipping
-            // kill-switch off / text-only / standalone-send / test) keeps the chip from
-            // 404-ing on click. `assetRow` is hoisted above the try block.
+            // Emit the `[Email:…]` token in the success log only when an asset row
+            // will actually be captured; `renderWorkflowLogMessage` renders it as the
+            // "View email" chip, so suppressing it for skipped captures keeps the chip
+            // from 404-ing on click.
             if (!isTest && this.messageAssetsService) {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, params)
             }
@@ -236,11 +230,6 @@ export class EmailService {
                 count: 1,
             })
 
-            // Push the asset row built above onto result.emailAssets — MessageAssetsService
-            // drains the per-result lists into a single bulk produce at the batch boundary
-            // (one Kafka round-trip per partition for the whole batch instead of one per
-            // email). assetRow is null when capture is disabled / text-only / standalone,
-            // in which case the success log line also skipped the inline View-email chip.
             if (success && assetRow) {
                 result.emailAssets.push(assetRow)
             }

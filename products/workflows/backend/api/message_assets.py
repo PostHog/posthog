@@ -6,11 +6,9 @@ from rest_framework import serializers
 
 from posthog.clickhouse.client.execute import sync_execute
 
-# message_assets rows are written once per (invocation_id, action_id) but a retried
-# Kafka produce can duplicate them, so collapse to the latest `version` the same way
-# the invocation-results reader does. The argMax aliases are deliberately prefixed
-# `latest_` so they never collide with a same-named raw column in a WHERE clause
-# (ClickHouse would otherwise resolve the name to the aggregate and error).
+# `latest_` prefix on the argMax aliases prevents collision with the raw column
+# names in any outer WHERE — ClickHouse resolves the bare name to the aggregate
+# and errors otherwise.
 _COLLAPSED_AGGREGATES = """
     invocation_id,
     action_id,
@@ -159,11 +157,6 @@ def fetch_message_assets(
     after: Optional[datetime] = None,
     before: Optional[datetime] = None,
 ) -> list[MessageAsset]:
-    """List a workflow's sent-email assets, each collapsed to its latest version.
-
-    The `html` column is not selected here — column-oriented storage means we
-    don't pay for it on the listing path.
-    """
     where = [
         "team_id = %(team_id)s",
         "function_kind = %(function_kind)s",
@@ -177,9 +170,8 @@ def fetch_message_assets(
         "offset": offset,
     }
 
-    # parent_run_id / distinct_id / recipient / subject are stable across an asset's
-    # lifecycle rows, so they're filtered pre-aggregation on the raw columns (hitting
-    # the bloom-filter skip indexes). `is_deleted` flips, so it's filtered post-collapse.
+    # Filter stable-across-versions fields pre-aggregation to hit the bloom-filter
+    # skip indexes. `is_deleted` flips per version, so it's filtered post-collapse.
     if parent_run_id is not None:
         where.append("parent_run_id = %(parent_run_id)s")
         kwargs["parent_run_id"] = parent_run_id
@@ -226,9 +218,6 @@ def fetch_message_asset_html(
     invocation_id: str,
     action_id: str,
 ) -> Optional[str]:
-    """Return the rendered HTML for the latest non-deleted version of one asset,
-    or None if no such row exists (never written, or expired by TTL).
-    """
     kwargs = {
         "team_id": team_id,
         "function_kind": function_kind,
@@ -236,9 +225,8 @@ def fetch_message_asset_html(
         "invocation_id": invocation_id,
         "action_id": action_id,
     }
-    # GROUP BY (instead of a bare aggregate) so a no-match query returns zero rows
-    # rather than a single default-value row that would let the action return HTTP 200
-    # with empty HTML.
+    # GROUP BY so a no-match query returns zero rows — a bare aggregate would
+    # return one default-valued row and the action would serve HTTP 200 + empty.
     query = """
         SELECT latest_html
         FROM (

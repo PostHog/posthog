@@ -1229,9 +1229,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
         # able to enumerate who a workflow ran for.
         if self.action in ("invocation_results", "invocation_result"):
             return ["hog_flow:read", "person:read"]
-        # Asset listing/serving returns recipient/distinct_id/person_id and the rendered email a
-        # person received — person-data access. Require person:read on top of workflow read so a
-        # hog_flow:read-only token can't enumerate who a workflow emailed or read their messages.
+        # Assets expose recipient/distinct_id/person_id and the message bytes — require
+        # person:read so a hog_flow:read-only token can't enumerate who got emailed.
         if self.action in ("assets", "asset_content"):
             return ["hog_flow:read", "person:read"]
         # A test invocation resolves the event's $groups into real group properties server-side, so a
@@ -1604,8 +1603,6 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     )
     @action(detail=True, methods=["GET"], pagination_class=None, filter_backends=[])
     def assets(self, request: Request, *args, **kwargs):
-        # The sent emails captured for this workflow, newest first. Batch-triggered runs group by
-        # parent_run_id (the HogFlowBatchJob); event-triggered runs have an empty parent_run_id.
         obj = self.get_object()
         tag_queries(product=ProductKey.WORKFLOWS, feature=Feature.QUERY)
 
@@ -1641,9 +1638,7 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
     )
     @action(detail=True, methods=["GET"], url_path="assets/content", pagination_class=None, filter_backends=[])
     def asset_content(self, request: Request, *args, **kwargs):
-        # The HTML body lives inline in the message_assets ClickHouse table, so we serve
-        # the bytes directly. Ownership-check the HogFlow first (so other teams' assets
-        # can't be probed) before pulling the row.
+        # Ownership-check the HogFlow first so other teams' assets can't be probed.
         obj = self.get_object()
 
         param_serializer = MessageAssetContentRequestSerializer(data=request.query_params)

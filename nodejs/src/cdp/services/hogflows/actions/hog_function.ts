@@ -51,12 +51,6 @@ export class HogFunctionHandler implements ActionHandler {
             ...functionResult.warehouseWebhookPayloads,
         ]
         result.metrics = [...result.metrics, ...functionResult.metrics]
-        // Same merge as above for email-asset snapshots: when this handler runs a
-        // function_email step, executeSendEmail appends to functionResult.emailAssets,
-        // and the outer hogflow result must carry them up so InvocationResultsService →
-        // MessageAssetsService.queueInvocationResults can drain them into the next flush.
-        // Without this the batch-send path silently drops all assets while the editor
-        // test-send path (which bypasses this handler via sendEmailsInline) still works.
         result.emailAssets = [...result.emailAssets, ...functionResult.emailAssets]
 
         if (!functionResult.finished) {

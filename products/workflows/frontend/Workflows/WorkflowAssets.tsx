@@ -39,7 +39,7 @@ function AssetViewerModal({ workflowId, parentRunId, actionId, invocationId }: A
             description={selectedAsset ? `Sent to ${selectedAsset.recipient}` : undefined}
         >
             {selectedAsset ? (
-                // sandbox with no allow-scripts: render the email HTML + images but neutralize any JS.
+                // sandbox="" disables scripts so the captured email HTML can't run anything.
                 <iframe
                     title="Rendered email"
                     sandbox=""
@@ -63,10 +63,8 @@ function AssetsTable({ workflowId, parentRunId, actionId, invocationId }: Assets
     const { assets, assetsLoading, search, selectedAsset } = useValues(logic)
     const { setSearch, openAsset } = useActions(logic)
 
-    // Deep-link from a log entry: when ?assetInvocation=<id> resolves to exactly one row,
-    // open it inline so the user lands on the rendered HTML without an extra click.
-    // Skip when an asset is already open (don't re-open after the user dismissed) or when
-    // the user has typed into search (would steal focus on every keystroke).
+    // Auto-open the asset when arriving via ?assetInvocation=<id>. Skip if one is
+    // already open (user dismissed it) or the search box has focus.
     useEffect(() => {
         if (invocationId && assets.length === 1 && !selectedAsset && !search) {
             openAsset(assets[0])
@@ -193,10 +191,7 @@ export function WorkflowAssets(props: WorkflowLogicProps): JSX.Element {
     const { workflow, workflowLoading } = useValues(workflowLogic(props))
     const { searchParams } = useValues(router)
     const workflowId = props.id ?? 'new'
-    // Deep link from a step's metric: ?assetAction=<actionId> pre-filters to that email step.
     const actionId = (searchParams.assetAction as string | undefined) || undefined
-    // Deep link from a single log entry: ?assetInvocation=<id> filters to that run's one email
-    // and auto-opens it (handled in AssetsTable below).
     const invocationId = (searchParams.assetInvocation as string | undefined) || undefined
 
     if (workflowLoading) {

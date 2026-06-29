@@ -2,13 +2,9 @@ import { ApiRequest } from 'lib/api'
 
 import { HogFlow } from './hogflows/types'
 
-// Asset endpoints + their types live here, not in lib/api.ts or hogflows/types.ts:
-// both are imported by half the app, so editing either balloons the changed-files
-// Jest selection (`--findRelatedTests`) to almost the whole suite. Keeping this
-// workflows-scoped keeps that selection small.
+// Scoped to this product to keep Jest's `--findRelatedTests` selection small —
+// lib/api.ts and hogflows/types.ts are both imported by half the app.
 
-// A rendered email snapshot captured when a workflow sent it. Mirrors
-// MessageAssetSerializer in products/workflows/backend/api/message_assets.py.
 export interface MessageAsset {
     invocation_id: string
     action_id: string
@@ -43,8 +39,7 @@ export async function getMessageAssets(
     return await new ApiRequest().hogFlow(hogFlowId).withAction('assets').withQueryString(params).get()
 }
 
-// Same-origin URL for an asset's rendered HTML. Used directly as an <iframe src>; the
-// browser carries session auth, the endpoint serves text/html bytes inline from ClickHouse.
+// Same-origin URL — used as an `<iframe src>` so the browser carries session auth.
 export function getMessageAssetContentUrl(hogFlowId: HogFlow['id'], invocationId: string, actionId: string): string {
     return new ApiRequest()
         .hogFlow(hogFlowId)

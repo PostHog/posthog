@@ -77,8 +77,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert res.json() == []
 
     def test_listing_returns_metadata_without_html(self):
-        # The list endpoint must never include the rendered HTML — column-oriented
-        # storage means we don't pay to read it, and clients shouldn't see it here.
         self._seed("inv-1", recipient="bob@example.com", subject="Hi Bob", distinct_id="user-7")
         results = self._list().json()
         assert len(results) == 1
@@ -102,33 +100,26 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert self._list().json() == []
 
     def test_filters_by_parent_run_id(self):
-        # Batch grouping: a workflow's assets split by the batch run they belong to.
         self._seed("inv-batch", parent_run_id="batch-1")
         self._seed("inv-continuous", parent_run_id="")
         batch = self._list({"parent_run_id": "batch-1"}).json()
         assert {r["invocation_id"] for r in batch} == {"inv-batch"}
-        # An explicit empty string returns only event-triggered (non-batch) assets.
         continuous = self._list({"parent_run_id": ""}).json()
         assert {r["invocation_id"] for r in continuous} == {"inv-continuous"}
 
     def test_filters_by_action_id(self):
-        # Drill-down from a single email step's metric.
         self._seed("inv-1", action_id="step-a")
         self._seed("inv-2", action_id="step-b")
         results = self._list({"action_id": "step-a"}).json()
         assert {r["invocation_id"] for r in results} == {"inv-1"}
 
     def test_filters_by_invocation_id(self):
-        # Deep-link from a single invocation log entry to the email that run sent.
         self._seed("inv-1")
         self._seed("inv-2")
         results = self._list({"invocation_id": "inv-1"}).json()
         assert {r["invocation_id"] for r in results} == {"inv-1"}
 
     def test_invocation_id_filter_returns_empty_when_no_asset_was_captured(self):
-        # A run can complete without producing an asset (text-only, kill-switch off,
-        # standalone email send). The deep-link should resolve to 0 rows in that case,
-        # not raise — the UI uses that to hide the "View email" link.
         self._seed("inv-1")
         results = self._list({"invocation_id": "inv-nonexistent"}).json()
         assert results == []
@@ -175,7 +166,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         for i in range(5):
             self._seed(f"inv-{i}")
         assert len(self._list({"limit": 2}).json()) == 2
-        # offset past the first page still returns rows
         assert len(self._list({"limit": 2, "offset": 4}).json()) == 1
 
     def test_content_returns_html_bytes_inline(self):
@@ -186,7 +176,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert res.content == b"<html><body>Hello Bob</body></html>"
 
     def test_content_returns_latest_version_html(self):
-        # ReplacingMergeTree collapse: argMax on version wins on read.
         self._seed("inv-1", action_id="step-a", html="<p>old</p>", version=1)
         self._seed("inv-1", action_id="step-a", html="<p>new</p>", version=2)
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
@@ -198,7 +187,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         assert res.status_code == status.HTTP_404_NOT_FOUND
 
     def test_content_404_for_deleted_asset(self):
-        # is_deleted=1 row should hide the asset from /content the same way it hides from /list.
         self._seed("inv-1", action_id="step-a", version=1)
         self._seed("inv-1", action_id="step-a", version=2, is_deleted=1)
         res = self.client.get(f"{self._base()}/assets/content/?invocation_id=inv-1&action_id=step-a")
@@ -211,8 +199,6 @@ class TestMessageAssets(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_personal_api_key_requires_person_read_scope(self, path: str):
-        # Assets expose recipient/distinct_id/person_id and the message a person received, so a
-        # hog_flow:read-only token must not reach them — person:read is also required.
         self._seed("inv-1", action_id="step-a")
         key = generate_random_token_personal()
         PersonalAPIKey.objects.create(

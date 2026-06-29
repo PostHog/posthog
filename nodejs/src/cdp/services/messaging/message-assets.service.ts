@@ -43,11 +43,6 @@ const isoMicroseconds = (date: Date): string => {
     return date.toISOString().replace('T', ' ').replace('Z', '000')
 }
 
-// Text-only emails (no `params.html`) still need to surface in the Assets tab so
-// operators can see what plain-text content was delivered. We escape and wrap the
-// text body in a `<pre>` so the iframe renders it as preformatted text without
-// pretending it's HTML — the user-typed `<` / `>` / `&` characters can't break
-// the surrounding markup or inject anything.
 const HTML_ESCAPE: Record<string, string> = {
     '&': '&amp;',
     '<': '&lt;',
@@ -56,26 +51,25 @@ const HTML_ESCAPE: Record<string, string> = {
     "'": '&#39;',
 }
 
+// Escape user-typed `<`/`>`/`&` so a `<pre>`-wrapped plain-text body can't break
+// surrounding markup or inject scripts.
 const wrapPlainTextAsHtml = (text: string): string => {
     const escaped = text.replace(/[&<>"']/g, (c) => HTML_ESCAPE[c])
     return `<!doctype html><meta charset="utf-8"><pre style="white-space:pre-wrap;font-family:ui-monospace,Menlo,monospace;margin:0;padding:1rem">${escaped}</pre>`
 }
 
 /**
- * Buffers rendered-email snapshots and flushes them as a single bulk Kafka produce
- * at the batch boundary — so a workflow batch that sends N emails costs one
- * produce round-trip per partition, not N.
+ * Buffers rendered-email snapshots and flushes them as a single bulk Kafka
+ * produce at the batch boundary — one round-trip per partition for the whole
+ * batch instead of one per email.
  *
- * Durability: email assets are load-bearing for the workflow Assets tab, so unlike
- * the logs/metrics services this one rethrows on flush failure. The consumer's
- * `runBackgroundTasks` awaits the flush before the Postgres job-queue commits
- * offsets, so a broker outage stalls progress rather than silently dropping rows.
- * On crash mid-flush the batch is redelivered, the emails re-send (the same
- * pre-existing duplicate-email risk we had with the fire-and-forget produce), and
- * the assets re-produce with the same `invocation_id` partition key — the
- * ReplacingMergeTree on the destination collapses them to one row.
- *
- * Gated by the global `MESSAGE_ASSETS_CAPTURE_ENABLED` kill-switch.
+ * Email assets are load-bearing for the workflow Assets tab, so unlike the
+ * logs/metrics services this one rethrows on flush failure. The consumer's
+ * `runBackgroundTasks` awaits the flush before the job-queue commits offsets,
+ * so a broker outage stalls progress rather than silently dropping rows. On
+ * crash mid-flush the batch is redelivered and re-produced with the same
+ * `invocation_id` partition key — the destination ReplacingMergeTree collapses
+ * the duplicate via `version`.
  */
 export class MessageAssetsService {
     private queuedRows: MessageAssetRow[] = []
@@ -85,21 +79,9 @@ export class MessageAssetsService {
         private config: MessageAssetsServiceConfig
     ) {}
 
-    /**
-     * Builds the row from a successful email send. Returns null when the asset is
-     * intentionally skipped: capture disabled, no content at all (no html AND no
-     * text), or a standalone email-destination send with no action id — the
-     * Assets API queries by `function_kind='hog_flow'` keyed off the action node
-     * id, so capturing a row with no action id would write data nothing can ever
-     * surface.
-     *
-     * Text-only emails still get a row so operators can confirm what was
-     * delivered: the text body is escaped and wrapped in a `<pre>` block so the
-     * existing iframe-based viewer renders it as preformatted text.
-     *
-     * Pure-ish builder so the email service can append the row directly onto
-     * `result.emailAssets` without coupling to this service's buffer.
-     */
+    // Returns null when capture is disabled, no content (neither html nor
+    // text), or no action id — the Assets API filters by `function_kind='hog_flow'`
+    // and keys off the action node id, so a row without one is unreachable.
     buildRowForEmail(
         invocation: CyclotronJobInvocationHogFunction,
         params: CyclotronInvocationQueueParametersEmailType
@@ -116,8 +98,6 @@ export class MessageAssetsService {
         }
         return {
             team_id: invocation.teamId,
-            // buildRowForEmail only returns a row for in-workflow email steps (an
-            // action id is present), so these always attribute to the workflow.
             function_kind: 'hog_flow',
             function_id: invocation.functionId,
             parent_run_id: invocation.parentRunId ?? '',
@@ -136,11 +116,6 @@ export class MessageAssetsService {
         }
     }
 
-    /**
-     * Drains `result.emailAssets` from each invocation result into the internal
-     * buffer. Mirrors `HogFunctionMonitoringService.queueInvocationResults` so the
-     * fan-out in `InvocationResultsService` looks the same across sinks.
-     */
     queueInvocationResults(results: CyclotronJobInvocationResult[]): void {
         for (const result of results) {
             if (!result.emailAssets || result.emailAssets.length === 0) {
@@ -153,12 +128,6 @@ export class MessageAssetsService {
         messageAssetsPendingRows.set(this.queuedRows.length)
     }
 
-    /**
-     * Bulk-produces every queued row in parallel and awaits broker acks. Throws on
-     * the first failure: callers (the consumer's `runBackgroundTasks`) MUST NOT
-     * commit offsets if this throws, otherwise a broker outage would silently drop
-     * load-bearing asset rows.
-     */
     async flush(): Promise<void> {
         if (this.queuedRows.length === 0) {
             return
@@ -172,8 +141,7 @@ export class MessageAssetsService {
                 rows.map((row) =>
                     this.outputs.produce(MESSAGE_ASSETS_OUTPUT, {
                         // Partition by invocation_id so retried produces for the
-                        // same asset land on the same partition and collapse
-                        // cleanly via the ReplacingMergeTree.
+                        // same asset collapse cleanly via the ReplacingMergeTree.
                         key: Buffer.from(row.invocation_id),
                         value: Buffer.from(safeClickhouseString(JSON.stringify(row))),
                     })
@@ -187,10 +155,9 @@ export class MessageAssetsService {
                 queued: rows.length,
             })
             captureException(error)
-            // Rethrow so the consumer does not commit offsets — the batch is
-            // redelivered, emails re-send, assets re-produce, ReplacingMergeTree
-            // dedupes on `invocation_id` + `version`. Better duplicate emails on
-            // crash than lost asset rows.
+            // Rethrow so the consumer does not commit offsets — the redelivered
+            // batch re-produces with the same `invocation_id` + `version`, which
+            // the ReplacingMergeTree dedupes.
             throw error
         }
     }
