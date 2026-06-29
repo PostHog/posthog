@@ -1,6 +1,6 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
+import { useEffect, useState } from 'react'
 
 import { IconBug, IconCursorClick, IconGlobe, IconKeyboard, IconPlay } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -10,9 +10,10 @@ import ViewRecordingButton, {
     RecordingPlayerType,
     useRecordingButton,
 } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
+import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { getExportsContentRetrieveUrl } from '~/generated/core/api'
@@ -39,21 +40,12 @@ export function isSessionProblemExtra(
     return typeof extra.session_id === 'string' && 'problem_type' in extra
 }
 
-/** Segment and event times arrive as recording-relative offsets (`MM:SS` / `HH:MM:SS`), not datetimes — parse to seconds. */
-function parseRecordingOffsetSeconds(offset: string | undefined): number | null {
-    if (!offset) {
-        return null
-    }
-    const parts = offset.split(':').map((part) => Number(part))
-    if (parts.length < 2 || parts.length > 3 || parts.some((part) => !Number.isFinite(part))) {
-        return null
-    }
-    return parts.reduce((total, part) => total * 60 + part, 0)
-}
-
-/** Turns a recording-relative offset into an absolute timestamp the player can seek to, given the session start. */
+/**
+ * Segment and event times arrive as recording-relative offsets (`MM:SS` / `HH:MM:SS`), not datetimes.
+ * Combine the offset with the session start to get an absolute timestamp the player can seek to.
+ */
 function recordingSeekTime(sessionStartTime: string | undefined, offset: string | undefined): Dayjs | undefined {
-    const offsetSeconds = parseRecordingOffsetSeconds(offset)
+    const offsetSeconds = reverseColonDelimitedDuration(offset)
     if (!sessionStartTime || offsetSeconds === null) {
         return undefined
     }
@@ -127,10 +119,20 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
 
     const segmentSeekTime = recordingSeekTime(extra.session_start_time, extra.start_time)
 
+    // Mirror ViewRecordingButton's `checkRecordingExists`: batch-check the recording so the play
+    // affordance disables (rather than opening an empty player) when the recording wasn't captured.
+    const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
+    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    useEffect(() => {
+        checkRecordingInfo(extra.session_id)
+    }, [extra.session_id, checkRecordingInfo])
+    const hasRecording = getRecordingExists(extra.session_id)
+
     const { onClick: openRecording, disabledReason } = useRecordingButton({
         sessionId: extra.session_id,
         timestamp: segmentSeekTime,
         openPlayerIn: RecordingPlayerType.Modal,
+        hasRecording,
     })
 
     const events = extra.event_history ?? []
@@ -164,8 +166,9 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
                 type="button"
                 onClick={openRecording}
                 disabled={!!disabledReason}
+                title={typeof disabledReason === 'string' ? disabledReason : undefined}
                 aria-label="Play recording"
-                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default"
+                className="group relative w-full aspect-video rounded overflow-hidden border bg-surface-secondary mb-2 cursor-pointer disabled:cursor-default disabled:opacity-70"
             >
                 {thumbnailSrc && (
                     <img
