@@ -87,16 +87,23 @@ def _fetch_page(
     return response.json()
 
 
-def validate_credentials(api_key: str) -> bool:
+def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # A bad key 401s; a valid-but-unscoped key 403s (the 'Read posts' permission is optional). Both
     # mean the key is genuine, so only a 401 fails source-create — per-endpoint scope is surfaced
-    # separately at sync time via `get_non_retryable_errors`.
+    # separately at sync time via `get_non_retryable_errors`. Transport failures and unexpected
+    # statuses are inconclusive: reporting them as an invalid key would push users to needlessly
+    # rotate a working credential (and re-enter it into a possibly-degraded environment), so they
+    # get a generic retry message instead. `redact_values` masks the key from any captured sample.
     url = _build_url("/posts", {"maxResults": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
-        return response.status_code in (200, 403)
-    except Exception:
-        return False
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
+    except requests.RequestException:
+        return False, "Could not reach Beamer to validate the API key. Please try again."
+    if response.status_code in (200, 403):
+        return True, None
+    if response.status_code == 401:
+        return False, "Invalid Beamer API key"
+    return False, f"Beamer could not validate the API key right now (status {response.status_code}). Please try again."
 
 
 def _iter_parent_ids(
@@ -113,9 +120,9 @@ def _iter_parent_ids(
         if not items:
             break
         for item in items:
-            parent_id = item.get("id")
-            if parent_id is not None:
-                yield str(parent_id)
+            # `id` is the required primary key on every parent row; direct access so a missing
+            # field fails loudly rather than silently dropping the parent's children.
+            yield str(item["id"])
         if len(items) < parent_config.max_results:
             break
         page += 1
@@ -139,14 +146,18 @@ def _iter_top_level_rows(
             break
 
         has_more = len(items) >= config.max_results
-        for item in items:
+        last_index = len(items) - 1
+        for index, item in enumerate(items):
             batcher.batch(item)
             if batcher.should_yield():
                 yield batcher.get_table()
-                # Save AFTER yielding so a crash re-fetches from the next page rather than skipping it
-                # (merge dedupes on the primary key). Only save when more pages remain.
-                if has_more:
-                    manager.save_state(BeamerResumeConfig(page=page + 1))
+                # The batcher just flushed everything buffered up to this item, so checkpoint here.
+                # Advance to the next page only on the page's last item; a mid-page flush (the bytes
+                # cap firing before the count cap) leaves this page's tail un-batched, so resume from
+                # this same page and let merge dedupe the rows already flushed. Saving page+1 mid-page
+                # would skip those trailing items on a crash.
+                resume_page = page + 1 if index == last_index and has_more else page
+                manager.save_state(BeamerResumeConfig(page=resume_page))
 
         if not has_more:
             break
@@ -186,12 +197,15 @@ def _iter_fan_out_rows(
                     break
 
                 has_more = len(items) >= config.max_results
-                for item in items:
+                last_index = len(items) - 1
+                for item_index, item in enumerate(items):
                     batcher.batch({**item, config.parent_key: parent_id})
                     if batcher.should_yield():
                         yield batcher.get_table()
-                        if has_more:
-                            manager.save_state(BeamerResumeConfig(page=page + 1, parent_id=parent_id))
+                        # Same checkpoint rule as the top-level path: only advance the page on the
+                        # page's last item, otherwise resume from this page (merge dedupes).
+                        checkpoint_page = page + 1 if item_index == last_index and has_more else page
+                        manager.save_state(BeamerResumeConfig(page=checkpoint_page, parent_id=parent_id))
 
                 if not has_more:
                     break
@@ -204,8 +218,11 @@ def _iter_fan_out_rows(
             else:
                 raise
 
-        # Advance the bookmark to the next parent so a crash between parents resumes correctly.
-        if index + 1 < len(remaining):
+        # Advance the bookmark to the next parent so a crash between parents resumes correctly — but
+        # only when the batcher holds no unflushed rows. If this parent's tail is still buffered,
+        # advancing past it would skip those rows on resume; we leave the last on-yield checkpoint in
+        # place instead (a crash re-fetches from there and merge dedupes).
+        if index + 1 < len(remaining) and not batcher.should_yield(include_incomplete_chunk=True):
             manager.save_state(BeamerResumeConfig(page=FIRST_PAGE, parent_id=remaining[index + 1]))
 
 
@@ -222,8 +239,9 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and, for fan-out, every parent) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. `redact_values` masks the API key
+    # (sent in the `Beamer-Api-Key` header) from any captured HTTP samples or logged requests.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.parent is not None:
         parent_config = BEAMER_ENDPOINTS[config.parent]

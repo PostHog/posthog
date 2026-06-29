@@ -2,6 +2,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.beamer import BeamerResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.source import BeamerSource
@@ -21,8 +23,10 @@ class TestBeamerSourceConfig:
         config = self.source.get_source_config
         fields = {f.name: f for f in config.fields}
         assert set(fields) == {"api_key"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
+        api_key_field = fields["api_key"]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert api_key_field.required is True
+        assert api_key_field.secret is True
 
     def test_config_is_released_alpha(self) -> None:
         config = self.source.get_source_config
@@ -75,11 +79,17 @@ class TestGetSchemas:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("valid", True, (True, None)), ("invalid", False, (False, "Invalid Beamer API key"))])
-    def test_validate_credentials(self, _name: str, probe_result: bool, expected: tuple) -> None:
+    @parameterized.expand(
+        [
+            ("valid", (True, None)),
+            ("invalid", (False, "Invalid Beamer API key")),
+            ("inconclusive", (False, "Could not reach Beamer to validate the API key. Please try again.")),
+        ]
+    )
+    def test_validate_credentials_passes_probe_result_through(self, _name: str, probe_result: tuple) -> None:
         config = BeamerSourceConfig(api_key="key")
         with patch.object(source_module, "validate_beamer_credentials", return_value=probe_result):
-            assert BeamerSource().validate_credentials(config, team_id=1) == expected
+            assert BeamerSource().validate_credentials(config, team_id=1) == probe_result
 
 
 class TestNonRetryableErrors:

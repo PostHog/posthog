@@ -124,10 +124,7 @@ Notes:
     def validate_credentials(
         self, config: BeamerSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_beamer_credentials(config.api_key):
-            return True, None
-
-        return False, "Invalid Beamer API key"
+        return validate_beamer_credentials(config.api_key)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[BeamerResumeConfig]:
         return ResumableSourceManager[BeamerResumeConfig](inputs, BeamerResumeConfig)

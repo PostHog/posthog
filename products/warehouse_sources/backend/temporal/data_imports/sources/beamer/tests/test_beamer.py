@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 import requests
 from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer import beamer
 from products.warehouse_sources.backend.temporal.data_imports.sources.beamer.beamer import (
     BeamerResumeConfig,
@@ -48,25 +49,34 @@ class TestValidateCredentials:
     @parameterized.expand(
         [
             # 200 = good key, 403 = real key missing the optional 'Read posts' permission — both valid.
-            ("ok", 200, True),
-            ("forbidden_is_valid_key", 403, True),
-            ("unauthorized_is_invalid", 401, False),
-            ("server_error_is_not_valid", 500, False),
+            ("ok", 200, True, None),
+            ("forbidden_is_valid_key", 403, True, None),
+            ("unauthorized_is_invalid", 401, False, "Invalid Beamer API key"),
+            # A 5xx is inconclusive — never reported as an invalid key (would prompt a needless rotation).
+            ("server_error_is_inconclusive", 500, False, "could not validate"),
         ]
     )
-    def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
+    def test_status_mapping(self, _name: str, status_code: int, expected_ok: bool, expected_msg: str | None) -> None:
         response = MagicMock()
         response.status_code = status_code
         session = MagicMock()
         session.get.return_value = response
         with patch.object(beamer, "make_tracked_session", return_value=session):
-            assert validate_credentials("key") is expected
+            ok, message = validate_credentials("key")
+        assert ok is expected_ok
+        if expected_msg is None:
+            assert message is None
+        else:
+            assert message is not None and expected_msg in message
 
-    def test_network_error_is_invalid(self) -> None:
+    def test_network_error_is_inconclusive_not_invalid(self) -> None:
+        # A transport failure must not be reported as an invalid key.
         session = MagicMock()
         session.get.side_effect = requests.ConnectionError()
         with patch.object(beamer, "make_tracked_session", return_value=session):
-            assert validate_credentials("key") is False
+            ok, message = validate_credentials("key")
+        assert ok is False
+        assert message is not None and "Could not reach Beamer" in message
 
 
 class _FakeResumableManager:
@@ -102,7 +112,7 @@ def _collect(
         return result
 
     monkeypatch.setattr(beamer, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(beamer, "make_tracked_session", lambda: MagicMock())
+    monkeypatch.setattr(beamer, "make_tracked_session", lambda *args, **kwargs: MagicMock())
 
     rows: list[dict] = []
     for table in get_rows(
@@ -133,7 +143,7 @@ class TestTopLevelPagination:
         ]
 
     def test_empty_first_page_yields_nothing(self, monkeypatch: Any) -> None:
-        pages = {"https://api.getbeamer.com/v0/posts?maxResults=10&page=1": []}
+        pages: dict[str, list[dict[str, Any]]] = {"https://api.getbeamer.com/v0/posts?maxResults=10&page=1": []}
         rows, fetched = _collect(monkeypatch, "posts", pages)
         assert rows == []
 
@@ -165,6 +175,24 @@ class TestTopLevelPagination:
         rows, fetched = _collect(monkeypatch, "posts", pages, manager=manager)
         assert rows == [{"id": 99, "date": "2026-01-01"}]
         assert fetched == ["https://api.getbeamer.com/v0/posts?maxResults=10&page=3"]
+
+    def test_mid_page_yield_checkpoints_current_page_not_next(self, monkeypatch: Any) -> None:
+        # Force a flush on every item (chunk_size=1) so we can observe the per-item checkpoint. A
+        # mid-page flush must save the current page, not page+1 — saving page+1 mid-page would skip
+        # the page's un-batched tail on a crash. Only the page's final item advances the checkpoint.
+        monkeypatch.setattr(beamer, "Batcher", lambda **kwargs: Batcher(logger=MagicMock(), chunk_size=1))
+        pages = {
+            "https://api.getbeamer.com/v0/posts?maxResults=10&page=1": [
+                {"id": i, "date": "2026-01-01"} for i in range(10)
+            ],
+            "https://api.getbeamer.com/v0/posts?maxResults=10&page=2": [{"id": 10, "date": "2026-01-02"}],
+        }
+        manager = _FakeResumableManager()
+        _collect(monkeypatch, "posts", pages, manager=manager)
+        saved_pages = [state.page for state in manager.saved]
+        # Page 1 is full: its first nine items checkpoint page 1, its last item advances to page 2.
+        # Page 2 is short (no further pages): its lone item checkpoints page 2, never page 3.
+        assert saved_pages == [1] * 9 + [2, 2]
 
 
 class TestFanOut:
