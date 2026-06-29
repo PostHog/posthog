@@ -657,13 +657,21 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // A failed reachability check is an expected outcome here: it just means the
+            // uiHost (often a reverse proxy or self-hosted instance) doesn't forward
+            // `/toolbar_oauth/check`, which already surfaces the config modal to the user.
+            // Only capture genuinely unexpected failures as exceptions to avoid flooding
+            // error tracking — the analytics event below keeps full visibility either way.
+            if (errorType === 'unknown') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

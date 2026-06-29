@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -344,6 +345,53 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+
+        it('does not capture an exception when the HEAD check returns an expected HTTP error', async () => {
+            const exceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockReturnValue(undefined as any)
+            const captureSpy = jest.spyOn(toolbarPosthogJS, 'capture')
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    // Reverse proxy / self-hosted host that doesn't forward the endpoint.
+                    return Promise.resolve({ ok: false, status: 404 })
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            // The expected reachability failure must not flood error tracking...
+            expect(exceptionSpy).not.toHaveBeenCalled()
+            // ...but the analytics event still fires for visibility.
+            expect(captureSpy).toHaveBeenCalledWith(
+                'toolbar ui host check',
+                expect.objectContaining({ status: 'error', error_type: 'http_error' })
+            )
+            exceptionSpy.mockRestore()
+            captureSpy.mockRestore()
+        })
+
+        it('captures an exception only for genuinely unexpected HEAD check failures', async () => {
+            const exceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockReturnValue(undefined as any)
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) => {
+                if (typeof url === 'string' && url.endsWith('/toolbar_oauth/check')) {
+                    // Not a timeout, network/CORS, or HTTP error — i.e. an unexpected code bug.
+                    return Promise.reject(new Error('boom'))
+                }
+                return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) })
+            })
+
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            expect(exceptionSpy).toHaveBeenCalledWith(
+                expect.any(Error),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'unknown' })
+            )
+            exceptionSpy.mockRestore()
         })
     })
 
