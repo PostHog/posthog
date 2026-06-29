@@ -3,10 +3,14 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 with workflow.unsafe.imports_passed_through():
     from django.db.models import Q
@@ -76,11 +80,18 @@ class CollectEligibleTicketsOutput:
     tickets: list[EligibleTicket]
 
 
-def _is_master_flag_enabled(team_id: int) -> bool:
+def _is_master_flag_enabled(team: Team) -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             MASTER_FLAG,
-            str(team_id),
+            str(team.uuid),
+            groups={"organization": str(team.organization_id), "project": str(team.id)},
+            group_properties={
+                "organization": {"id": str(team.organization_id)},
+                "project": {"id": str(team.id)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
         )
     )
 
@@ -102,7 +113,7 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     for ticket in recent_tickets:
         team = ticket.team
 
-        if not _is_master_flag_enabled(team.id):
+        if not _is_master_flag_enabled(team):
             continue
 
         settings_dict = team.conversations_settings or {}

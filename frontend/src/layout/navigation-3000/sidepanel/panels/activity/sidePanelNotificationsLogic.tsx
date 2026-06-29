@@ -112,6 +112,15 @@ export function buildWebAnalyticsDigestMaxPrompt(metadata: WebAnalyticsDigestMet
     return `!Here's my web analytics digest for ${metadata.period_label.toLowerCase()} on ${metadata.project_name}: ${metricsLine}. What are the most important changes, and what should I dig into?`
 }
 
+// When the recap experience is enabled, send digest clicks to the recap page instead of the raw
+// dashboard. The digest's source_url is `/project/{id}/web?...`; only the `/web` segment is rewritten.
+export function withRecapSourceUrl(notification: InAppNotification): InAppNotification {
+    if (!notification.source_url) {
+        return notification
+    }
+    return { ...notification, source_url: notification.source_url.replace(/\/web(?=$|[?#])/, '/web/recap') }
+}
+
 export interface ChangelogFlagPayload {
     notificationDate: dayjs.Dayjs
     markdown: string
@@ -600,12 +609,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 })
             },
             viewWebAnalyticsFromDigest: ({ notification }) => {
+                const recapEnabled = !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
                 posthog.capture('web_analytics_digest_notification_clicked', {
-                    cta: 'view_web_analytics',
+                    cta: recapEnabled ? 'view_recap' : 'view_web_analytics',
                     notification_id: notification.id,
                     team_id: notification.team_id,
                 })
-                actions.navigateToNotification(notification)
+                actions.navigateToNotification(recapEnabled ? withRecapSourceUrl(notification) : notification)
             },
             askMaxAboutDigest: ({ notification }) => {
                 posthog.capture('web_analytics_digest_notification_clicked', {
