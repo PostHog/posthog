@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +21,7 @@ from temporalio.service import RPCError
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -1206,150 +1207,17 @@ def team_api_test_factory():
                 == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
 
-        @parameterized.expand(
-            [
-                [
-                    "non numeric string",
-                    "Welwyn Garden City",
-                    "invalid_input",
-                    "A valid number is required.",
-                ],
-                [
-                    "negative number",
-                    "-1",
-                    "min_value",
-                    "Ensure this value is greater than or equal to 0.",
-                ],
-                [
-                    "greater than one",
-                    "1.5",
-                    "max_value",
-                    "Ensure this value is less than or equal to 1.",
-                ],
-                [
-                    "too many digits",
-                    "0.534",
-                    "max_decimal_places",
-                    "Ensure that there are no more than 2 decimal places.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_sample_rates(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_sample_rate": provided_value}
-            )
+        def test_invalid_session_recording_config_returns_validation_error_envelope(self) -> None:
+            # Smoke test that bad config is rejected through the endpoint with the rendered
+            # `{attr, code, detail, type}` envelope (note `invalid` is rendered as `invalid_input`).
+            # The per-field/per-value matrix lives in TestTeamSerializerValidationNoDB, which
+            # exercises the same TeamSerializer validators without a database.
+            response = self.client.patch("/api/environments/@current/", {"session_recording_sample_rate": "1.5"})
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json() == {
                 "attr": "session_recording_sample_rate",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
-
-        @parameterized.expand(
-            [
-                [
-                    "non numeric string",
-                    "Trentham monkey forest",
-                    "invalid_input",
-                    "A valid integer is required.",
-                ],
-                [
-                    "negative number",
-                    "-1",
-                    "min_value",
-                    "Ensure this value is greater than or equal to 0.",
-                ],
-                [
-                    "greater than 30000",
-                    "30001",
-                    "max_value",
-                    "Ensure this value is less than or equal to 30000.",
-                ],
-                ["too many digits", "0.5", "invalid_input", "A valid integer is required."],
-            ]
-        )
-        def test_invalid_session_recording_minimum_duration(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/",
-                {"session_recording_minimum_duration_milliseconds": provided_value},
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "attr": "session_recording_minimum_duration_milliseconds",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
-                ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
-                ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no id",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - no key",
-                    {"id": 1},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - only variant",
-                    {"variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - variant must be string",
-                    {"variant": 1},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - missing id",
-                    {"key": "one", "variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - missing key",
-                    {"id": "one", "variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - neither",
-                    {"wat": "wat"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_linked_flag(
-            self, _name: str, provided_value: Any, expected_code: str, expected_error: str
-        ) -> None:
-            response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
-
-            assert cast(Any, response).json() == {
-                "attr": "session_recording_linked_flag",
-                "code": expected_code,
-                "detail": expected_error,
+                "code": "max_value",
+                "detail": "Ensure this value is less than or equal to 1.",
                 "type": "validation_error",
             }
 
@@ -1366,37 +1234,6 @@ def team_api_test_factory():
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no recordX",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_network_payload_capture_config(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_network_payload_capture_config": provided_value}
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "attr": "session_recording_network_payload_capture_config",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
@@ -1454,36 +1291,6 @@ def team_api_test_factory():
             # can unset
             self._patch_session_replay_config(None)
             self._assert_replay_config_is(None)
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no record",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
-                ],
-            ]
-        )
-        def test_invalid_session_replay_config_ai_config(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self._patch_session_replay_config(
-                {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
-            )
-            assert cast(Any, response).json() == {
-                "attr": "session_replay_config",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
 
         def test_can_set_and_unset_session_replay_config_ai_config(self) -> None:
             # can set just the opt-in
@@ -3775,3 +3582,129 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         other = Team.objects.create(organization=self.organization, project=self.project, name="other")
         response = self.client.delete(f"/api/environments/{other.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
+    # before the object-level `validate()` that needs request context — so these never
+    # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
+    # `invalid_input` rename and `{attr, code, detail, type}` shape are rendered by
+    # exceptions-hog and covered by one endpoint smoke test in TestTeamAPI.
+    def _assert_field_error(self, field: str, value: Any, expected_code: str, expected_detail: str) -> None:
+        serializer = TeamSerializer(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        error = serializer.errors[field][0]
+        assert error.code == expected_code, f"expected code {expected_code!r}, got {error.code!r}"
+        assert str(error) == expected_detail, f"expected {expected_detail!r}, got {str(error)!r}"
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Welwyn Garden City", "invalid", "A valid number is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than one", "1.5", "max_value", "Ensure this value is less than or equal to 1."],
+            ["too many digits", "0.534", "max_decimal_places", "Ensure that there are no more than 2 decimal places."],
+        ]
+    )
+    def test_invalid_session_recording_sample_rate(
+        self, _name: str, value: Any, expected_code: str, expected_detail: str
+    ) -> None:
+        self._assert_field_error("session_recording_sample_rate", value, expected_code, expected_detail)
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Trentham monkey forest", "invalid", "A valid integer is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than 30000", "30001", "max_value", "Ensure this value is less than or equal to 30000."],
+            ["too many digits", "0.5", "invalid", "A valid integer is required."],
+        ]
+    )
+    def test_invalid_session_recording_minimum_duration(
+        self, _name: str, value: Any, expected_code: str, expected_detail: str
+    ) -> None:
+        self._assert_field_error(
+            "session_recording_minimum_duration_milliseconds", value, expected_code, expected_detail
+        )
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric string", "-1", "Must provide a dictionary or None."],
+            ["numeric", 1, "Must provide a dictionary or None."],
+            ["numeric positive string", "1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no id",
+                {"key": "something"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - no key",
+                {"id": 1},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - only variant",
+                {"variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - variant must be string",
+                {"variant": 1},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing id",
+                {"key": "one", "variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing key",
+                {"id": "one", "variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - neither",
+                {"wat": "wat"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no recordX",
+                {"key": "something"},
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_network_payload_capture_config(
+        self, _name: str, value: Any, expected_detail: str
+    ) -> None:
+        self._assert_field_error("session_recording_network_payload_capture_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no record",
+                {"key": "something"},
+                "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
+            ],
+        ]
+    )
+    def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
+        # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
+        # lives in the object-level `validate()` (via `validate_team_attrs`), which needs
+        # request context, so it stays an endpoint test in TestTeamAPI.
+        self._assert_field_error(
+            "autocapture_exceptions_opt_in", "Welwyn Garden City", "invalid", "Must be a valid boolean."
+        )
