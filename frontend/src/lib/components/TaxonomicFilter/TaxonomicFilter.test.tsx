@@ -336,6 +336,32 @@ describe('TaxonomicFilter', () => {
             })
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
         })
+
+        it('offers a per-category jump when matches live on another tab and there is no all section', async () => {
+            // No SuggestedFilters group (control variant), so the aggregated "all" jump is unavailable —
+            // the empty state must instead point at the specific tab that matched.
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            // `purchase_value` exists only as a property, so the active Events tab comes up empty
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+
+            let switchButton: HTMLElement | undefined
+            await waitFor(() => {
+                switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))
+                expect(switchButton).toBeTruthy()
+            })
+            expect(switchButton).toHaveTextContent(/See results in Person properties/i)
+            expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+
+            await userEvent.click(switchButton!)
+
+            await waitFor(() => {
+                expectActiveTab('taxonomic-tab-person_properties')
+            })
+        })
     })
 
     describe('tab switching', () => {
