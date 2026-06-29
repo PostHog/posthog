@@ -201,7 +201,7 @@ class TestEvaluationModel(BaseTest):
         self.assertTrue(len(evaluation.evaluation_config["bytecode"]) > 0)
 
     def test_hog_evaluation_compiles_null_safe_comparisons(self):
-        from posthog.temporal.ai_observability.evaluation_hog import run_hog_eval
+        from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 
         evaluation = Evaluation.objects.create(
             team=self.team,
