@@ -34,18 +34,25 @@ class Command(BaseCommand):
         )
 
         if run_async:
-            send_all_org_usage_reports.delay(
+            async_result = send_all_org_usage_reports.delay(
                 dry_run=dry_run,
                 at=date,
                 skip_capture_event=skip_capture_event,
                 organization_ids=organization_ids,
+                run_source="manual",
+                execution_location="usage_report_worker",
+                execution_mode="celery",
             )
+            print(f"Started async usage report task {async_result.id}")  # noqa T201
         else:
             send_all_org_usage_reports(
                 dry_run=dry_run,
                 at=date,
                 skip_capture_event=skip_capture_event,
                 organization_ids=organization_ids,
+                run_source="manual",
+                execution_location="toolbox",
+                execution_mode="direct",
             )
 
             if dry_run:

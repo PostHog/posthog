@@ -2,6 +2,8 @@ import gzip
 import json
 import base64
 import dataclasses
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -29,6 +31,7 @@ import structlog
 from dateutil.relativedelta import relativedelta
 from dateutil.tz import tzutc
 from parameterized import parameterized
+from prometheus_client import CollectorRegistry
 
 from posthog.schema import EventsQuery
 
@@ -64,6 +67,7 @@ from posthog.tasks.usage_report import (
     has_non_zero_usage,
     send_all_org_usage_reports,
 )
+from posthog.tasks.usage_report_observability import UsageReportCeleryMetadata
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import get_previous_day
@@ -92,6 +96,353 @@ from ee.clickhouse.materialized_columns.columns import materialize
 from ee.models.license import License
 
 logger = structlog.get_logger(__name__)
+
+
+@contextmanager
+def _collect_usage_report_registry(registries: list[CollectorRegistry]) -> Iterator[CollectorRegistry]:
+    registry = CollectorRegistry()
+    registries.append(registry)
+    yield registry
+
+
+def _captured_usage_report_event_properties(mock_posthog: MagicMock, event: str) -> list[dict[str, Any]]:
+    return [call.kwargs["properties"] for call in mock_posthog.capture.call_args_list if call.kwargs["event"] == event]
+
+
+@freeze_time("2026-06-29T12:00:00Z")
+def test_send_all_org_usage_reports_pushes_querying_before_query_and_emits_existing_success_events() -> None:
+    registries: list[CollectorRegistry] = []
+    mock_posthog = MagicMock()
+    base_labels = {
+        "region": "US",
+        "source": "manual",
+        "execution_location": "toolbox",
+        "execution_mode": "direct",
+        "run_scope": "all_orgs",
+    }
+
+    def get_org_reports(_period_start: datetime, _period_end: datetime) -> dict[str, OrgReport]:
+        assert (
+            registries[0].get_sample_value(
+                "posthog_legacy_usage_report_current_stage",
+                {**base_labels, "stage": "querying"},
+            )
+            == 1
+        )
+        assert [call.kwargs["event"] for call in mock_posthog.capture.call_args_list] == ["usage reports querying"]
+        return {}
+
+    with (
+        patch("posthog.tasks.usage_report.get_instance_region", return_value="US"),
+        patch("posthog.tasks.usage_report.get_ph_client", return_value=mock_posthog),
+        patch("posthog.tasks.usage_report.get_instance_metadata", return_value=MagicMock()),
+        patch("posthog.tasks.usage_report.posthoganalytics.feature_enabled", return_value=False),
+        patch(
+            "posthog.tasks.usage_report_observability.pushed_metrics_registry",
+            side_effect=lambda _job_name: _collect_usage_report_registry(registries),
+        ),
+        patch("posthog.tasks.usage_report._get_all_org_reports", side_effect=get_org_reports),
+        patch("posthog.tasks.usage_report.settings.EE_AVAILABLE", False),
+    ):
+        send_all_org_usage_reports(
+            at="2026-06-29",
+            run_source="manual",
+            execution_location="toolbox",
+            execution_mode="direct",
+        )
+
+    event_names = [call.kwargs["event"] for call in mock_posthog.capture.call_args_list]
+    assert event_names == ["usage reports querying", "usage reports starting", "usage reports complete"]
+    assert len(registries) == 5
+
+    event_properties = [call.kwargs["properties"] for call in mock_posthog.capture.call_args_list]
+    run_ids = {properties["run_id"] for properties in event_properties}
+    assert len(run_ids) == 1
+    complete_properties = event_properties[-1]
+    assert complete_properties["terminal_status"] == "completed"
+    assert complete_properties["source"] == "manual"
+    assert complete_properties["execution_location"] == "toolbox"
+    assert complete_properties["execution_mode"] == "direct"
+    assert complete_properties["run_scope"] == "all_orgs"
+
+
+@freeze_time("2026-06-29T12:00:00Z")
+def test_send_all_org_usage_reports_records_skipped_terminal_state_when_disabled() -> None:
+    registries: list[CollectorRegistry] = []
+    base_labels = {
+        "region": "US",
+        "source": "scheduled",
+        "execution_location": "usage_report_worker",
+        "execution_mode": "celery",
+        "run_scope": "all_orgs",
+    }
+
+    with (
+        patch("posthog.tasks.usage_report.get_instance_region", return_value="US"),
+        patch("posthog.tasks.usage_report.get_ph_client") as get_ph_client_mock,
+        patch("posthog.tasks.usage_report.posthoganalytics.feature_enabled", return_value=True),
+        patch("posthog.tasks.usage_report.posthoganalytics.capture_exception"),
+        patch(
+            "posthog.tasks.usage_report_observability.pushed_metrics_registry",
+            side_effect=lambda _job_name: _collect_usage_report_registry(registries),
+        ),
+        patch("posthog.tasks.usage_report._get_all_org_reports") as get_org_reports_mock,
+    ):
+        send_all_org_usage_reports(
+            at="2026-06-29",
+            run_source="scheduled",
+            execution_location="usage_report_worker",
+            execution_mode="celery",
+        )
+
+    get_org_reports_mock.assert_not_called()
+    get_ph_client_mock.assert_not_called()
+    assert len(registries) == 2
+    assert (
+        registries[0].get_sample_value(
+            "posthog_legacy_usage_report_terminal_status",
+            {**base_labels, "terminal_status": "skipped"},
+        )
+        == 1
+    )
+
+
+def test_send_all_org_usage_reports_records_failed_terminal_state_before_reraising() -> None:
+    registries: list[CollectorRegistry] = []
+    base_labels = {
+        "region": "US",
+        "source": "scheduled",
+        "execution_location": "usage_report_worker",
+        "execution_mode": "celery",
+        "run_scope": "all_orgs",
+    }
+
+    with freeze_time("2026-06-29T12:00:00Z") as frozen_time:
+
+        def fail_after_query_work(_period_start: datetime, _period_end: datetime) -> dict[str, OrgReport]:
+            frozen_time.tick(delta=timedelta(seconds=42))
+            raise ValueError("query failed")
+
+        with (
+            patch("posthog.tasks.usage_report.get_instance_region", return_value="US"),
+            patch("posthog.tasks.usage_report.get_ph_client") as get_ph_client_mock,
+            patch("posthog.tasks.usage_report.get_instance_metadata", return_value=MagicMock()),
+            patch("posthog.tasks.usage_report.posthoganalytics.feature_enabled", return_value=False),
+            patch(
+                "posthog.tasks.usage_report_observability._get_current_usage_report_celery_metadata",
+                return_value=UsageReportCeleryMetadata(task_id="usage-report-task-id", retries=3, max_retries=3),
+            ),
+            patch(
+                "posthog.tasks.usage_report_observability.pushed_metrics_registry",
+                side_effect=lambda _job_name: _collect_usage_report_registry(registries),
+            ),
+            patch("posthog.tasks.usage_report._get_all_org_reports", side_effect=fail_after_query_work),
+            patch("posthog.tasks.usage_report.settings.EE_AVAILABLE", False),
+        ):
+            with pytest.raises(ValueError, match="query failed"):
+                send_all_org_usage_reports(
+                    at="2026-06-29",
+                    run_source="scheduled",
+                    execution_location="usage_report_worker",
+                    execution_mode="celery",
+                )
+
+        get_ph_client_mock.assert_called_once_with(sync_mode=True)
+        event_names = [call.kwargs["event"] for call in get_ph_client_mock.return_value.capture.call_args_list]
+        assert event_names == ["usage reports querying", "usage reports failed"]
+        failed_properties = get_ph_client_mock.return_value.capture.call_args_list[-1].kwargs["properties"]
+        assert failed_properties["terminal_status"] == "failed"
+        assert failed_properties["query_time"] == 42
+        assert failed_properties["total_time"] == 42
+        assert failed_properties["total_duration_seconds"] == 42
+        assert failed_properties["celery_retries"] == 3
+        assert failed_properties["celery_max_retries"] == 3
+        assert failed_properties["celery_attempt"] == 4
+        assert failed_properties["celery_attempt_status"] == "final_retry"
+        assert "stage" not in failed_properties
+        assert (
+            registries[-2].get_sample_value(
+                "posthog_legacy_usage_report_terminal_status",
+                {**base_labels, "terminal_status": "failed"},
+            )
+            == 1
+        )
+        assert (
+            registries[-2].get_sample_value(
+                "posthog_legacy_usage_report_failures",
+                {**base_labels, "failure_type": "process"},
+            )
+            == 1
+        )
+        assert registries[-2].get_sample_value("posthog_legacy_usage_report_query_duration_seconds", base_labels) == 42
+
+
+@freeze_time("2026-06-29T12:00:00Z")
+def test_send_all_org_usage_reports_records_queue_failure_when_producer_returns_empty_response() -> None:
+    registries: list[CollectorRegistry] = []
+    mock_posthog = MagicMock()
+    producer = MagicMock()
+    producer.send_message.return_value = {}
+    org_report = MagicMock()
+    org_report.organization_id = "org-id"
+    base_labels = {
+        "region": "US",
+        "source": "manual",
+        "execution_location": "toolbox",
+        "execution_mode": "direct",
+        "run_scope": "all_orgs",
+    }
+
+    with (
+        patch("posthog.tasks.usage_report.get_instance_region", return_value="US"),
+        patch("posthog.tasks.usage_report.get_ph_client", return_value=mock_posthog),
+        patch("posthog.tasks.usage_report.get_instance_metadata", return_value=MagicMock()),
+        patch("posthog.tasks.usage_report.posthoganalytics.feature_enabled", return_value=False),
+        patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=producer),
+        patch("posthog.tasks.usage_report.settings.EE_AVAILABLE", True),
+        patch(
+            "posthog.tasks.usage_report_observability.pushed_metrics_registry",
+            side_effect=lambda _job_name: _collect_usage_report_registry(registries),
+        ),
+        patch("posthog.tasks.usage_report._get_all_org_reports", return_value={"org-id": org_report}),
+        patch("posthog.tasks.usage_report._get_full_org_usage_report", return_value=MagicMock()),
+        patch(
+            "posthog.tasks.usage_report._get_full_org_usage_report_as_dict", return_value={"has_non_zero_usage": True}
+        ),
+        patch("posthog.tasks.usage_report.has_non_zero_usage", return_value=True),
+    ):
+        send_all_org_usage_reports(
+            at="2026-06-29",
+            skip_capture_event=True,
+            run_source="manual",
+            execution_location="toolbox",
+            execution_mode="direct",
+        )
+
+    producer.send_message.assert_called_once()
+    complete_properties = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")[0]
+    assert complete_properties["terminal_status"] == "partial_success"
+    assert complete_properties["failure_counts"] == {"queue": 1}
+    assert complete_properties["total_orgs_sent"] == 0
+    assert (
+        registries[-2].get_sample_value(
+            "posthog_legacy_usage_report_terminal_status",
+            {**base_labels, "terminal_status": "partial_success"},
+        )
+        == 1
+    )
+    assert (
+        registries[-2].get_sample_value(
+            "posthog_legacy_usage_report_failures",
+            {**base_labels, "failure_type": "queue"},
+        )
+        == 1
+    )
+
+
+@freeze_time("2026-06-29T12:00:00Z")
+def test_send_all_org_usage_reports_records_producer_unavailable_as_partial_success() -> None:
+    registries: list[CollectorRegistry] = []
+    mock_posthog = MagicMock()
+    org_report = MagicMock()
+    org_report.organization_id = "org-id"
+    base_labels = {
+        "region": "US",
+        "source": "manual",
+        "execution_location": "toolbox",
+        "execution_mode": "direct",
+        "run_scope": "all_orgs",
+    }
+
+    with (
+        patch("posthog.tasks.usage_report.get_instance_region", return_value="US"),
+        patch("posthog.tasks.usage_report.get_ph_client", return_value=mock_posthog),
+        patch("posthog.tasks.usage_report.get_instance_metadata", return_value=MagicMock()),
+        patch("posthog.tasks.usage_report.posthoganalytics.feature_enabled", return_value=False),
+        patch("ee.sqs.SQSProducer.get_sqs_producer", side_effect=RuntimeError("producer unavailable")),
+        patch("posthog.tasks.usage_report.settings.EE_AVAILABLE", True),
+        patch(
+            "posthog.tasks.usage_report_observability.pushed_metrics_registry",
+            side_effect=lambda _job_name: _collect_usage_report_registry(registries),
+        ),
+        patch("posthog.tasks.usage_report._get_all_org_reports", return_value={"org-id": org_report}),
+        patch("posthog.tasks.usage_report._get_full_org_usage_report", return_value=MagicMock()),
+        patch(
+            "posthog.tasks.usage_report._get_full_org_usage_report_as_dict", return_value={"has_non_zero_usage": True}
+        ),
+        patch("posthog.tasks.usage_report.has_non_zero_usage", return_value=True),
+    ):
+        send_all_org_usage_reports(
+            at="2026-06-29",
+            skip_capture_event=True,
+            run_source="manual",
+            execution_location="toolbox",
+            execution_mode="direct",
+        )
+
+    complete_properties = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")[0]
+    assert complete_properties["terminal_status"] == "partial_success"
+    assert complete_properties["failure_counts"] == {"producer_unavailable": 1}
+    assert complete_properties["total_orgs_sent"] == 0
+    assert (
+        registries[-2].get_sample_value(
+            "posthog_legacy_usage_report_failures",
+            {**base_labels, "failure_type": "producer_unavailable"},
+        )
+        == 1
+    )
+
+
+@freeze_time("2026-06-29T12:00:00Z")
+def test_send_all_org_usage_reports_keeps_observability_failures_best_effort() -> None:
+    mock_posthog = MagicMock()
+    mock_posthog.capture.side_effect = RuntimeError("posthog unavailable")
+    producer = MagicMock()
+    producer.send_message.return_value = {"MessageId": "message-id"}
+    org_report = MagicMock()
+    org_report.organization_id = "org-id"
+
+    with (
+        patch("posthog.tasks.usage_report.get_instance_region", return_value="US"),
+        patch("posthog.tasks.usage_report.get_ph_client", return_value=mock_posthog),
+        patch("posthog.tasks.usage_report.get_instance_metadata", return_value=MagicMock()),
+        patch("posthog.tasks.usage_report.posthoganalytics.feature_enabled", return_value=False),
+        patch("ee.sqs.SQSProducer.get_sqs_producer", return_value=producer),
+        patch("posthog.tasks.usage_report.settings.EE_AVAILABLE", True),
+        patch(
+            "posthog.tasks.usage_report_observability.pushed_metrics_registry",
+            side_effect=RuntimeError("pushgateway unavailable"),
+        ),
+        patch("posthog.tasks.usage_report._get_all_org_reports", return_value={"org-id": org_report}),
+        patch("posthog.tasks.usage_report._get_full_org_usage_report", return_value=MagicMock()),
+        patch(
+            "posthog.tasks.usage_report._get_full_org_usage_report_as_dict", return_value={"has_non_zero_usage": True}
+        ),
+        patch("posthog.tasks.usage_report.has_non_zero_usage", return_value=True),
+    ):
+        send_all_org_usage_reports(
+            at="2026-06-29",
+            skip_capture_event=True,
+            run_source="manual",
+            execution_location="toolbox",
+            execution_mode="direct",
+        )
+
+    producer.send_message.assert_called_once()
+
+
+def test_scheduled_usage_report_wrapper_enqueues_scheduled_worker_context() -> None:
+    from posthog.tasks.tasks import send_org_usage_reports
+
+    with patch("posthog.tasks.usage_report.send_all_org_usage_reports.delay") as send_reports_mock:
+        send_org_usage_reports(organization_ids=["org-id"])
+
+    send_reports_mock.assert_called_once_with(
+        organization_ids=["org-id"],
+        run_source="scheduled",
+        execution_location="usage_report_worker",
+        execution_mode="celery",
+    )
 
 
 def _setup_replay_data(team_id: int, include_mobile_replay: bool, include_zero_duration: bool = False) -> None:
@@ -4963,11 +5314,9 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         assert data["organization_id"] == str(self.organization.id)
         assert data["usage_report"]["organization_id"] == str(self.organization.id)
 
-        capture_calls = [
-            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
-        ]
+        capture_calls = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")
         assert len(capture_calls) == 1
-        properties = capture_calls[0][1]["properties"]
+        properties = capture_calls[0]
         assert properties["filtered"] is True
         assert properties["requested_org_count"] == 1
         assert properties["total_orgs"] == 1
@@ -4997,10 +5346,8 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
 
         assert set(sent_org_ids) == set(org_ids)
 
-        capture_calls = [
-            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
-        ]
-        properties = capture_calls[0][1]["properties"]
+        capture_calls = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")
+        properties = capture_calls[0]
         assert properties["filtered"] is True
         assert properties["requested_org_count"] == 2
         assert properties["total_orgs"] == 2
@@ -5021,11 +5368,9 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         # Should not send any messages
         mock_producer.send_message.assert_not_called()
 
-        capture_calls = [
-            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
-        ]
+        capture_calls = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")
         assert len(capture_calls) == 1
-        properties = capture_calls[0][1]["properties"]
+        properties = capture_calls[0]
         assert properties["filtered"] is True
         assert properties["requested_org_count"] == 1
         assert properties["requested_missing_org_count"] == 1
@@ -5065,10 +5410,8 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
 
         assert set(sent_org_ids) == {str(self.organization.id), str(self.org2.id)}
 
-        capture_calls = [
-            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
-        ]
-        properties = capture_calls[0][1]["properties"]
+        capture_calls = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")
+        properties = capture_calls[0]
         assert properties["filtered"] is True
         assert properties["requested_org_count"] == 4
         assert properties["requested_missing_org_count"] == 2
@@ -5090,10 +5433,8 @@ class TestOrganizationFiltering(LicensedTestMixin, ClickhouseDestroyTablesMixin,
         assert mock_producer.send_message.call_count == 3
 
         # Verify telemetry shows unfiltered
-        capture_calls = [
-            call for call in mock_posthog.capture.call_args_list if call[1].get("event") == "usage reports complete"
-        ]
-        properties = capture_calls[0][1]["properties"]
+        capture_calls = _captured_usage_report_event_properties(mock_posthog, "usage reports complete")
+        properties = capture_calls[0]
         assert properties["filtered"] is False
         assert properties.get("requested_org_count") is None
         assert properties.get("requested_missing_org_count") is None

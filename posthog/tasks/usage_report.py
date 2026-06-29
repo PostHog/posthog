@@ -16,6 +16,7 @@ from django.db.models.functions import Coalesce
 
 import requests
 import structlog
+import posthoganalytics
 from cachetools import cached
 from celery import shared_task
 from dateutil import parser
@@ -41,6 +42,13 @@ from posthog.schema_enums import AIEventType
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.settings import CLICKHOUSE_CLUSTER, INSTANCE_TAG
 from posthog.tasks.report_utils import capture_event
+from posthog.tasks.usage_report_observability import (
+    UsageReportExecutionLocation,
+    UsageReportExecutionMode,
+    UsageReportRunObserver,
+    UsageReportRunProgress,
+    UsageReportRunSource,
+)
 from posthog.tasks.utils import CeleryQueue
 from posthog.utils import get_helm_info_env, get_instance_realm, get_instance_region, get_previous_day
 
@@ -2838,9 +2846,7 @@ def _queue_report(producer: Any, organization_id: str, full_report_dict: dict[st
     response = producer.send_message(message_body=compressed_b64, message_attributes=message_attributes)
 
     if not response:
-        logger.exception(f"Failed to send usage report for organization {organization_id}")
-
-    return
+        raise RuntimeError(f"Failed to send usage report for organization {organization_id}: empty producer response")
 
 
 @shared_task(**USAGE_REPORT_TASK_KWARGS, max_retries=3)
@@ -2849,136 +2855,198 @@ def send_all_org_usage_reports(
     at: Optional[str] = None,
     skip_capture_event: bool = False,
     organization_ids: Optional[list[str]] = None,
+    run_source: UsageReportRunSource = "unknown",
+    execution_location: UsageReportExecutionLocation = "unknown",
+    execution_mode: Optional[UsageReportExecutionMode] = None,
 ) -> None:
-    import posthoganalytics
-
-    are_usage_reports_disabled = posthoganalytics.feature_enabled("disable-usage-reports", "internal_billing_events")
-    if are_usage_reports_disabled:
-        posthoganalytics.capture_exception(Exception(f"Usage reports are disabled for {at}"))
-        return
-
     at_date = parser.parse(at) if at else None
     period = get_previous_day(at=at_date)
     period_start, period_end = period
+    observer = UsageReportRunObserver.from_current_task(
+        at=at,
+        period_start=period_start,
+        period_end=period_end,
+        run_source=run_source,
+        execution_location=execution_location,
+        execution_mode=execution_mode,
+        run_scope="filtered_orgs" if organization_ids is not None else "all_orgs",
+        region=get_instance_region() or "unknown",
+    )
+    progress = UsageReportRunProgress.for_organizations(organization_ids)
+    pha_client: Optional[PostHogClient] = None
+    log_context = observer.log_context
 
-    instance_metadata = get_instance_metadata(period)
+    entry_properties = {
+        "dry_run": dry_run,
+        "skip_capture_event": skip_capture_event,
+        **progress.filtering_properties,
+    }
+    logger.info("Legacy usage-report producer run started", **log_context, **entry_properties)
 
-    producer = None
     try:
-        if settings.EE_AVAILABLE:
-            from ee.sqs.SQSProducer import get_sqs_producer
-
-            producer = get_sqs_producer("usage_reports")
-    except Exception:
-        pass
-
-    pha_client = get_ph_client(sync_mode=True)
-
-    if organization_ids:
-        logger.info(
-            "Sending usage reports for specific organizations",
-            org_count=len(organization_ids),
-            organization_ids=organization_ids,
+        are_usage_reports_disabled = posthoganalytics.feature_enabled(
+            "disable-usage-reports", "internal_billing_events"
         )
+        if are_usage_reports_disabled:
+            try:
+                posthoganalytics.capture_exception(Exception(f"Usage reports are disabled for {at}"))
+            except Exception as capture_err:
+                logger.exception(
+                    "Failed to capture usage reports disabled exception",
+                    **log_context,
+                    error=capture_err,
+                )
+            terminal_properties = observer.skipped(progress)
+            logger.info(
+                "Legacy usage-report producer run skipped",
+                **log_context,
+                **terminal_properties,
+            )
+            return
 
-    logger.info("Querying usage report data")
-    query_time_start = datetime.now()
+        instance_metadata = get_instance_metadata(period)
 
-    org_reports = _get_all_org_reports(period_start, period_end)
-
-    if organization_ids:
-        original_count = len(org_reports)
-        org_reports = {org_id: report for org_id, report in org_reports.items() if org_id in organization_ids}
-        filtered_count = len(org_reports)
-        missing_orgs = set(organization_ids) - set(org_reports.keys())
-        logger.info(
-            f"Filtered org reports from {original_count} to {filtered_count} organizations",
-            requested_org_count=len(organization_ids),
-            found_org_count=filtered_count,
-            missing_orgs=missing_orgs or None,
-        )
-
-    filtering_properties: dict[str, Any] = {"filtered": organization_ids is not None}
-    if organization_ids:
-        filtering_properties["requested_org_count"] = len(organization_ids)
-        filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
-
-    query_time_duration = (datetime.now() - query_time_start).total_seconds()
-    logger.info(f"Found {len(org_reports)} org reports. It took {query_time_duration} seconds.")
-
-    total_orgs = len(org_reports)
-    total_orgs_sent = 0
-
-    logger.info("Sending usage reports to billing")
-    queue_time_start = datetime.now()
-
-    pha_client.capture(
-        distinct_id="internal_billing_events",
-        event="usage reports starting",
-        properties={
-            "total_orgs": total_orgs,
-            "region": get_instance_region(),
-            **filtering_properties,
-        },
-        groups={"instance": settings.SITE_URL},
-    )
-
-    for org_report in org_reports.values():
+        producer = None
         try:
-            organization_id = org_report.organization_id
+            if settings.EE_AVAILABLE:
+                from ee.sqs.SQSProducer import get_sqs_producer  # noqa: PLC0415 - EE-only optional import
 
-            full_report = _get_full_org_usage_report(org_report, instance_metadata)
-            full_report_dict = _get_full_org_usage_report_as_dict(full_report)
+                producer = get_sqs_producer("usage_reports")
+        except Exception as producer_err:
+            logger.exception(
+                "Failed to initialize usage reports SQS producer",
+                **log_context,
+                error=producer_err,
+            )
 
-            if dry_run:
-                logger.info(f"Dry run, skipping sending for organization {organization_id}")
-                continue
+        if organization_ids:
+            logger.info(
+                "Sending usage reports for specific organizations",
+                **log_context,
+                org_count=len(organization_ids),
+                organization_ids=organization_ids,
+            )
 
-            # First capture the events to PostHog
-            if not skip_capture_event:
-                try:
-                    at_date_str = at_date.isoformat() if at_date else None
-                    capture_report.delay(
-                        organization_id=organization_id,
-                        full_report_dict=full_report_dict,
-                        at_date=at_date_str,
+        pha_client = get_ph_client(sync_mode=True)
+        querying_properties = {"stage": "querying", **progress.filtering_properties}
+        logger.info("Querying usage report data", **log_context, **querying_properties)
+        observer.querying(pha_client, progress)
+        progress.start_query_timer()
+
+        org_reports = _get_all_org_reports(period_start, period_end)
+
+        if organization_ids:
+            original_count = len(org_reports)
+            org_reports = {org_id: report for org_id, report in org_reports.items() if org_id in organization_ids}
+            filtered_count = len(org_reports)
+            missing_orgs = set(organization_ids) - set(org_reports.keys())
+            progress.filtering_properties["requested_missing_org_count"] = len(missing_orgs) if missing_orgs else None
+            logger.info(
+                f"Filtered org reports from {original_count} to {filtered_count} organizations",
+                **log_context,
+                requested_org_count=len(organization_ids),
+                found_org_count=filtered_count,
+                missing_orgs=missing_orgs or None,
+            )
+
+        progress.finish_query_timer()
+        progress.total_orgs = len(org_reports)
+        query_complete_properties = {
+            "stage": "query_complete",
+            "total_orgs": progress.total_orgs,
+            "query_time": progress.query_duration_seconds,
+            **progress.filtering_properties,
+        }
+        logger.info(
+            f"Found {progress.total_orgs} org reports. It took {progress.query_duration_seconds} seconds.",
+            **log_context,
+            **query_complete_properties,
+        )
+
+        sending_properties = {
+            "stage": "sending",
+            "total_orgs": progress.total_orgs,
+            "query_time": progress.query_duration_seconds,
+            **progress.filtering_properties,
+        }
+        logger.info("Sending usage reports to billing", **log_context, **sending_properties)
+        observer.sending(progress)
+        progress.start_queue_timer()
+        observer.starting(pha_client, progress)
+
+        for org_report in org_reports.values():
+            organization_id = None
+            try:
+                organization_id = org_report.organization_id
+
+                full_report = _get_full_org_usage_report(org_report, instance_metadata)
+                full_report_dict = _get_full_org_usage_report_as_dict(full_report)
+
+                if dry_run:
+                    logger.info(
+                        f"Dry run, skipping sending for organization {organization_id}",
+                        **log_context,
                     )
-                except Exception as capture_err:
-                    logger.exception(
-                        f"Failed to capture report for organization {organization_id}",
-                        error=capture_err,
-                    )
+                    continue
 
-            # Then send the reports to billing through SQS (only if the producer is available)
-            if has_non_zero_usage(full_report) and producer:
-                try:
-                    _queue_report(producer, organization_id, full_report_dict)
-                    total_orgs_sent += 1
-                except Exception as err:
-                    logger.exception(
-                        f"Failed to queue report for organization {organization_id}",
-                        error=err,
-                    )
+                # First capture the events to PostHog
+                if not skip_capture_event:
+                    try:
+                        at_date_str = at_date.isoformat() if at_date else None
+                        capture_report.delay(
+                            organization_id=organization_id,
+                            full_report_dict=full_report_dict,
+                            at_date=at_date_str,
+                        )
+                    except Exception as capture_err:
+                        progress.record_failure("capture")
+                        logger.exception(
+                            f"Failed to capture report for organization {organization_id}",
+                            **log_context,
+                            error=capture_err,
+                        )
 
-        except Exception as loop_err:
-            logger.exception(f"Failed to process organization {organization_id}", error=loop_err)
+                report_has_non_zero_usage = has_non_zero_usage(full_report)
+                if report_has_non_zero_usage and producer:
+                    try:
+                        _queue_report(producer, organization_id, full_report_dict)
+                        progress.total_orgs_sent += 1
+                    except Exception as err:
+                        progress.record_failure("queue")
+                        logger.exception(
+                            f"Failed to queue report for organization {organization_id}",
+                            **log_context,
+                            error=err,
+                        )
+                elif report_has_non_zero_usage and settings.EE_AVAILABLE:
+                    progress.record_failure("producer_unavailable")
 
-    queue_time_duration = (datetime.now() - queue_time_start).total_seconds()
-    pha_client.capture(
-        distinct_id="internal_billing_events",
-        event="usage reports complete",
-        properties={
-            "total_orgs": total_orgs,
-            "period_start": period_start.isoformat(),
-            "period_end": period_end.isoformat(),
-            "total_orgs_sent": total_orgs_sent,
-            "query_time": query_time_duration,
-            "queue_time": queue_time_duration,
-            "total_time": query_time_duration + queue_time_duration,
-            "region": get_instance_region(),
-            **filtering_properties,
-        },
-        groups={"instance": settings.SITE_URL},
-    )
+            except Exception as loop_err:
+                progress.record_failure("process")
+                logger.exception(
+                    f"Failed to process organization {organization_id}",
+                    **log_context,
+                    error=loop_err,
+                )
 
-    logger.info(f"Usage reports complete. Total orgs: {total_orgs}, total orgs sent: {total_orgs_sent}.")
+        progress.finish_queue_timer()
+
+        terminal_properties = observer.completed(pha_client, progress)
+
+        logger.info(
+            f"Usage reports complete. Total orgs: {progress.total_orgs}, total orgs sent: {progress.total_orgs_sent}.",
+            **log_context,
+            **terminal_properties,
+        )
+
+    except Exception as err:
+        progress.refresh_active_timers()
+        progress.record_failure("process")
+        terminal_properties = observer.failed(pha_client, progress)
+        logger.exception(
+            "Legacy usage-report producer run failed",
+            **log_context,
+            **terminal_properties,
+            error=err,
+        )
+        raise
