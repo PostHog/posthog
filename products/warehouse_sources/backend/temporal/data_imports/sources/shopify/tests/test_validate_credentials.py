@@ -109,3 +109,21 @@ def test_endpoint_permissions_reports_each_table_without_blocking():
     assert result["products"] is None
     assert result["collections"] is not None
     assert "read_product_listings" in result["collections"]
+
+
+def test_endpoint_permissions_survive_a_throttle_on_one_table():
+    # A throttle on one endpoint must not abort the batch — otherwise it raises out of the whole
+    # probe and the view blanks every table's status. The genuine denial on another table must
+    # still come through.
+    throttled = {"errors": [{"message": "Throttled"}]}
+    denied = _access_denied(
+        "Access denied for availablePublicationsCount field. Required access: `read_product_listings` access scope."
+    )
+    result = _endpoint_permissions(
+        _post_returning({"products": throttled, "collections": denied}),
+        ["orders", "products", "collections"],
+    )
+
+    assert result["orders"] is None
+    assert result["products"] is None
+    assert "read_product_listings" in (result["collections"] or "")

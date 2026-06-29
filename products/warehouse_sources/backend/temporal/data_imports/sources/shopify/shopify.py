@@ -519,7 +519,8 @@ def check_endpoint_permissions(
     shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, endpoints: list[str]
 ) -> dict[str, str | None]:
     """Per-endpoint read-scope probe for the schema picker: {name: None} if reachable, else a
-    message naming the missing scope. Never raises for missing scopes; token/transport errors do."""
+    message naming the missing scope. A throttle/5xx/transport blip on one endpoint leaves that
+    table unknown rather than aborting the batch; only failing to obtain the access token raises."""
     store_id = normalize_store_id(shopify_store_id)
     api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
     results: dict[str, str | None] = {}
@@ -528,6 +529,12 @@ def check_endpoint_permissions(
         if resource is None:
             results[name] = None
             continue
-        error = _probe_resource_permission(api_url, sess, resource)
+        try:
+            error = _probe_resource_permission(api_url, sess, resource)
+        except (ShopifyRetryableError, requests.RequestException):
+            # A throttle/5xx/transport blip on one endpoint isn't a permission verdict. Leave it
+            # unknown (reachable) so the rest of the batch keeps its results instead of the whole
+            # probe aborting — the real scope check still runs when the user adds that schema.
+            error = None
         results[name] = missing_permissions_message({name: error}) if error is not None else None
     return results
