@@ -93,6 +93,11 @@ export function initKea({
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
+                // Intentional request cancellations (e.g. a newer query aborting an in-flight one)
+                // surface as AbortError. They're expected, not failures — don't toast or capture them.
+                if (error?.name === 'AbortError') {
+                    return
+                }
                 // Read-only mode (`ReadOnlyModeError`) flows through this path unchanged:
                 // it extends `ApiError` with `status=403`, so the `!(isLoadAction && error.status === 403)`
                 // condition already suppresses the toast for load actions, and write actions

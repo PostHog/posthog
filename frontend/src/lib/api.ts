@@ -7087,17 +7087,22 @@ const api = {
             authHeaders['Authorization'] = `Bearer ${exporterContext.shareToken}`
         }
 
-        return await handleFetch(url, 'GET', async () => {
-            return fetch(url, {
-                signal: options?.signal,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(url),
-                    ...authHeaders,
-                },
-            })
-        })
+        return await handleFetch(
+            url,
+            'GET',
+            async () => {
+                return fetch(url, {
+                    signal: options?.signal,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...tracingHeaders({ includeDistinctId: true }),
+                        ...oauthAuthHeaders(url),
+                        ...authHeaders,
+                    },
+                })
+            },
+            options?.signal
+        )
     },
 
     async _update<T = any, P = any>(
@@ -7111,20 +7116,25 @@ const api = {
         assertNotReadOnly(method, url)
         const isFormData = data instanceof FormData
 
-        const response = await handleFetch(url, method, async () => {
-            return await fetch(url, {
-                method: method,
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(url),
-                },
-                body: isFormData ? data : JSON.stringify(data),
-                signal: options?.signal,
-            })
-        })
+        const response = await handleFetch(
+            url,
+            method,
+            async () => {
+                return await fetch(url, {
+                    method: method,
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(url),
+                    },
+                    body: isFormData ? data : JSON.stringify(data),
+                    signal: options?.signal,
+                })
+            },
+            options?.signal
+        )
 
         return await getJSONOrNull(response)
     },
@@ -7148,19 +7158,23 @@ const api = {
         assertNotReadOnly('POST', url)
         const isFormData = data instanceof FormData
 
-        return await handleFetch(url, 'POST', async () =>
-            fetch(url, {
-                method: 'POST',
-                headers: {
-                    ...objectClean(options?.headers ?? {}),
-                    ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
-                    'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
-                    ...tracingHeaders(),
-                    ...oauthAuthHeaders(url),
-                },
-                body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
-                signal: options?.signal,
-            })
+        return await handleFetch(
+            url,
+            'POST',
+            async () =>
+                fetch(url, {
+                    method: 'POST',
+                    headers: {
+                        ...objectClean(options?.headers ?? {}),
+                        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
+                        'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
+                        ...tracingHeaders(),
+                        ...oauthAuthHeaders(url),
+                    },
+                    body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
+                    signal: options?.signal,
+                }),
+            options?.signal
         )
     },
 
@@ -7432,6 +7446,7 @@ async function handleFetch(
     url: string,
     method: string,
     fetcher: () => Promise<Response>,
+    signal?: AbortSignal,
     isRetry = false
 ): Promise<Response> {
     const startTime = new Date().getTime()
@@ -7447,8 +7462,15 @@ async function handleFetch(
     apiStatusLogic.findMounted()?.actions.onApiResponse(response?.clone(), error)
 
     if (error || !response) {
-        if (error && (error as any).name === 'AbortError') {
+        // Intentional cancellations (a newer query aborting an in-flight one) reject with the
+        // signal's abort reason. A reason-less abort is already a DOMException named 'AbortError',
+        // but a custom string reason (e.g. 'new query started') is not — normalize it to one so
+        // expected cancellations stay out of error tracking instead of surfacing as ApiError noise.
+        if ((error as any)?.name === 'AbortError') {
             throw error
+        }
+        if (signal?.aborted) {
+            throw new DOMException(typeof signal.reason === 'string' ? signal.reason : 'Aborted', 'AbortError')
         }
         throw new ApiError(error as any, response?.status)
     }
@@ -7458,7 +7480,7 @@ async function handleFetch(
     if (response.status === 401 && isOAuthMode() && !isRetry) {
         const refreshed = await refreshAccessToken()
         if (refreshed) {
-            return await handleFetch(url, method, fetcher, true)
+            return await handleFetch(url, method, fetcher, signal, true)
         }
     }
 

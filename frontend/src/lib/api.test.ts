@@ -203,6 +203,37 @@ describe('API helper', () => {
         })
     })
 
+    describe('request cancellation', () => {
+        it('normalizes an abort with a custom string reason into an AbortError instead of an ApiError', async () => {
+            // A newer query cancels the in-flight one via `controller.abort('new query started')`.
+            // The browser then rejects the fetch with that string reason (no `.name`), so without
+            // normalization handleFetch would wrap it in an ApiError and pollute error tracking.
+            const controller = new AbortController()
+            controller.abort('new query started')
+            fakeFetch.mockRejectedValueOnce('new query started')
+
+            let caught: any
+            try {
+                await api.get('/api/projects/2/anything', { signal: controller.signal })
+            } catch (e) {
+                caught = e
+            }
+
+            expect(caught).toBeInstanceOf(DOMException)
+            expect(caught.name).toEqual('AbortError')
+            expect(caught.message).toEqual('new query started')
+        })
+
+        it('re-throws a native AbortError untouched', async () => {
+            const controller = new AbortController()
+            controller.abort()
+            const nativeAbort = new DOMException('The operation was aborted', 'AbortError')
+            fakeFetch.mockRejectedValueOnce(nativeAbort)
+
+            await expect(api.get('/api/projects/2/anything', { signal: controller.signal })).rejects.toBe(nativeAbort)
+        })
+    })
+
     describe('organizationFeatureFlags', () => {
         it('builds correct URL for organization feature flags', () => {
             const apiRequest = new ApiRequest()
