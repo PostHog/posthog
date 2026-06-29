@@ -20,10 +20,10 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import Node
-from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
