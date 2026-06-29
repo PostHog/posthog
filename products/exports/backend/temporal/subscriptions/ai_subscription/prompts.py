@@ -99,14 +99,16 @@ Output rules:
   When context lists "Events matching your request", prefer those exact event names — they were
   selected for this prompt. For an event's properties, use only the names listed under its
   "`<event>` properties" line (access as `properties.<name>`); do not invent property names.
-- The analysis window is fixed and provided in <project_context> as "Analysis window start" and
-  "Analysis window end" (concrete timestamps in the project timezone). Filter EVERY query on exactly
-  that half-open range — copy the provided literals into a filter of the form
-  `timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')`. Do NOT compute the window
-  yourself with `now()` / `now() - INTERVAL …` / `today()` — those drift between runs and force fragile
-  timezone math. Use the provided literals verbatim, even when the prompt names a relative period
-  ("today", "this week"); the bounds already encode it. For sub-windows inside the range (e.g. day-over-day
-  within the window), bucket with `toStartOfDay(timestamp)` etc., but keep the outer filter on the literals.
+- The analysis window is fixed, but you must NOT write its dates yourself. Filter EVERY query on the
+  window using the literal placeholder token `{{date_range}}` — write it verbatim where the timestamp
+  predicate goes, e.g. `WHERE {{date_range}}` or `WHERE event = '$pageview' AND {{date_range}}`. The
+  system substitutes the concrete half-open range (`timestamp >= toDateTime('<start>') AND timestamp <
+  toDateTime('<end>')`) into that token at run time, so the plan stays reusable as the window advances.
+  Do NOT write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window
+  yourself — use `{{date_range}}`. The concrete bounds shown in <project_context> are for your
+  understanding only; copy the placeholder, not those dates, even when the prompt names a relative period
+  ("today", "this week"). For sub-windows inside the range (e.g. day-over-day within the window), bucket
+  with `toStartOfDay(timestamp)` etc., but keep the outer window filter as `{{date_range}}`.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
 
@@ -125,8 +127,8 @@ flat SELECT statement. The following patterns are common LLM mistakes that HogQL
   null-safe join keys with "Cannot determine join keys", so a JOIN will fail at execution time.
   (Person, session, and group/account data IS still available without a JOIN — see "Joined data
   available" below.)
-- Window filter: use the provided literals — `timestamp >= toDateTime('<start>') AND timestamp <
-  toDateTime('<end>')`. Never `now()` / `now() - INTERVAL …` / `today()` for the window.
+- Window filter: write the placeholder token `{{date_range}}` verbatim where the window predicate goes.
+  Never write `timestamp >= toDateTime('…')`, `now()`, `now() - INTERVAL …`, or `today()` for the window.
 - Time bucketing (for sub-windows WITHIN the range): `toStartOfHour(timestamp)`,
   `toStartOfDay(timestamp)`, `toStartOfWeek(timestamp)`.
 - Conditional aggregation: `countIf(cond)`, `uniqIf(field, cond)`, `sumIf(field, cond)`,
@@ -135,43 +137,39 @@ flat SELECT statement. The following patterns are common LLM mistakes that HogQL
   `arraySlice(arraySort(…), 1, N)` for many. Never `ROW_NUMBER() OVER (PARTITION BY …)`.
 - String literals use single quotes; identifiers are unquoted.
 
-Reference patterns (use as templates). `<start>` and `<end>` below stand for the exact
-"Analysis window start" / "Analysis window end" literals from <project_context> — substitute them
-verbatim; never write `now()` or `now() - INTERVAL …`:
+Reference patterns (use as templates). Write the placeholder `{{date_range}}` verbatim as the window
+filter in every query; the system substitutes the concrete bounds at run time. Never write
+`toDateTime('…')` window bounds, `now()`, or `now() - INTERVAL …` yourself:
 
 Top events across the window:
   SELECT event, count() AS count, uniq(distinct_id) AS users
   FROM events
-  WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE {{date_range}}
   GROUP BY event
   ORDER BY count DESC
   LIMIT 50
 
-First-half vs second-half growth in ONE flat query (USE THIS PATTERN INSTEAD OF NESTED CTES) — split
-the window at its midpoint instead of guessing a `now()`-relative cutoff; compute the midpoint inline:
-  SELECT
-    event,
-    countIf(timestamp >= toDateTime('<start>') + (toDateTime('<end>') - toDateTime('<start>')) / 2) AS recent,
-    countIf(timestamp <  toDateTime('<start>') + (toDateTime('<end>') - toDateTime('<start>')) / 2) AS earlier,
-    (recent - earlier) / nullIf(earlier, 0) AS growth_rate
+First-half vs second-half growth in ONE flat query (USE THIS PATTERN INSTEAD OF NESTED CTES) — bucket by
+day inside the window and let the report compare the start and end of the series. Keep the window filter
+as the placeholder; never invent a `now()`-relative cutoff:
+  SELECT toStartOfDay(timestamp) AS day, event, count() AS count
   FROM events
-  WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
-  GROUP BY event
-  HAVING earlier > 0 OR recent > 0
-  ORDER BY growth_rate DESC
+  WHERE {{date_range}}
+  GROUP BY day, event
+  ORDER BY day, count DESC
   LIMIT 50
 
 Daily time series for a single event:
   SELECT toStartOfDay(timestamp) AS day, count() AS count, uniq(distinct_id) AS users
   FROM events
-  WHERE event = '$pageview' AND timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE event = '$pageview' AND {{date_range}}
   GROUP BY day
   ORDER BY day
 
 Hourly distribution to spot spikes:
   SELECT toStartOfHour(timestamp) AS hour, count() AS count
   FROM events
-  WHERE event = '$pageview' AND timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE event = '$pageview' AND {{date_range}}
   GROUP BY hour
   ORDER BY hour
 
@@ -184,14 +182,14 @@ Top AND bottom events — a single `ORDER BY … DESC LIMIT n` only returns the 
 with an ASC tail to read both the most- and least-active events regardless of how many events exist:
   (SELECT event, count() AS event_count, uniq(distinct_id) AS users
    FROM events
-   WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+   WHERE {{date_range}}
    GROUP BY event
    ORDER BY event_count DESC
    LIMIT 25)
   UNION ALL
   (SELECT event, count() AS event_count, uniq(distinct_id) AS users
    FROM events
-   WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+   WHERE {{date_range}}
    GROUP BY event
    ORDER BY event_count ASC
    LIMIT 25)
@@ -212,7 +210,7 @@ Breakdown by a person property (USE the dotted path, NOT a JOIN):
     count() AS event_count,
     uniq(distinct_id) AS users
   FROM events
-  WHERE timestamp >= toDateTime('<start>') AND timestamp < toDateTime('<end>')
+  WHERE {{date_range}}
   GROUP BY plan
   ORDER BY event_count DESC
   LIMIT 50
@@ -282,10 +280,11 @@ same HogQL syntax constraints used by the planner:
   UNNEST, or ARRAY JOIN on subqueries.
 - No JOINs of any kind, including self-joins on `event`. Use conditional aggregation instead
   (ClickHouse rejects HogQL's null-safe join keys).
-- Time window: PRESERVE the original query's `timestamp >= toDateTime('…') AND timestamp <
-  toDateTime('…')` bounds verbatim — those are the report's fixed analysis window. Do NOT introduce
-  `now()` / `now() - INTERVAL …` / `today()`; if the original already uses them, keep its existing
-  literal bounds rather than inventing new ones.
+- Time window: PRESERVE the window filter verbatim. If the original uses the `{{date_range}}` placeholder
+  token, keep `{{date_range}}` exactly as-is — the system substitutes the real bounds at run time. If the
+  original instead has literal `timestamp >= toDateTime('…') AND timestamp < toDateTime('…')` bounds, keep
+  those bounds unchanged. Either way, do NOT introduce `now()` / `now() - INTERVAL …` / `today()`, and do
+  NOT replace `{{date_range}}` with literal dates.
 - Time bucketing: `toStartOfHour/Day/Week(timestamp)`.
 - String literals use single quotes; identifiers are unquoted.
 - Keep it cheap: LIMIT 50.

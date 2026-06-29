@@ -13,8 +13,8 @@ _P = "products.exports.backend.temporal.subscriptions.ai_subscription.prompts"
 
 class TestPlannerWindowInstruction:
     """The window-determinism fix lives in the prompt's example patterns — the planner copies them.
-    These guard against re-introducing the `now()`-relative date math that caused timezone query
-    errors and run-to-run drift."""
+    The frozen-plan refactor makes the window a `{{date_range}}` placeholder the executor substitutes at
+    run time, so the planner must emit the placeholder (not literal dates or `now()`-relative math)."""
 
     @parameterized.expand(
         [
@@ -22,12 +22,13 @@ class TestPlannerWindowInstruction:
             ("hogql_fix", HOGQL_FIX_PROMPT),
         ]
     )
-    def test_instructs_explicit_window_and_forbids_now_interval(self, _name: str, prompt: str) -> None:
-        # The half-open `toDateTime(...)` filter is the template the model must copy/preserve.
-        assert "toDateTime(" in prompt
-        # The relative window date-math the fix removes must not appear as a usable example. The
-        # prohibition text says "Never now() - INTERVAL …" with an ellipsis, so a concrete
-        # `now() - INTERVAL <n> DAY` example (the thing models copy) is what we're guarding against.
+    def test_instructs_placeholder_window_and_forbids_now_interval(self, _name: str, prompt: str) -> None:
+        # The `{{date_range}}` placeholder is the window template the model must copy/preserve — its
+        # presence is what keeps a frozen plan window-agnostic.
+        assert "{{date_range}}" in prompt
+        # The relative window date-math must not appear as a usable example. The prohibition text says
+        # "Never now() - INTERVAL …" with an ellipsis, so a concrete `now() - INTERVAL <n> DAY` example
+        # (the thing models copy) is what we're guarding against.
         assert "now() - INTERVAL 7 DAY" not in prompt
         assert "now() - INTERVAL 14 DAY" not in prompt
 

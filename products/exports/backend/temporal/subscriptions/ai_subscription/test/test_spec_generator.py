@@ -409,9 +409,12 @@ class TestComputeReportWindow:
 class TestContextBlob(APIBaseTest):
     @patch(f"{_SG}.get_group_types_for_project", return_value=[])
     @patch(f"{_SG}._top_event_names", return_value=[])
-    def test_states_explicit_window_bounds_in_project_timezone(self, _mock_top: object, _mock_groups: object) -> None:
-        # The window-text regression: the blob must hand the planner concrete `[start, end)` literals
-        # (so it never writes `now() - INTERVAL`), not the old "last N day(s)" relative phrasing.
+    def test_states_window_bounds_and_placeholder_in_project_timezone(
+        self, _mock_top: object, _mock_groups: object
+    ) -> None:
+        # The blob hands the planner the concrete `[start, end)` bounds for context, but instructs it to
+        # filter via the `{{date_range}}` placeholder (the executor substitutes the real window at run
+        # time) — never literal dates or the old "last N day(s)" relative phrasing.
         self.team.timezone = "Australia/Sydney"
         self.team.save()
         window = compute_report_window(
@@ -425,10 +428,10 @@ class TestContextBlob(APIBaseTest):
 
         assert f"Analysis window start (inclusive, project timezone): {window.start_literal}" in blob
         assert f"Analysis window end (exclusive, project timezone): {window.end_literal}" in blob
-        assert (
-            f"timestamp >= toDateTime('{window.start_literal}') AND timestamp < toDateTime('{window.end_literal}')"
-            in blob
-        )
+        # The filter instruction names the placeholder, not the literal bounds — so a frozen plan stays
+        # window-agnostic and the dates never get baked into the planner's HogQL.
+        assert "{{date_range}}" in blob
+        assert f"toDateTime('{window.start_literal}')" not in blob
         # The relative "last N day(s)" phrasing the planner used to do tz math against is gone.
         assert "Suggested analysis window" not in blob
         assert "Current UTC time" not in blob

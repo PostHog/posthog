@@ -70,6 +70,14 @@ class PromptRejectedError(ValueError):
     pass
 
 
+# System placeholder the planner emits for a query's time filter, so the frozen HogQL stays
+# window-agnostic. The executor substitutes the run's fresh, code-computed bounds into it (see
+# `ReportWindow.render_window_filter`), keeping the persisted plan deterministic while letting the
+# analysis window advance every run. Double-brace (NOT the `{{{...}}}` `render_prompt` token) so it's a
+# distinct system token user-controlled prompt/event text can't smuggle in.
+DATE_RANGE_PLACEHOLDER = "{{date_range}}"
+
+
 @dataclass(frozen=True)
 class ReportWindow:
     """Code-computed, timezone-aware analysis bounds for a report run.
@@ -92,6 +100,18 @@ class ReportWindow:
     @property
     def end_literal(self) -> str:
         return self.end.strftime("%Y-%m-%d %H:%M:%S")
+
+    @property
+    def window_filter_sql(self) -> str:
+        # The concrete half-open timestamp predicate the `{{date_range}}` placeholder resolves to.
+        return f"timestamp >= toDateTime('{self.start_literal}') AND timestamp < toDateTime('{self.end_literal}')"
+
+    def render_window_filter(self, hogql: str) -> str:
+        # Single-pass, non-recursive replace of every `{{date_range}}` token with the run's window
+        # predicate. str.replace is non-recursive by construction — the substituted SQL contains no
+        # placeholder, so it can't re-expand. A frozen step that (legacy) baked literal bounds and has
+        # no placeholder passes through unchanged; the executor still anchors `now()` to window.end.
+        return hogql.replace(DATE_RANGE_PLACEHOLDER, self.window_filter_sql)
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:
@@ -382,17 +402,19 @@ def build_context_blob(team: Team, window: ReportWindow, relevant_events: Sequen
     team_name = sanitize_user_text(team.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
     org_name = sanitize_user_text(team.organization.name, EVENT_NAME_MAX_LENGTH) or "(unnamed)"
 
-    # Exact, code-computed bounds in the project timezone — the planner filters on these literals
-    # instead of writing its own `now() - INTERVAL`, so there's no timezone math in HogQL and the
-    # window is gap-free run-to-run. Half-open: include `start`, exclude `end`.
+    # The planner must NOT write its own date bounds — it emits the `{{date_range}}` placeholder and the
+    # executor substitutes the run's code-computed window. That keeps a frozen plan window-agnostic (the
+    # window advances every run) and keeps timezone math out of HogQL. The concrete bounds are still
+    # shown for context (so the planner understands the period the prompt refers to), but as
+    # informational lines the planner copies the PLACEHOLDER, not the literals, into its filter.
     lines = [
         f"- Project: {team_name}",
         f"- Organization: {org_name}",
         f"- Project timezone: {team.timezone}",
         f"- Analysis window start (inclusive, project timezone): {window.start_literal}",
         f"- Analysis window end (exclusive, project timezone): {window.end_literal}",
-        f"- Filter timestamps with: timestamp >= toDateTime('{window.start_literal}') "
-        f"AND timestamp < toDateTime('{window.end_literal}')",
+        f"- Filter timestamps with the placeholder token (verbatim, do NOT substitute the dates yourself): "
+        f"{DATE_RANGE_PLACEHOLDER}",
     ]
     if event_names:
         lines.append("- Top events: " + ", ".join(event_names))

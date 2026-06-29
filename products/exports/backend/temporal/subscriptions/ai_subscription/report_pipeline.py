@@ -137,7 +137,9 @@ async def generate_ai_report(
     ) as slo:
         try:
             spec = await _plan(team=team, user=user, prompt=prompt, window=window, trace_id=trace_correlation_id)
-            rendered_results, failed_count, diagnostics = await _execute_plan(spec, team, user, trace_correlation_id)
+            rendered_results, failed_count, diagnostics = await _execute_plan(
+                spec, team, user, window, trace_correlation_id
+            )
             report = await _synthesize(spec, rendered_results, team, user, trace_correlation_id)
         except PromptRejectedError:
             # A rejected prompt is the input guard doing its job, not a service failure — keep it out of
@@ -190,10 +192,11 @@ async def _execute_plan(
     spec: EnrichedPromptSpec,
     team: Team,
     user: User,
+    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     try:
-        return await _run_steps(spec, team, user, trace_correlation_id)
+        return await _run_steps(spec, team, user, window, trace_correlation_id)
     except Exception as exc:
         # per-step failures degrade to placeholders in run_step; this catches orchestration failure
         raise AiReportStageError(ReportStage.QUERY, exc) from exc
@@ -259,19 +262,24 @@ async def _run_steps(
     spec: EnrichedPromptSpec,
     team: Team,
     user: User,
+    window: ReportWindow,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> tuple[list[str], int, list[QueryStepDiagnostic]]:
     executor = AssistantQueryExecutor(team, datetime.now(tz=UTC), user=user)
 
     async def run_step(step: QueryPlanStep) -> tuple[str, QueryStepDiagnostic]:
+        # `current_hogql` keeps the window-agnostic form (the `{{date_range}}` placeholder) so it round-trips
+        # through the fix LLM unchanged; the run's fresh bounds are substituted into `executable_hogql` on
+        # every attempt. The diagnostic records the executed SQL (placeholder resolved) for debugging.
         current_hogql = step.hogql
         last_exc: Optional[BaseException] = None
         # planner output — strip framing markers so it can't break the <query_results> envelope
         safe_description = strip_llm_framing_markers(step.description, max_len=500)
 
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
+            executable_hogql = window.render_window_filter(current_hogql)
             try:
-                query = AssistantHogQLQuery(query=current_hogql)
+                query = AssistantHogQLQuery(query=executable_hogql)
                 formatted, _ = await asyncio.wait_for(
                     executor.arun_and_format_query(query),
                     timeout=_HOGQL_STEP_TIMEOUT_SECONDS,
@@ -280,7 +288,7 @@ async def _run_steps(
                 safe_formatted = strip_llm_framing_markers(formatted, _QUERY_RESULT_MAX_CHARS)
                 return (
                     f"### {safe_description}\n\n{safe_formatted}",
-                    QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=True, error_type=None),
+                    QueryStepDiagnostic(description=safe_description, hogql=executable_hogql, ok=True, error_type=None),
                 )
             except Exception as exc:
                 last_exc = exc
@@ -327,7 +335,12 @@ async def _run_steps(
         # metric as "could not be computed" instead of paraphrasing the failure into "no data".
         return (
             f"### {safe_description}\n\n_{QUERY_FAILED_PREFIX} ({type_name}) — metric not computed, not empty data._",
-            QueryStepDiagnostic(description=safe_description, hogql=current_hogql, ok=False, error_type=type_name),
+            QueryStepDiagnostic(
+                description=safe_description,
+                hogql=window.render_window_filter(current_hogql),
+                ok=False,
+                error_type=type_name,
+            ),
         )
 
     step_results = await asyncio.gather(*(run_step(step) for step in spec.plan.steps))
