@@ -42,6 +42,12 @@ class ApifyDatasetSource(ResumableSource[ApifyDatasetSourceConfig, ApifyResumeCo
         return ExternalDataSourceType.APIFYDATASET
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # dataset_id selects which Apify dataset the stored token reads from; changing it must
+        # require re-entering the secret so a preserved token can't be retargeted at another dataset.
+        return ["dataset_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.APIFY_DATASET,

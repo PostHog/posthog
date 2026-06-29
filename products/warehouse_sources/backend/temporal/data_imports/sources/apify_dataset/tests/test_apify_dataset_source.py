@@ -46,6 +46,10 @@ class TestApifyDatasetSource:
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
 
+    def test_connection_host_fields_includes_dataset_id(self) -> None:
+        # dataset_id targets the stored token, so changing it must force re-entry of the secret.
+        assert self.source.connection_host_fields == ["dataset_id"]
+
     def test_get_schemas_is_full_refresh_only(self) -> None:
         schemas = self.source.get_schemas(_config(), self.team_id)
         assert [s.name for s in schemas] == ["dataset_items"]
