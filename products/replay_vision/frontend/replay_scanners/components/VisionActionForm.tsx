@@ -105,10 +105,12 @@ function ScheduleSection(): JSX.Element {
                     value={timeValue}
                     onChange={(val) => {
                         const [h, m] = (val || '').split(':').map((n) => parseInt(n, 10))
+                        // isFinite (not isNaN) so a cleared/partial input — where h or m is `undefined`,
+                        // which isNaN() does not catch — falls back to the default rather than undefined.
                         setVisionActionFormValue('cadence', {
                             ...cadence,
-                            hour: Number.isNaN(h) ? DEFAULT_CADENCE.hour : h,
-                            minute: Number.isNaN(m) ? DEFAULT_CADENCE.minute : m,
+                            hour: Number.isFinite(h) ? h : DEFAULT_CADENCE.hour,
+                            minute: Number.isFinite(m) ? m : DEFAULT_CADENCE.minute,
                         })
                     }}
                 />
