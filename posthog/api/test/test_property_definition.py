@@ -517,6 +517,14 @@ class TestPropertyDefinitionAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert any(prop["name"] == expected_name for prop in response.json()["results"])
 
+    def test_viewset_runs_query_serializer_validation(self) -> None:
+        # Wiring guard: the endpoint must actually invoke PropertyDefinitionQuerySerializer.
+        # The exhaustive valid/invalid matrix is unit-tested in TestPropertyDefinitionQuerySerializer
+        # with no DB; this proves the viewset rejects what that serializer rejects.
+        response = self.client.get(f"/api/projects/{self.team.pk}/property_definitions/?type=group")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "group_type_index" in response.json()["detail"]
+
     @parameterized.expand(
         [
             (
