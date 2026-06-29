@@ -107,6 +107,7 @@ the row lists both.
 | emailoctopus      | HTTP                        | requests                                                        | ✅                          |
 | eventbrite        | HTTP                        | requests                                                        | ✅                          |
 | fillout           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| finnworlds        | HTTP                        | requests                                                        | ✅                          |
 | front             | HTTP                        | requests                                                        | ✅                          |
 | fullstory         | HTTP                        | requests                                                        | ✅                          |
 | github            | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -394,7 +395,6 @@ doesn't conflict with concurrent PRs.
 - finage
 - financial_modelling
 - finnhub
-- finnworlds
 - firebase
 - firebolt
 - firehydrant
