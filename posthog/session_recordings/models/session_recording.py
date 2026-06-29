@@ -6,15 +6,11 @@ from django.db import models
 import structlog
 
 from posthog.models.person.missing_person import MissingPerson
-from posthog.models.person.person import READ_DB_FOR_PERSONS, Person
+from posthog.models.person.person import Person
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDTModel
-from posthog.personhog_client.metrics import (
-    PERSONHOG_ROUTING_ERRORS_TOTAL,
-    PERSONHOG_ROUTING_TOTAL,
-    PERSONHOG_TEAM_MISMATCH_TOTAL,
-    get_client_name,
-)
+from posthog.personhog_client.client import personhog_call
+from posthog.personhog_client.metrics import PERSONHOG_TEAM_MISMATCH_TOTAL, get_client_name
 from posthog.session_recordings.models.metadata import RecordingMatchingEvents, RecordingMetadata
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 
@@ -169,34 +165,16 @@ class SessionRecording(UUIDTModel):
         if self._person:
             return
 
-        from posthog.personhog_client.gate import use_personhog
+        distinct_id = self.distinct_id
+        if not distinct_id:
+            return
 
-        if use_personhog() and self.distinct_id:
-            try:
-                person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, self.distinct_id)
-                if person is not None:
-                    self.person = person
-                PERSONHOG_ROUTING_TOTAL.labels(
-                    operation="load_person", source="personhog", client_name=get_client_name()
-                ).inc()
-                return
-            except Exception:
-                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                    operation="load_person", source="personhog", error_type="grpc_error", client_name=get_client_name()
-                ).inc()
-                logger.warning("personhog_load_person_failure", team_id=self.team.pk, exc_info=True)
+        def _fn() -> None:
+            person = _fetch_person_by_distinct_id_via_personhog(self.team.pk, distinct_id)
+            if person is not None:
+                self.person = person
 
-        try:
-            self.person = Person.objects.db_manager(READ_DB_FOR_PERSONS).get(  # nosemgrep: no-direct-persons-db-orm
-                persondistinctid__distinct_id=self.distinct_id,
-                persondistinctid__team_id=self.team.pk,
-                team=self.team,
-            )
-        except Person.DoesNotExist:
-            pass
-        PERSONHOG_ROUTING_TOTAL.labels(
-            operation="load_person", source="django_orm", client_name=get_client_name()
-        ).inc()
+        personhog_call("load_person", _fn)
 
     def check_viewed_for_user(self, user: Any, save_viewed=False) -> None:
         if not save_viewed:

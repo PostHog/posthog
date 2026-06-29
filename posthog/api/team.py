@@ -14,7 +14,6 @@ from django.utils.dateparse import parse_datetime
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field, extend_schema_view
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from pydantic import TypeAdapter
 from pydantic_core import ValidationError as PydanticValidationError
@@ -31,6 +30,7 @@ from posthog.constants import AvailableFeature
 from posthog.decorators import disallow_if_impersonated
 from posthog.event_usage import report_user_action
 from posthog.geoip import get_geoip_properties
+from posthog.helpers.impersonation import is_impersonated
 from posthog.jwt import PosthogJwtAudience, encode_jwt, signing_key_fingerprint
 from posthog.models import ProductIntent, Team, TeamMarketingAnalyticsConfig, TeamRevenueAnalyticsConfig, User
 from posthog.models.activity_logging.activity_log import (
@@ -46,13 +46,13 @@ from posthog.models.event_ingestion_restriction_config import EventIngestionRest
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import cached_group_types_for_team
 from posthog.models.organization import OrganizationMembership
-from posthog.models.product_intent import promoted_product_lookup
 from posthog.models.product_intent.product_intent import (
     ProductIntentSerializer,
     cached_product_intents_for_team,
     enqueue_product_activation_calc_debounced,
 )
 from posthog.models.project import Project
+from posthog.models.team.event_retention import should_enforce_events_retention
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import CURRENCY_CODE_CHOICES, DEFAULT_CURRENCY
@@ -285,27 +285,6 @@ def _format_serializer_errors(serializer_errors: dict) -> str:
         else:
             error_messages.append(f"{field}: {field_errors}")
     return ". ".join(error_messages)
-
-
-PROMOTED_PRODUCT_INTENT_DESCRIPTION = (
-    "Return the product key (e.g. `session_replay`, `web_analytics`) this team selected as their primary "
-    "product during onboarding. Resolved from the team's most recent primary-onboarding `ProductIntent` "
-    "record (the one carrying the `onboarding product selected - primary` context) — not from the "
-    "`user showed product intent` event, which also fires for non-onboarding contexts. Returns `null` when no "
-    "primary onboarding product intent has been captured (e.g. teams created before this signal existed, or "
-    "where onboarding was skipped)."
-)
-
-
-class PromotedProductIntentSerializer(serializers.Serializer):
-    product_key = serializers.CharField(
-        allow_null=True,
-        help_text=(
-            "The product key the team selected as their primary product during onboarding "
-            "(e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no "
-            "primary onboarding product intent has been captured for this team."
-        ),
-    )
 
 
 class CachingTeamSerializer(serializers.ModelSerializer):
@@ -742,6 +721,16 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     customer_analytics_config = TeamCustomerAnalyticsConfigSerializer(required=False)
     workflows_config = TeamWorkflowsConfigSerializer(required=False)
     base_currency = serializers.ChoiceField(choices=CURRENCY_CODE_CHOICES, default=DEFAULT_CURRENCY)
+    event_retention_months = serializers.IntegerField(
+        read_only=True,
+        help_text=(
+            "The team's events data retention window in months (plan-derived, synced from billing). When retention "
+            "enforcement is active for the team, queries do not return events older than this many months."
+        ),
+    )
+    events_retention_enforced = serializers.SerializerMethodField(
+        help_text="Whether events data retention is currently enforced for this team (cohort/flag gated)."
+    )
 
     class Meta:
         model = Team
@@ -771,6 +760,8 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "available_setup_task_ids",
+            "event_retention_months",
+            "events_retention_enforced",
         )
 
         read_only_fields = (
@@ -819,6 +810,11 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     def get_group_types(self, team: Team) -> list[dict[str, Any]]:
         return cached_group_types_for_team(team)
 
+    @extend_schema_field(serializers.BooleanField())
+    @tracer.start_as_current_span("team_serializer.events_retention_enforced")
+    def get_events_retention_enforced(self, team: Team) -> bool:
+        return should_enforce_events_retention(team.id)
+
     @tracer.start_as_current_span("team_serializer.live_events_token")
     def get_live_events_token(self, team: Team) -> str | None:
         request = self.context.get("request")
@@ -838,7 +834,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.DictField(child=serializers.BooleanField()))
     @tracer.start_as_current_span("team_serializer.managed_viewsets")
     def get_managed_viewsets(self, obj):
-        from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+        from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
         from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
         enabled_viewsets = DataWarehouseManagedViewSet.objects.filter(team=obj).values_list("kind", flat=True)
@@ -1468,7 +1464,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=team.organization_id,
             team_id=team.pk,
             user=request.user,
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(request),
             scope="Team",
             item_id=team.pk,
             activity="created",
@@ -1520,7 +1516,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                     organization_id=cast(UUIDT, instance.organization_id),
                     team_id=instance.pk,
                     user=cast(User, self.context["request"].user),
-                    was_impersonated=is_impersonated_session(request),
+                    was_impersonated=is_impersonated(self.context["request"]),
                     scope="Survey",
                     item_id="",
                     activity="updated",
@@ -1598,7 +1594,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             organization_id=cast(UUIDT, instance.organization_id),
             team_id=instance.pk,
             user=cast(User, self.context["request"].user),
-            was_impersonated=is_impersonated_session(request),
+            was_impersonated=is_impersonated(self.context["request"]),
             scope="Team",
             item_id=instance.pk,
             activity="updated",
@@ -1639,7 +1635,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         self._capture_diff(instance, "revenue_analytics_config", old_config, new_config)
 
         if "events" in validated_data:
-            from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
+            from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
             from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
             managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
@@ -1768,7 +1764,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 organization_id=cast(UUIDT, instance.organization_id),
                 team_id=instance.pk,
                 user=cast(User, self.context["request"].user),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(self.context["request"]),
                 scope="Team",
                 item_id=instance.pk,
                 activity="updated",
@@ -1961,7 +1957,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             organization_id=cast(UUIDT, organization_id),
             team_id=team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             scope="Team",
             item_id=team_id,
             activity="deleted",
@@ -1978,7 +1974,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def reset_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        team.reset_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -1989,7 +1985,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def rotate_secret_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated_session(request))
+        team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -2000,9 +1996,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     )
     def delete_secret_token_backup(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
-        team.delete_secret_token_backup_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
-        )
+        team.delete_secret_token_backup_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
     @action(
@@ -2014,7 +2008,7 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
     def generate_conversations_public_token(self, request: request.Request, id: str, **kwargs) -> response.Response:
         team = self.get_object()
         team.generate_conversations_public_token_and_save(
-            user=request.user, is_impersonated_session=is_impersonated_session(request)
+            user=request.user, is_impersonated_session=is_impersonated(request)
         )
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
 
@@ -2327,17 +2321,6 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
             )
 
         return response.Response(TeamSerializer(team, context=self.get_serializer_context()).data)
-
-    @extend_schema(
-        tags=["platform_features"],
-        responses={200: PromotedProductIntentSerializer},
-        description=PROMOTED_PRODUCT_INTENT_DESCRIPTION,
-    )
-    @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="promoted_product_intent")
-    def promoted_product_intent(self, request: request.Request, **kwargs) -> response.Response:
-        team = self.get_object()
-        product_key = promoted_product_lookup.get_promoted_product_intent(team.pk)
-        return response.Response({"product_key": product_key})
 
     @action(methods=["GET"], detail=True, required_scopes=["project:read"], url_path="event_ingestion_restrictions")
     def event_ingestion_restrictions(self, request, **kwargs):

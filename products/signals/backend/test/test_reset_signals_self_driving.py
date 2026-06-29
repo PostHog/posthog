@@ -6,7 +6,7 @@ from django.test import override_settings
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
-_SERVICE = "products.data_warehouse.backend.data_load.service"
+_SERVICE = "products.data_warehouse.backend.logic.data_load.service"
 
 
 @override_settings(DEBUG=True)

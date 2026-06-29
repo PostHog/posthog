@@ -11,7 +11,12 @@ import {
     EvaluationsPartialUpdateParams,
     EvaluationsRetrieveParams,
     EvaluationsTestHogCreateBody,
+    LlmAnalyticsClusteringConfigSetEventFiltersCreateBody,
+    LlmAnalyticsClusteringJobsCreateBody,
+    LlmAnalyticsClusteringJobsDestroyParams,
     LlmAnalyticsClusteringJobsListQueryParams,
+    LlmAnalyticsClusteringJobsPartialUpdateBody,
+    LlmAnalyticsClusteringJobsPartialUpdateParams,
     LlmAnalyticsClusteringJobsRetrieveParams,
     LlmAnalyticsEvaluationConfigSetActiveKeyCreateBody,
     LlmAnalyticsEvaluationReportsCreateBody,
@@ -26,6 +31,8 @@ import {
     LlmAnalyticsEvaluationSummaryCreateBody,
     LlmAnalyticsModelsRetrieveQueryParams,
     LlmAnalyticsPersonalSpendListQueryParams,
+    LlmAnalyticsProviderKeysListQueryParams,
+    LlmAnalyticsProviderKeysRetrieveParams,
     LlmAnalyticsReviewQueueItemsCreateBody,
     LlmAnalyticsReviewQueueItemsDestroyParams,
     LlmAnalyticsReviewQueueItemsListQueryParams,
@@ -67,6 +74,89 @@ import { PromptListInputSchema, ScoreDefinitionConfigSchema } from '@/schema/too
 import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const LlmaClusteringConfigGetSchema = z.object({})
+
+const llmaClusteringConfigGet = (): ToolBase<typeof LlmaClusteringConfigGetSchema, Schemas.ClusteringConfig> => ({
+    name: 'llma-clustering-config-get',
+    schema: LlmaClusteringConfigGetSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringConfigGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/`,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringConfigSetEventFiltersSchema = LlmAnalyticsClusteringConfigSetEventFiltersCreateBody
+
+const llmaClusteringConfigSetEventFilters = (): ToolBase<
+    typeof LlmaClusteringConfigSetEventFiltersSchema,
+    Schemas.ClusteringConfig
+> => ({
+    name: 'llma-clustering-config-set-event-filters',
+    schema: LlmaClusteringConfigSetEventFiltersSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringConfigSetEventFiltersSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.event_filters !== undefined) {
+            body['event_filters'] = params.event_filters
+        }
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/set_event_filters/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobCreateSchema = LlmAnalyticsClusteringJobsCreateBody
+
+const llmaClusteringJobCreate = (): ToolBase<typeof LlmaClusteringJobCreateSchema, Schemas.ClusteringJob> => ({
+    name: 'llma-clustering-job-create',
+    schema: LlmaClusteringJobCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringJobCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.analysis_level !== undefined) {
+            body['analysis_level'] = params.analysis_level
+        }
+        if (params.event_filters !== undefined) {
+            body['event_filters'] = params.event_filters
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobDeleteSchema = LlmAnalyticsClusteringJobsDestroyParams.omit({ project_id: true })
+
+const llmaClusteringJobDelete = (): ToolBase<typeof LlmaClusteringJobDeleteSchema, unknown> => ({
+    name: 'llma-clustering-job-delete',
+    schema: LlmaClusteringJobDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringJobDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const LlmaClusteringJobGetSchema = LlmAnalyticsClusteringJobsRetrieveParams.omit({ project_id: true })
 
 const llmaClusteringJobGet = (): ToolBase<typeof LlmaClusteringJobGetSchema, Schemas.ClusteringJob> => ({
@@ -96,6 +186,37 @@ const llmaClusteringJobList = (): ToolBase<typeof LlmaClusteringJobListSchema, S
                 limit: params.limit,
                 offset: params.offset,
             },
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobUpdateSchema = LlmAnalyticsClusteringJobsPartialUpdateParams.omit({ project_id: true }).extend(
+    LlmAnalyticsClusteringJobsPartialUpdateBody.shape
+)
+
+const llmaClusteringJobUpdate = (): ToolBase<typeof LlmaClusteringJobUpdateSchema, Schemas.ClusteringJob> => ({
+    name: 'llma-clustering-job-update',
+    schema: LlmaClusteringJobUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaClusteringJobUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.analysis_level !== undefined) {
+            body['analysis_level'] = params.analysis_level
+        }
+        if (params.event_filters !== undefined) {
+            body['event_filters'] = params.event_filters
+        }
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringJob>({
+            method: 'PATCH',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_jobs/${encodeURIComponent(String(params.id))}/`,
+            body,
         })
         return result
     },
@@ -750,6 +871,43 @@ const llmaPromptUpdate = (): ToolBase<typeof LlmaPromptUpdateSchema, Schemas.LLM
     },
 })
 
+const LlmaProviderKeyGetSchema = LlmAnalyticsProviderKeysRetrieveParams.omit({ project_id: true })
+
+const llmaProviderKeyGet = (): ToolBase<typeof LlmaProviderKeyGetSchema, Schemas.LLMProviderKey> => ({
+    name: 'llma-provider-key-get',
+    schema: LlmaProviderKeyGetSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyGetSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.LLMProviderKey>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LlmaProviderKeyListSchema = LlmAnalyticsProviderKeysListQueryParams
+
+const llmaProviderKeyList = (): ToolBase<
+    typeof LlmaProviderKeyListSchema,
+    WithPostHogUrl<Schemas.PaginatedLLMProviderKeyList>
+> => ({
+    name: 'llma-provider-key-list',
+    schema: LlmaProviderKeyListSchema,
+    handler: async (context: Context, params: z.infer<typeof LlmaProviderKeyListSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedLLMProviderKeyList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/provider_keys/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+            },
+        })
+        return await withPostHogUrl(context, result, '/ai-observability')
+    },
+})
+
 const LlmaReviewQueueCreateSchema = LlmAnalyticsReviewQueuesCreateBody
 
 const llmaReviewQueueCreate = (): ToolBase<
@@ -1395,8 +1553,13 @@ const llmaTraceReviewUpdate = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'llma-clustering-config-get': llmaClusteringConfigGet,
+    'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
+    'llma-clustering-job-create': llmaClusteringJobCreate,
+    'llma-clustering-job-delete': llmaClusteringJobDelete,
     'llma-clustering-job-get': llmaClusteringJobGet,
     'llma-clustering-job-list': llmaClusteringJobList,
+    'llma-clustering-job-update': llmaClusteringJobUpdate,
     'llma-evaluation-config-get': llmaEvaluationConfigGet,
     'llma-evaluation-config-set-active-key': llmaEvaluationConfigSetActiveKey,
     'llma-evaluation-create': llmaEvaluationCreate,
@@ -1421,6 +1584,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-prompt-get': llmaPromptGet,
     'llma-prompt-list': llmaPromptList,
     'llma-prompt-update': llmaPromptUpdate,
+    'llma-provider-key-get': llmaProviderKeyGet,
+    'llma-provider-key-list': llmaProviderKeyList,
     'llma-review-queue-create': llmaReviewQueueCreate,
     'llma-review-queue-delete': llmaReviewQueueDelete,
     'llma-review-queue-get': llmaReviewQueueGet,

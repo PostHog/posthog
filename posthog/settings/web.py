@@ -49,7 +49,6 @@ PRODUCTS_APPS = [
     "products.surveys.backend.apps.SurveysConfig",
     "products.data_warehouse.backend.apps.DataWarehouseConfig",
     "products.data_modeling.backend.apps.DataModelingConfig",
-    "products.desktop_recordings.backend.apps.DesktopRecordingsConfig",
     "products.live_debugger.backend.apps.LiveDebuggerConfig",
     "products.experiments.backend.apps.ExperimentsConfig",
     "products.feature_flags.backend.apps.FeatureFlagsConfig",
@@ -95,6 +94,7 @@ PRODUCTS_APPS = [
     "products.cohorts.backend.apps.CohortsConfig",
     "products.growth.backend.apps.GrowthConfig",
     "products.reminders.backend.apps.RemindersConfig",
+    "products.approvals.backend.apps.ApprovalsConfig",
 ]
 
 INSTALLED_APPS = [
@@ -140,7 +140,6 @@ MIDDLEWARE = [
     "posthog.gzip_middleware.ScopedGZipMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",
-    "posthog.personhog_client.middleware.PersonHogGateMiddleware",
     "posthog.middleware.Fix204Middleware",
     "django.middleware.security.SecurityMiddleware",
     "posthog.middleware.OAuthCoopMiddleware",
@@ -485,8 +484,6 @@ SPECTACULAR_SETTINGS = {
         "ConversationType": "products.posthog_ai.backend.models.assistant.Conversation.Type",
         "DetailModeEnum": "products.ai_observability.backend.summarization.models.SummarizationMode",
         "SavedQueryStatusEnum": "products.data_modeling.backend.models.datawarehouse_saved_query.DataWarehouseSavedQuery.Status",
-        "DesktopRecordingStatusEnum": "products.desktop_recordings.backend.models.DesktopRecording.Status",
-        "MeetingPlatformEnum": "products.desktop_recordings.backend.models.DesktopRecording.Platform",
         "PushTokenPlatformEnum": "posthog.models.user_push_token.UserPushToken.Platform",
         "PropertyDefinitionTypeEnum": "products.event_definitions.backend.models.property_definition.PropertyType",
         "ExternalDataSourceTypeEnum": "products.warehouse_sources.backend.types.ExternalDataSourceType",
@@ -603,6 +600,8 @@ SPECTACULAR_SETTINGS = {
         "FileFormatEnum": ["Parquet", "JSONLines"],
         "MetricAttributeScopeEnum": ["resource", "attribute", "auto"],
         "MetricQueryIntervalEnum": ["second", "minute", "minute_5", "minute_15", "hour", "hour_6", "day", "week"],
+        "MetricAnomalyDirectionEnum": ["up", "down", "flat"],
+        "WoWChangeDirectionEnum": ["Up", "Down"],
         "BatchExportIntervalEnum": ["hour", "day", "week", "every 5 minutes", "every 15 minutes"],
         "ErrorTrackingIssueOrderByEnum": ["last_seen", "first_seen", "occurrences", "users", "sessions"],
         "ErrorTrackingIssueStatusEnum": ["archived", "active", "resolved", "pending_release", "suppressed", "all"],
@@ -634,6 +633,7 @@ SPECTACULAR_SETTINGS = {
             "artifact",
             "tree_snapshot",
             "user_attachment",
+            "skill_bundle",
         ],
         # Same-value collisions: identical choice sets appear on fields with different names.
         # href_matching, text_matching, url_matching on ActionStep all share the same choices.
@@ -704,7 +704,6 @@ GZIP_RESPONSE_ALLOW_LIST = get_list(
                 "^/?api/(environments|projects)/\\d+/uploaded_media/?$",
                 "^/uploaded_media/.*$",
                 "^/api/element/stats/?$",
-                "^/api/(environments|projects)/\\d+/groups/property_definitions/?$",
                 "^/api/(environments|projects)/\\d+/cohorts/?$",
                 "^/api/(environments|projects)/\\d+/persons/?$",
                 "^/api/organizations/@current/plugins/?$",

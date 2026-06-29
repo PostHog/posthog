@@ -9,8 +9,8 @@ from asgiref.sync import sync_to_async
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
-from posthog.models.person import Person, PersonDistinctId
-from posthog.person_db_router import PERSONS_DB_FOR_WRITE
+from posthog.persons_db import persons_db_connection
+from posthog.persons_seed import insert_seed_distinct_id, insert_seed_person
 from posthog.temporal.sync_person_distinct_ids.activities import (
     find_orphaned_persons,
     lookup_pg_distinct_ids,
@@ -28,6 +28,8 @@ from posthog.temporal.tests.sync_person_distinct_ids.conftest import (
     insert_person_to_ch,
     insert_persons_to_ch_batch,
 )
+
+pytestmark = pytest.mark.persons_db_direct
 
 
 @pytest.mark.django_db(transaction=True)
@@ -52,12 +54,6 @@ class TestSyncPersonDistinctIdsWorkflow:
         yield
 
         cleanup_ch_test_data(self.team.id, self.created_person_uuids, self.created_distinct_ids)
-        PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, distinct_id__startswith=self.prefix
-        ).delete()
-        Person.objects.db_manager(PERSONS_DB_FOR_WRITE).filter(
-            team=self.team, uuid__in=self.created_person_uuids
-        ).delete()
 
     async def _create_test_data(self):
         """Create 100 orphaned persons across all three categories."""
@@ -85,26 +81,19 @@ class TestSyncPersonDistinctIdsWorkflow:
         insert_persons_to_ch_batch(self.team.id, self.created_person_uuids, version=0)
 
         # Create PG data for fixable and truly orphaned
+        # Persons-DB rows only (no ClickHouse): the fixable persons are orphans precisely because
+        # their distinct id lives in PG but not CH, so use the low-level inserts rather than the
+        # create_person/add_distinct_id helpers (which also mirror into ClickHouse).
         @sync_to_async
         def create_pg_data():
-            # Fixable: Person in PG with DID - use bulk_create for efficiency
-            fixable_persons = [Person(team=self.team, uuid=person_uuid) for person_uuid in self.fixable_uuids]
-            created_persons = Person.objects.db_manager(PERSONS_DB_FOR_WRITE).bulk_create(fixable_persons)
-
-            # Create distinct IDs for fixable persons
-            distinct_id_objects = []
-            for i, person in enumerate(created_persons):
-                distinct_id = f"{self.prefix}-fixable-{i}"
-                distinct_id_objects.append(
-                    PersonDistinctId(team=self.team, person=person, distinct_id=distinct_id, version=0)
-                )
-            PersonDistinctId.objects.db_manager(PERSONS_DB_FOR_WRITE).bulk_create(distinct_id_objects)
-
-            # Truly orphaned: Person in PG, no DID - use bulk_create
-            truly_orphaned_persons = [
-                Person(team=self.team, uuid=person_uuid) for person_uuid in self.truly_orphaned_uuids
-            ]
-            Person.objects.db_manager(PERSONS_DB_FOR_WRITE).bulk_create(truly_orphaned_persons)
+            with persons_db_connection(writer=True, autocommit=True) as conn:
+                for i, person_uuid in enumerate(self.fixable_uuids):
+                    person_id = insert_seed_person(conn, team_id=self.team.id, properties={}, uuid=person_uuid)
+                    insert_seed_distinct_id(
+                        conn, team_id=self.team.id, person_id=person_id, distinct_id=f"{self.prefix}-fixable-{i}"
+                    )
+                for person_uuid in self.truly_orphaned_uuids:
+                    insert_seed_person(conn, team_id=self.team.id, properties={}, uuid=person_uuid)
 
         await create_pg_data()
 

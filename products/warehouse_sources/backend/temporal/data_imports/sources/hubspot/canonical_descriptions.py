@@ -24,6 +24,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lastmodifieddate": "Date any property on the contact was last modified.",
             "hs_lead_status": "The contact's sales, prospecting, or outreach status.",
             "hs_buying_role": "The contact's role in the buying decision (e.g. decision maker, champion).",
+            "hs_analytics_first_timestamp": "Time of the contact's first recorded website session.",
+            "hs_analytics_num_page_views": "Total number of page views by the contact.",
+            "hs_seniority": "The contact's inferred job seniority level.",
+            "hs_state_code": "Two-letter code for the contact's state or region.",
+            "hs_shared_team_ids": "IDs of the HubSpot teams the contact is shared with.",
+            "salesforcecampaignids": "IDs of associated Salesforce campaigns, set by the HubSpot-Salesforce integration.",
         },
     },
     "companies": {
@@ -37,6 +43,9 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_lastmodifieddate": "Date any property on the company was last modified.",
             "hs_lead_status": "The company's sales, prospecting, or outreach status.",
             "hs_csm_sentiment": "Customer success manager's recorded sentiment toward the company.",
+            "industry": "The company's industry.",
+            "website": "The company's website URL.",
+            "hs_updated_by_user_id": "ID of the user who last updated the company.",
         },
     },
     "deals": {
@@ -52,6 +61,8 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdate": "Date the deal was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the deal was last modified.",
             "hs_mrr": "Monthly recurring revenue associated with the deal.",
+            "hubspot_owner_id": "ID of the HubSpot user who owns the deal.",
+            "hs_updated_by_user_id": "ID of the user who last updated the deal.",
         },
     },
     "tickets": {
@@ -67,6 +78,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_ticket_category": "The category the ticket was filed under.",
             "createdate": "Date the ticket was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the ticket was last modified.",
+            "hubspot_companyid": "ID of the primary company associated with the ticket.",
         },
     },
     "quotes": {
@@ -80,6 +92,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_public_url_key": "Key used to build the quote's public, shareable URL.",
             "hs_createdate": "Date the quote was created in HubSpot.",
             "hs_lastmodifieddate": "Date any property on the quote was last modified.",
+            "hs_esign_num_signers_required": "Number of signers required to e-sign the quote.",
         },
     },
     "emails": {
@@ -115,6 +128,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_activity_type": "The configured meeting/activity type.",
             "hs_attachment_ids": "IDs of files attached to the meeting.",
             "hs_lastmodifieddate": "Date any property on the meeting was last modified.",
+            "hs_meeting_source": "How the meeting was created (e.g. CRM_UI, MEETINGS_PUBLIC).",
         },
     },
 }

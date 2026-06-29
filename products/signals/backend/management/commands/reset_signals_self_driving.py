@@ -185,7 +185,7 @@ class Command(BaseCommand):
         sync schedules so they stop firing. Scoped to `created_via=MCP` so a user's own
         hand-connected warehouse source of the same type is never touched.
         """
-        from products.data_warehouse.backend.data_load.service import (
+        from products.data_warehouse.backend.facade.api import (
             delete_discover_schemas_schedule,
             delete_external_data_schedule,
         )

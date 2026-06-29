@@ -173,6 +173,22 @@ const agentApplicationsList = (): ToolBase<
     },
 })
 
+const AgentApplicationsModelsSchema = z.object({})
+
+const agentApplicationsModels = (): ToolBase<typeof AgentApplicationsModelsSchema, Schemas.AgentApplication> => ({
+    name: 'agent-applications-models',
+    schema: AgentApplicationsModelsSchema,
+    // eslint-disable-next-line no-unused-vars
+    handler: async (context: Context, params: z.infer<typeof AgentApplicationsModelsSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.AgentApplication>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/agent_applications/models/`,
+        })
+        return result
+    },
+})
+
 const AgentApplicationsPartialUpdateSchema = AgentApplicationsPartialUpdateParams.omit({ project_id: true }).extend(
     AgentApplicationsPartialUpdateBody.shape
 )
@@ -857,6 +873,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'agent-applications-env-keys-get': agentApplicationsEnvKeysGet,
     'agent-applications-env-keys-list': agentApplicationsEnvKeysList,
     'agent-applications-list': agentApplicationsList,
+    'agent-applications-models': agentApplicationsModels,
     'agent-applications-partial-update': agentApplicationsPartialUpdate,
     'agent-applications-preview-proxy': agentApplicationsPreviewProxy,
     'agent-applications-retrieve': agentApplicationsRetrieve,

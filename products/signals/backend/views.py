@@ -52,7 +52,7 @@ from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
-from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,

@@ -20,12 +20,16 @@ from posthog.email import CUSTOMER_IO_TEMPLATE_ID_MAP, EmailMessage, _send_email
 from posthog.models import Organization, Person, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.messaging import MessagingRecord, get_email_hash, get_email_hashes
+from posthog.test.persons import (
+    add_distinct_id as add_test_distinct_id,
+    create_person as create_test_person,
+)
 
 
 class TestEmail(BaseTest):
     def create_person(self, team: Team, base_distinct_id: str = "") -> Person:
-        person = Person.objects.create(team=team)
-        person.add_distinct_id(base_distinct_id)
+        person = create_test_person(team=team)
+        add_test_distinct_id(person=person, distinct_id=base_distinct_id)
         return person
 
     @freeze_time("2020-09-21")

@@ -51,9 +51,10 @@ from posthog.caching.insight_cache import update_cache
 from posthog.caching.insight_caching_state import TargetCacheAge
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Filter, OrganizationMembership, Person, SharingConfiguration, Team, User
+from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
 from posthog.test.db_context_capturing import capture_db_queries
+from posthog.test.persons import create_person
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2919,7 +2920,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(len(lines), 3, response.content)
 
     def _create_one_person_cohort(self, properties: list[dict[str, Any]]) -> int:
-        Person.objects.create(team=self.team, properties=properties)
+        create_person(team=self.team, properties=properties)
         cohort_one_id = self.client.post(
             f"/api/projects/{self.team.id}/cohorts",
             data={"name": "whatever", "groups": [{"properties": properties}]},

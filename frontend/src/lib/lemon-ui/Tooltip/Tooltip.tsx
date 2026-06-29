@@ -2,7 +2,7 @@ import './Tooltip.scss'
 
 import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { Placement } from '@floating-ui/react'
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import React, { useEffect, useLayoutEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -41,11 +41,6 @@ interface BaseTooltipProps {
      * Run a function when showing the tooltip, for example to log an event.
      */
     onOpen?: () => void
-    /**
-     * Closed, uncontrolled tooltips are common in large lists and toolbars. Lazy mounting keeps
-     * Base UI's root/trigger machinery out of idle render paths.
-     */
-    lazy?: boolean
 }
 
 export type RequiredTooltipProps = (
@@ -83,16 +78,6 @@ function placementToSideAlign(placement: Placement): { side: Side; align: Align 
     return { side, align }
 }
 
-function composeEventHandlers<Event extends React.SyntheticEvent>(
-    currentHandler: ((event: Event) => void) | undefined,
-    nextHandler: (event: Event) => void
-): (event: Event) => void {
-    return (event: Event) => {
-        currentHandler?.(event)
-        nextHandler(event)
-    }
-}
-
 export function Tooltip({
     children,
     title,
@@ -108,119 +93,12 @@ export function Tooltip({
     docLink,
     containerClassName,
     onOpen,
-    lazy = true,
 }: React.PropsWithChildren<RequiredTooltipProps>): JSX.Element {
     const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
-    const openTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-    const open = controlledOpen ?? uncontrolledOpen
-    const child = React.isValidElement(children) ? children : <span>{children}</span>
-
-    const isInteractive = interactive || !!docLink
-    const useLazyMount = !!(title || docLink) && lazy && controlledOpen === undefined && !isInteractive
-
-    const clearOpenTimer = useCallback((): void => {
-        if (openTimer.current) {
-            clearTimeout(openTimer.current)
-            openTimer.current = null
-        }
-    }, [])
-
-    const queueOpen = useCallback((): void => {
-        clearOpenTimer()
-
-        if (delayMs <= 0) {
-            setUncontrolledOpen(true)
-            return
-        }
-
-        openTimer.current = setTimeout(() => {
-            openTimer.current = null
-            setUncontrolledOpen(true)
-        }, delayMs)
-    }, [clearOpenTimer, delayMs])
-
-    const cancelQueuedOpen = useCallback((): void => {
-        clearOpenTimer()
-    }, [clearOpenTimer])
-
-    useEffect(() => clearOpenTimer, [clearOpenTimer])
-
-    const handleOpenChange = useCallback(
-        (newOpen: boolean): void => {
-            if (controlledOpen === undefined) {
-                setUncontrolledOpen(newOpen)
-            }
-        },
-        [controlledOpen]
-    )
-
-    if (!title && !docLink) {
-        return <>{child}</>
-    }
-
-    if (useLazyMount && !open) {
-        const childProps = child.props as React.HTMLAttributes<HTMLElement>
-
-        return (
-            <>
-                {React.cloneElement(child, {
-                    onMouseEnter: composeEventHandlers(childProps.onMouseEnter, queueOpen),
-                    onMouseLeave: composeEventHandlers(childProps.onMouseLeave, cancelQueuedOpen),
-                    onFocus: composeEventHandlers(childProps.onFocus, queueOpen),
-                    onBlur: composeEventHandlers(childProps.onBlur, cancelQueuedOpen),
-                })}
-            </>
-        )
-    }
-
-    return (
-        <MountedTooltip
-            title={title}
-            className={className}
-            placement={placement}
-            fallbackPlacements={fallbackPlacements}
-            offset={offset}
-            arrowOffset={arrowOffset}
-            delayMs={delayMs}
-            closeDelayMs={closeDelayMs}
-            interactive={interactive}
-            docLink={docLink}
-            containerClassName={containerClassName}
-            onOpen={onOpen}
-            open={open}
-            onOpenChange={handleOpenChange}
-            child={child}
-        />
-    )
-}
-
-interface MountedTooltipProps extends Omit<BaseTooltipProps, 'visible' | 'lazy'> {
-    title?: TooltipTitle
-    open: boolean
-    onOpenChange: (open: boolean) => void
-    child: React.ReactElement
-}
-
-function MountedTooltip({
-    child,
-    title,
-    className = '',
-    placement = 'top',
-    fallbackPlacements,
-    offset,
-    arrowOffset,
-    delayMs = 400,
-    closeDelayMs = 0,
-    interactive = false,
-    docLink,
-    containerClassName,
-    onOpen,
-    open,
-    onOpenChange,
-}: MountedTooltipProps): JSX.Element {
     const [shouldRenderPortal, setShouldRenderPortal] = useState(false)
     const floatingContainer = useFloatingContainer()
+
+    const open = controlledOpen ?? uncontrolledOpen
 
     useLayoutEffect(() => {
         if (open) {
@@ -241,8 +119,14 @@ function MountedTooltip({
         }
     }, [open, onOpen])
 
+    const child = React.isValidElement(children) ? children : <span>{children}</span>
+
+    if (!title && !docLink) {
+        return <>{child}</>
+    }
+
     const isInteractive = interactive || !!docLink
-    const resolvedOffset = offset ?? (isInfoIconTrigger(child) ? INFO_ICON_OFFSET : DEFAULT_OFFSET)
+    const resolvedOffset = offset ?? (isInfoIconTrigger(children) ? INFO_ICON_OFFSET : DEFAULT_OFFSET)
     const { side, align } = placementToSideAlign(placement)
 
     const collisionAvoidance = fallbackPlacements
@@ -257,8 +141,14 @@ function MountedTooltip({
               fallbackAxisSide: 'start' as const,
           }
 
+    const handleOpenChange = (newOpen: boolean): void => {
+        if (controlledOpen === undefined) {
+            setUncontrolledOpen(newOpen)
+        }
+    }
+
     return (
-        <BaseTooltip.Root open={open} onOpenChange={onOpenChange} disableHoverablePopup={!isInteractive}>
+        <BaseTooltip.Root open={open} onOpenChange={handleOpenChange} disableHoverablePopup={!isInteractive}>
             <BaseTooltip.Trigger delay={delayMs} closeDelay={closeDelayMs} render={child} />
             {shouldRenderPortal && (
                 <BaseTooltip.Portal container={floatingContainer ?? undefined}>

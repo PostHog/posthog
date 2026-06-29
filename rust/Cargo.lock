@@ -1792,6 +1792,7 @@ dependencies = [
  "flate2",
  "futures",
  "hex",
+ "hmac",
  "http-body-util",
  "httparse",
  "hyper 1.9.0",
@@ -2835,6 +2836,7 @@ dependencies = [
  "sqlx",
  "subtle",
  "symbolic",
+ "testcontainers",
  "thiserror 2.0.18",
  "tiktoken-rs",
  "tokio",
@@ -4448,7 +4450,7 @@ dependencies = [
 
 [[package]]
 name = "hogql_parser_rs"
-version = "1.3.99"
+version = "1.3.105"
 dependencies = [
  "pyo3",
  "serde_json",
@@ -4460,6 +4462,8 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "once_cell",
+ "quick_cache",
  "rand 0.8.5",
  "regex",
  "serde",

@@ -16,6 +16,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
     ARRAY_APP_CLIENT_ID_US,
+    PosthogMcpScopes,
     create_oauth_access_token_for_user,
 )
 
@@ -37,12 +38,16 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import TaskRun
 
 
-def _authenticate_as_scout(test: APIBaseTest) -> None:
+def _authenticate_as_scout(test: APIBaseTest, *, scopes: PosthogMcpScopes = "signals_scout") -> None:
     """Auth the test client with a scout-internal token, mirroring how the harness sandbox
     reaches these endpoints in production. The emit / scratchpad write actions require
     `signal_scout_internal:write`, which is server-mint-only and rejects session auth, so the
     default `APIBaseTest` force-login isn't enough for the write surface — only reads pass on
     a session. `logout()` first so the token is the sole credential on every request.
+
+    `scopes` selects the posture: the default `signals_scout` covers emit-signal / scratchpad;
+    pass `signals_scout_reports` (the report-channel posture, which adds `signal_scout_report:write`)
+    to exercise the emit-report / edit-report surface.
     """
     # `create_oauth_access_token_for_user` resolves the Array app by `get_instance_region()`,
     # which isn't deterministic across test contexts — create the app for every region client
@@ -59,9 +64,7 @@ def _authenticate_as_scout(test: APIBaseTest) -> None:
                 "algorithm": "RS256",
             },
         )
-    token = create_oauth_access_token_for_user(
-        test.user, test.team.id, scopes="signals_scout", include_internal_scopes=True
-    )
+    token = create_oauth_access_token_for_user(test.user, test.team.id, scopes=scopes, include_internal_scopes=True)
     test.client.logout()
     test.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
 
@@ -142,12 +145,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert ids == [str(keep.id)]
 
     def test_list_surfaces_emit_tally(self) -> None:
-        _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+        _make_run(
+            self.team,
+            emitted_count=2,
+            emitted_finding_ids=["f-a", "f-b"],
+            emitted_report_ids=["r-1"],
+            edited_report_ids=["r-2"],
+        )
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = response.json()[0]
         assert row["emitted_count"] == 2
         assert row["emitted_finding_ids"] == ["f-a", "f-b"]
+        # Both report-id channels must surface through the serializer. Guards a real gap: these are
+        # carried on the run DTO but were not declared on the serializer, so they were silently dropped
+        # from the API/MCP response.
+        assert row["emitted_report_ids"] == ["r-1"]
+        assert row["edited_report_ids"] == ["r-2"]
 
     @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
     def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:

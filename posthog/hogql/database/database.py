@@ -148,7 +148,7 @@ from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMod
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.sync_status import get_warehouse_sync_warnings
+from products.data_warehouse.backend.facade.hogql import get_warehouse_sync_warnings
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
@@ -176,7 +176,7 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 tracer = trace.get_tracer(__name__)
 
@@ -795,7 +795,7 @@ class Database(BaseModel):
             HogQLQuery,
         )
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -1069,7 +1069,7 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1310,7 +1310,7 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         team = sources.team
         team_id = team.pk

@@ -17,7 +17,11 @@ from products.warehouse_sources.backend.models.credential import DataWarehouseCr
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
+from products.warehouse_sources.backend.models.table import (
+    SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING,
+    DataWarehouseTable,
+    DataWarehouseTableColumns,
+)
 
 # Table/type resolution used by the HogQL database builder and query runners. These return
 # ORM objects / reference HogQL field factories, so they belong with the object wiring here
@@ -32,6 +36,7 @@ from products.warehouse_sources.backend.models.util import (
 
 __all__ = [
     "CLICKHOUSE_HOGQL_MAPPING",
+    "SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING",
     "STR_TO_HOGQL_MAPPING",
     "DataWarehouseCredential",
     "DataWarehouseTable",

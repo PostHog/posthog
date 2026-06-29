@@ -8,8 +8,8 @@ This job targets individual customer "ducklings" - isolated DuckLake instances w
 own RDS catalog and S3 bucket.
 
 Architecture:
-    DuckgresServer (connection + S3 bucket name; older orgs read the bucket from DuckLakeCatalog)
-        │ team_id → organization_id → connection; bucket from the stored DuckgresServer/DuckLakeCatalog row
+    DuckgresServer (duckgres connection + DuckLake catalog connection + S3 bucket name)
+        │ team_id → organization_id → connection; bucket from the control plane / stored DuckgresServer row
         ▼
     ClickHouse (events table)
         │ export via s3() - bucket policy allows ClickHouse EC2 role
@@ -25,7 +25,7 @@ IAM Access:
 
 Partition Strategy:
     DynamicPartitionsDefinition with composite keys: {team_id}_{date}
-    - team_id maps to a duckling via DuckLakeBackfill (enablement) + DuckgresServer (connection)
+    - team_id maps to a duckling via DuckgresServerTeam (membership + enablement) + DuckgresServer (connection)
     - date is the partition date (YYYY-MM-DD)
 """
 
@@ -67,13 +67,8 @@ from posthog.clickhouse.query_tagging import tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.dags.common import JobOwners, dagster_tags, settings_with_log_comment
 from posthog.ducklake.client import make_duckgres_conninfo
-from posthog.ducklake.common import (
-    DUCKGRES_BUCKET_REGION,
-    _get_org_id_for_team,
-    get_duckgres_server_for_organization,
-    get_ducklake_catalog_for_organization,
-)
-from posthog.ducklake.models import DuckLakeBackfill
+from posthog.ducklake.common import DUCKGRES_BUCKET_REGION, _get_org_id_for_team, get_duckgres_server_for_organization
+from posthog.ducklake.models import DuckgresServerTeam
 
 logger = structlog.get_logger(__name__)
 
@@ -179,8 +174,8 @@ class DucklingTarget:
 
     Built once per run from the team's organization id. The duckgres connection is driven by
     make_duckgres_conninfo (duckgres owns catalog attachment on the connection); the S3 bucket
-    is resolved by _resolve_duckling_target (DuckLakeCatalog → control plane → stored
-    DuckgresServer fallback). The control plane is the authoritative owner of the bucket name.
+    is resolved by _resolve_duckling_target (control plane → stored DuckgresServer fallback).
+    The control plane is the authoritative owner of the bucket name.
     """
 
     team_id: int
@@ -195,12 +190,12 @@ class DucklingTarget:
 def _resolve_table_names(team_id: int) -> tuple[str, str]:
     """Resolve this team's per-environment events/persons table names.
 
-    A team's `DuckLakeBackfill.table_suffix` (when set) isolates its data into
+    A team's `DuckgresServerTeam.table_suffix` (when set) isolates its data into
     dedicated `events_<suffix>` / `persons_<suffix>` tables so multiple teams sharing one
     org-scoped duckling don't merge into the shared `posthog.events` / `posthog.persons`.
     An unset suffix (legacy single-team ducklings) keeps the shared table names.
     """
-    suffix = DuckLakeBackfill.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
+    suffix = DuckgresServerTeam.objects.filter(team_id=team_id).values_list("table_suffix", flat=True).first()
     if not suffix:
         return "events", "persons"
     _validate_identifier(suffix)
@@ -215,14 +210,12 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     per-environment suffix (or the shared defaults).
 
     Bucket resolution order:
-      1. The org's DuckLakeCatalog row (hand-entered, older orgs that predate the control
-         plane and have no CP-owned bucket to ask about).
-      2. The control plane — the single owner of the duckling bucket name. It is consulted
+      1. The control plane — the single owner of the duckling bucket name. It is consulted
          BEFORE the stored DuckgresServer row on purpose: a row provisioned before the
          naming fix carries a stale, locally-derived bucket that names an object store
          that doesn't exist, and that stale value must not win. cp_bucket_for() also
          reconciles the row so it converges for next time.
-      3. The stored DuckgresServer.bucket, only as a fallback when the control plane is
+      2. The stored DuckgresServer.bucket, only as a fallback when the control plane is
          unreachable/unconfigured — so a transient CP outage doesn't fail a run whose
          bucket is already known-good.
 
@@ -230,22 +223,10 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
     Crossplane composition and produced buckets that don't exist. Fail loudly if nothing
     can name it rather than export to a guessed bucket.
     """
-    from products.data_warehouse.backend.api import managed_warehouse  # noqa: PLC0415
+    from products.data_warehouse.backend.presentation.views import managed_warehouse  # noqa: PLC0415
 
     org_id = _get_org_id_for_team(team_id)
     events_table, persons_table = _resolve_table_names(team_id)
-
-    catalog = get_ducklake_catalog_for_organization(org_id)
-    if catalog is not None and catalog.bucket:
-        bucket, bucket_region = catalog.bucket, catalog.bucket_region
-        return DucklingTarget(
-            team_id=team_id,
-            organization_id=org_id,
-            bucket=bucket,
-            bucket_region=bucket_region,
-            events_table=events_table,
-            persons_table=persons_table,
-        )
 
     # Control plane first — authoritative, and rejects an org_id-mismatched status body.
     cp_bucket = managed_warehouse.cp_bucket_for(org_id)
@@ -285,8 +266,8 @@ def _resolve_duckling_target(team_id: int) -> DucklingTarget:
         )
 
     raise ValueError(
-        f"No S3 bucket resolvable for org {org_id}: absent from DuckLakeCatalog, the control "
-        f"plane warehouse status named none, and no stored DuckgresServer bucket to fall back to."
+        f"No S3 bucket resolvable for org {org_id}: the control plane warehouse status named "
+        f"none, and no stored DuckgresServer bucket to fall back to."
     )
 
 
@@ -2327,10 +2308,10 @@ def duckling_persons_backfill(context: AssetExecutionContext, config: DucklingBa
 def duckling_events_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckLakeBackfill) and create daily backfill partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily backfill partitions.
 
     This sensor runs periodically to:
-    1. Find all teams with backfills enabled (DuckLakeBackfill)
+    1. Find all teams with backfills enabled (DuckgresServerTeam)
     2. Create partitions for yesterday's data (if not already exists)
     3. Trigger backfill runs for new partitions
     4. Retry failed partitions that already exist
@@ -2343,7 +2324,7 @@ def duckling_events_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in DuckLakeBackfill.objects.filter(enabled=True):
+    for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -2442,7 +2423,7 @@ EVENTS_BACKFILL_MAX_PARTITIONS_PER_TICK = 100
 # Cap on per-team earliest-event ClickHouse lookups per tick. This is the only expensive
 # sensor op; it runs once per team ever, then the result is cached on the model row.
 EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK = 5
-# Stored in DuckLakeBackfill.earliest_event_date for a team with no events, so the sensor
+# Stored in DuckgresServerTeam.earliest_event_date for a team with no events, so the sensor
 # caches "nothing to backfill" instead of re-querying every tick. Far enough in the future
 # that the generated months range is always empty.
 _NO_HISTORY_SENTINEL = date(9999, 12, 31)
@@ -2487,7 +2468,7 @@ def duckling_events_full_backfill_sensor(
     limit throttles to a handful of concurrent runs to protect ClickHouse):
 
       * ``earliest_event_date`` is resolved from ClickHouse ONCE per team and cached on the
-        ``DuckLakeBackfill`` row (bounded to EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK
+        ``DuckgresServerTeam`` row (bounded to EVENTS_BACKFILL_MAX_EARLIEST_LOOKUPS_PER_TICK
         lookups per tick), so the hot path issues no ClickHouse queries and an org's whole
         history can be enqueued in a few quick ticks instead of dripping 3 months / 10 min.
       * Candidate months are interleaved ROUND-ROBIN across all enabled teams (each team
@@ -2503,9 +2484,9 @@ def duckling_events_full_backfill_sensor(
     """
     yesterday = (timezone.now() - timedelta(days=1)).date()
 
-    backfills = list(DuckLakeBackfill.objects.filter(enabled=True).order_by("team_id"))
+    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
-        context.log.info("No enabled DuckLakeBackfill entries found")
+        context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
 
     # 1. Resolve + cache earliest_event_date for teams that don't have it yet. This is the
@@ -2619,7 +2600,7 @@ duckling_events_backfill_job = define_asset_job(
 def duckling_persons_daily_backfill_sensor(
     context: SensorEvaluationContext,
 ) -> SensorResult:
-    """Discover teams with backfills enabled (DuckLakeBackfill) and create daily persons partitions.
+    """Discover teams with backfills enabled (DuckgresServerTeam) and create daily persons partitions.
 
     Similar to duckling_events_daily_backfill_sensor but for persons data.
     Uses _timestamp (Kafka ingestion time) for date filtering.
@@ -2631,7 +2612,7 @@ def duckling_persons_daily_backfill_sensor(
     new_partitions: list[str] = []
     run_requests: list[RunRequest] = []
 
-    for backfill in DuckLakeBackfill.objects.filter(enabled=True):
+    for backfill in DuckgresServerTeam.objects.filter(backfill_enabled=True):
         partition_key = f"{backfill.team_id}_{yesterday}"
 
         if partition_key not in existing:
@@ -2721,9 +2702,9 @@ def duckling_persons_full_backfill_sensor(
         To restart from scratch, reset the cursor in Dagster UI:
         Sensors -> duckling_persons_full_backfill_sensor -> Reset cursor
     """
-    backfills = list(DuckLakeBackfill.objects.filter(enabled=True).order_by("team_id"))
+    backfills = list(DuckgresServerTeam.objects.filter(backfill_enabled=True).order_by("team_id"))
     if not backfills:
-        context.log.info("No enabled DuckLakeBackfill entries found")
+        context.log.info("No enabled DuckgresServerTeam entries found")
         return SensorResult(run_requests=[])
 
     # Check existing partitions

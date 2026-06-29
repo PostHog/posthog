@@ -1325,7 +1325,7 @@ export const getAgentApplicationsRevisionsValidateCreateUrl = (
 }
 
 /**
- * Pre-flight checks before freeze + promote: entrypoint file exists,
+ * Pre-flight checks before freeze + promote: agent.md exists,
  * every native tool id is registered, every custom tool has its
  * compiled.js + schema.json, every skill path exists, every declared
  * secret has a value set in this revision's env block. Returns
@@ -1965,6 +1965,23 @@ export const agentApplicationsUsersConnectionDelete = async (
     return apiMutator<void>(getAgentApplicationsUsersConnectionDeleteUrl(projectId, id, agentUserId, provider), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getAgentApplicationsModelsUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/agent_applications/models/`
+}
+
+/**
+ * Served-model catalog — each model's id, provider, context window, and USD-per-million-token pricing — plus the curated auto-level → model map. Project-agnostic; sourced from the AI gateway catalog. Powers the config UI model browser and the agent builder's model-choosing skill.
+ */
+export const agentApplicationsModels = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<AgentApplicationApi> => {
+    return apiMutator<AgentApplicationApi>(getAgentApplicationsModelsUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

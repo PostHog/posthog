@@ -298,6 +298,7 @@ Save state **after** yielding each batch, not before — so if we crash we re-yi
 - Add `webhookFields` to `SourceConfig` for post-setup inputs (e.g. signing secret).
 - In `source_for_pipeline`, call `self.get_webhook_source_manager(inputs)` and pass its iterator alongside the pull iterator so a single sync pulls historical + webhook-delivered rows.
 - Populate `SourceSchema.supports_webhooks=True` only for endpoints where webhooks are actually viable (usually incremental/append-only ones).
+- **De-dupe within a webhook batch with a `table_transformer`.** `WebhookSourceManager.get_items()` takes an optional `table_transformer: Callable[[pa.Table], pa.Table]` applied after the raw webhook payloads are deserialized into row dicts. Delta merge only de-dupes _across_ syncs (on `primary_keys`), not within a single source batch — so when one batch can carry multiple events for the same object (e.g. `customer.created` then `customer.updated`), pass a transformer that keeps only the latest version per id. Reference: `_webhook_table_transformer` in `stripe/stripe.py`, wired via `webhook_source_manager.get_items(table_transformer=_webhook_table_transformer)` in `stripe_source`. It groups rows by `object.id`, keeps the one with the greatest event `created` timestamp, and rebuilds the table shaped like the underlying object (ready to merge on `primary_keys=["id"]`).
 
 ## Multi-schema SQL database sources
 
@@ -508,6 +509,10 @@ Called with `schema_name=None` at source-create (one cheap probe to confirm the 
 
 If the API distinguishes 401 (bad token) from 403 (valid token, missing scope), **accept 403 at source-create** — users may legitimately only grant scopes for the endpoints they want to sync. Re-raise 403 only when `schema_name` is set. Sync-time 403s are handled separately by `get_non_retryable_errors()`.
 
+For per-table scope status in the schema picker, override `get_endpoint_permissions(config, team_id, endpoints) -> {name: None | reason}`: probe each endpoint and return `None` when reachable or a short reason when not. The `database_schema` action surfaces it as each table's `permission_error`, so the user sees which tables need extra scopes and deselects them — it must **never** block source-create. The base default reports everything reachable.
+
+When you do surface a missing scope, name it — providers usually state it (``Required access: `read_x` access scope.``), so parse that into your own message instead of dumping the raw exception or collapsing it to a bare table list. Probe whatever field the **sync query** needs (not just `id`) so the per-table check reflects what syncing that table actually requires. Keep the probe narrow: only a real denial is a missing scope — a throttle, 5xx, or network blip is not, so route those through the retryable path rather than bucketing every exception as "missing permission".
+
 ## Document required token scopes
 
 If the API issues OAuth scopes or per-resource access tokens, declare every scope the source actually calls so users know what to grant — don't make them grant the full set defensively.
@@ -641,6 +646,7 @@ After changing source fields, re-run `pnpm run generate:source-configs` and `pnp
 - Pod OOMs on a busy table: primary key not actually unique (usually a fan-out child missing the parent id in its key) — duplicate rows accumulate and every merge multi-matches them; often paired with a paginator that re-walks full history each sync because the time filter only applies to page one.
 - `sort_mode="asc"` declared on an API that returns newest-first: the watermark checkpoints to ≈now after the first batch and mid-sync shutdowns lose data ordering guarantees.
 - Endless retries for bad credentials: missing `get_non_retryable_errors`.
+- Source won't connect despite a valid token: `validate_credentials(schema_name=None)` probes every resource's scope instead of just the token, so one missing scope — often on a table the user won't sync — blocks the whole source. Probe only the token at create; report per-table scope via `get_endpoint_permissions`.
 - Resumable state never saved: forgot to call `save_state` after yielding a batch; or saved before yield and a crash causes data loss.
 - Webhook rows not landing: schema `is_webhook=False`, or `initial_sync_complete=False`.
 - Dependent resource path `KeyError`: pre-format static path placeholders (see Fan-out).
