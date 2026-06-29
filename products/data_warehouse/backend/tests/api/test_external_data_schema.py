@@ -3010,6 +3010,42 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["available_columns"] == []
 
+    def test_available_columns_falls_back_to_synced_table_when_metadata_missing(self):
+        # `schema_metadata` is empty whenever it hasn't been reconciled (non-SQL sources, or SQL schemas
+        # discovered/added after the last reload). available_columns must then fall back to the synced
+        # table's columns — otherwise the Descriptions UI shows no columns (even when annotations exist)
+        # and users can't edit them. Internal plumbing columns (`_dlt_id`, …) stay hidden.
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        table = DataWarehouseTable.objects.create(
+            name="billing_customer",
+            format="DeltaS3Wrapper",
+            team=self.team,
+            url_pattern="https://bucket.s3/data/*",
+            columns={
+                "id": {"clickhouse": "String"},
+                "balance": {"clickhouse": "Nullable(Int64)"},
+                "_dlt_id": {"clickhouse": "String"},
+            },
+        )
+        schema = ExternalDataSchema.objects.create(
+            name="billing_customer",
+            team=self.team,
+            source=source,
+            table=table,
+            should_sync=True,
+            status=ExternalDataSchema.Status.COMPLETED,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/",
+        )
+        assert response.status_code == 200, response.json()
+        # Sort by name: `columns` is JSONB, which doesn't preserve key insertion order.
+        assert sorted(response.json()["available_columns"], key=lambda column: column["name"]) == [
+            {"name": "balance", "data_type": "Int64", "is_nullable": True},
+            {"name": "id", "data_type": "String", "is_nullable": False},
+        ]
+
     @parameterized.expand(
         [
             # source_type, supports_column_selection_expected

@@ -415,6 +415,15 @@ class Team(UUIDTClassicModel):
         "admin",
     )
 
+    # Events data retention in months — denormalized from the billing entitlement by sync_events_retention, read on
+    # the HogQL hot path. Default 84 (7 years) grandfathers existing teams. db_default because posthog_team is also
+    # written by raw inserts in nodejs/rust and the test-schema builder.
+    event_retention_months = field_access_control(
+        models.PositiveSmallIntegerField(default=84, db_default=84),
+        "project",
+        "admin",
+    )
+
     # Conversations
     conversations_enabled = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
     conversations_settings = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")

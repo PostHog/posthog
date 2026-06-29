@@ -61,6 +61,7 @@ from products.feature_flags.backend.models.feature_flag import (
     FeatureFlagDashboards,
     get_feature_flags_for_team_in_cache,
 )
+from products.feature_flags.backend.user_blast_radius import get_user_blast_radius_persons
 from products.product_analytics.backend.models.insight import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -5395,6 +5396,51 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         if expected_detail_fragment is not None:
             self.assertIn(expected_detail_fragment, response.json()["detail"])
 
+    def test_snapshot_cohort_referencing_behavioral_cohort_is_allowed_in_flag(self):
+        # A snapshot cohort is is_static=True but retains its populating criteria,
+        # which can reference another (behavioral) cohort. The dependency walk must
+        # be skipped for static cohorts so the referenced behavioral cohort doesn't
+        # block flag creation — matching the Rust engine, whose extract_dependencies
+        # returns an empty set for static cohorts.
+        behavioral_cohort = Cohort.objects.create(
+            team=self.team,
+            name="behavioral-dep",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "$pageview",
+                            "event_type": "events",
+                            "time_value": 2,
+                            "time_interval": "week",
+                            "value": "performed_event_first_time",
+                            "type": "behavioral",
+                        },
+                    ],
+                }
+            },
+        )
+        snapshot_cohort = Cohort.objects.create(
+            team=self.team,
+            name="snapshot",
+            is_static=True,
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {"key": "id", "type": "cohort", "value": behavioral_cohort.id},
+                    ],
+                }
+            },
+        )
+
+        self._create_flag_with_properties(
+            "snapshot-cohort-flag",
+            [{"key": "id", "type": "cohort", "value": snapshot_cohort.id}],
+            expected_status=status.HTTP_201_CREATED,
+        )
+
     def test_validation_group_properties(self):
         groups_request = self._create_flag_with_properties(
             "groups-flag",
@@ -8430,6 +8476,187 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
 
         response_json = response.json()
         self.assertLessEqual({"affected": 4, "total": 10}.items(), response_json.items())
+
+    def test_user_blast_radius_with_flag_dependency(self):
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # Flag dependencies can't be evaluated in HogQL, so they are neutral for the estimate
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag.pk),
+                            "type": "flag",
+                            "value": False,
+                            "operator": "flag_evaluates_to",
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 10, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_flag_dependency_and_person_property(self):
+        for i in range(10):
+            _create_person(
+                team_id=self.team.pk,
+                distinct_ids=[f"person{i}"],
+                properties={"group": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # The flag dependency is ignored, but the person property filter still applies
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag.pk),
+                            "type": "flag",
+                            "value": True,
+                            "operator": "flag_evaluates_to",
+                        },
+                        {
+                            "key": "group",
+                            "type": "person",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                        },
+                    ],
+                    "rollout_percentage": 100,
+                }
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_with_groups_and_flag_dependency(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # The flag dependency is neutral for group-scoped blast radius too: it must not raise
+        # on the missing group_type_index, and the group property filter still applies
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {
+                "condition": {
+                    "properties": [
+                        {
+                            "key": str(dependency_flag.pk),
+                            "type": "flag",
+                            "value": True,
+                            "operator": "flag_evaluates_to",
+                        },
+                        {
+                            "key": "industry",
+                            "type": "group",
+                            "value": [0, 1, 2, 3],
+                            "operator": "exact",
+                            "group_type_index": 0,
+                        },
+                    ],
+                    "rollout_percentage": 25,
+                },
+                "group_type_index": 0,
+            },
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 4, "total": 10}.items(), response.json().items())
+
+    def test_user_blast_radius_persons_with_groups_and_flag_dependency(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+        )
+
+        for i in range(10):
+            create_group(
+                team_id=self.team.pk,
+                group_type_index=0,
+                group_key=f"org:{i}",
+                properties={"industry": f"{i}"},
+            )
+
+        dependency_flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="dependency-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        # The persons path runs the same flag-dependency skip as the count path: a group-scoped flag
+        # dependency must not raise on the missing group_type_index, and the group filter still applies.
+        affected = get_user_blast_radius_persons(
+            self.team,
+            {
+                "properties": [
+                    {
+                        "key": str(dependency_flag.pk),
+                        "type": "flag",
+                        "value": True,
+                        "operator": "flag_evaluates_to",
+                    },
+                    {
+                        "key": "industry",
+                        "type": "group",
+                        "value": [0, 1, 2, 3],
+                        "operator": "exact",
+                        "group_type_index": 0,
+                    },
+                ],
+                "rollout_percentage": 25,
+            },
+            group_type_index=0,
+        )
+
+        self.assertEqual(set(affected), {"org:0", "org:1", "org:2", "org:3"})
 
     @freeze_time("2024-01-11")
     def test_user_blast_radius_with_relative_date_filters(self):

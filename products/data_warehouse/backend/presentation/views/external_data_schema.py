@@ -314,8 +314,9 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     )
     available_columns = serializers.SerializerMethodField(
         read_only=True,
-        help_text="Source-side column metadata (name, data type, nullable) discovered for this schema. "
-        "Empty until the source has been refreshed via `refresh_schemas`.",
+        help_text="Column metadata (name, data type, nullable) for this schema. For SQL sources this is the "
+        "source-side schema discovered via `refresh_schemas`; for other sources (and once synced) it falls back "
+        "to the synced table's columns. Empty only before the first successful sync/refresh.",
     )
     # `source` shadows DRF's reserved `Field.source` attribute, so mypy flags the assignment;
     # the runtime behaviour (a read-only SerializerMethodField backed by get_source) is correct.
@@ -385,17 +386,25 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
     def get_available_columns(self, schema: ExternalDataSchema) -> list[dict[str, Any]]:
         metadata = schema.schema_metadata or {}
         columns = metadata.get("columns") if isinstance(metadata, dict) else None
-        if not isinstance(columns, list):
-            return []
-        return [
-            {
-                "name": column.get("name"),
-                "data_type": column.get("data_type"),
-                "is_nullable": column.get("is_nullable"),
-            }
-            for column in columns
-            if isinstance(column, dict) and isinstance(column.get("name"), str)
-        ]
+        if isinstance(columns, list):
+            sql_columns = [
+                {
+                    "name": column.get("name"),
+                    "data_type": column.get("data_type"),
+                    "is_nullable": column.get("is_nullable"),
+                }
+                for column in columns
+                if isinstance(column, dict) and isinstance(column.get("name"), str)
+            ]
+            if sql_columns:
+                return sql_columns
+        # `schema_metadata` is only written on source creation and explicit schema reload
+        # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
+        # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
+        # or not yet reloaded. Fall back to the synced table's universal column store so the Descriptions
+        # UI can still list columns (and surface their existing annotations) and let users edit them.
+        table = schema.table
+        return table.get_user_facing_columns() if table is not None else []
 
     @extend_schema_field(
         {

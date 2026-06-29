@@ -9,7 +9,6 @@ import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -34,6 +33,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -717,7 +717,7 @@ class HogFunctionViewSet(
                         team_id=self.team_id,
                         user=user,
                         item_id=str(function.id),
-                        was_impersonated=is_impersonated_session(request),
+                        was_impersonated=is_impersonated(request),
                         scope="HogFunction",
                         activity="updated",
                         detail=Detail(

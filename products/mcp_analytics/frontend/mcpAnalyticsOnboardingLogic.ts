@@ -40,10 +40,21 @@ export const mcpAnalyticsOnboardingLogic = kea<mcpAnalyticsOnboardingLogicType>(
         signals: {
             __default: null as MCPOnboardingSignals | null,
             loadSignals: async (_: void, breakpoint): Promise<MCPOnboardingSignals> => {
-                const response = (await api.query({
-                    kind: NodeKind.HogQLQuery,
-                    query: ONBOARDING_SIGNAL_QUERY,
-                })) as HogQLQueryResponse
+                // Force a fresh calculation instead of reading a cached result. The first
+                // events on a new project land a beat after capture returns 200, so a poll
+                // during that gap caches `[0,0]` — and with the default cache TTL the page
+                // would then keep serving that stale "not onboarded" answer for up to a
+                // minute after the data is actually queryable, dulling the "you're connected!"
+                // moment. Forcing keeps the flip near-instant. Polling stops as soon as we're
+                // onboarded (see loadSignalsSuccess), so this is bounded to the onboarding
+                // window, and the query itself is cheap (two event-name counts on the sort key).
+                const response = (await api.query(
+                    {
+                        kind: NodeKind.HogQLQuery,
+                        query: ONBOARDING_SIGNAL_QUERY,
+                    },
+                    { refresh: 'force_blocking' }
+                )) as HogQLQueryResponse
                 breakpoint()
                 const row = (response?.results?.[0] as unknown[] | undefined) ?? []
                 // ClickHouse returns the `> 0` comparisons as 0/1; coerce numerically so a
