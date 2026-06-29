@@ -42,7 +42,7 @@ describe('ticketActivityDescriber', () => {
     it('describes a manual unsnooze (user present) as "removed snooze"', () => {
         const result = ticketActivityDescriber(
             ticketLogItem({
-                user: { email: 'luke.b@posthog.com', first_name: 'Luke', last_name: 'Belton' },
+                user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
                 detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [snoozeCleared] },
             })
         )
