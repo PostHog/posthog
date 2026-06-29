@@ -257,7 +257,6 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
             if len(query_response.results) == 0:
                 response_data["msg"] = "Validation query returned no results"
         except ServerException as e:
-            capture_exception(e)
             response_data = {
                 "attr": None,
                 "code": e.__class__.__name__,
@@ -270,9 +269,12 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewset
 
             is_safe = look_up_clickhouse_error_code_meta(e).user_safe
             if is_safe:
+                # A user-safe error is an expected validation outcome, not a backend fault — don't pollute error tracking.
                 response_data["detail"] = str(e)
+            else:
+                capture_exception(e)
         except QueryError as e:
-            capture_exception(e)
+            # QueryError is an expected validation outcome (e.g. an invalid join key), surfaced to the user as a 400.
             response_data = {
                 "attr": None,
                 "code": e.__class__.__name__,

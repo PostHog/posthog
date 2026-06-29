@@ -498,7 +498,8 @@ class TestViewLinkValidation(APIBaseTest):
             "SELECT validation.id FROM events LIMIT 10",
         )
 
-    def test_nonexistent_field(self):
+    @patch(f"{PATH}.capture_exception")
+    def test_nonexistent_field(self, mock_capture_exception):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_view_links/validate/",
             {
@@ -516,6 +517,8 @@ class TestViewLinkValidation(APIBaseTest):
         self.assertEqual(data["detail"], "Field not found: nonexistent_field")
         self.assertEqual(data["type"], "query_error")
         self.assertEqual(data["hogql"], "SELECT validation.id FROM events LIMIT 10")
+        # An invalid join key is expected user input, not a backend fault — it must not pollute error tracking.
+        mock_capture_exception.assert_not_called()
 
     def test_invalid_source_table(self):
         response = self.client.post(
