@@ -148,7 +148,6 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "read_task_run_session_log_content",
     "redeem_code_invite",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -1726,11 +1725,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
-
-
-def read_task_run_session_log_content(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Session-log JSONL across the run's resume chain (oldest ancestor first). ``None`` if not found."""
-    return read_task_run_logs(run_id, task_id, team_id)
 
 
 def create_task_run_connection_token(
