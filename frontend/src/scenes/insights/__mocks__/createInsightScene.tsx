@@ -57,9 +57,9 @@ export function createInsightStory(
 
         useStorybookMocks({
             get: {
-                '/api/environments/:team_id/insights/': (_, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({
+                '/api/environments/:team_id/insights/': () => [
+                    200,
+                    {
                         count: 1,
                         results: [
                             {
@@ -69,14 +69,14 @@ export function createInsightStory(
                                 query: setLegendFilter(insight.query, showLegend),
                             },
                         ],
-                    }),
+                    },
                 ],
             },
             post: {
-                '/api/environments/:team_id/query/:kind/': (req, __, ctx) => [
-                    ctx.status(200),
-                    ctx.json({
-                        cache_key: req.params.query,
+                '/api/environments/:team_id/query/:kind/': ({ params }) => [
+                    200,
+                    {
+                        cache_key: params.query,
                         calculation_trigger: null,
                         error: '',
                         hasMore: false,
@@ -86,7 +86,9 @@ export function createInsightStory(
                         // sql insights
                         columns: (insight as any).columns,
                         types: (insight as any).types,
-                    }),
+                        // funnel steps header reads the total median from this top-level field
+                        total_median_conversion_time: (insight as any).total_median_conversion_time,
+                    },
                 ],
             },
         })

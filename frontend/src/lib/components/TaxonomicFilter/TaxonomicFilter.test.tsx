@@ -9,6 +9,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo } from '~/mocks/utils'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { performQuery } from '~/queries/query'
@@ -334,6 +335,54 @@ describe('TaxonomicFilter', () => {
                 expect(inVisibleTab(screen.getAllByText(/No results for/))).toBeTruthy()
             })
             expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+        })
+
+        it('offers a per-category jump when matches live on another tab and there is no all section', async () => {
+            // No SuggestedFilters group (control variant), so the aggregated "all" jump is unavailable —
+            // the empty state must instead point at the specific tab that matched.
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            // `purchase_value` exists only as a property, so the active Events tab comes up empty
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+
+            let switchButton: HTMLElement | undefined
+            await waitFor(() => {
+                switchButton = inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))
+                expect(switchButton).toBeTruthy()
+            })
+            expect(switchButton).toHaveTextContent(/See results in Person properties/i)
+            expect(screen.queryByTestId('taxonomic-switch-to-all')).not.toBeInTheDocument()
+
+            await userEvent.click(switchButton!)
+
+            await waitFor(() => {
+                expectActiveTab('taxonomic-tab-person_properties')
+            })
+        })
+
+        it('does not offer a jump to a render-backed group with no real matches', async () => {
+            // SQL expression is render-backed: its affordance row makes totalListCount non-zero for
+            // any query, but it has no actual search results. It must not produce a bogus jump button.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+
+            // The genuinely-matching tab is still offered...
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))).toBeTruthy()
+            })
+            // ...but the render-backed SQL expression tab is not.
+            expect(screen.queryByTestId('taxonomic-switch-to-hogql_expression')).not.toBeInTheDocument()
         })
     })
 
@@ -860,8 +909,8 @@ describe('TaxonomicFilter', () => {
         // verify that promotion moves it to position 0.
         useMocks({
             get: {
-                '/api/projects/:team/property_definitions': (req: { url: URL }) => {
-                    const search = req.url.searchParams.get('search') ?? ''
+                '/api/projects/:team/property_definitions': ({ request }) => {
+                    const search = new URL(request.url).searchParams.get('search') ?? ''
                     const allProps = [
                         { ...mockEventPropertyDefinition, id: 'url-other', name: '$initial_referring_url' },
                         { ...mockEventPropertyDefinition, id: 'url-other-2', name: 'signup_url' },
@@ -1428,8 +1477,8 @@ describe('TaxonomicFilter', () => {
             useMocks({
                 get: {
                     '/api/projects/:team/event_definitions': mockGetEventDefinitions,
-                    '/api/projects/:team/property_definitions': (req: { url: URL }) => {
-                        const search = req.url.searchParams.get('search') ?? ''
+                    '/api/projects/:team/property_definitions': ({ request }: MockResolverInfo) => {
+                        const search = new URL(request.url).searchParams.get('search') ?? ''
                         const fixture = promotedFixtures[search]
                         const names = fixture ? [...fixture.decoys, fixture.name] : []
                         return [
@@ -1702,9 +1751,9 @@ describe('TaxonomicFilter', () => {
             // to the DOM in CI. Production latency exceeds this comfortably.
             useMocks({
                 get: {
-                    '/api/projects/:team/event_definitions': async (req) => {
+                    '/api/projects/:team/event_definitions': async (info) => {
                         await new Promise((resolve) => setTimeout(resolve, 100))
-                        return mockGetEventDefinitions(req)
+                        return mockGetEventDefinitions(info)
                     },
                     '/api/projects/:team/property_definitions': mockGetPropertyDefinitions,
                     '/api/projects/:team/actions': { results: [mockActionDefinition] },

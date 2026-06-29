@@ -112,6 +112,18 @@ Two craft references the whole fleet reasons in terms of — a good scout's **De
   scratchpad key-prefix vocabulary, and the cross-project noise patterns. This is how your
   scout avoids re-emitting and learns across runs.
 
+Most scouts emit weak findings the pipeline consolidates. A scout that has _already done the
+research and knows the exact report it wants to file_ can opt into the **report channel** and
+author a full report directly:
+
+- [`references/report-contract.md`](references/report-contract.md) — the `emit_report` /
+  `edit_report` tools (dedup against existing reports via the vanilla `inbox-reports-list` /
+  `inbox-reports-retrieve`), when to author a report vs. `emit-signal`, the
+  dedup-via-`report_id` discipline (the channel isn't idempotent), and the accepted caveat that
+  the pipeline may later rewrite an authored title/summary. Opt a scout in by listing the tools
+  in its frontmatter `allowed_tools`. Only reach for this when the scout's natural output is one
+  well-formed report.
+
 The single most important design decision in any scout is its **signal-vs-noise
 discriminator** — the cheap profile-shape read that separates "worth investigating" from
 "baseline". For error tracking it's the `count` vs `distinct_users` ratio; for CSP it's
@@ -126,11 +138,12 @@ skill with `posthog:signals-scout-config-create {"skill_name": "signals-scout-<s
 setting any of the fields below in the same call — including creating it disabled or in
 dry-run **before it ever runs**. (It's an upsert: if the coordinator already auto-registered
 the row, your fields are applied to it.) Otherwise the coordinator auto-registers an enabled
-hourly default on its next tick (up to ~30 min). For an **existing scout**, tune with
-`posthog:signals-scout-config-update` (find the `id` via `-config-list`):
+config on the default every-24-hours schedule on its next tick (up to ~30 min). For an
+**existing scout**, tune with `posthog:signals-scout-config-update` (find the `id` via
+`-config-list`):
 
-- `run_interval_minutes` — 10 to 43200. Default 60 (hourly). Slow a chatty or expensive
-  scout by raising this.
+- `run_interval_minutes` — 30 to 43200. Default 1440 (every 24 hours). Slow a chatty or
+  expensive scout by raising this.
 - `enabled` — `false` pauses the scout entirely (coordinator skips it).
 - `emit` — defaults to **`true`**: the scout writes its findings straight to the inbox. The
   standard flow is to make a scout and let it emit — seeing what actually lands is the
@@ -147,16 +160,16 @@ actually lands.
 
 1. Ship the scout (the default `emit=true`) with a short `run_interval_minutes` so it fires
    soon — set it at creation via
-   `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 10}`
+   `posthog:signals-scout-config-create {"skill_name": ..., "run_interval_minutes": 30}`
    right after `skill-create`, rather than waiting for the coordinator to
-   auto-register an hourly default.
+   auto-register the default every-24-hours schedule.
 2. After a tick, read what it did: `posthog:inbox-reports-list` (the findings it actually
    emitted), `posthog:signals-scout-runs-list` (run summaries), `-runs-retrieve` (full
    reasoning for one run), and `-scratchpad-search` (the durable memory it wrote).
 3. Refine the body — tighten the discriminator, add disqualifiers for whatever it
    false-positived on, fix the emit calibration.
 4. Once it's landing the right findings, restore the interval to something sustainable
-   (hourly+).
+   (the 3h default or longer).
 
 **Want to be extra careful?** Set `emit=false` to dry-run first — create the config with
 `emit=false` via `-config-create` so the scout never has a live first run; it runs and logs

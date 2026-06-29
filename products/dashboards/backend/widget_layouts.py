@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from products.dashboards.backend.constants import DASHBOARD_GRID_COLUMN_COUNT
 from products.dashboards.backend.widget_catalog import get_default_widget_layouts
+
+# Fallback size for a tile that has no persisted layout. Matches the dominant frontend
+# default (`tileLayouts.ts` 6×5) and the widget catalog default, so synthetic placements
+# approximate the rendered height closely enough to keep new widgets below everything.
+_DEFAULT_TILE_WIDTH = 6
+_DEFAULT_TILE_HEIGHT = 5
 
 
 def _column_heights(sm_layouts: list[dict[str, Any]]) -> list[int]:
@@ -74,11 +81,55 @@ def collect_dashboard_sm_layouts(dashboard_tiles: list[Any]) -> list[dict[str, A
     return sm_layouts
 
 
+def _pack_at_bottom(column_heights: list[int], width: int, height: int) -> dict[str, int]:
+    """Lowest-segment greedy placement, mirroring the dirty-tile packing in
+    ``frontend/src/scenes/dashboard/tileLayouts.ts``: pick the leftmost ``width``-wide
+    segment with the lowest top, ties keeping the leftmost."""
+    w = max(1, min(width, DASHBOARD_GRID_COLUMN_COUNT))
+    h = max(1, height)
+    best_x = 0
+    best_y = max(column_heights[0:w])
+    for x in range(1, DASHBOARD_GRID_COLUMN_COUNT - w + 1):
+        segment_top = max(column_heights[x : x + w])
+        if segment_top < best_y:
+            best_x = x
+            best_y = segment_top
+    return {"x": best_x, "y": best_y, "w": w, "h": h}
+
+
 def collect_dashboard_sm_layouts_for_dashboard(dashboard: Any) -> list[dict[str, Any]]:
+    """Existing ``sm`` layouts, plus a synthetic bottom placement for every tile that has
+    no persisted layout, so widget placement counts the dashboard's true rendered height.
+
+    Tiles added to a dashboard without a layout (e.g. an insight added via the insight API)
+    default to ``layouts = {}``; the frontend stacks them at the bottom on render but only
+    persists that on a layout save. Reading only persisted ``sm`` layouts would under-count
+    the height and drop new widgets into a mid-page gap (the "lands in the 2nd row" bug)."""
     sm_layouts: list[dict[str, Any]] = []
-    for layouts in dashboard.tiles.filter(deleted=False).values_list("layouts", flat=True):
-        if isinstance(layouts, dict):
-            sm_layout = layouts.get("sm")
-            if isinstance(sm_layout, dict):
-                sm_layouts.append(sm_layout)
+    layoutless_count = 0
+    # `deleted` is nullable with no default, so live tiles carry NULL — `filter(deleted=False)`
+    # would miss them (NULL never equals False). Exclude only explicit deletes.
+    for layouts in dashboard.tiles.exclude(deleted=True).values_list("layouts", flat=True):
+        if isinstance(layouts, str):
+            try:
+                layouts = json.loads(layouts)
+            except (ValueError, TypeError):
+                layouts = None
+        sm_layout = layouts.get("sm") if isinstance(layouts, dict) else None
+        if isinstance(sm_layout, dict):
+            sm_layouts.append(sm_layout)
+        else:
+            layoutless_count += 1
+
+    if layoutless_count == 0:
+        return sm_layouts
+
+    # Stack layout-less tiles at the bottom (mirroring the frontend) so they contribute
+    # to the height a new widget is placed below.
+    column_heights = _column_heights(sm_layouts)
+    for _ in range(layoutless_count):
+        placement = _pack_at_bottom(column_heights, _DEFAULT_TILE_WIDTH, _DEFAULT_TILE_HEIGHT)
+        sm_layouts.append(placement)
+        for column in range(placement["x"], placement["x"] + placement["w"]):
+            column_heights[column] = placement["y"] + placement["h"]
     return sm_layouts

@@ -28,6 +28,12 @@ class SlackThreadTaskMapping(UUIDModel):
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
+    # Slack `ts` of the most recent message we've already shown to the agent (either
+    # in the original `<slack_thread_context>` block at task creation, or in a follow-up
+    # `<slack_thread_context_update>` diff). On each follow-up, anything in the thread
+    # with a strictly larger `ts` (and smaller than the just-arrived message's `ts`) is
+    # rendered as a diff so the agent catches up on messages it never saw.
+    last_forwarded_ts = models.CharField(max_length=64, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -114,7 +120,8 @@ class SlackSettings(UUIDModel):
 
     def __str__(self) -> str:
         who = self.slack_user_id or "(workspace default)"
-        return f"{self.slack_workspace_id} / {who} → integration {self.default_integration_id}"
+        target = self.default_integration_id if self.default_integration_id else "(inherit)"
+        return f"{self.slack_workspace_id} / {who} → integration {target}"
 
 
 class SlackChannel(UUIDModel):

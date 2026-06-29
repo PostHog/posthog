@@ -142,7 +142,7 @@ export function ScannerEditorSceneComponent(): JSX.Element {
                                         <div className="text-sm text-muted">
                                             {step === 'configure'
                                                 ? 'What it looks for and how it analyzes recordings.'
-                                                : 'Which recordings it runs against and how often.'}
+                                                : 'Pick which recordings to scan, and how often.'}
                                         </div>
                                     </div>
                                 </div>
@@ -264,9 +264,10 @@ function ConfigureStep(): JSX.Element {
                                         <div className="flex items-center gap-3">
                                             <LemonSwitch checked={!!value} onChange={onChange} />
                                             <div>
-                                                <div className="text-sm font-medium">Emit PostHog Signals</div>
+                                                <div className="text-sm font-medium">Hand off to Responder agents</div>
                                                 <div className="text-xs text-muted">
-                                                    Also flags actionable issues as Signals.
+                                                    Adds a side mission to each scan: clear, actionable product issues
+                                                    are handled by PostHog Responder agents.
                                                 </div>
                                             </div>
                                         </div>

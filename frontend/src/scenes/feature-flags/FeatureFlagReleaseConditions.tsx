@@ -26,7 +26,9 @@ import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
-import { capitalizeFirstLetter, clamp, dateFilterToText, dateStringToComponents, pluralize } from 'lib/utils'
+import { dateFilterToText, dateStringToComponents } from 'lib/utils/dateFilters'
+import { clamp } from 'lib/utils/numbers'
+import { capitalizeFirstLetter, pluralize } from 'lib/utils/strings'
 import { FeatureFlagConditionWarning } from 'scenes/feature-flags/FeatureFlagConditionWarning'
 import { PercentageInput } from 'scenes/feature-flags/PercentageInput'
 import { urls } from 'scenes/urls'
@@ -42,6 +44,7 @@ import {
     PropertyOperator,
 } from '~/types'
 
+import { resolveAggregationGroupTypeIndex } from './aggregation'
 import { MATCHING_ESTIMATE_TOOLTIP } from './constants'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -458,7 +461,10 @@ export function FeatureFlagReleaseConditions({
                                     const targetIndex = group.aggregation_group_type_index
                                     const pluralName = aggregationTargetName(targetIndex)
                                     const singularName = aggregationLabel(
-                                        targetIndex ?? filters.aggregation_group_type_index,
+                                        resolveAggregationGroupTypeIndex(
+                                            targetIndex,
+                                            filters.aggregation_group_type_index
+                                        ),
                                         true
                                     ).singular
                                     const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined

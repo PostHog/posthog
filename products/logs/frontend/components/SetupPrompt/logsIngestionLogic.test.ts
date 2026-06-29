@@ -5,9 +5,23 @@ import { initKeaTests } from '~/test/init'
 
 import { logsIngestionLogic } from './logsIngestionLogic'
 
-jest.mock('lib/utils', () => ({
-    ...jest.requireActual('lib/utils'),
-    delay: () => Promise.resolve(),
+jest.mock('lib/utils/async', () => ({
+    ...jest.requireActual('lib/utils/async'),
+    retryWithBackoff: async <T>(fn: () => Promise<T>, options: { maxAttempts?: number } = {}): Promise<T> => {
+        const maxAttempts = options.maxAttempts ?? 3
+        let lastError: unknown
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            try {
+                return await fn()
+            } catch (e) {
+                lastError = e
+                if (attempt >= maxAttempts - 1) {
+                    throw e
+                }
+            }
+        }
+        throw lastError
+    },
 }))
 
 describe('logsIngestionLogic', () => {

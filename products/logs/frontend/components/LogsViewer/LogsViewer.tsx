@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -10,7 +11,9 @@ import { UniversalFiltersGroup } from '~/types'
 import { logsViewerConfigLogic } from 'products/logs/frontend/components/LogsViewer/config/logsViewerConfigLogic'
 import { LogsViewerFilters } from 'products/logs/frontend/components/LogsViewer/config/types'
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { FacetRail } from 'products/logs/frontend/components/LogsViewer/FacetRail/FacetRail'
 import { LogsFilterBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsFilterBar'
+import { LogsQueryBar } from 'products/logs/frontend/components/LogsViewer/Filters/LogsFilterBar/LogsQueryBar'
 import { logsFilterHistoryLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsFilterHistoryLogic'
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
@@ -19,10 +22,11 @@ import { virtualizedLogsListLogic } from 'products/logs/frontend/components/Virt
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
+import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { logsViewerModalLogic } from './LogsViewerModal/logsViewerModalLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
-import { LogsViewerToolbar } from './LogsViewerToolbar'
+import { LogsViewerToolbar, LogsViewerToolbarProps } from './LogsViewerToolbar'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -103,13 +107,14 @@ function LogsViewerContent({
         clearSelection,
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
-    const { orderBy, sparklineBreakdownBy, sparklineCollapsed } = useValues(logsViewerConfigLogic)
+    const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed } = useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
     const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
         useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const { openLogsViewerModal } = useActions(logsViewerModalLogic)
+    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -277,8 +282,8 @@ function LogsViewerContent({
         ]
     )
 
-    return (
-        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+    const sparklineSection = (
+        <>
             <LogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
@@ -290,13 +295,20 @@ function LogsViewerContent({
                 onToggleCollapse={toggleSparklineCollapsed}
             />
             <SceneDivider />
-            {showFilterBar && <LogsFilterBar showSavedViewsButton={showSavedViewsButton} />}
-            <LogsViewerToolbar
-                totalLogsCount={sparklineLoading ? undefined : totalLogsMatchingFilters}
-                orderBy={orderBy}
-                onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'toolbar')}
-                onOpenFullScreen={showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined}
-            />
+        </>
+    )
+
+    const filterBar = showFilterBar ? <LogsFilterBar showSavedViewsButton={showSavedViewsButton} /> : null
+
+    const toolbarProps: LogsViewerToolbarProps = {
+        totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
+        orderBy,
+        onChangeOrderBy: (newOrderBy) => setOrderBy(newOrderBy, 'toolbar'),
+        onOpenFullScreen: showFullScreenButton ? () => openLogsViewerModal({ id }) : undefined,
+    }
+
+    const logList = (
+        <>
             {pinnedLogsArray.length > 0 && (
                 <VirtualizedLogsList
                     dataSource={pinnedLogsArray}
@@ -325,7 +337,34 @@ function LogsViewerContent({
                 orderBy={orderBy}
                 onChangeOrderBy={(newOrderBy) => setOrderBy(newOrderBy, 'header')}
             />
+        </>
+    )
 
+    if (showFacetRail) {
+        // Three-tier layout: query bar (ask a question) above the sparkline, the sparkline, then a
+        // row of [facet rail | display bar (operate on the data) + the log lists].
+        return (
+            <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+                <LogsQueryBar showSavedViewsButton={showSavedViewsButton} />
+                {sparklineSection}
+                <div className="flex flex-row gap-2 flex-1 min-h-0">
+                    {!facetRailCollapsed && <FacetRail id={id} />}
+                    <div className="flex flex-col gap-2 flex-1 min-w-0">
+                        <LogsDisplayBar {...toolbarProps} />
+                        {logList}
+                    </div>
+                </div>
+                <LogDetailsModal timezone={timezone} />
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col gap-2 h-full" data-attr="logs-viewer">
+            {sparklineSection}
+            {filterBar}
+            <LogsViewerToolbar {...toolbarProps} />
+            {logList}
             <LogDetailsModal timezone={timezone} />
         </div>
     )

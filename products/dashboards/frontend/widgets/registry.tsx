@@ -24,6 +24,20 @@ import { EditErrorTrackingWidgetModal } from './error_tracking/EditErrorTracking
 import { ErrorTrackingWidget } from './error_tracking/ErrorTrackingWidget'
 import { parseErrorTrackingWidgetConfigApiError } from './error_tracking/errorTrackingWidgetConfigValidation'
 import { ErrorTrackingWidgetTileFilters } from './error_tracking/ErrorTrackingWidgetTileFilters'
+import { EditExperimentResultsWidgetModal } from './experiments/EditExperimentResultsWidgetModal'
+import { EditExperimentsListWidgetModal } from './experiments/EditExperimentsListWidgetModal'
+import { ExperimentResultsWidget } from './experiments/ExperimentResultsWidget'
+import { ExperimentResultsWidgetTileFilters } from './experiments/ExperimentResultsWidgetTileFilters'
+import { ExperimentsListWidget } from './experiments/ExperimentsListWidget'
+import { ExperimentsListWidgetTileFilters } from './experiments/ExperimentsListWidgetTileFilters'
+import {
+    parseExperimentResultsWidgetConfigApiError,
+    parseExperimentsListWidgetConfigApiError,
+} from './experiments/experimentsWidgetConfigValidation'
+import { EditLogsWidgetModal } from './logs/EditLogsWidgetModal'
+import { LogsWidget } from './logs/LogsWidget'
+import { parseLogsWidgetConfigApiError } from './logs/logsWidgetConfigValidation'
+import { LogsWidgetTileFilters } from './logs/LogsWidgetTileFilters'
 import { EditSessionReplayWidgetModal } from './session_replay/EditSessionReplayWidgetModal'
 import { SessionReplayWidget, SessionReplayWidgetTopHeading } from './session_replay/SessionReplayWidget'
 import { parseSessionReplayWidgetConfigApiError } from './session_replay/sessionReplayWidgetConfigValidation'
@@ -149,6 +163,27 @@ export const DASHBOARD_WIDGET_REGISTRY = {
         TopHeading: SessionReplayWidgetTopHeading,
         productAccess: 'session_recording',
         parseConfigApiError: parseSessionReplayWidgetConfigApiError,
+    },
+    experiments_list: {
+        Component: ExperimentsListWidget,
+        TileFilters: ExperimentsListWidgetTileFilters,
+        EditModal: EditExperimentsListWidgetModal,
+        productAccess: 'experiment',
+        parseConfigApiError: parseExperimentsListWidgetConfigApiError,
+    },
+    experiment_results: {
+        Component: ExperimentResultsWidget,
+        TileFilters: ExperimentResultsWidgetTileFilters,
+        EditModal: EditExperimentResultsWidgetModal,
+        productAccess: 'experiment',
+        parseConfigApiError: parseExperimentResultsWidgetConfigApiError,
+    },
+    logs_list: {
+        Component: LogsWidget,
+        TileFilters: LogsWidgetTileFilters,
+        EditModal: EditLogsWidgetModal,
+        productAccess: 'logs',
+        parseConfigApiError: parseLogsWidgetConfigApiError,
     },
 } satisfies Record<DashboardWidgetCatalogKey, DashboardWidgetDefinition>
 

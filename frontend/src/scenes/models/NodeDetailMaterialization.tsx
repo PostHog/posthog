@@ -1,10 +1,10 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjsUtcToTimezone } from 'lib/dayjs'
-import { humanFriendlyDuration } from 'lib/utils'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -50,6 +50,14 @@ export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element |
             <LemonTable
                 dataSource={jobs}
                 loading={materializationJobsLoading}
+                pagination={{
+                    controlled: true,
+                    pageSize: 10,
+                    currentPage: Math.floor(jobsOffset / 10) + 1,
+                    entryCount: materializationJobs?.count,
+                    onForward: () => setJobsOffset(jobsOffset + 10),
+                    onBackward: () => setJobsOffset(Math.max(0, jobsOffset - 10)),
+                }}
                 columns={[
                     {
                         title: 'Status',
@@ -124,24 +132,6 @@ export function NodeDetailMaterialization({ id }: { id: string }): JSX.Element |
                         : undefined
                 }
             />
-            {(materializationJobs?.next || materializationJobs?.previous) && (
-                <div className="flex gap-2 justify-end">
-                    {materializationJobs.previous && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            onClick={() => setJobsOffset(Math.max(0, jobsOffset - 10))}
-                        >
-                            Previous
-                        </LemonButton>
-                    )}
-                    {materializationJobs.next && (
-                        <LemonButton type="secondary" size="small" onClick={() => setJobsOffset(jobsOffset + 10)}>
-                            Next
-                        </LemonButton>
-                    )}
-                </div>
-            )}
         </div>
     )
 }

@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "event_filters": {
+            "description": "PostHog property filters to save for automated clustering jobs. Pass an empty array to clear filters.",
+            "items": {
+                "additionalProperties": {},
+                "propertyNames": {
+                    "type": "string"
+                },
+                "type": "object"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["event_filters"],
+    "type": "object"
+}

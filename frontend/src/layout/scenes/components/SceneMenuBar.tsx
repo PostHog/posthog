@@ -1,7 +1,8 @@
 import { useActions, useValues } from 'kea'
-import { Children, ComponentProps, ReactNode } from 'react'
+import posthog from 'posthog-js'
+import { Children, ComponentProps, MouseEvent, ReactNode, useEffect } from 'react'
 
-import { IconExternal, IconSidePanel } from '@posthog/icons'
+import { IconExternal, IconSidePanel, IconSparkles } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -26,10 +27,23 @@ import {
 import { IconBlank } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
+import { sceneLogic } from 'scenes/sceneLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
+
+/**
+ * Central instrumentation for the SceneMenuBar experiment (`SCENE_MENU_BAR` flag). Capturing
+ * here means every scene that adopts the bar reports engagement without per-scene wiring.
+ * Scene id is read off `sceneLogic` without subscribing so capture never triggers a re-render.
+ */
+function captureSceneMenuBar(event: string, properties: Record<string, unknown> = {}): void {
+    posthog.capture(event, {
+        scene: sceneLogic.findMounted()?.values.activeSceneId ?? null,
+        ...properties,
+    })
+}
 
 /**
  * Scene layouts where the surrounding container applies horizontal/vertical padding to
@@ -47,6 +61,10 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const layout = sceneLayoutConfig?.layout ?? 'app'
     const isPaddedLayout = PADDED_LAYOUTS.has(layout)
+
+    useEffect(() => {
+        captureSceneMenuBar('scene menu bar shown')
+    }, [])
 
     return (
         <div
@@ -72,7 +90,7 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
             */}
             <Menubar className="gap-0 border-0">{children}</Menubar>
 
-            <Badge>OS-like menu (alpha)</Badge>
+            <Badge className="hidden @[800px]:flex">OS-like menu (alpha)</Badge>
             <SceneMenuBarRightLinks />
         </div>
     )
@@ -87,6 +105,7 @@ function SceneMenuBarRightLinks(): JSX.Element {
             <Button
                 data-attr="scene-menu-bar-docs"
                 className={RIGHT_TRIGGER_CLASSES}
+                onClick={() => captureSceneMenuBar('scene menu bar right link clicked', { link: 'docs' })}
                 render={<LinkPrimitive to="https://posthog.com/docs" target="_blank" />}
             >
                 Docs
@@ -94,7 +113,10 @@ function SceneMenuBarRightLinks(): JSX.Element {
             </Button>
             <Button
                 type="button"
-                onClick={() => openSidePanel(SidePanelTab.Support)}
+                onClick={() => {
+                    captureSceneMenuBar('scene menu bar right link clicked', { link: 'support' })
+                    openSidePanel(SidePanelTab.Support)
+                }}
                 data-attr="scene-menu-bar-support"
                 className={RIGHT_TRIGGER_CLASSES}
             >
@@ -103,11 +125,15 @@ function SceneMenuBarRightLinks(): JSX.Element {
             </Button>
             <Button
                 type="button"
-                onClick={() => openSidePanel(SidePanelTab.Max)}
+                onClick={() => {
+                    captureSceneMenuBar('scene menu bar right link clicked', { link: 'ai' })
+                    openSidePanel(SidePanelTab.Max)
+                }}
                 data-attr="scene-menu-bar-ai"
                 className={RIGHT_TRIGGER_CLASSES}
                 variant="outline"
             >
+                <IconSparkles className="text-ai group-hover/button-primitive:animate-hue-rotate" />
                 PostHog AI
             </Button>
         </div>
@@ -176,7 +202,13 @@ export function SceneMenuBarMenu({
 }: SceneMenuBarMenuProps): JSX.Element {
     const isDisabled = disabled || hasNoRenderableChildren(children)
     return (
-        <MenubarMenu>
+        <MenubarMenu
+            onOpenChange={(open: boolean) => {
+                if (open) {
+                    captureSceneMenuBar('scene menu bar menu opened', { menu: label })
+                }
+            }}
+        >
             <MenubarTrigger
                 data-attr={dataAttr}
                 disabled={isDisabled}
@@ -206,15 +238,30 @@ type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
      * direct actions ("Delete feature flag") and same-page navigations.
      */
     opensFloatingUi?: boolean
+    /** Hover hint, typically the reason a disabled item can't be used. Applied as the native title. */
+    tooltip?: string
 }
 
 /**
  * Pass `variant="destructive"` for any "Delete X" / "Archive X" / "Remove X" action so the
  * visual signal (red text + icon) is consistent across PostHog scenes.
  */
-export function SceneMenuBarItem({ opensFloatingUi, children, ...props }: SceneMenuBarItemProps): JSX.Element {
+export function SceneMenuBarItem({
+    opensFloatingUi,
+    tooltip,
+    children,
+    onClick,
+    ...props
+}: SceneMenuBarItemProps): JSX.Element {
+    const handleClick = (e: MouseEvent<HTMLDivElement>): void => {
+        const dataAttr = (props as Record<string, unknown>)['data-attr']
+        captureSceneMenuBar('scene menu bar item clicked', {
+            item: typeof dataAttr === 'string' ? dataAttr : typeof children === 'string' ? children : undefined,
+        })
+        onClick?.(e)
+    }
     return (
-        <MenubarItem {...props}>
+        <MenubarItem title={tooltip} onClick={handleClick} {...props}>
             {children}
             {/*
               `-ms-2` cancels MenubarItem's parent flex `gap-2` so the ellipsis sits flush

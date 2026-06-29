@@ -46,20 +46,28 @@ class _AccountScopedPostgresTable(PostgresTable, DANGEROUS_NoTeamIdCheckTable):
 _account_tagged_items: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_tagged_items",
     postgres_table_name="posthog_taggeditem",
+    description="Internal federated junction table (PostgreSQL `posthog_taggeditem`) of tag-to-account links; not for direct querying — use `system.accounts.tags`.",
     fields={
-        "id": UUIDDatabaseField(name="id"),
-        "tag_id": UUIDDatabaseField(name="tag_id"),
-        "account_id": UUIDDatabaseField(name="account_id", nullable=True),
+        "id": UUIDDatabaseField(name="id", description="Primary key of the tagged-item junction row."),
+        "tag_id": UUIDDatabaseField(name="tag_id", description="Tag applied to the account; join to `system.tags.id`."),
+        "account_id": UUIDDatabaseField(
+            name="account_id", nullable=True, description="Account the tag is applied to; join to `system.accounts.id`."
+        ),
     },
 )
 
 _account_resource_notebooks: _AccountScopedPostgresTable = _AccountScopedPostgresTable(
     name="_account_resource_notebooks",
     postgres_table_name="posthog_resourcenotebook",
+    description="Internal federated junction table (PostgreSQL `posthog_resourcenotebook`) of notebook-to-account links; not for direct querying — use `system.accounts.notebooks`.",
     fields={
-        "id": UUIDDatabaseField(name="id"),
-        "notebook_id": StringDatabaseField(name="notebook_id"),
-        "account_id": UUIDDatabaseField(name="account_id", nullable=True),
+        "id": UUIDDatabaseField(name="id", description="Primary key of the notebook junction row."),
+        "notebook_id": StringDatabaseField(name="notebook_id", description="Identifier of the linked notebook."),
+        "account_id": UUIDDatabaseField(
+            name="account_id",
+            nullable=True,
+            description="Account the notebook is linked to; join to `system.accounts.id`.",
+        ),
     },
 )
 
@@ -90,9 +98,16 @@ def _account_notebooks_select() -> ast.SelectQuery | ast.SelectSetQuery:
 
 
 class _AccountTagsTable(LazyTable):
+    description: str = (
+        "Internal aggregating table backing `system.accounts.tags`: the distinct, sorted tag names per account."
+    )
     fields: dict[str, FieldOrTable] = {
-        "account_id": UUIDDatabaseField(name="account_id"),
-        "names": StringArrayDatabaseField(name="names"),
+        "account_id": UUIDDatabaseField(
+            name="account_id", description="Account these tags belong to; join to `system.accounts.id`."
+        ),
+        "names": StringArrayDatabaseField(
+            name="names", description="Distinct, sorted tag names applied to the account."
+        ),
     }
 
     def lazy_select(
@@ -108,9 +123,14 @@ class _AccountTagsTable(LazyTable):
 
 
 class _AccountNotebooksTable(LazyTable):
+    description: str = (
+        "Internal aggregating table backing `system.accounts.notebooks`: the count of notebooks linked per account."
+    )
     fields: dict[str, FieldOrTable] = {
-        "account_id": UUIDDatabaseField(name="account_id"),
-        "count": IntegerDatabaseField(name="count"),
+        "account_id": UUIDDatabaseField(
+            name="account_id", description="Account these notebooks belong to; join to `system.accounts.id`."
+        ),
+        "count": IntegerDatabaseField(name="count", description="Number of notebooks linked to the account."),
     }
 
     def lazy_select(

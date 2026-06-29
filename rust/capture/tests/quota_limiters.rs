@@ -151,6 +151,8 @@ async fn setup_router_with_limits(
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
     );
 
     (app, sink)
@@ -1201,6 +1203,8 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
     );
 
     let client = TestClient::new(app);
@@ -1289,6 +1293,8 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
     );
 
     let client = TestClient::new(app);
@@ -1381,6 +1387,8 @@ async fn test_survey_quota_cross_batch_redis_error_fail_open() {
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
     );
 
     let client = TestClient::new(app);
@@ -1810,6 +1818,8 @@ async fn test_ai_quota_cross_batch_redis_error_fail_open() {
         None,             // overflow_limiter
         None,             // replay_overflow_limiter
         None,             // v1_sink_router
+        8,                // capture_v1_scatter_gather_min_batch
+        None,             // ai_gateway_signing_secret
     );
 
     let client = TestClient::new(app);

@@ -12,8 +12,9 @@ import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { retryWithBackoff, toParams } from 'lib/utils'
 import { liveEventsHostOrigin } from 'lib/utils/apiHost'
+import { retryWithBackoff } from 'lib/utils/async'
+import { toParams } from 'lib/utils/url'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -21,7 +22,13 @@ import { urls } from 'scenes/urls'
 
 import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
 import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { InAppNotification, InsightShortId, SidePanelTab, WebAnalyticsDigestMetadata } from '~/types'
+import {
+    InAppNotification,
+    InsightShortId,
+    ResourceEditedEvent,
+    SidePanelTab,
+    WebAnalyticsDigestMetadata,
+} from '~/types'
 
 import {
     notificationsList,
@@ -35,6 +42,7 @@ import {
     NotificationEventSourceTypeEnumApi,
     NotificationsListParams,
 } from 'products/notifications/frontend/generated/api.schemas'
+import { RESOURCE_EDITED_EVENT_TYPE, resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
 
 import { sidePanelContextLogic } from '../../sidePanelContextLogic'
 import { sidePanelStateLogic } from '../../sidePanelStateLogic'
@@ -45,7 +53,11 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
-const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: string) => string> = {
+// Maps each source type to a path builder from `source_id`, or `null` to fall through to the
+// backend-provided `source_url` (customer_analytics carries a precise account deep-link a
+// source_id→path mapping can't build). Kept as a full `Record` — not `Partial` — so adding a
+// `NotificationEventSourceTypeEnumApi` value fails the build until it's handled here.
+const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, ((id: string) => string) | null> = {
     replay: (id) => urls.replaySingle(id),
     notebook: (id) => urls.notebook(id),
     insight: (id) => urls.insightView(id as InsightShortId),
@@ -54,7 +66,7 @@ const SOURCE_TYPE_TO_PATH: Record<NotificationEventSourceTypeEnumApi, (id: strin
     survey: (id) => urls.survey(id),
     experiment: (id) => urls.experiment(id),
     error_tracking: (id) => urls.errorTrackingIssue(id),
-    customer_analytics: () => urls.customerAnalyticsAccounts(),
+    customer_analytics: null,
 }
 
 export interface NotificationGroup {
@@ -76,10 +88,11 @@ export function groupKey(n: InAppNotification): string {
 }
 
 export function buildNotificationSourcePath(notification: InAppNotification): string | null {
-    if (notification.source_type && notification.source_id && notification.source_type in SOURCE_TYPE_TO_PATH) {
-        return SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi](
-            notification.source_id
-        )
+    const toPath = notification.source_type
+        ? SOURCE_TYPE_TO_PATH[notification.source_type as NotificationEventSourceTypeEnumApi]
+        : undefined
+    if (toPath && notification.source_id) {
+        return toPath(notification.source_id)
     }
     return notification.source_url || null
 }
@@ -97,6 +110,15 @@ export function buildWebAnalyticsDigestMaxPrompt(metadata: WebAnalyticsDigestMet
         })
         .join(', ')
     return `!Here's my web analytics digest for ${metadata.period_label.toLowerCase()} on ${metadata.project_name}: ${metricsLine}. What are the most important changes, and what should I dig into?`
+}
+
+// When the recap experience is enabled, send digest clicks to the recap page instead of the raw
+// dashboard. The digest's source_url is `/project/{id}/web?...`; only the `/web` segment is rewritten.
+export function withRecapSourceUrl(notification: InAppNotification): InAppNotification {
+    if (!notification.source_url) {
+        return notification
+    }
+    return { ...notification, source_url: notification.source_url.replace(/\/web(?=$|[?#])/, '/web/recap') }
 }
 
 export interface ChangelogFlagPayload {
@@ -121,7 +143,14 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
             organizationLogic,
             ['currentOrganization'],
         ],
-        actions: [sidePanelStateLogic, ['openSidePanel'], teamLogic, ['loadCurrentTeamSuccess']],
+        actions: [
+            sidePanelStateLogic,
+            ['openSidePanel'],
+            teamLogic,
+            ['loadCurrentTeamSuccess'],
+            resourceEditedLogic,
+            ['resourceEdited'],
+        ],
     })),
     actions({
         togglePolling: (pageIsVisible: boolean) => ({ pageIsVisible }),
@@ -453,6 +482,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                                     token,
                                     abortController.signal,
                                     (notification) => {
+                                        // Transient "edited elsewhere" events ride this stream but are
+                                        // not inbox notifications — forward them to interested editors and
+                                        // skip the unread-count / toast / list handling below.
+                                        if (notification.notification_type === RESOURCE_EDITED_EVENT_TYPE) {
+                                            actions.resourceEdited(notification as unknown as ResourceEditedEvent)
+                                            return
+                                        }
                                         if (!values.isInitialLoadComplete) {
                                             return
                                         }
@@ -573,12 +609,13 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 })
             },
             viewWebAnalyticsFromDigest: ({ notification }) => {
+                const recapEnabled = !!values.featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_RECAP]
                 posthog.capture('web_analytics_digest_notification_clicked', {
-                    cta: 'view_web_analytics',
+                    cta: recapEnabled ? 'view_recap' : 'view_web_analytics',
                     notification_id: notification.id,
                     team_id: notification.team_id,
                 })
-                actions.navigateToNotification(notification)
+                actions.navigateToNotification(recapEnabled ? withRecapSourceUrl(notification) : notification)
             },
             askMaxAboutDigest: ({ notification }) => {
                 posthog.capture('web_analytics_digest_notification_clicked', {
@@ -682,7 +719,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 try {
                     let importantChangesHumanized = humanize(importantChanges?.results || [], describerFor, true)
 
-                    const flagPayload = posthog.getFeatureFlagPayload('changelog-notification')
+                    // 'changelog-notification' is an externally managed flag, not a FEATURE_FLAGS key, so it's read directly.
+                    const flagPayload = posthog.getFeatureFlagResult('changelog-notification', {
+                        send_event: false,
+                    })?.payload
                     const changelogNotifications = flagPayload
                         ? (flagPayload as JsonRecord[]).map(
                               (notification) =>

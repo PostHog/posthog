@@ -24,10 +24,17 @@ import { cleanSourceId } from 'products/data_warehouse/frontend/utils'
 
 import type { schemaSceneLogicType } from './schemaSceneLogicType'
 
-export const SCHEMA_SCENE_TABS = ['configuration', 'metrics'] as const
+export const SCHEMA_SCENE_TABS = ['configuration', 'metrics', 'history'] as const
 export type SchemaSceneTab = (typeof SCHEMA_SCENE_TABS)[number]
 
-export const SCHEMA_CONFIGURATION_SECTIONS = ['details', 'sync-method', 'columns', 'schedule', 'danger-zone'] as const
+export const SCHEMA_CONFIGURATION_SECTIONS = [
+    'details',
+    'sync-method',
+    'columns',
+    'descriptions',
+    'schedule',
+    'danger-zone',
+] as const
 export type SchemaConfigurationSection = (typeof SCHEMA_CONFIGURATION_SECTIONS)[number]
 
 export const DEFAULT_SCHEMA_SCENE_TAB: SchemaSceneTab = 'configuration'
@@ -49,6 +56,7 @@ function buildSchemaUpdatePayload(schema: ExternalDataSourceSchema): Partial<Ext
         sync_time_of_day: schema.sync_time_of_day,
         cdc_table_mode: schema.cdc_table_mode,
         enabled_columns: schema.enabled_columns ?? null,
+        row_filters: schema.row_filters ?? null,
     }
 }
 
@@ -65,6 +73,7 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
         _setCurrentSection: (section: SchemaConfigurationSection) => ({ section }),
         setIsProjectTime: (isProjectTime: boolean) => ({ isProjectTime }),
         setRefreshingSchemas: (refreshing: boolean) => ({ refreshing }),
+        setResyncingSchema: (resyncing: boolean) => ({ resyncing }),
         updateSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         reloadSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
         resyncSchema: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -131,6 +140,13 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             {
                 setRefreshingSchemas: (_, { refreshing }) => refreshing,
                 refreshSchemas: () => true,
+            },
+        ],
+        resyncingSchema: [
+            false as boolean,
+            {
+                resyncSchema: () => true,
+                setResyncingSchema: (_, { resyncing }) => resyncing,
             },
         ],
     })),
@@ -223,9 +239,11 @@ export const schemaSceneLogic = kea<schemaSceneLogicType>([
             try {
                 await api.externalDataSchemas.resync(schema.id)
                 posthog.capture('schema resynced', { sourceType: values.source?.source_type })
+                lemonToast.success(`Resync started for ${schema.label ?? schema.name}`)
             } catch (e: any) {
-                lemonToast.error(e?.message || 'Cant refresh schema at this time')
+                lemonToast.error(e?.message || "Couldn't start resync")
             } finally {
+                actions.setResyncingSchema(false)
                 actions.loadSchema()
             }
         },

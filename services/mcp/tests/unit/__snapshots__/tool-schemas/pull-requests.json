@@ -1,8 +1,16 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "author": {
+            "description": "Optional GitHub login to scope the list to one author's pull requests.",
+            "type": "string"
+        },
         "date_from": {
             "description": "Recency floor for merged/closed PRs — relative ('-30d', '-8w') or ISO8601. Open PRs are always included regardless of age. Defaults to -30d.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
             "type": "string"
         }
     },

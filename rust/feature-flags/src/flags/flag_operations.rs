@@ -355,6 +355,7 @@ mod tests {
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
                     bucketing_identifier: None,
+                    has_experiment: false,
                 }),
             )
             .await
@@ -456,6 +457,7 @@ mod tests {
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
                     bucketing_identifier: None,
+                    has_experiment: false,
                 }),
             )
             .await
@@ -595,6 +597,7 @@ mod tests {
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
                     bucketing_identifier: None,
+                    has_experiment: false,
                 }),
             )
             .await
@@ -673,6 +676,7 @@ mod tests {
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
                     bucketing_identifier: None,
+                    has_experiment: false,
                 }),
             )
             .await
@@ -768,6 +772,7 @@ mod tests {
                     evaluation_runtime: Some("all".to_string()),
                     evaluation_tags: None,
                     bucketing_identifier: None,
+                    has_experiment: false,
                 }),
             )
             .await
@@ -850,6 +855,7 @@ mod tests {
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
                         bucketing_identifier: None,
+                        has_experiment: false,
                     }),
                 )
                 .await
@@ -943,6 +949,7 @@ mod tests {
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
                         bucketing_identifier: None,
+                        has_experiment: false,
                     }),
                 )
                 .await
@@ -1026,6 +1033,7 @@ mod tests {
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
                         bucketing_identifier: None,
+                        has_experiment: false,
                     }),
                 )
                 .await
@@ -1143,6 +1151,7 @@ mod tests {
                         evaluation_runtime: Some("all".to_string()),
                         evaluation_tags: None,
                         bucketing_identifier: None,
+                        has_experiment: false,
                     }),
                 )
                 .await

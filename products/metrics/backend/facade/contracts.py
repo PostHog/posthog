@@ -24,6 +24,10 @@ from dataclasses import dataclass
 
 from .enums import AttributeScope, FilterOp, MetricAggregation
 
+# Each clause runs its own ClickHouse query on the shared logs cluster, so
+# the clause count per request is hard-capped.
+MAX_CLAUSES_PER_QUERY = 10
+
 
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
@@ -87,6 +91,8 @@ class MetricQueryRequest:
     def __post_init__(self) -> None:
         if not self.clauses:
             raise ValueError("at least one clause is required")
+        if len(self.clauses) > MAX_CLAUSES_PER_QUERY:
+            raise ValueError(f"at most {MAX_CLAUSES_PER_QUERY} clauses are allowed per query")
         if self.date_to <= self.date_from:
             raise ValueError("date_to must be after date_from")
         names = [c.name for c in self.clauses]
@@ -113,3 +119,41 @@ class MetricSeries:
     points: tuple[MetricPoint, ...]
     metric_name: str | None = None
     clause: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class MetricAnomalyDimension:
+    """One label value's behavior across the baseline/anomaly windows."""
+
+    key: str
+    label: str
+    baseline_value: float
+    anomaly_value: float
+    # anomaly_value / baseline_value; 0.0 baselines yield the anomaly value
+    # itself (treat as "new" traffic).
+    change_ratio: float
+
+
+@dataclass(frozen=True, slots=True)
+class MetricAnomalyReport:
+    """Everything an investigator needs to characterize 'metric X looks
+    wrong': how the anomaly window compares to the baseline, when it
+    started, and which label values moved the most."""
+
+    metric_name: str
+    aggregation: str
+    interval: str
+    baseline_from: str
+    baseline_to: str
+    anomaly_from: str
+    anomaly_to: str
+    baseline_mean: float
+    baseline_stddev: float
+    anomaly_mean: float
+    anomaly_peak: float
+    # anomaly_mean / baseline_mean; 0.0 baselines yield anomaly_mean.
+    change_ratio: float
+    direction: str  # "up" | "down" | "flat"
+    onset_time: str | None
+    top_movers: tuple[MetricAnomalyDimension, ...]
+    series: MetricSeries

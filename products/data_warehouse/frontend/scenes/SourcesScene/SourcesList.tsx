@@ -31,6 +31,14 @@ export function SourcesList({ action }: { action: JSX.Element }): JSX.Element {
                 />
             ) : null}
 
+            <SceneSection
+                title="Managed data warehouse sources"
+                description="PostHog can connect to external sources and automatically import data from them into the PostHog data warehouse"
+            >
+                <ManagedSourcesTable />
+            </SceneSection>
+            <SceneDivider />
+
             <FlaggedFeature flag="cdp-hog-sources">
                 <>
                     <SceneSection
@@ -50,13 +58,6 @@ export function SourcesList({ action }: { action: JSX.Element }): JSX.Element {
                 </>
             </FlaggedFeature>
 
-            <SceneSection
-                title="Managed data warehouse sources"
-                description="PostHog can connect to external sources and automatically import data from them into the PostHog data warehouse"
-            >
-                <ManagedSourcesTable />
-            </SceneSection>
-            <SceneDivider />
             <SceneSection
                 title="Self-managed data warehouse sources"
                 description="Connect to your own data sources, making them queryable in PostHog"

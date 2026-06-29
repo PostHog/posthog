@@ -1,25 +1,28 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
+import { HogTransformationResult, HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { GeoIPService, GeoIp } from '~/common/utils/geoip'
+import { logger } from '~/common/utils/logger'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { CyclotronJobInvocationResult, HogFunctionInvocationGlobals, HogFunctionType } from '../../cdp/types'
 import { isLegacyPluginHogFunction } from '../../cdp/utils'
 import type { CommonConfig } from '../../common/config'
-import { IngestionOutputs } from '../../ingestion/outputs/ingestion-outputs'
-import { PostgresRouter } from '../../utils/db/postgres'
-import { GeoIPService, GeoIp } from '../../utils/geoip'
-import { logger } from '../../utils/logger'
-import { PubSub } from '../../utils/pubsub'
-import { TeamManager } from '../../utils/team-manager'
 import { CdpCoreServicesConfig, createCdpReaderRedisPool, createCdpValkeyShadowPools } from '../cdp-services'
 import { HogExecutorService } from '../services/hog-executor.service'
 import { HogInputsService } from '../services/hog-inputs.service'
 import { LegacyPluginExecutorService } from '../services/legacy-plugin-executor.service'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
 import { IntegrationManagerService } from '../services/managers/integration-manager.service'
+import { TeamWorkflowsConfigService } from '../services/managers/team-workflows-config.service'
 import { EmailService } from '../services/messaging/email.service'
+import { EmailTrackingCodeSigner } from '../services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from '../services/messaging/recipient-tokens.service'
 import { HogFunctionMonitoringService, MonitoringOutput } from '../services/monitoring/hog-function-monitoring.service'
 import { HogWatcherService, HogWatcherState } from '../services/monitoring/hog-watcher.service'
@@ -72,12 +75,12 @@ export const hogTransformationUnexpectedErrors = new Counter({
     help: 'Number of unexpected errors during transformation execution. Any occurrence should trigger an alert as the transformation is skipped.',
 })
 
-export interface TransformationResult {
+export interface TransformationResult extends HogTransformationResult {
     event: PluginEvent | null
     invocationResults: CyclotronJobInvocationResult[]
 }
 
-export class HogTransformerService {
+export class HogTransformerService implements HogTransformer {
     private cachedStates: Record<string, HogWatcherState> = {}
     private invocationResults: CyclotronJobInvocationResult[] = []
     private cachedGeoIp?: GeoIp
@@ -430,6 +433,18 @@ export class HogTransformerService {
             this.cachedStates = {}
         }
     }
+
+    public async prefetchTransformationStatesForTeams(teamIds: number[]): Promise<void> {
+        this.clearHogFunctionStates()
+        if (teamIds.length === 0) {
+            return
+        }
+        const teamHogFunctionIds = await this.hogFunctionManager.getHogFunctionIdsForTeams(teamIds, ['transformation'])
+        const allHogFunctionIds = Object.values(teamHogFunctionIds).flat()
+        if (allHogFunctionIds.length > 0) {
+            await this.fetchAndCacheHogFunctionStates(allHogFunctionIds)
+        }
+    }
 }
 
 /**
@@ -469,6 +484,8 @@ export function createHogTransformerService(
 
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogInputsService = new HogInputsService(deps.integrationManager, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
+    const trackingCodeSigner = new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL)
+    const teamWorkflowsConfigService = new TeamWorkflowsConfigService(deps.postgres)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -477,8 +494,10 @@ export function createHogTransformerService(
             sesEndpoint: config.SES_ENDPOINT,
         },
         deps.integrationManager,
+        teamWorkflowsConfigService,
         config.ENCRYPTION_SALT_KEYS,
-        config.SITE_URL
+        config.SITE_URL,
+        trackingCodeSigner
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogExecutor = new HogExecutorService(
@@ -488,7 +507,6 @@ export function createHogTransformerService(
             fetchRetries: config.CDP_FETCH_RETRIES,
             fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
-            emailQueueRouting: config.CDP_EMAIL_QUEUE_ROUTING,
             selfLoopGuardMode: config.CDP_SELF_LOOP_GUARD_MODE,
         },
         { teamManager: deps.teamManager, siteUrl: config.SITE_URL },

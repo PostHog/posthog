@@ -16,7 +16,10 @@ import { subscriptions } from 'kea-subscriptions'
 import mergeObject from 'lodash.merge'
 
 import { dayjs } from 'lib/dayjs'
-import { RGBToHex, compactNumber, lightenDarkenColor, objectsEqual, uuid } from 'lib/utils'
+import { RGBToHex, lightenDarkenColor } from 'lib/utils/colors'
+import { uuid } from 'lib/utils/dom'
+import { compactNumber } from 'lib/utils/numbers'
+import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -340,6 +343,13 @@ const mergeChartSettings = (state: ChartSettings, settings: ChartSettings): Char
                 ? {
                       ...state.heatmap,
                       ...settings.heatmap,
+                  }
+                : undefined,
+        pie:
+            state.pie || settings.pie
+                ? {
+                      ...state.pie,
+                      ...settings.pie,
                   }
                 : undefined,
         leftYAxisSettings:
@@ -1247,6 +1257,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 ...query,
                 display: visualizationType,
             }))
+
+            // Newly-picked pies default to labels on slices; existing pies (loaded with the type
+            // already set, so this listener never fires) keep the legacy value-on-slice default.
+            if (
+                visualizationType === ChartDisplayType.ActionsPie &&
+                values.chartSettings.pie?.sliceContent === undefined
+            ) {
+                actions.updateChartSettings({ pie: { sliceContent: 'labels' } })
+            }
 
             if (
                 [ChartDisplayType.ActionsLineGraph, ChartDisplayType.ActionsAreaGraph].includes(visualizationType) &&

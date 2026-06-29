@@ -38,6 +38,8 @@ export type NotebookProps = NotebookLogicProps & {
     initialContent?: JSONContent
     editable?: boolean
     className?: string
+    markdownSourceOpen?: boolean
+    onMarkdownSourceOpenChange?: (isOpen: boolean) => void
 }
 
 export function Notebook({
@@ -50,6 +52,8 @@ export function Notebook({
     cachedInsightsByShortId,
     cachedInlineQueryResultsByNodeId,
     className,
+    markdownSourceOpen,
+    onMarkdownSourceOpenChange,
 }: NotebookProps): JSX.Element {
     const logicProps: NotebookLogicProps = {
         shortId,
@@ -129,8 +133,8 @@ export function Notebook({
                 <div
                     className={clsx(
                         'Notebook',
-                        // Markdown notebooks have no width toggle — they always fill the content width.
-                        !isExpanded && !isMarkdownNotebook && 'Notebook--compact',
+                        !isExpanded && 'Notebook--compact',
+                        isExpanded && 'Notebook--expanded',
                         mode && `Notebook--${mode}`,
                         size === 'small' && `Notebook--single-column`,
                         isEditable && 'Notebook--editable',
@@ -178,7 +182,16 @@ export function Notebook({
 
                     <div className="Notebook_content">
                         <NotebookColumnLeft />
-                        <ErrorBoundary>{isMarkdownNotebook ? <MarkdownNotebookV2 /> : <Editor />}</ErrorBoundary>
+                        <ErrorBoundary>
+                            {isMarkdownNotebook ? (
+                                <MarkdownNotebookV2
+                                    debugOpen={markdownSourceOpen}
+                                    onDebugOpenChange={onMarkdownSourceOpenChange}
+                                />
+                            ) : (
+                                <Editor />
+                            )}
+                        </ErrorBoundary>
                         <NotebookColumnRight />
                     </div>
                 </div>

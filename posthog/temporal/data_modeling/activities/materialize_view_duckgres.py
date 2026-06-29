@@ -3,25 +3,28 @@ import typing
 import datetime as dt
 import dataclasses
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
-from posthog.ducklake.common import get_duckgres_server_for_organization, is_dev_mode
+from posthog.ducklake.common import duckgres_data_modeling_schema, get_duckgres_server_for_organization, is_dev_mode
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
+from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.models import Node, NodeType
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.endpoints.backend.services.endpoint_materialization_service import prepare_executable_query
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
+from products.endpoints.backend.services.materialization import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
 FEATURE_FLAG = "duckgres-data-modeling-shadow"
-SHADOW_SCHEMA_PREFIX = "shadow"
 
 
 @dataclasses.dataclass
@@ -63,7 +66,7 @@ def _is_duckgres_shadow_enabled(team: Team) -> bool:
         return False
 
     try:
-        return posthoganalytics.feature_enabled(
+        return feature_enabled_or_false(
             FEATURE_FLAG,
             str(team.pk),
             groups={
@@ -86,7 +89,13 @@ def _compile_hogql_to_postgres_sql(hogql_query: str, team_id: int) -> tuple[str,
 
     from posthog.ducklake.client import compile_hogql_to_ducklake_sql
 
-    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(team_id, HogQLQuery(query=hogql_query))
+    postgres_sql, values, _ = compile_hogql_to_ducklake_sql(
+        team_id,
+        HogQLQuery(query=hogql_query),
+        # Userless shadow materialization; mirror ClickHouse materialization so the
+        # model query can resolve its warehouse source tables/views.
+        bypass_warehouse_access_control=True,
+    )
     return postgres_sql, values
 
 
@@ -147,7 +156,7 @@ async def materialize_view_duckgres_activity(inputs: DuckgresShadowInputs) -> Du
 
     team, node, saved_query = await _get_shadow_input_objects(inputs)
     hogql_query = typing.cast(dict, saved_query.query)["query"]
-    schema_name = f"{SHADOW_SCHEMA_PREFIX}_{team.pk}_models"
+    schema_name = duckgres_data_modeling_schema(team.pk)
     table_name = saved_query.normalized_name
 
     await logger.ainfo(

@@ -17,25 +17,27 @@ from ee.hogai.utils.types import AssistantState
 from .prompts import BILLING_CONTEXT_PROMPT, BILLING_CONTEXT_UNAVAILABLE_PROMPT
 
 # sync with frontend/src/scenes/billing/constants.ts
+# Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
 USAGE_TYPES = [
     {"label": "Events", "value": "event_count_in_period"},
-    {"label": "Identified Events", "value": "enhanced_persons_event_count_in_period"},
-    {"label": "Group Analytics", "value": "group_analytics"},
+    {"label": "Identified events", "value": "enhanced_persons_event_count_in_period"},
+    {"label": "Group analytics", "value": "group_analytics"},
     {"label": "Recordings", "value": "recording_count_in_period"},
-    {"label": "Mobile Recordings", "value": "mobile_recording_count_in_period"},
-    {"label": "Feature Flag Requests", "value": "billable_feature_flag_requests_count_in_period"},
+    {"label": "Mobile recordings", "value": "mobile_recording_count_in_period"},
+    {"label": "Feature flag requests", "value": "billable_feature_flag_requests_count_in_period"},
     {"label": "Exceptions", "value": "exceptions_captured_in_period"},
-    {"label": "Survey Responses", "value": "survey_responses_count_in_period"},
-    {"label": "LLM Events", "value": "ai_event_count_in_period"},
-    {"label": "Synced Rows", "value": "rows_synced_in_period"},
-    {"label": "Free Synced Rows", "value": "free_historical_rows_synced_in_period"},
-    {"label": "Data Pipelines (deprecated)", "value": "data_pipelines"},
-    {"label": "Destinations Trigger Events", "value": "cdp_billable_invocations_in_period"},
-    {"label": "Rows Exported", "value": "rows_exported_in_period"},
+    {"label": "Survey responses", "value": "survey_responses_count_in_period"},
+    {"label": "AI events", "value": "ai_event_count_in_period"},
+    {"label": "Synced rows", "value": "rows_synced_in_period"},
+    {"label": "Free synced rows", "value": "free_historical_rows_synced_in_period"},
+    {"label": "Data pipelines (deprecated)", "value": "data_pipelines"},
+    {"label": "Destinations trigger events", "value": "cdp_billable_invocations_in_period"},
+    {"label": "Rows exported", "value": "rows_exported_in_period"},
     {"label": "PostHog AI", "value": "ai_credits_used_in_period"},
-    {"label": "Workflow Emails", "value": "workflow_emails_sent_in_period"},
-    {"label": "Workflow Destinations", "value": "workflow_billable_invocations_in_period"},
-    {"label": "Logs Ingested (MB)", "value": "logs_mb_in_period"},
+    {"label": "Inbox credits", "value": "signals_credits_used_in_period"},
+    {"label": "Workflow emails", "value": "workflow_emails_sent_in_period"},
+    {"label": "Workflow destinations", "value": "workflow_billable_invocations_in_period"},
+    {"label": "Logs ingested (MB)", "value": "logs_mb_in_period"},
 ]
 
 
@@ -323,7 +325,7 @@ class ReadBillingTool(MaxSubtool):
                 return usage_type["label"]
 
         # Fall back to formatting the product_type
-        return product_type.replace("_", " ").title()
+        return product_type.replace("_", " ").capitalize()
 
     def _format_single_team_table(self, items: list[UsageHistoryItem] | list[SpendHistoryItem], title: str) -> str:
         """Format a single table for a team or overall data."""

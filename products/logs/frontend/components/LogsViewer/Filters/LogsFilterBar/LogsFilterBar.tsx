@@ -6,8 +6,8 @@ import { useRef, useState } from 'react'
 import { IconMinusSquare, IconPlusSquare, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { InfiniteSelectResults } from 'lib/components/TaxonomicFilter/InfiniteSelectResults'
 import { TaxonomicFilterSearchInput } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
@@ -47,77 +47,34 @@ const taxonomicGroupTypes = [
 ]
 
 export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViewsButton?: boolean }): JSX.Element => {
-    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
-    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
-    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
-    const { zoomDateRange, setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
+    // When the facet rail is on, Level + Service live in the rail instead of this bar.
+    const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
+    const { setSeverityLevels, setServiceNames } = useActions(logsViewerFiltersLogic)
     const { filters, utcDateRange, id } = useValues(logsViewerFiltersLogic)
-    const { setDateRange } = useActions(logsViewerFiltersLogic)
-    const { dateRange, severityLevels, serviceNames } = filters
+    const { severityLevels, serviceNames } = filters
 
     return (
         <LogsFilterGroup>
             <div className="flex flex-col gap-2 w-full bg-primary">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
                     <div className="flex shrink-0 flex-1 gap-1.5">
-                        <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
-                        <ServiceFilter value={serviceNames} onChange={setServiceNames} dateRange={utcDateRange} />
+                        {!showFacetRail && (
+                            <>
+                                <SeverityLevelsFilter value={severityLevels} onChange={setSeverityLevels} />
+                                <ServiceFilter
+                                    value={serviceNames}
+                                    onChange={setServiceNames}
+                                    dateRange={utcDateRange}
+                                />
+                            </>
+                        )}
                         <div className="min-w-[300px] max-w-[350px] w-full">
                             <LogsFilterSearch />
                         </div>
                         <FilterHistoryDropdown />
                         {showSavedViewsButton && <SavedViewsButton id={id} iconOnly />}
                     </div>
-                    <div className="flex shrink-0 gap-1.5">
-                        <div className="LogsDateButtonGroup">
-                            <LemonButton
-                                size="small"
-                                icon={<IconMinusSquare />}
-                                type="secondary"
-                                tooltip="Zoom out"
-                                onClick={() => zoomDateRange(2)}
-                            />
-
-                            {!newLogsDateRangePicker && <DateRangeFilter />}
-                            {newLogsDateRangePicker && (
-                                <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />
-                            )}
-
-                            <LemonButton
-                                size="small"
-                                icon={<IconPlusSquare />}
-                                type="secondary"
-                                tooltip="Zoom in"
-                                onClick={() => zoomDateRange(0.5)}
-                            />
-                        </div>
-
-                        <LemonButton
-                            size="small"
-                            icon={<IconRefresh />}
-                            type="secondary"
-                            onClick={() => runQuery()}
-                            loading={logsLoading || liveTailRunning}
-                            disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
-                        />
-                        <AppShortcut
-                            name="LogsLiveTail"
-                            keybind={[keyBinds.edit]}
-                            intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
-                            interaction="click"
-                            scope={Scene.Logs}
-                        >
-                            <LemonButton
-                                size="small"
-                                type={liveTailRunning ? 'primary' : 'secondary'}
-                                icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
-                                onClick={() => setLiveTailRunning(!liveTailRunning)}
-                                disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
-                            >
-                                Live tail
-                            </LemonButton>
-                        </AppShortcut>
-                    </div>
+                    <LogsQueryControls />
                 </div>
                 <LogsAppliedFilters />
             </div>
@@ -125,7 +82,68 @@ export const LogsFilterBar = ({ showSavedViewsButton = false }: { showSavedViews
     )
 }
 
-const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
+/** Time range, zoom, refresh and live tail — the "execute the query" controls shared by both bars. */
+export const LogsQueryControls = (): JSX.Element => {
+    const newLogsDateRangePicker = useFeatureFlag('NEW_LOGS_DATE_RANGE_PICKER')
+    const { logsLoading, liveTailRunning, liveTailDisabledReason } = useValues(logsViewerDataLogic)
+    const { runQuery, setLiveTailRunning } = useActions(logsViewerDataLogic)
+    const { zoomDateRange, setDateRange } = useActions(logsViewerFiltersLogic)
+    const { filters } = useValues(logsViewerFiltersLogic)
+    const { dateRange } = filters
+
+    return (
+        <div className="flex shrink-0 gap-1.5">
+            <div className="LogsDateButtonGroup">
+                <LemonButton
+                    size="small"
+                    icon={<IconMinusSquare />}
+                    type="secondary"
+                    tooltip="Zoom out"
+                    onClick={() => zoomDateRange(2)}
+                />
+
+                {!newLogsDateRangePicker && <DateRangeFilter />}
+                {newLogsDateRangePicker && <LogsDateRangePicker dateRange={dateRange} setDateRange={setDateRange} />}
+
+                <LemonButton
+                    size="small"
+                    icon={<IconPlusSquare />}
+                    type="secondary"
+                    tooltip="Zoom in"
+                    onClick={() => zoomDateRange(0.5)}
+                />
+            </div>
+
+            <LemonButton
+                size="small"
+                icon={<IconRefresh />}
+                type="secondary"
+                onClick={() => runQuery()}
+                loading={logsLoading || liveTailRunning}
+                disabledReason={liveTailRunning ? 'Disable live tail to manually refresh' : undefined}
+            />
+            <Shortcut
+                name="LogsLiveTail"
+                keybind={[keyBinds.edit]}
+                intent={liveTailRunning ? 'Stop live tail' : 'Start live tail'}
+                interaction="click"
+                scope={Scene.Logs}
+            >
+                <LemonButton
+                    size="small"
+                    type={liveTailRunning ? 'primary' : 'secondary'}
+                    icon={liveTailRunning ? <IconPauseCircle /> : <IconPlayCircle />}
+                    onClick={() => setLiveTailRunning(!liveTailRunning)}
+                    disabledReason={liveTailRunning ? undefined : liveTailDisabledReason}
+                >
+                    Live tail
+                </LemonButton>
+            </Shortcut>
+        </div>
+    )
+}
+
+export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
     const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { filterGroup, serviceNames } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
@@ -155,7 +173,7 @@ const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Eleme
     )
 }
 
-const LogsFilterSearch = (): JSX.Element => {
+export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
     const { utcDateRange, filters: logsFilters, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
@@ -257,7 +275,7 @@ const FilterGroupValues = ({ allowInitiallyOpen }: { allowInitiallyOpen: boolean
     )
 }
 
-const LogsAppliedFilters = (): JSX.Element | null => {
+export const LogsAppliedFilters = (): JSX.Element | null => {
     const { filterGroup } = useValues(universalFiltersLogic)
     const [allowInitiallyOpen, setAllowInitiallyOpen] = useState<boolean>(false)
 

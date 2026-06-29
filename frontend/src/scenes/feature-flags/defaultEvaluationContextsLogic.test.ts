@@ -24,8 +24,8 @@ describe('defaultEvaluationContextsLogic', () => {
                 '/api/environments/:team_id/default_evaluation_contexts/': () => [200, mockResponse],
             },
             post: {
-                '/api/environments/:team_id/default_evaluation_contexts/': async (req) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/default_evaluation_contexts/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     const contextName = body.context_name
                     const newContext = {
                         id: Math.floor(Math.random() * 10000),
@@ -40,8 +40,8 @@ describe('defaultEvaluationContextsLogic', () => {
                     }
                     return [200, { ...newContext, created: true, hidden_from_suggestions: false }]
                 },
-                '/api/environments/:team_id/evaluation_context_suggestions/': async (req) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/evaluation_context_suggestions/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     const contextName = body.context_name
                     mockResponse.available_contexts = mockResponse.available_contexts.filter((c) => c !== contextName)
                     if (!mockResponse.hidden_contexts.includes(contextName)) {
@@ -52,15 +52,15 @@ describe('defaultEvaluationContextsLogic', () => {
                 },
             },
             delete: {
-                '/api/environments/:team_id/default_evaluation_contexts/': (req) => {
-                    const contextName = req.url.searchParams.get('context_name')
+                '/api/environments/:team_id/default_evaluation_contexts/': ({ request }) => {
+                    const contextName = new URL(request.url).searchParams.get('context_name')
                     mockResponse.default_evaluation_contexts = mockResponse.default_evaluation_contexts.filter(
                         (c) => c.name !== contextName
                     )
                     return [200, { success: true }]
                 },
-                '/api/environments/:team_id/evaluation_context_suggestions/': (req) => {
-                    const contextName = req.url.searchParams.get('context_name')
+                '/api/environments/:team_id/evaluation_context_suggestions/': ({ request }) => {
+                    const contextName = new URL(request.url).searchParams.get('context_name')
                     mockResponse.hidden_contexts = mockResponse.hidden_contexts.filter((c) => c !== contextName)
                     if (contextName && !mockResponse.available_contexts.includes(contextName)) {
                         mockResponse.available_contexts.push(contextName)
@@ -70,8 +70,8 @@ describe('defaultEvaluationContextsLogic', () => {
                 },
             },
             patch: {
-                '/api/environments/:team_id/': async (req) => {
-                    const body = await req.json()
+                '/api/environments/:team_id/': async ({ request }) => {
+                    const body = (await request.json()) as any
                     return [200, { ...body }]
                 },
             },

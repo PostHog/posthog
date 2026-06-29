@@ -96,7 +96,7 @@ export const AI_COMPONENT_NAME = 'PostHog AI'
 
 // incident.io component group name (text only — the status page suffixes a region flag emoji we strip
 // on the API side via normalizeGroupName) for each cloud region.
-const GROUP_NAME_BY_REGION: Record<Region, string> = {
+const GROUP_NAME_BY_REGION: Partial<Record<Region, string>> = {
     [Region.US]: 'US Cloud',
     [Region.EU]: 'EU Cloud',
 }
@@ -104,13 +104,10 @@ const GROUP_NAME_BY_REGION: Record<Region, string> = {
 // Resolve the incident.io component group from preflight. US and EU cloud each see their own region's
 // incidents; everything else (local dev, self-hosted, Storybook, unknown deployments) sees nothing.
 function getRelevantGroupName(region: Region | null | undefined): string | null {
-    if (region === Region.US) {
-        return GROUP_NAME_BY_REGION[Region.US]
+    if (!region) {
+        return null
     }
-    if (region === Region.EU) {
-        return GROUP_NAME_BY_REGION[Region.EU]
-    }
-    return null
+    return GROUP_NAME_BY_REGION[region] ?? null
 }
 
 // Map hostname to the region-specific status page path (incident.io sub-pages)
