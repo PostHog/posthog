@@ -84,8 +84,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 const newTask = await api.tasks.create(taskData)
                 lemonToast.success('Task created successfully')
 
-                // Auto-run the task after creation; the detail scene shows the latest run by default.
-                await api.tasks.run(newTask.id)
+                // Auto-run the task after creation; the detail scene shows the latest run by default. The
+                // run checks out the chosen branch (server falls back to the repo's default branch if unset).
+                await api.tasks.run(newTask.id, { branch: repositoryConfig.branch ?? null })
                 router.actions.push(`/tasks/${newTask.id}`)
 
                 actions.submitNewTaskSuccess()

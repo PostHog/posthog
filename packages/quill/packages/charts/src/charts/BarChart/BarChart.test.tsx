@@ -248,23 +248,25 @@ describe('BarChart', () => {
             expect(tooltip.series.b.value).toBe(15)
         })
 
-        it('stacked tooltip bubbles the cursor-resolved segment to seriesData[0]', async () => {
-            // At index 1: a=20 (bottom of stack), b=15 (on top). Mid-plot lands in b's range.
+        it('stacked tooltip keeps series in declaration order regardless of cursor height', async () => {
+            // At index 1: a=20 (bottom of stack), b=15 (on top). The tooltip lists the whole stack in
+            // declaration order — visual top-to-bottom ordering is handled downstream by DefaultTooltip's
+            // yPixel sort, so seriesData stays declaration-ordered no matter which segment the cursor is over.
             const { chart } = renderHogChart(
                 <BarChart series={SERIES} labels={LABELS} theme={THEME} config={{ barLayout: 'stacked' }} />
             )
             chart.hoverAtIndex(1)
-            const tipB = await chart.waitForTooltip()
-            expect(tipB.seriesData[0].series.key).toBe('b')
+            const tipMid = await chart.waitForTooltip()
+            expect(tipMid.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
             const step = dimensions.plotWidth / LABELS.length
-            // Just inside the bottom edge of the plot, well below b's top to land in a's segment.
+            // Move the cursor down into a's segment — the data order must not change (no bubbling).
             const NEAR_BOTTOM_OFFSET_PX = 8
             fireEvent.mouseMove(chart.element, {
                 clientX: dimensions.plotLeft + step * 1.5,
                 clientY: dimensions.plotTop + dimensions.plotHeight - NEAR_BOTTOM_OFFSET_PX,
             })
-            const tipA = await chart.waitForTooltip()
-            expect(tipA.seriesData[0].series.key).toBe('a')
+            const tipLow = await chart.waitForTooltip()
+            expect(tipLow.seriesData.map((s) => s.series.key)).toEqual(['a', 'b'])
         })
 
         it('stacked onPointClick routes to the segment whose rect contains the cursor', async () => {
@@ -411,7 +413,7 @@ describe('BarChart', () => {
                 ['mid slice (20 < x < 50)', 30, 'mid', 50],
                 ['big slice (50 < x < 100)', 75, 'big', 100],
             ])(
-                'tooltip narrows to the visible segment with its own value for cursor in the %s',
+                'tooltip surfaces the visible segment with its own value for cursor in the %s',
                 async (_name, valueAtCursor, key, expectedValue) => {
                     const { chart } = renderHogChart(
                         <BarChart
@@ -426,8 +428,11 @@ describe('BarChart', () => {
                         clientY: yMidBand,
                     })
                     const tooltip = await chart.waitForTooltip()
-                    expect(tooltip.seriesData[0].series.key).toBe(key)
-                    expect(tooltip.seriesData[0].value).toBe(expectedValue)
+                    // Rows stay in declaration order (visual ordering is handled by DefaultTooltip),
+                    // but the segment under the cursor is revalued to its own dataIndex value rather
+                    // than the zero of the band-collapsed cell.
+                    const visible = tooltip.seriesData.find((s) => s.series.key === key)
+                    expect(visible?.value).toBe(expectedValue)
                 }
             )
 

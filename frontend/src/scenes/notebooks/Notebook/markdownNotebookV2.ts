@@ -31,6 +31,8 @@ export type MarkdownNotebookV2Node = {
     }
 }
 
+export type NotebookContentForMarkdownConversion = JSONContent | JSONContent[] | string | null | undefined
+
 const MARKDOWN_NOTEBOOK_NODE_ID = 'markdown-notebook-v2'
 
 export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType, string>> = {
@@ -67,15 +69,15 @@ export const NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG: Partial<Record<NotebookNodeType
     [NotebookNodeType.SupportTickets]: 'SupportTickets',
 }
 
-export function isMarkdownNotebookContent(content: JSONContent | null | undefined): boolean {
+export function isMarkdownNotebookContent(content: NotebookContentForMarkdownConversion): boolean {
     return !!getMarkdownNotebookNode(content)
 }
 
-export function getMarkdownNotebookMarkdown(content: JSONContent | null | undefined): string {
+export function getMarkdownNotebookMarkdown(content: NotebookContentForMarkdownConversion): string {
     return getMarkdownNotebookNode(content)?.attrs?.markdown ?? ''
 }
 
-export function getMarkdownNotebookNodeId(content: JSONContent | null | undefined): string {
+export function getMarkdownNotebookNodeId(content: NotebookContentForMarkdownConversion): string {
     return getMarkdownNotebookNode(content)?.attrs?.nodeId ?? MARKDOWN_NOTEBOOK_NODE_ID
 }
 
@@ -169,16 +171,22 @@ export type NotebookMarkdownConversionOptions = {
 }
 
 export function convertNotebookContentToMarkdown(
-    content: JSONContent | null | undefined,
+    content: NotebookContentForMarkdownConversion,
     options: NotebookMarkdownConversionOptions = {}
 ): string {
-    if (isMarkdownNotebookContent(content)) {
-        return getMarkdownNotebookMarkdown(content)
+    const normalizedContent = normalizeNotebookContentForMarkdownConversion(content)
+
+    if (typeof normalizedContent === 'string') {
+        return normalizedContent
+    }
+
+    if (isMarkdownNotebookContent(normalizedContent)) {
+        return getMarkdownNotebookMarkdown(normalizedContent)
     }
 
     const blocks: string[] = []
     const emittedCommentMarkIds = new Set<string>()
-    for (const node of content?.content ?? []) {
+    for (const node of normalizedContent?.content ?? []) {
         // Each comment-marked range gets its thread right above the block holding the
         // highlight, so the margin-anchored thread aligns with the text it is about.
         for (const markId of collectCommentMarkIds(node)) {
@@ -203,6 +211,48 @@ export function convertNotebookContentToMarkdown(
     }
 
     return blocks.join('\n\n')
+}
+
+function normalizeNotebookContentForMarkdownConversion(
+    content: NotebookContentForMarkdownConversion
+): JSONContent | string | null | undefined {
+    if (typeof content === 'string') {
+        const parsedContent = parseJsonEncodedNotebookContent(content)
+        return parsedContent ?? content
+    }
+
+    if (Array.isArray(content)) {
+        return { type: 'doc', content }
+    }
+
+    return content
+}
+
+function parseJsonEncodedNotebookContent(content: string): JSONContent | string | null {
+    const trimmedContent = content.trim()
+    if (
+        !trimmedContent ||
+        (!trimmedContent.startsWith('{') && !trimmedContent.startsWith('[') && !trimmedContent.startsWith('"'))
+    ) {
+        return null
+    }
+
+    try {
+        const parsedContent = JSON.parse(trimmedContent) as unknown
+        if (typeof parsedContent === 'string') {
+            return parseJsonEncodedNotebookContent(parsedContent) ?? parsedContent
+        }
+        if (Array.isArray(parsedContent)) {
+            return { type: 'doc', content: parsedContent as JSONContent[] }
+        }
+        if (parsedContent && typeof parsedContent === 'object') {
+            return parsedContent as JSONContent
+        }
+    } catch {
+        return null
+    }
+
+    return null
 }
 
 function collectCommentMarkIds(node: JSONContent): string[] {
@@ -246,7 +296,10 @@ export function getMarkdownNotebookTitle(content: JSONContent | null | undefined
     return getInlineText(firstHeading.children).trim() || null
 }
 
-function getMarkdownNotebookNode(content: JSONContent | null | undefined): MarkdownNotebookV2Node | null {
+function getMarkdownNotebookNode(content: NotebookContentForMarkdownConversion): MarkdownNotebookV2Node | null {
+    if (!content || typeof content !== 'object' || Array.isArray(content)) {
+        return null
+    }
     const nodes = content?.content ?? []
     if (nodes.length !== 1 || nodes[0]?.type !== NotebookNodeType.MarkdownNotebook) {
         return null
@@ -271,6 +324,7 @@ function notebookArtifactBlockToMarkdownNodes(block: DocumentBlock): NotebookBlo
                 type: 'component',
                 tagName: 'Query',
                 props: {
+                    hideFilters: true,
                     query,
                     ...getOptionalTitleProp(block.title),
                 },
@@ -346,6 +400,10 @@ function serializeRichContentNode(
     listDepth = 0,
     options: NotebookMarkdownConversionOptions = {}
 ): string {
+    if (node.type === 'text') {
+        return escapeMarkdownBlockLines(serializeInlineNode(node, options))
+    }
+
     if (node.type === 'heading') {
         const level = typeof node.attrs?.level === 'number' ? Math.min(Math.max(node.attrs.level, 1), 6) : 1
         return `${'#'.repeat(level)} ${serializeInlineContent(node.content, options)}`
@@ -386,6 +444,22 @@ function serializeRichContentNode(
         return serializeTable(node, options)
     }
 
+    if (node.type === 'ph-text') {
+        return serializeLegacyTextNode(node)
+    }
+
+    if (node.type === 'ph-insight') {
+        return serializeLegacyInsightNode(node)
+    }
+
+    if (node.type === 'ph-dashboard') {
+        return serializeLegacyDashboardNode(node)
+    }
+
+    if (node.type === 'query') {
+        return serializeLegacyQueryNode(node)
+    }
+
     const markdownTagName = NOTEBOOK_NODE_TYPE_TO_MARKDOWN_TAG[node.type as NotebookNodeType]
     if (markdownTagName) {
         return serializeNode({
@@ -404,13 +478,72 @@ function serializeRichContentNode(
         return childMarkdown
     }
 
+    return serializeUnknownRichContentNode(node)
+}
+
+function serializeLegacyTextNode(node: JSONContent): string {
+    const body = node.attrs?.body
+    return typeof body === 'string' ? body : serializeUnknownRichContentNode(node)
+}
+
+function serializeLegacyInsightNode(node: JSONContent): string {
+    const insightShortId = typeof node.attrs?.short_id === 'string' ? node.attrs.short_id : node.attrs?.id
+    if (typeof insightShortId !== 'string' || !insightShortId) {
+        return serializeUnknownRichContentNode(node)
+    }
+
+    return serializeNode({
+        id: '',
+        type: 'component',
+        tagName: 'Query',
+        props: {
+            query: { kind: NodeKind.SavedInsightNode, shortId: insightShortId },
+        },
+    })
+}
+
+function serializeLegacyDashboardNode(node: JSONContent): string {
+    const dashboardId = node.attrs?.id
+    if (typeof dashboardId !== 'string' && typeof dashboardId !== 'number') {
+        return serializeUnknownRichContentNode(node)
+    }
+
+    return escapeMarkdownBlockLines(escapeInlineMarkdownText(`Dashboard ${String(dashboardId)}`))
+}
+
+function serializeLegacyQueryNode(node: JSONContent): string {
+    const props = getSerializableAttrs(node.attrs)
+    const query = props.query
+    if (isNotebookObjectProp(query) && query.kind === NodeKind.HogQLQuery) {
+        props.query = { kind: NodeKind.DataVisualizationNode, source: query }
+    }
+
+    return serializeNode({
+        id: '',
+        type: 'component',
+        tagName: 'Query',
+        props,
+    })
+}
+
+function isNotebookObjectProp(value: NotebookPropValue | undefined): value is Record<string, NotebookPropValue> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+function serializeUnknownRichContentNode(node: JSONContent): string {
     // An unmapped leaf node must not vanish on upgrade — preserve it as a component the
     // editor renders with its unknown-tag fallback
+    const attrs = getSerializableAttrs(node.attrs)
+    const props: NotebookComponentProps = node.type ? { nodeType: node.type, ...attrs } : attrs
+    if (node.type) {
+        props.nodeType = node.type
+    }
+
     return serializeNode({
         id: '',
         type: 'component',
         tagName: 'UnknownNode',
-        props: { nodeType: node.type, ...getSerializableAttrs(node.attrs) },
+        props,
     })
 }
 

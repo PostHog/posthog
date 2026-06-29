@@ -29,7 +29,7 @@ export function TooltipSurface({
                 width: 'fit-content',
                 maxWidth: '20rem',
                 paddingBlock: '0.375rem',
-                paddingInline: '0.75rem',
+                paddingInline: '0.5rem',
                 fontSize: 'var(--text-xs, 0.75rem)',
                 lineHeight: 1.4,
                 borderRadius: 'var(--radius-sm, 0.375rem)',

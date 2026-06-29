@@ -15,6 +15,10 @@ class UserAuthSessionActivityMiddleware:
         response = self.get_response(request)
         # Same gate as KnownLoginDeviceCookieMiddleware: only session-authenticated requests. The
         # helper itself skips impersonation.
-        if isinstance(request.user, User) and BACKEND_SESSION_KEY in request.session:
+        if (
+            isinstance(request.user, User)
+            and BACKEND_SESSION_KEY in request.session
+            and not getattr(response, "streaming", False)
+        ):
             sync_current_session_metadata(request)
         return response

@@ -9,6 +9,18 @@ from products.skills.backend.models.skills import LLMSkill, LLMSkillFile
 # Naming contract for skills that steer a Signals-agent run.
 SIGNALS_SCOUT_SKILL_PREFIX = "signals-scout-"
 
+# Tools whose presence in a skill's `allowed_tools` opts the scout into the report-authoring channel
+# (it writes full `SignalReport`s via `emit_report` / `edit_report` instead of firing weak signals).
+# This single set is read in three places that must agree: the runner picks the MCP scope posture from
+# it (`runner.py`), the prompt builder steers a report scout differently because of it (`prompt.py`),
+# and the viewset fail-closes the write on it (`views.py`). Keep them resolving the same set.
+REPORT_CHANNEL_TOOLS: frozenset[str] = frozenset({"emit_report", "edit_report"})
+
+
+def skill_uses_report_channel(allowed_tools: list[str] | None) -> bool:
+    """Whether a skill opted into the report-authoring channel via its `allowed_tools`."""
+    return bool(REPORT_CHANNEL_TOOLS & set(allowed_tools or []))
+
 
 class SkillNotFoundError(LookupError):
     """The team has no skill matching the requested name."""

@@ -27,6 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 from posthog.schema import AgentMode, AssistantMessage, HumanMessage, MaxBillingContext
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import _release_request_connections
 from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict, QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
@@ -599,6 +600,7 @@ class ConversationViewSet(
                 event = await serializer.dumps(chunk)
                 yield event.encode("utf-8")
 
+        _release_request_connections()
         return StreamingHttpResponse(
             (
                 async_stream(workflow_inputs)
