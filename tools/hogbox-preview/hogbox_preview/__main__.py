@@ -23,7 +23,7 @@ import json
 import argparse
 import urllib.request
 
-from hogland import Hogland
+from hogland import APIError, Hogland
 
 from .hogland_backend import HoglandBackend
 from .stack import PostHogPreviewStack
@@ -139,7 +139,7 @@ def cmd_cleanup_stale(args: argparse.Namespace) -> int:
         name = getattr(pen, "name", "") or ""
         if not name.startswith("preview-pr-"):
             continue
-        pr = name[len("preview-pr-"):]
+        pr = name[len("preview-pr-") :]
         state = _pr_state(repo, pr, token)
         if state != "closed":
             print(f"{name}: PR #{pr} {state or 'unknown'} -> keep")
@@ -168,10 +168,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--cpus", type=int, default=8, help="vCPUs (must match the golden's size)")
     p.add_argument("--memory-mib", type=int, default=16384, help="memory MiB (must match the golden's size)")
     p.add_argument("--disk-gib", type=int, default=100, help="rootfs GiB (must match the golden's size)")
-    p.add_argument("--ttl-seconds", type=int, default=1800,
-                   help="idle TTL in seconds; hogland's reaper hibernates this on_idle=hibernate preview "
-                        "after it's been idle this long (default 1800 = 30 min). A reviewer's next visit "
-                        "wakes it in ~30s. Min 60.")
+    p.add_argument(
+        "--ttl-seconds",
+        type=int,
+        default=1800,
+        help="idle TTL in seconds; hogland's reaper hibernates this on_idle=hibernate preview "
+        "after it's been idle this long (default 1800 = 30 min). A reviewer's next visit "
+        "wakes it in ~30s. Min 60.",
+    )
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
@@ -219,7 +223,16 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     args = p.parse_args(argv)
-    return args.func(args)
+    try:
+        return args.func(args)
+    except APIError as e:
+        # Surface the server's RFC 7807 problem-details body. The SDK exception
+        # message alone (e.g. "validation failed") hides which field the server
+        # rejected, which makes a CI failure undiagnosable from the log.
+        sys.stderr.write(f"[hogbox-preview] hogland API error (HTTP {e.status_code}): {e}\n")
+        if getattr(e, "body", None):
+            sys.stderr.write(f"[hogbox-preview] details: {json.dumps(e.body, indent=2, default=str)}\n")
+        raise
 
 
 if __name__ == "__main__":
