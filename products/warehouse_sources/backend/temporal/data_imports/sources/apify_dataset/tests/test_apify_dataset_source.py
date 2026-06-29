@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.apify_dataset.apify_dataset import (
     ApifyResumeConfig,
@@ -35,8 +37,11 @@ class TestApifyDatasetSource:
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields}
         assert set(fields) == {"api_token", "dataset_id"}
-        assert fields["api_token"].required and fields["api_token"].secret
-        assert fields["dataset_id"].required and not fields["dataset_id"].secret
+        api_token, dataset_id = fields["api_token"], fields["dataset_id"]
+        assert isinstance(api_token, SourceFieldInputConfig)
+        assert isinstance(dataset_id, SourceFieldInputConfig)
+        assert api_token.required and api_token.secret
+        assert dataset_id.required and not dataset_id.secret
 
     def test_lists_tables_without_credentials(self) -> None:
         assert self.source.lists_tables_without_credentials is True
@@ -87,7 +92,7 @@ class TestApifyDatasetSource:
         manager = mock.Mock()
         with mock.patch.object(source_module, "apify_dataset_source", return_value="sentinel") as build:
             result = self.source.source_for_pipeline(_config(), manager, inputs)
-        assert result == "sentinel"
+        assert result is build.return_value
         build.assert_called_once_with(
             api_token="apify_api_token",
             dataset_id="ds1",

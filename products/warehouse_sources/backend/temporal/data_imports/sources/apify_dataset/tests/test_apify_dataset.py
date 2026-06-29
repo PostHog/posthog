@@ -101,6 +101,15 @@ class TestFetchPage:
         items, total = _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
         assert total == 2
 
+    @parameterized.expand([("empty", ""), ("non_numeric", "abc")])
+    def test_total_falls_back_to_item_count_for_malformed_header(self, _name: str, header_value: str) -> None:
+        session = mock.Mock()
+        session.get.return_value = _response(
+            200, json_body=[{"a": 1}, {"a": 2}], headers={"X-Apify-Pagination-Total": header_value}
+        )
+        items, total = _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
+        assert total == 2
+
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 503)])
     def test_retryable_statuses_eventually_reraise(self, _name: str, status_code: int) -> None:
         session = mock.Mock()
@@ -127,11 +136,14 @@ class TestFetchPage:
             _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
         assert session.get.call_count == 1
 
-    def test_non_list_body_raises(self) -> None:
+    def test_non_list_body_raises_without_retrying(self) -> None:
         session = mock.Mock()
         session.get.return_value = _response(200, json_body={"error": "nope"})
-        with pytest.raises(ApifyRetryableError):
+        # A non-list 200 body is a permanent contract violation, so it raises ValueError (not a
+        # retryable error) and exits immediately rather than waiting through all retry attempts.
+        with pytest.raises(ValueError):
             _fetch_page(session, "https://api.apify.com/v2/datasets/ds1/items", {}, mock.Mock())
+        assert session.get.call_count == 1
 
 
 def _resume_manager(saved: ApifyResumeConfig | None = None) -> mock.Mock:

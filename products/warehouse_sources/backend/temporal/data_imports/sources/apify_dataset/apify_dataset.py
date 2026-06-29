@@ -88,11 +88,15 @@ def _fetch_page(
     items = response.json()
     if not isinstance(items, list):
         # The items endpoint always returns a JSON array for format=json; anything else means the
-        # request was misrouted (e.g. an error object), so fail loudly rather than yielding garbage.
-        raise ApifyRetryableError(f"Unexpected Apify response shape (not a list), url={url}")
+        # request was misrouted (e.g. an error object). That's a permanent contract violation, so raise
+        # a non-retryable error to fail loudly rather than waiting through every retry attempt.
+        raise ValueError(f"Unexpected Apify response shape (not a list), url={url}")
 
     total_header = response.headers.get("X-Apify-Pagination-Total")
-    total = int(total_header) if total_header is not None else len(items)
+    try:
+        total = int(total_header) if total_header is not None else len(items)
+    except (TypeError, ValueError):
+        total = len(items)
     return items, total
 
 
