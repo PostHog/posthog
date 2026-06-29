@@ -111,7 +111,6 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
-    "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -203,8 +202,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog",
-    "products.posthog_ai", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge",
 ]
 layer = "modules"
 
@@ -262,7 +260,6 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
-    "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
 ]
@@ -541,7 +538,6 @@ depends_on = [
     "products.cdp",
     "products.exports",
     "products.signals",
-    "products.workflows",
 ]
 layer = "modules"
 
@@ -977,7 +973,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.warehouse_sources", "products.data_warehouse"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

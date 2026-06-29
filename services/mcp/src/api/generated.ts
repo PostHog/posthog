@@ -24030,6 +24030,31 @@ export namespace Schemas {
       deleted: boolean;
     }
 
+    export interface GapAction {
+      /**
+         * Optional knowledge source to link when accepting.
+         * @nullable
+         */
+      resolved_source_id?: string | null;
+    }
+
+    export interface GapTopicAction {
+      /** The normalized topic key identifying the gap cluster to act on. */
+      normalized_topic: string;
+      /**
+         * Optional knowledge source to link when accepting.
+         * @nullable
+         */
+      resolved_source_id?: string | null;
+    }
+
+    export interface GapTopicActionResult {
+      /** The normalized topic cluster that was acted on. */
+      readonly normalized_topic: string;
+      /** Number of gap rows whose status changed. */
+      readonly updated: number;
+    }
+
     export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
@@ -27678,6 +27703,30 @@ export namespace Schemas {
       readonly source_name: string;
       /** Title of the document this chunk belongs to. */
       readonly document_title: string;
+    }
+
+    export interface KnowledgeGapSuggestion {
+      /** Unique identifier for this gap suggestion. */
+      readonly id: string;
+      /** The ticket that surfaced this gap. */
+      readonly ticket_id: string;
+      /** Raw topic the AI couldn't answer. */
+      readonly topic: string;
+      /** Normalized cluster key for grouping. */
+      readonly normalized_topic: string;
+      /** Ticket classification type. */
+      readonly ticket_type: string;
+      /** Pipeline outcome that produced this gap. */
+      readonly outcome: string;
+      /** Current status: pending, accepted, or dismissed. */
+      readonly status: string;
+      /**
+         * Knowledge source created to fill this gap.
+         * @nullable
+         */
+      readonly resolved_source_id: string | null;
+      /** When this gap was first recorded. */
+      readonly created_at: string;
     }
 
     /**
@@ -31583,6 +31632,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntervieweeContext[];
+    }
+
+    export interface PaginatedKnowledgeGapSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeGapSuggestion[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -60099,6 +60157,21 @@ export namespace Schemas {
      * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
      */
     rerank?: boolean;
+    };
+
+    export type BusinessKnowledgeGapSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
+     */
+    ticket_id?: string;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
