@@ -2796,10 +2796,10 @@ def postgres_source(
                                     has_duplicate_primary_keys = _has_duplicate_primary_keys(
                                         cursor, schema, table_name, primary_keys, logger
                                     )
-                                except psycopg.errors.QueryCanceled:
+                                except psycopg.errors.QueryCanceled as e:
                                     # Surface a message about the assumed `id` primary key rather than
                                     # falling through to the generic incremental-field timeout below.
-                                    raise _pk_uniqueness_probe_timeout_error()
+                                    raise _pk_uniqueness_probe_timeout_error() from e
                         except psycopg.errors.QueryCanceled:
                             if should_use_incremental_field:
                                 raise QueryTimeoutException(
