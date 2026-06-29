@@ -181,7 +181,7 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
 
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
-        assert database.has_table(tables.workflow_jobs)
+        assert tables.workflow_jobs is not None and database.has_table(tables.workflow_jobs)
 
     def test_member_denied_backing_table_cannot_query_it(self) -> None:
         # Deny one member the workflow_runs table specifically. Forwarding the user now honors that: the
@@ -210,4 +210,4 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
         assert captured.get("bypass_warehouse_access_control") is True
         assert database.has_table(tables.pull_requests)
         assert database.has_table(tables.workflow_runs)
-        assert database.has_table(tables.workflow_jobs)
+        assert tables.workflow_jobs is not None and database.has_table(tables.workflow_jobs)
