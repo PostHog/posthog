@@ -40,6 +40,19 @@ class TestResendSource:
         assert any("401" in key for key in errors)
         assert any("403" in key for key in errors)
 
+    def test_audiences_bad_request_is_non_retryable(self):
+        errors = self.source.get_non_retryable_errors()
+        raised = "400 Client Error: Bad Request for url: https://api.resend.com/audiences"
+
+        matched = [message for key, message in errors.items() if key in raised]
+
+        assert len(matched) == 1
+        assert matched[0] is not None and "Audiences" in matched[0]
+
+        # A 400 from a different endpoint could be our bug, so it must stay retryable.
+        emails_error = "400 Client Error: Bad Request for url: https://api.resend.com/emails"
+        assert not any(key in emails_error for key in errors)
+
     def test_get_schemas(self):
         schemas = self.source.get_schemas(self.config, self.team_id)
 
