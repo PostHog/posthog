@@ -181,7 +181,7 @@ export function Notebook({
                     ) : null}
 
                     <div className="Notebook_content">
-                        {isMarkdownNotebook ? null : <NotebookColumnLeft />}
+                        <NotebookColumnLeft />
                         <ErrorBoundary>
                             {isMarkdownNotebook ? (
                                 <MarkdownNotebookV2

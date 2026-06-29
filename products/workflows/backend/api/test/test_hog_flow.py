@@ -60,6 +60,91 @@ class TestHogFlowAPI(APIBaseTest):
 
         return hog_flow, action
 
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_emits_resource_edited_on_create_and_update(self, mock_emit):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        assert mock_emit.call_count == 1
+        create_kwargs = mock_emit.call_args.kwargs
+        assert create_kwargs["resource_type"] == "HogFlow"
+        assert create_kwargs["resource_id"] == str(flow_id)
+        assert create_kwargs["updated_at"]
+
+        mock_emit.reset_mock()
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed"},
+        )
+        assert update_response.status_code == 200, update_response.json()
+
+        assert mock_emit.call_count == 1
+        assert mock_emit.call_args.kwargs["resource_id"] == str(flow_id)
+
+    def _create_simple_flow(self) -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def test_stale_update_is_rejected_with_409(self):
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        current = flow.updated_at.isoformat()
+        stale = (flow.updated_at - timedelta(seconds=1)).isoformat()
+
+        # A client that based its edit on an older copy is rejected rather than clobbering the newer one.
+        stale_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Stale edit", "base_updated_at": stale},
+        )
+        assert stale_response.status_code == 409, stale_response.json()
+        assert HogFlow.objects.get(pk=flow_id).name != "Stale edit"
+
+        # A client whose base matches the current server copy proceeds.
+        fresh_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Fresh edit", "base_updated_at": current},
+        )
+        assert fresh_response.status_code == 200, fresh_response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Fresh edit"
+
+    def test_update_without_base_updated_at_is_not_gated(self):
+        # Backwards compatible: callers that don't opt in to the base timestamp keep last-writer-wins.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        stale = (flow.updated_at - timedelta(seconds=10)).isoformat()
+        assert stale  # we hold a stale view but send no base
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Ungated edit"},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Ungated edit"
+
+    def test_timezone_naive_base_updated_at_is_handled(self):
+        # A base_updated_at with no timezone designator parses naive; it must be coerced to aware
+        # (assumed UTC) rather than raising TypeError when compared to the tz-aware stored updated_at.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        naive = flow.updated_at.replace(tzinfo=None).isoformat()
+        assert "+" not in naive and not naive.endswith("Z")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Naive base edit", "base_updated_at": naive},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Naive base edit"
+
     def test_hog_flow_function_trigger_check(self):
         hog_flow = {
             "name": "Test Flow",
@@ -1168,6 +1253,23 @@ class TestHogFlowAPI(APIBaseTest):
         # The rest of the graph is intact.
         assert actions["trigger_node"]["type"] == "trigger"
         assert "exit_1" in actions
+
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_graph_update_emits_resource_edited(self, mock_emit):
+        # The surgical /graph path is the primary MCP edit route, so it must emit the same
+        # "edited elsewhere" signal as the full update path — otherwise an open builder never
+        # learns about MCP graph edits and the cross-channel awareness has a hole.
+        flow_id = self._create_draft_flow_with_graph()
+        mock_emit.reset_mock()
+
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
+        assert response.status_code == 200, response.json()
+
+        assert mock_emit.call_count == 1
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["resource_type"] == "HogFlow"
+        assert kwargs["resource_id"] == str(flow_id)
+        assert kwargs["updated_at"]
 
     def test_graph_response_echoes_full_graph(self):
         flow_id = self._create_draft_flow_with_graph()
