@@ -14,6 +14,7 @@ from posthog.temporal.common.utils import asyncify, close_db_connections
 from products.tasks.backend.constants import (
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
@@ -76,6 +77,7 @@ class TaskProcessingContext:
     # Burstable by default; the per-run state can opt out to pin a fixed-size box
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
+    overlap_clone_boot_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -329,6 +331,45 @@ def _is_burstable_sandbox_resources_enabled(
     return True
 
 
+def _is_overlap_clone_boot_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("overlap_clone_boot_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "overlap_clone_boot_state_override",
+            run_id=run_id,
+            overlap_clone_boot_enabled=state_override,
+        )
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("overlap_clone_boot_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "overlap_clone_boot_flag_checked",
+        run_id=run_id,
+        overlap_clone_boot_enabled=enabled,
+    )
+    return enabled
+
+
 def _is_modal_network_allowlist_enabled(
     *,
     distinct_id: str,
@@ -503,6 +544,17 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
     )
+    overlap_clone_boot_enabled = _is_overlap_clone_boot_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -535,4 +587,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
+        overlap_clone_boot_enabled=overlap_clone_boot_enabled,
     )
