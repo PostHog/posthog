@@ -1762,6 +1762,10 @@ export interface ProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced: boolean
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
@@ -2610,14 +2614,10 @@ export interface PatchedProjectBackwardCompatApi {
     onboarding_tasks?: unknown
     /** @nullable */
     web_analytics_pre_aggregated_tables_enabled?: boolean | null
-}
-
-export interface PromotedProductIntentApi {
-    /**
-     * The product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured for this team.
-     * @nullable
-     */
-    product_key: string | null
+    /** The team's events data retention window in months (plan-derived, synced from billing). When retention enforcement is active for the team, queries do not return events older than this many months. */
+    readonly event_retention_months?: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    readonly events_retention_enforced?: boolean
 }
 
 export interface SharePasswordApi {
@@ -2852,66 +2852,6 @@ export interface PatchedFileSystemShortcutApi {
 export interface FileSystemShortcutReorderApi {
     /** IDs of the current user's shortcuts in the desired display order. */
     ordered_ids: string[]
-}
-
-/**
- * * `home` - Home
- * * `pinned` - Pinned
- * * `custom_products` - Custom Products
- */
-export type PersistedFolderTypeEnumApi = (typeof PersistedFolderTypeEnumApi)[keyof typeof PersistedFolderTypeEnumApi]
-
-export const PersistedFolderTypeEnumApi = {
-    Home: 'home',
-    Pinned: 'pinned',
-    CustomProducts: 'custom_products',
-} as const
-
-export interface PersistedFolderApi {
-    readonly id: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at: string
-    readonly updated_at: string
-}
-
-export interface PaginatedPersistedFolderListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: PersistedFolderApi[]
-}
-
-export interface PatchedPersistedFolderApi {
-    readonly id?: string
-    /** Which persisted folder this is for the user (home, pinned, custom_products).
-     *
-     * * `home` - Home
-     * * `pinned` - Pinned
-     * * `custom_products` - Custom Products */
-    type?: PersistedFolderTypeEnumApi
-    /**
-     * Protocol prefix of the folder location, e.g. 'products://'.
-     * @maxLength 64
-     */
-    protocol?: string
-    /** Path within the protocol that the folder resolves to. */
-    path?: string
-    readonly created_at?: string
-    readonly updated_at?: string
 }
 
 /**
@@ -3644,6 +3584,11 @@ export interface GitHubReposRefreshResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+export interface UserGitHubPrepareCallbackRequestApi {
+    /** GitHub App installation id being managed on github.com. */
+    installation_id: string
+}
+
 export interface UserGitHubLinkStartRequestApi {
     /**
      * Optional team/project id (e.g. PostHog Code); web UI uses the session's current team.
@@ -3918,17 +3863,6 @@ export type DesktopFileSystemShortcutListParams = {
     offset?: number
 }
 
-export type DesktopPersistedFolderListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
 export type ExportsListParams = {
     /**
      * Number of results to return per page.
@@ -3956,17 +3890,6 @@ export type FileSystemListParams = {
 }
 
 export type FileSystemShortcutListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
-
-export type PersistedFolderListParams = {
     /**
      * Number of results to return per page.
      */

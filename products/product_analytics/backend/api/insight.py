@@ -13,11 +13,9 @@ from django.utils.text import slugify
 from django.utils.timezone import now
 
 import structlog
-import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema_view
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from prometheus_client import Counter
 from pydantic import (
@@ -63,6 +61,7 @@ from posthog.constants import INSIGHT
 from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import EventSource, get_event_source, get_request_analytics_properties, report_user_action
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.multi_property_breakdown import protect_old_clients_from_multi_property_default
 from posthog.helpers.trigram_search import (
     DESCRIPTION_FIELD,
@@ -99,6 +98,7 @@ from posthog.models.filters.utils import get_filter
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDT
+from posthog.ph_client import feature_enabled_or_false
 from posthog.rate_limit import (
     AIObservabilitySummarizationBurstThrottle,
     AIObservabilitySummarizationDailyThrottle,
@@ -209,7 +209,7 @@ def is_legacy_insight_endpoint_blocked(user: Any, team: Team) -> bool:
     if not distinct_id:
         return False
 
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         LEGACY_INSIGHT_ENDPOINTS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
@@ -229,7 +229,7 @@ def is_legacy_insight_filters_blocked(user: Any, team: Team) -> bool:
     if not distinct_id:
         return False
 
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         LEGACY_INSIGHT_FILTERS_BLOCKED_FLAG,
         str(distinct_id),
         groups={
@@ -669,7 +669,7 @@ class InsightSerializer(InsightBasicSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=team_id,
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             request=self.context["request"],
         )
 
@@ -769,7 +769,7 @@ class InsightSerializer(InsightBasicSerializer):
             organization_id=self.context["request"].user.current_organization_id,
             team_id=self.context["team_id"],
             user=self.context["request"].user,
-            was_impersonated=is_impersonated_session(self.context["request"]),
+            was_impersonated=is_impersonated(self.context["request"]),
             request=self.context["request"],
             changes=changes,
         )

@@ -240,7 +240,6 @@ async function mcpHandler(ctx: CustomAuthRouteCtx): Promise<void> {
                     principal: principal,
                     trigger: 'mcp',
                     requesterDisplay: principalDisplay(principal),
-                    isPreview: resolved.isPreview,
                 }
             )
             if (freshOutcome.kind === 'elevation_required') {

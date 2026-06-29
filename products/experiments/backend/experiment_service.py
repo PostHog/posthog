@@ -27,8 +27,8 @@ from posthog.schema import (
 )
 
 from posthog.api.cohort import CohortSerializer
-from posthog.approvals.policies import PolicyEngine
 from posthog.event_usage import EventSource, report_user_action
+from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
@@ -38,6 +38,7 @@ from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
@@ -289,25 +290,6 @@ class ExperimentService:
         exposure_estimate_config = value.get("exposure_estimate_config")
         if exposure_estimate_config is not None and not isinstance(exposure_estimate_config, dict):
             raise ValidationError("exposure_estimate_config must be an object")
-
-    @staticmethod
-    def _running_time_calculation_from_parameters(parameters: dict | None) -> dict:
-        return {
-            key: (parameters or {})[key]
-            for key in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
-            if key in (parameters or {})
-        }
-
-    @staticmethod
-    def _merge_running_time_calculation_into_parameters(parameters: dict | None, calculation: dict | None) -> dict:
-        """Replace the legacy calculator keys in `parameters` with the canonical calculation values."""
-        merged = {
-            key: value
-            for key, value in (parameters or {}).items()
-            if key not in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
-        }
-        merged.update(calculation or {})
-        return merged
 
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
@@ -810,14 +792,9 @@ class ExperimentService:
         self.validate_variant_percentages(parameters)
         self.validate_running_time_calculation(running_time_calculation)
         self.validate_excluded_variants(excluded_variants)
-        # Dual-write during the parameters deprecation window: running_time_calculation is
-        # canonical, but the legacy calculator keys in `parameters` stay in sync for old readers.
-        if running_time_calculation is not None:
-            parameters = self._merge_running_time_calculation_into_parameters(parameters, running_time_calculation)
-        else:
-            running_time_calculation = self._running_time_calculation_from_parameters(parameters)
-        # Same dual-write for excluded_variants: the canonical column wins over legacy
-        # `parameters` when supplied; otherwise derive the column from `parameters`.
+        running_time_calculation = running_time_calculation or {}
+        # Dual-write for excluded_variants during the parameters deprecation window: the canonical
+        # column wins over legacy `parameters` when supplied; otherwise derive the column from `parameters`.
         if excluded_variants is not None:
             parameters = self._merge_excluded_variants_into_parameters(parameters, excluded_variants)
         else:
@@ -1723,7 +1700,6 @@ class ExperimentService:
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
         completed_metadata["parameters"] = experiment.parameters
-        completed_metadata["saved_metrics_count"] = experiment.saved_metrics.count()
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
@@ -2027,14 +2003,26 @@ class ExperimentService:
         *,
         serializer_context: dict | None = None,
         allow_unknown_events: bool = False,
+        event_source: EventSource | None = None,
     ) -> Experiment:
         """Update an experiment with full business-logic validation.
 
         ``update_data`` mirrors the DRF ``validated_data`` dict produced by
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
+
+        ``event_source`` attributes the "experiment updated" event for non-HTTP callers,
+        mirroring ``create_experiment``.
         """
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
+
+        # Snapshot before the update to diff what actually changed. The activity-log diff
+        # misses the saved-metric M2M, so capture its signature separately, before the sync
+        # below mutates it. Skip the reads when neither channel will report.
+        report_request = serializer_context.get("request") if serializer_context else None
+        should_report_update = report_request is not None or event_source is not None
+        before_update = experiment._get_before_update() if should_report_update else None
+        before_saved_metrics = self._saved_metric_signature(experiment) if should_report_update else frozenset()
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
@@ -2272,25 +2260,9 @@ class ExperimentService:
             feature_flag.active = True
             feature_flag.save()
 
-        # --- running-time calculation dual-write ----------------------------
-        # During the parameters deprecation window, keep running_time_calculation and
-        # the legacy calculator keys in `parameters` in sync. `parameters` is replaced
-        # wholesale on update, so derive the counterpart from whichever side this
-        # update carries (running_time_calculation wins when both are sent).
-        if "running_time_calculation" in update_data:
-            update_data["parameters"] = self._merge_running_time_calculation_into_parameters(
-                update_data.get("parameters", experiment.parameters),
-                update_data["running_time_calculation"],
-            )
-        elif "parameters" in update_data:
-            update_data["running_time_calculation"] = self._running_time_calculation_from_parameters(
-                update_data["parameters"]
-            )
-
         # --- excluded_variants dual-write -----------------------------------
-        # Mirror the canonical excluded_variants column into legacy `parameters`. Runs after the
-        # running-time block so it reads the already-merged `parameters` (they touch disjoint
-        # keys). The column wins when both are sent.
+        # Mirror the canonical excluded_variants column into legacy `parameters`.
+        # The column wins when both are sent.
         if "excluded_variants" in update_data:
             update_data["parameters"] = self._merge_excluded_variants_into_parameters(
                 update_data.get("parameters", experiment.parameters),
@@ -2304,7 +2276,68 @@ class ExperimentService:
             setattr(experiment, attr, value)
         experiment.save()
 
+        if should_report_update:
+            changed_fields = self._compute_changed_fields(
+                experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
+            )
+            if changed_fields:
+                self._report_experiment_updated(
+                    experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
+                )
+
         return experiment
+
+    def _compute_changed_fields(
+        self,
+        experiment: Experiment,
+        *,
+        before_update: "Experiment | None",
+        before_saved_metrics: frozenset[tuple[int, str]],
+    ) -> list[str]:
+        """The experiment fields that actually changed, sorted and deduped.
+
+        Scalar/JSON fields come from the activity-log diff; the saved-metric M2M is diffed
+        separately because that relation is excluded from it.
+        """
+        changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        # Check if saved_metric assignment has changed
+        if before_saved_metrics != self._saved_metric_signature(experiment):
+            changed_fields = [*changed_fields, "saved_metrics"]
+        return sorted(set(changed_fields))
+
+    @staticmethod
+    def _saved_metric_signature(experiment: Experiment) -> frozenset[tuple[int, str]]:
+        """Identity of an experiment's shared-metric links: (saved_metric_id, type)."""
+        return frozenset(
+            (saved_metric_id, (metadata or {}).get("type", "primary"))
+            for saved_metric_id, metadata in experiment.experimenttosavedmetric_set.values_list(
+                "saved_metric_id", "metadata"
+            )
+        )
+
+    def _report_experiment_updated(
+        self,
+        experiment: Experiment,
+        *,
+        changed_fields: list[str],
+        request: Any | None = None,
+        event_source: EventSource | None = None,
+    ) -> None:
+        if request is None and event_source is None:
+            return
+
+        metadata = experiment.get_analytics_metadata()
+        metadata["changed_fields"] = changed_fields
+        if event_source is not None:
+            metadata["source"] = event_source
+
+        report_user_action(
+            self.user,
+            "experiment updated",
+            metadata,
+            team=experiment.team,
+            request=request,
+        )
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
@@ -2482,6 +2515,7 @@ class ExperimentService:
             description=source_experiment.description or "",
             type=source_experiment.type or "product",
             parameters=parameters,
+            running_time_calculation=deepcopy(source_experiment.running_time_calculation),
             filters=source_experiment.filters,
             metrics=cloned_metrics,
             metrics_secondary=cloned_metrics_secondary,

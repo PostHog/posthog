@@ -602,6 +602,9 @@ AI_GATEWAY_PUBLIC_URL = os.getenv("AI_GATEWAY_PUBLIC_URL", "http://localhost:808
 # This is used to proxy flag evaluation requests to the Rust feature flags service
 FEATURE_FLAGS_SERVICE_URL = os.getenv("FEATURE_FLAGS_SERVICE_URL", "http://localhost:3001")
 
+# Definitions fleet, which serves remote_config (the eval fleet 404s it). Falls back until set per env.
+FEATURE_FLAGS_DEFINITIONS_SERVICE_URL = os.getenv("FEATURE_FLAGS_DEFINITIONS_SERVICE_URL", FEATURE_FLAGS_SERVICE_URL)
+
 # Temporary (Rust remote_config port, phase 2): when true, each Django remote_config response is
 # shadow-compared against Rust. Off by default; flip per environment to start/stop without a deploy.
 # Delete with remote_config_shadow.py at the phase-3 cutover.
