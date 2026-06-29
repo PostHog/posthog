@@ -1,10 +1,12 @@
 import { useActions, useValues } from 'kea'
 
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { NativeMarketingSource, VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
+import { NativeMarketingSource } from '~/queries/schema/schema-general'
 
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
+import { getEnabledNativeMarketingSources } from '../../logic/utils'
 import {
     MappingTypes,
     extractStringValue,
@@ -31,7 +33,8 @@ export function NonIntegratedConversionsRowActions({
     const { marketingAnalyticsConfig, integrationCampaignTables, integrationCampaigns } = useValues(
         marketingAnalyticsSettingsLogic
     )
-    const enabledSources = VALID_NATIVE_MARKETING_SOURCES
+    const { featureFlags } = useValues(featureFlagLogic)
+    const enabledSources = getEnabledNativeMarketingSources(featureFlags)
     const { updateCustomSourceMappings, updateCampaignNameMappings, openIntegrationSettingsModal } = useActions(
         marketingAnalyticsSettingsLogic
     )

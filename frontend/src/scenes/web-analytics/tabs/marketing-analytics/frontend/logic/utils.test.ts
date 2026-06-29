@@ -12,6 +12,7 @@ import { NativeSource } from './marketingAnalyticsLogic'
 import {
     createMarketingTile,
     findSchemaByFieldName,
+    getEnabledNativeMarketingSources,
     getOrderBy,
     getSortedColumnsByArray,
     orderArrayByPreference,
@@ -20,6 +21,13 @@ import {
 } from './utils'
 
 describe('marketing analytics utils', () => {
+    describe('getEnabledNativeMarketingSources', () => {
+        it('returns every native source when no source is flag-gated', () => {
+            const result = getEnabledNativeMarketingSources({})
+            expect([...result]).toEqual([...VALID_NATIVE_MARKETING_SOURCES])
+        })
+    })
+
     describe('getOrderBy', () => {
         it('should filter order by columns that exist in the columns list', () => {
             const query: MarketingAnalyticsTableQuery = {

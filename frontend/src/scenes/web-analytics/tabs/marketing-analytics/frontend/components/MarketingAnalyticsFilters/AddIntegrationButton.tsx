@@ -1,3 +1,4 @@
+import { useValues } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
@@ -6,19 +7,23 @@ import { LemonButton, LemonDropdown } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
-
-import { VALID_NATIVE_MARKETING_SOURCES } from '~/queries/schema/schema-general'
 
 import { SourceIcon } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 
-import { VALID_NON_NATIVE_MARKETING_SOURCES, VALID_SELF_MANAGED_MARKETING_SOURCES } from '../../logic/utils'
+import {
+    VALID_NON_NATIVE_MARKETING_SOURCES,
+    VALID_SELF_MANAGED_MARKETING_SOURCES,
+    getEnabledNativeMarketingSources,
+} from '../../logic/utils'
 
 interface AddIntegrationButtonProps {
     onIntegrationSelect?: (integrationId: string) => void
 }
 
 export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButtonProps = {}): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -27,7 +32,7 @@ export function AddIntegrationButton({ onIntegrationSelect }: AddIntegrationButt
     const [showPopover, setShowPopover] = useState(false)
 
     const groupedIntegrations = {
-        native: VALID_NATIVE_MARKETING_SOURCES,
+        native: getEnabledNativeMarketingSources(featureFlags),
         external: VALID_NON_NATIVE_MARKETING_SOURCES,
         'self-managed': VALID_SELF_MANAGED_MARKETING_SOURCES,
     }
