@@ -315,26 +315,32 @@ class TestScoutReportAPI(APIBaseTest):
         [
             ("scout_emit_disabled",),
             ("source_disabled",),
+            ("scout_config_missing",),
         ]
     )
-    def test_emit_report_disabled_gate_skip_does_not_fan_out(self, reason: str) -> None:
-        # A disabled / dry-run scout produces no side effects: the gate-skip still records the attempt on
-        # the internal `signals_scout_report_emitted` stream, but must NOT fire a customer-facing,
-        # automation-driving event into the team's own project. (A non-disabled gate-skip like
-        # `ai_processing_not_approved` still fans out — covered by the lifecycle test above.)
+    def test_emit_report_inactive_scout_does_not_fan_out(self, reason: str) -> None:
+        # An inactive scout produces no side effects: a gate-skip from a deliberate off-toggle
+        # (`scout_emit_disabled` / `source_disabled`) or a fail-closed missing config
+        # (`scout_config_missing`) still records the attempt on the internal
+        # `signals_scout_report_emitted` stream, but must NOT fire a customer-facing, automation-driving
+        # event into the team's own project. (A non-inactive gate-skip like `ai_processing_not_approved`
+        # still fans out — covered by the lifecycle test above.)
         run = _make_run(self.team)
         if reason == "scout_emit_disabled":
             config = run.scout_config
             config.emit = False
             config.save(update_fields=["emit"])
-        else:
+        elif reason == "source_disabled":
             SignalSourceConfig.objects.filter(
                 team=self.team, source_product="signals_scout", source_type="cross_source_issue"
             ).update(enabled=False)
+        else:
+            # Deleting the dispatch-time config nulls the run's FK (SET_NULL) → fail-closed gate-skip.
+            run.scout_config.delete()
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()), patch(CAPTURE_PATH) as capture:
             body = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
         assert body["skipped_reason"] == reason
-        # Internal telemetry still records the disabled attempt...
+        # Internal telemetry still records the inactive attempt...
         event = next(c for c in capture.call_args_list if c.kwargs["event"] == "signals_scout_report_emitted")
         assert event.kwargs["properties"]["skipped_reason"] == reason
         # ...but no customer-facing copy is forwarded.

@@ -359,11 +359,13 @@ CUSTOMER_REPORT_EMITTED_EVENT = "$scout_report_emitted"
 CUSTOMER_REPORT_EDITED_EVENT = "$scout_report_edited"
 _REPORT_EVENT_SOURCE = "signals_scout_report"
 
-# Gate-skip reasons that mean the scout/source was deliberately turned off (see `_preflight_emit_gates`).
-# A disabled / dry-run scout must produce no side effects, so its attempt is still recorded on the
-# internal stream but is NOT fanned out as a customer-facing, automation-driving event. Other outcomes —
-# including non-disabled gate-skips (e.g. `ai_processing_not_approved`) — still forward the raw event.
-_DISABLED_SKIP_REASONS = frozenset({"scout_emit_disabled", "source_disabled"})
+# Gate-skip reasons that mean the scout isn't active — deliberately off (`scout_emit_disabled` /
+# `source_disabled`) or fail-closed because its dispatch-time config is gone (`scout_config_missing`,
+# from a deleted/nulled `SignalScoutConfig`). See `_preflight_emit_gates`. An inactive scout must produce
+# no side effects, so its attempt is still recorded on the internal stream but is NOT fanned out as a
+# customer-facing, automation-driving event. Other gate-skips that represent a real, customer-controlled
+# condition (e.g. `ai_processing_not_approved`) still forward the raw event.
+_INACTIVE_SKIP_REASONS = frozenset({"scout_emit_disabled", "source_disabled", "scout_config_missing"})
 
 
 @dataclass
@@ -493,7 +495,7 @@ def _capture_report_emitted(
             "signals_scout: failed to capture report-emitted analytics event",
             extra={"team_id": team.id, "run_id": str(run.id), "skill_name": run.skill_name},
         )
-    if result.skipped_reason in _DISABLED_SKIP_REASONS:
+    if result.skipped_reason in _INACTIVE_SKIP_REASONS:
         return None
     return _ReportForward(
         event_name=CUSTOMER_REPORT_EMITTED_EVENT,
