@@ -11,6 +11,7 @@ import { IntegrationType, OnboardingStepKey } from '~/types'
 
 import { onboardingLogic } from '../../onboardingLogic'
 import { sdksLogic } from '../sdksLogic'
+import { activeCloudRunLogic } from './activeCloudRunLogic'
 import type { wizardCloudRunLogicType } from './wizardCloudRunLogicType'
 
 export type CloudRunStatus =
@@ -50,7 +51,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
             sdksLogic,
             ['selectedSDK'],
         ],
-        actions: [integrationsLogic, ['loadIntegrations']],
+        actions: [integrationsLogic, ['loadIntegrations'], activeCloudRunLogic, ['setActiveCloudRun']],
     })),
     actions({
         setSelectedRepository: (repository: string | null) => ({ repository }),
@@ -141,6 +142,7 @@ export const wizardCloudRunLogic = kea<wizardCloudRunLogicType>([
                     }
                 )
                 actions.setCloudRunHandle(task_id, run_id)
+                actions.setActiveCloudRun(task_id, run_id)
                 actions.startCloudRunSuccess()
             } catch (e) {
                 const detail = e instanceof ApiError ? e.detail : null

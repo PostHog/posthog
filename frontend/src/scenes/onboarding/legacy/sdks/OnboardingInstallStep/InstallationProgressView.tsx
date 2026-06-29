@@ -1,8 +1,10 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { IconCheckCircle, IconX } from '@posthog/icons'
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
+import { activeCloudRunLogic } from './activeCloudRunLogic'
 import { installationProgressLogic, InstallationStep } from './installationProgressLogic'
 
 function StepIcon({ status }: { status: InstallationStep['status'] }): JSX.Element {
@@ -23,9 +25,30 @@ function StepIcon({ status }: { status: InstallationStep['status'] }): JSX.Eleme
  * stepper plus the terminal payoff (PR link) or failure. Source-agnostic by construction: it only
  * reads `installationProgressLogic`, never the underlying streams.
  */
-export function InstallationProgressView({ runId, taskId }: { runId: string; taskId: string }): JSX.Element {
+export function InstallationProgressView({
+    runId,
+    taskId,
+    floating = false,
+    onDismiss,
+}: {
+    runId: string
+    taskId: string
+    /** Rendered in the floating FAB rather than inline on the install step. */
+    floating?: boolean
+    onDismiss?: () => void
+}): JSX.Element {
     const { installationProgress } = useValues(installationProgressLogic({ mode: 'cloud', runId, taskId }))
+    const { setPanelMounted } = useActions(activeCloudRunLogic)
     const { phase, steps, error, prUrl } = installationProgress
+
+    // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
+    useEffect(() => {
+        if (floating) {
+            return
+        }
+        setPanelMounted(true)
+        return () => setPanelMounted(false)
+    }, [floating, setPanelMounted])
 
     const bannerType = phase === 'completed' ? 'success' : phase === 'error' ? 'error' : 'info'
     const headline =
@@ -36,7 +59,7 @@ export function InstallationProgressView({ runId, taskId }: { runId: string; tas
               : 'Setting up PostHog…'
 
     return (
-        <LemonBanner type={bannerType}>
+        <LemonBanner type={bannerType} onClose={onDismiss}>
             <div className="flex w-full flex-col gap-2" data-attr="installation-progress">
                 <div className="font-semibold">{headline}</div>
                 {steps.length > 0 && (
