@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url'
 import * as path from 'path'
 import { mergeConfig } from 'vite'
 
-import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin'
-import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin'
-import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin'
+import { frontendResolvePlugin } from './plugins/vite-frontend-resolve-plugin.ts'
+import { moduleGraphPlugin } from './plugins/vite-module-graph-plugin.ts'
+import { sqlRawPlugin } from './plugins/vite-sql-raw-plugin.ts'
 
 // Storybook 10 loads the config as a native ES module, where `__dirname` is
 // not defined — derive it from the module URL instead.
