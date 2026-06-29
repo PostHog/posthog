@@ -539,6 +539,52 @@ class TestNotebookSharingConfiguration(APIBaseTest):
         self.assertNotIn("SECRET_RUNTIME", raw)
         self.assertIsNone(body["notebook"]["text_content"])
 
+    def test_shared_notebook_reserializes_allowlisted_markdown_component_props(self) -> None:
+        markdown = "\n\n".join(
+            [
+                "hello",
+                (
+                    '<Embed src="https://posthog.com" title="Public docs" height={320} '
+                    'unsafe="&lt;Python code=&quot;SECRET_EMBED&quot; /&gt;" '
+                    'cachedResults={{"rows":["SECRET_CACHE"]}} />'
+                ),
+            ]
+        )
+        self.notebook.content = _markdown_doc(markdown)
+        self.notebook.text_content = "hello SECRET_EMBED SECRET_CACHE"
+        self.notebook.save()
+        self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
+        config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)
+
+        self.client.logout()
+        response = self.client.get(f"/shared/{config.access_token}.json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        body = response.json()
+
+        markdown_node = body["notebook"]["content"]["content"][0]
+        self.assertEqual(
+            markdown_node,
+            {
+                "type": "ph-markdown-notebook",
+                "attrs": {
+                    "nodeId": "markdown-notebook-v2",
+                    "markdown": "\n\n".join(
+                        [
+                            "hello",
+                            '<Embed height={320} src="https://posthog.com" title="Public docs" />',
+                        ]
+                    ),
+                },
+            },
+        )
+
+        raw = response.content.decode()
+        self.assertNotIn("SECRET_EMBED", raw)
+        self.assertNotIn("SECRET_CACHE", raw)
+        self.assertNotIn("unsafe", raw)
+        self.assertNotIn("cachedResults", raw)
+        self.assertIsNone(body["notebook"]["text_content"])
+
     def test_deleted_notebook_404s_on_shared_endpoint(self) -> None:
         self.client.patch(self._sharing_url(), {"enabled": True}, format="json")
         config = SharingConfiguration.objects.get(notebook=self.notebook, expires_at__isnull=True)

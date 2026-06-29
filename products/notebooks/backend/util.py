@@ -41,6 +41,25 @@ SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS: frozenset[str] = frozenset(
     }
 )
 
+_SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES: dict[str, dict[str, type | tuple[type, ...]]] = {
+    "Comment": {"ref": str, "replies": list, "text": str},
+    "Divider": {},
+    "Embed": {"height": (int, float), "src": str, "title": str, "width": (int, float)},
+    "Image": {"alt": str, "height": (int, float), "src": str, "title": str, "width": (int, float)},
+    "Latex": {"content": str, "editing": bool, "title": str},
+    "Query": {
+        "hideFilters": bool,
+        "hideResults": bool,
+        "height": (int, float),
+        "isDefaultFilterApplied": bool,
+        "nodeId": str,
+        "outputTab": str,
+        "query": dict,
+        "showSettings": bool,
+        "title": str,
+    },
+}
+
 _MARKDOWN_COMPONENT_START_REGEX = re.compile(r"^<[A-Z][A-Za-z0-9]*(\s|>|/)")
 _MARKDOWN_COMPONENT_TAG_REGEX = re.compile(r"^<([A-Z][A-Za-z0-9]*)([\s\S]*?)(?:/>|>[\s\S]*</\1>)$")
 _MARKDOWN_COMPONENT_PROP_NAME_REGEX = re.compile(r"^([A-Za-z_][A-Za-z0-9_-]*)")
@@ -122,12 +141,50 @@ def _filter_markdown_components_for_sharing(markdown: str) -> str:
 
         tag_name, _raw, next_line_index = component
         if tag_name in SHARED_NOTEBOOK_SUPPORTED_MARKDOWN_COMPONENT_TAGS:
-            filtered_lines.extend(lines[line_index:next_line_index])
+            filtered_lines.append(_filter_supported_markdown_component_for_sharing(tag_name, _raw))
         else:
             filtered_lines.append(f"<{tag_name} />")
         line_index = next_line_index
 
     return "\n".join(filtered_lines)
+
+
+def _filter_supported_markdown_component_for_sharing(tag_name: str, raw: str) -> str:
+    supported_props = _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES[tag_name]
+    props = _parse_markdown_component_props(raw)
+    filtered_props: dict[str, Any] = {}
+
+    for prop_name, expected_type in supported_props.items():
+        value = props.get(prop_name)
+        if _is_markdown_component_prop_type(value, expected_type):
+            filtered_props[prop_name] = value
+
+    return _serialize_markdown_component(tag_name, filtered_props)
+
+
+def _is_markdown_component_prop_type(value: Any, expected_type: type | tuple[type, ...]) -> bool:
+    if isinstance(value, bool):
+        return expected_type is bool or (isinstance(expected_type, tuple) and bool in expected_type)
+    if isinstance(value, expected_type):
+        return True
+    return False
+
+
+def _serialize_markdown_component(tag_name: str, props: dict[str, Any]) -> str:
+    prop_source = "".join(
+        _serialize_markdown_component_prop(name, props[name])
+        for name in _SHARED_NOTEBOOK_MARKDOWN_COMPONENT_PROP_TYPES[tag_name]
+        if name in props
+    )
+    return f"<{tag_name}{prop_source} />"
+
+
+def _serialize_markdown_component_prop(name: str, value: Any) -> str:
+    if value is True:
+        return f" {name}"
+    if isinstance(value, str):
+        return f" {name}={json.dumps(value, ensure_ascii=False)}"
+    return f" {name}={{{json.dumps(value, ensure_ascii=False, separators=(',', ':'))}}}"
 
 
 def _coerce_query_attr(raw: Any) -> dict[str, Any] | None:
