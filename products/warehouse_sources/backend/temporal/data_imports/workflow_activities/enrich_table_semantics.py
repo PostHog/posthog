@@ -421,8 +421,9 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     event_props["source_type"] = schema.source.source_type
     event_props["schema_name"] = schema.name
     # Bind the schema/table context onto every subsequent log line so failures are traceable to the
-    # exact schema and table that produced them.
-    log = log.bind(source_type=schema.source.source_type, schema_name=schema.name)
+    # exact schema and table that produced them. schema_id is already bound above; repeated here so
+    # the full identifying context lives on one line.
+    log = log.bind(schema_id=str(schema_id), source_type=schema.source.source_type, schema_name=schema.name)
     if table is None:
         log.warning("warehouse_enrichment.skipped", reason="no_table")
         emit_completed("skipped", reason="no_table")
