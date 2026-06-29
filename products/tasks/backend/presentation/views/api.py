@@ -1559,7 +1559,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         timer = ServerTimingsGathered()
 
         with timer("s3_read"):
-            log_content = tasks_facade.read_task_run_session_log_content(pk, task_id, self.team_id)
+            log_content = tasks_facade.read_task_run_logs(pk, task_id, self.team_id)
         if log_content is None:
             raise NotFound()
 

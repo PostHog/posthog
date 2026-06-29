@@ -148,7 +148,6 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "read_task_run_session_log_content",
     "redeem_code_invite",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -1733,16 +1732,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
-
-
-def read_task_run_session_log_content(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Raw session-log JSONL for a run. ``None`` if the run isn't found."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return object_storage.read(run.log_url, missing_ok=True) or ""
 
 
 def create_task_run_connection_token(

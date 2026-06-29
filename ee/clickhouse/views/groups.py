@@ -1,6 +1,5 @@
 import json as _json
 import base64
-from collections import defaultdict
 from typing import Any, Literal, Optional, cast, overload
 from urllib.parse import urlencode
 
@@ -803,26 +802,6 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
         results = RelatedActorsQuery(self.team, group_type_index, actor_id).run()
         return response.Response(results)
-
-    @action(methods=["GET"], detail=False, required_scopes=["group:read"])
-    def property_definitions(self, request: request.Request, **kw):
-        tag_queries(product=ProductKey.GROUP_ANALYTICS, feature=Feature.QUERY)
-        query = parse_select(
-            """
-            SELECT index, tupleElement(keysAndValues, 1) AS key, count(*) AS count
-            FROM groups
-            ARRAY JOIN JSONExtractKeysAndValuesRaw(properties) AS keysAndValues
-            GROUP BY index, key
-            ORDER BY index ASC, count DESC, key ASC
-            """
-        )
-        rows = execute_hogql_query(query, team=self.team).results
-
-        group_type_index_to_properties = defaultdict(list)
-        for group_type_index, key, count in rows:
-            group_type_index_to_properties[str(group_type_index)].append({"name": key, "count": count})
-
-        return response.Response(group_type_index_to_properties)
 
     @action(methods=["GET"], detail=False, required_scopes=["group:read"])
     def property_values(self, request: request.Request, **kw):

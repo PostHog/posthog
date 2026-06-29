@@ -7,10 +7,9 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
-import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -19,28 +18,17 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
-import { addTilePickerModalLogic } from './addTilePickerModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
 export function DashboardAddTileButton(): JSX.Element | null {
     const { dashboard, dashboardWidgetsEnabled } = useValues(dashboardLogic)
     const { loadDashboard, setAddWidgetModalOpen } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
-    const { showAddTilePickerModal } = useActions(addTilePickerModalLogic)
-    const { reportDashboardAddTileOptionClicked } = useActions(eventUsageLogic)
     const { push } = useActions(router)
-
-    const showPickerModal = useFeatureFlag('DASHBOARD_ADD_TILE_PICKER_MODAL', 'test')
 
     if (!dashboard) {
         return null
     }
-
-    const addButton = (
-        <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
-            Add
-        </LemonButton>
-    )
 
     return (
         <MaxTool
@@ -67,68 +55,43 @@ export function DashboardAddTileButton(): JSX.Element | null {
                 minAccessLevel={AccessControlLevel.Editor}
                 userAccessLevel={dashboard.user_access_level}
             >
-                {showPickerModal ? (
-                    <LemonButton
-                        type="primary"
-                        data-attr="dashboard-add-tile"
-                        size="small"
-                        icon={<IconPlusSmall />}
-                        onClick={showAddTilePickerModal}
-                    >
+                <LemonMenu
+                    items={[
+                        {
+                            label: 'Insight',
+                            onClick: showAddInsightToDashboardModal,
+                            'data-attr': 'dashboard-add-insight',
+                        },
+                        {
+                            label: 'Text card',
+                            onClick: () => push(urls.dashboardTextTile(dashboard.id, 'new')),
+                            'data-attr': 'dashboard-add-text-tile',
+                        },
+                        {
+                            label: 'Button',
+                            onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
+                            'data-attr': 'dashboard-add-button-tile',
+                        },
+                        dashboardWidgetsEnabled
+                            ? {
+                                  label: 'Widget',
+                                  tag: 'new' as const,
+                                  onClick: () => setAddWidgetModalOpen(true),
+                                  'data-attr': 'dashboard-add-widget',
+                              }
+                            : {
+                                  label: 'Widget',
+                                  tag: 'beta' as const,
+                                  tooltip: 'Opens settings to enable the Dashboard widgets beta',
+                                  onClick: () => push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS)),
+                                  'data-attr': 'dashboard-add-widget-preview',
+                              },
+                    ]}
+                >
+                    <LemonButton type="primary" data-attr="dashboard-add-tile" size="small" icon={<IconPlusSmall />}>
                         Add
                     </LemonButton>
-                ) : (
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Insight',
-                                onClick: () => {
-                                    reportDashboardAddTileOptionClicked('insight', 'control')
-                                    showAddInsightToDashboardModal()
-                                },
-                                'data-attr': 'dashboard-add-insight',
-                            },
-                            {
-                                label: 'Text card',
-                                onClick: () => {
-                                    reportDashboardAddTileOptionClicked('text_card', 'control')
-                                    push(urls.dashboardTextTile(dashboard.id, 'new'))
-                                },
-                                'data-attr': 'dashboard-add-text-tile',
-                            },
-                            {
-                                label: 'Button',
-                                onClick: () => {
-                                    reportDashboardAddTileOptionClicked('button', 'control')
-                                    push(urls.dashboardButtonTile(dashboard.id, 'new'))
-                                },
-                                'data-attr': 'dashboard-add-button-tile',
-                            },
-                            dashboardWidgetsEnabled
-                                ? {
-                                      label: 'Widget',
-                                      tag: 'new' as const,
-                                      onClick: () => {
-                                          reportDashboardAddTileOptionClicked('widget', 'control')
-                                          setAddWidgetModalOpen(true)
-                                      },
-                                      'data-attr': 'dashboard-add-widget',
-                                  }
-                                : {
-                                      label: 'Widget',
-                                      tag: 'beta' as const,
-                                      tooltip: 'Opens settings to enable the Dashboard widgets beta',
-                                      onClick: () => {
-                                          reportDashboardAddTileOptionClicked('widget', 'control')
-                                          push(urls.featurePreview(FEATURE_FLAGS.DASHBOARD_WIDGETS))
-                                      },
-                                      'data-attr': 'dashboard-add-widget-preview',
-                                  },
-                        ]}
-                    >
-                        {addButton}
-                    </LemonMenu>
-                )}
+                </LemonMenu>
             </AccessControlAction>
         </MaxTool>
     )
