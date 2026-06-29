@@ -108,11 +108,6 @@ tools:
             ordered events — opened, CI started, CI finished, and merged or closed. Use this to answer "where is this PR
             stuck and what happened to it". metric_quality is "partial" — it covers CI events only; review and comment
             events are not yet available. For aggregate questions use the pull-requests and workflow-health tools.
-        param_overrides:
-            pr_number:
-                description: Pull request number to inspect.
-            repo:
-                description: Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
     pull-requests:
         operation: engineering_analytics_pull_requests
         enabled: true

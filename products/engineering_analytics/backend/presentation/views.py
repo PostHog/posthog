@@ -37,15 +37,6 @@ from products.engineering_analytics.backend.presentation.serializers import (
 
 ENGINEERING_ANALYTICS_TAG = "engineering_analytics"
 
-_REPO = OpenApiParameter(
-    name="repo",
-    type=OpenApiTypes.STR,
-    location=OpenApiParameter.QUERY,
-    required=False,
-    description="Optional 'owner/name' repository to disambiguate when the PR number exists in more than one "
-    "connected repo.",
-)
-
 _DATE_FROM = OpenApiParameter(
     name="date_from",
     type=OpenApiTypes.STR,

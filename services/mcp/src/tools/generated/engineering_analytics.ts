@@ -100,14 +100,7 @@ const engineeringAnalyticsWorkflowRunnerCosts = (): ToolBase<
     },
 })
 
-const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams.extend({
-    pr_number: EngineeringAnalyticsPrLifecycleQueryParams.shape['pr_number'].describe(
-        'Pull request number to inspect.'
-    ),
-    repo: EngineeringAnalyticsPrLifecycleQueryParams.shape['repo'].describe(
-        "Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo."
-    ),
-})
+const PrLifecycleSchema = EngineeringAnalyticsPrLifecycleQueryParams
 
 const prLifecycle = (): ToolBase<typeof PrLifecycleSchema, Schemas.PRLifecycle> => ({
     name: 'pr-lifecycle',

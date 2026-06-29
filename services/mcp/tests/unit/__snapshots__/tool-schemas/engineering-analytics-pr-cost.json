@@ -2,7 +2,7 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "pr_number": {
-            "description": "Pull request number to inspect.",
+            "description": "Pull request number to estimate cost for.",
             "type": "number"
         },
         "repo": {
