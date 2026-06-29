@@ -198,6 +198,20 @@ def _classify_refresh_schemas_error(source: AnySource | None, error: Exception) 
     return REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE, False
 
 
+def _schema_discovery_error_message(source: AnySource | None, error: Exception) -> tuple[str, bool]:
+    """Pick the user-facing message for a schema-discovery failure during onboarding.
+
+    Prefer the classified friendly copy for recognized errors (timeouts, refused connections,
+    auth/SSL failures), but fall back to the raw exception text rather than the generic
+    placeholder so source-specific detail (e.g. a BigQuery "dataset not found") still reaches
+    the user. Returns (message, is_expected_source_error); callers gate capture on the latter.
+    """
+    error_message, is_expected_source_error = _classify_refresh_schemas_error(source, error)
+    if error_message == REFRESH_SCHEMAS_FALLBACK_ERROR_MESSAGE:
+        return str(error), is_expected_source_error
+    return error_message, is_expected_source_error
+
+
 def get_sensitive_field_names(fields: list[FieldType]) -> set[str]:
     """Extract field names that contain sensitive data from a source config's fields."""
     sensitive: set[str] = set()
@@ -2459,7 +2473,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            error_message, is_expected_source_error = _schema_discovery_error_message(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
@@ -2575,7 +2589,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            error_message, is_expected_source_error = _schema_discovery_error_message(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
