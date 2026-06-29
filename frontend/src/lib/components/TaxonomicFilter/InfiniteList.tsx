@@ -665,6 +665,7 @@ function InfiniteListEmptyState(): JSX.Element {
         metaGroupTypes,
         includeStaleEvents,
         infiniteListCounts,
+        infiniteListResultCounts,
         eventNames,
     } = useValues(taxonomicFilterLogic)
     const { setIncludeStaleEvents, setActiveTab } = useActions(taxonomicFilterLogic)
@@ -690,15 +691,17 @@ function InfiniteListEmptyState(): JSX.Element {
         allSectionHasResults
 
     // Without the aggregated "all" tab (e.g. the control variant, which doesn't inject SuggestedFilters),
-    // there's no single place to jump to — so surface the specific categories that do have matches. The
-    // same `infiniteListCounts` that drives skip-empty Tab navigation tells us which tabs to offer.
+    // there's no single place to jump to — so surface the specific categories that do have matches.
+    // Keyed off result counts (not `infiniteListCounts`/`totalListCount`) so render-backed groups like
+    // the SQL expression editor, whose affordance row makes `totalListCount` non-zero for any query,
+    // don't produce a misleading "See results in …" jump.
     const otherGroupTypesWithResults =
         !emptySearchQuery && !isSuggestedFilters && !canOfferAllSwitch
             ? taxonomicGroupTypes.filter(
                   (groupType) =>
                       groupType !== listGroupType &&
                       !metaGroupTypes.has(groupType) &&
-                      (infiniteListCounts[groupType] ?? 0) > 0
+                      (infiniteListResultCounts[groupType] ?? 0) > 0
               )
             : []
     return (

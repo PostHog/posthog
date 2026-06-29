@@ -362,6 +362,28 @@ describe('TaxonomicFilter', () => {
                 expectActiveTab('taxonomic-tab-person_properties')
             })
         })
+
+        it('does not offer a jump to a render-backed group with no real matches', async () => {
+            // SQL expression is render-backed: its affordance row makes totalListCount non-zero for
+            // any query, but it has no actual search results. It must not produce a bogus jump button.
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.Events,
+                    TaxonomicFilterGroupType.PersonProperties,
+                    TaxonomicFilterGroupType.HogQLExpression,
+                ],
+            })
+
+            await activateGroupWithResults('taxonomic-tab-events')
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'purchase_value')
+
+            // The genuinely-matching tab is still offered...
+            await waitFor(() => {
+                expect(inVisibleTab(screen.getAllByTestId('taxonomic-switch-to-person_properties'))).toBeTruthy()
+            })
+            // ...but the render-backed SQL expression tab is not.
+            expect(screen.queryByTestId('taxonomic-switch-to-hogql_expression')).not.toBeInTheDocument()
+        })
     })
 
     describe('tab switching', () => {
