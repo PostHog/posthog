@@ -79,6 +79,12 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 logger = structlog.get_logger(__name__)
 
 MAX_CONCURRENT_BACKFILLS_PER_ORG = 1  # best-effort across pods (see _plan_pending)
+# Global ceiling on backfills in flight across ALL orgs. Backfill chunks and live
+# batches share the consumer's group-concurrency pool (BatchConsumerConfig.max_concurrency),
+# so this bounds how much of the duckgres worker budget backfills may consume and
+# reserves headroom for live application. Tune to (worker ceiling − live headroom);
+# keep <= max_concurrency. The per-org cap then keeps one org from eating the whole budget.
+MAX_CONCURRENT_BACKFILLS_GLOBAL = 5
 # A claim that never produced a durable run plan within this window is
 # considered crashed and is returned to PENDING by the reconciler. Planning is
 # metadata-only (Delta log read + row inserts), so minutes of lease are ample.
@@ -227,8 +233,15 @@ def _plan_pending(team_ids: list[int] | None) -> None:
 
     # Oldest-touched first so a failing schema cannot starve the rest of the slice.
     for state in pending.select_related("team").order_by("updated_at")[:50]:
+        # Global ceiling: backfills share the consumer worker pool with live
+        # application, so once the global budget is full no org may claim —
+        # stop scanning this tick. Re-evaluated each iteration since earlier
+        # iterations may have claimed slots.
+        if _global_at_capacity():
+            break
+
         org_id = state.team.organization_id
-        if _org_busy(org_id):
+        if _org_at_capacity(org_id):
             continue
 
         # Lease claim: exactly one pod proceeds past this line per schema.
@@ -238,20 +251,11 @@ def _plan_pending(team_ids: list[int] | None) -> None:
         if not claimed:
             continue
 
-        # Re-check the org cap after winning the claim; the pre-check raced
-        # against other pods. Count against MAX_CONCURRENT_BACKFILLS_PER_ORG so
-        # the cap is honored here too — excluding self, revert once the org is
-        # already at the cap. (Still best-effort across orgs — a transient
-        # over-the-cap backfill is wasteful, not incorrect.)
-        if (
-            DuckgresSinkSchemaState.objects.filter(
-                state=DuckgresSinkSchemaState.State.BACKFILLING,
-                team__organization_id=org_id,
-            )
-            .exclude(id=state.id)
-            .count()
-            >= MAX_CONCURRENT_BACKFILLS_PER_ORG
-        ):
+        # Re-check both caps after winning the claim; the pre-checks raced against
+        # other pods. Excluding self (now BACKFILLING), revert if either the org or
+        # the global budget is already at capacity. (Still best-effort across pods —
+        # a transient over-the-cap backfill is wasteful, not incorrect.)
+        if _org_at_capacity(org_id, exclude_id=state.id) or _global_at_capacity(exclude_id=state.id):
             _revert_to_pending(state.id)
             continue
 
@@ -270,14 +274,25 @@ def _plan_pending(team_ids: list[int] | None) -> None:
             _revert_to_pending(state.id, error=str(e)[:2000])
 
 
-def _org_busy(org_id: Any) -> bool:
-    return (
-        DuckgresSinkSchemaState.objects.filter(
-            state=DuckgresSinkSchemaState.State.BACKFILLING,
-            team__organization_id=org_id,
-        ).count()
-        >= MAX_CONCURRENT_BACKFILLS_PER_ORG
+def _org_at_capacity(org_id: Any, *, exclude_id: Any = None) -> bool:
+    """Is this org at its per-org backfill cap? Pass exclude_id to ignore the
+    just-claimed row when re-checking after a claim."""
+    qs = DuckgresSinkSchemaState.objects.filter(
+        state=DuckgresSinkSchemaState.State.BACKFILLING,
+        team__organization_id=org_id,
     )
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    return qs.count() >= MAX_CONCURRENT_BACKFILLS_PER_ORG
+
+
+def _global_at_capacity(*, exclude_id: Any = None) -> bool:
+    """Is the global backfill budget (across all orgs) full? Counts every
+    BACKFILLING row, since all backfills draw from one shared worker pool."""
+    qs = DuckgresSinkSchemaState.objects.filter(state=DuckgresSinkSchemaState.State.BACKFILLING)
+    if exclude_id is not None:
+        qs = qs.exclude(id=exclude_id)
+    return qs.count() >= MAX_CONCURRENT_BACKFILLS_GLOBAL
 
 
 def _revert_to_pending(state_id: Any, error: str | None = None) -> None:
