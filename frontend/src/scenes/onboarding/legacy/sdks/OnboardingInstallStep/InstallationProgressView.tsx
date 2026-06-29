@@ -5,7 +5,7 @@ import { IconCheckCircle, IconX } from '@posthog/icons'
 import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
-import { installationProgressLogic, InstallationStep } from './installationProgressLogic'
+import { InstallationProgress, installationProgressLogic, InstallationStep } from './installationProgressLogic'
 
 function StepIcon({ status }: { status: InstallationStep['status'] }): JSX.Element {
     if (status === 'completed') {
@@ -21,34 +21,18 @@ function StepIcon({ status }: { status: InstallationStep['status'] }): JSX.Eleme
 }
 
 /**
- * Renders the Installation layer's `InstallationProgress` for a cloud run — the merged pipeline
- * stepper plus the terminal payoff (PR link) or failure. Source-agnostic by construction: it only
- * reads `installationProgressLogic`, never the underlying streams.
+ * Presentational renderer for an `InstallationProgress` — the stepper plus terminal payoff (PR link) or
+ * failure. Pure (no logic/streams) so every state, including the error variants, is storyable in
+ * isolation. The container `InstallationProgressView` feeds it live progress from the Installation layer.
  */
-export function InstallationProgressView({
-    runId,
-    taskId,
-    floating = false,
+export function InstallationProgressContent({
+    progress,
     onDismiss,
 }: {
-    runId: string
-    taskId: string
-    /** Rendered in the floating FAB rather than inline on the install step. */
-    floating?: boolean
+    progress: InstallationProgress
     onDismiss?: () => void
 }): JSX.Element {
-    const { installationProgress } = useValues(installationProgressLogic({ mode: 'cloud', runId, taskId }))
-    const { setPanelMounted } = useActions(activeCloudRunLogic)
-    const { phase, steps, error, prUrl } = installationProgress
-
-    // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
-    useEffect(() => {
-        if (floating) {
-            return
-        }
-        setPanelMounted(true)
-        return () => setPanelMounted(false)
-    }, [floating, setPanelMounted])
+    const { phase, steps, error, prUrl } = progress
 
     const bannerType = phase === 'completed' ? 'success' : phase === 'error' ? 'error' : 'info'
     const headline =
@@ -87,4 +71,35 @@ export function InstallationProgressView({
             </div>
         </LemonBanner>
     )
+}
+
+/**
+ * Container: streams a cloud run's progress from the Installation layer and renders it. Inline on the
+ * install step (sets `panelMounted` to hide the floating FAB) or inside the FAB itself (`floating`).
+ */
+export function InstallationProgressView({
+    runId,
+    taskId,
+    floating = false,
+    onDismiss,
+}: {
+    runId: string
+    taskId: string
+    /** Rendered in the floating FAB rather than inline on the install step. */
+    floating?: boolean
+    onDismiss?: () => void
+}): JSX.Element {
+    const { installationProgress } = useValues(installationProgressLogic({ mode: 'cloud', runId, taskId }))
+    const { setPanelMounted } = useActions(activeCloudRunLogic)
+
+    // While shown inline on the install step, hide the floating FAB so the same run isn't in two places.
+    useEffect(() => {
+        if (floating) {
+            return
+        }
+        setPanelMounted(true)
+        return () => setPanelMounted(false)
+    }, [floating, setPanelMounted])
+
+    return <InstallationProgressContent progress={installationProgress} onDismiss={onDismiss} />
 }
