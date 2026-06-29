@@ -15,18 +15,18 @@ rewrites the entry in place (the idempotent refresh — use it to update a basel
 
 ### Key vocabulary
 
-| Key prefix                                           | Holds                                                                             |
-| ---------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `watchlist:anomaly_detection:insight:<short_id>`     | A curated insight to watch (the ledger row — see schema below).                   |
-| `watchlist:anomaly_detection:dashboard:<id>`         | A curated whole dashboard to sweep (when its tiles are collectively key).         |
-| `watchlist:anomaly_detection:importance-refresh`     | Memo: when the watchlist's importance ranking was last reconciled + what changed. |
-| `baseline:anomaly_detection:insight:<short_id>`      | The learned normal: median + MAD per seasonal bucket, so scoring is cheap.        |
-| `report:anomaly_detection:insight:<short_id>`        | Pointer to the inbox report you authored for this anomaly: `report_id` + re-escalation condition. |
-| `reviewer:anomaly_detection:<area>`                  | A cached owner: the bare lowercase GitHub login for a dashboard / metric area.    |
-| `noise:anomaly_detection:<topic>`                    | A pattern to ignore (a chronically erratic insight, a seasonal quirk).            |
-| `addressed:anomaly_detection:<topic>`                | Team-confirmed expected (a launch/backfill) or fix shipped — skip.                |
-| `allowlist:anomaly_detection:insight:<short_id>`     | An insight to never surface (deprecated, sandbox, test).                          |
-| `not-in-use:anomaly_detection:team{team_id}`         | Close-out memo: team isn't actively using saved analytics right now.              |
+| Key prefix                                       | Holds                                                                                             |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `watchlist:anomaly_detection:insight:<short_id>` | A curated insight to watch (the ledger row — see schema below).                                   |
+| `watchlist:anomaly_detection:dashboard:<id>`     | A curated whole dashboard to sweep (when its tiles are collectively key).                         |
+| `watchlist:anomaly_detection:importance-refresh` | Memo: when the watchlist's importance ranking was last reconciled + what changed.                 |
+| `baseline:anomaly_detection:insight:<short_id>`  | The learned normal: median + MAD per seasonal bucket, so scoring is cheap.                        |
+| `report:anomaly_detection:insight:<short_id>`    | Pointer to the inbox report you authored for this anomaly: `report_id` + re-escalation condition. |
+| `reviewer:anomaly_detection:<area>`              | A cached owner: the bare lowercase GitHub login for a dashboard / metric area.                    |
+| `noise:anomaly_detection:<topic>`                | A pattern to ignore (a chronically erratic insight, a seasonal quirk).                            |
+| `addressed:anomaly_detection:<topic>`            | Team-confirmed expected (a launch/backfill) or fix shipped — skip.                                |
+| `allowlist:anomaly_detection:insight:<short_id>` | An insight to never surface (deprecated, sandbox, test).                                          |
+| `not-in-use:anomaly_detection:team{team_id}`     | Close-out memo: team isn't actively using saved analytics right now.                              |
 
 ### Watchlist entry schema
 

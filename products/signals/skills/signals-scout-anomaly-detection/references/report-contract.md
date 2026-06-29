@@ -244,7 +244,7 @@ the summary.
 
 ```yaml
 # signals-scout-emit-report
-title: "Daily signups dropped ~60% vs same-weekday baseline (2026-06-06)"
+title: 'Daily signups dropped ~60% vs same-weekday baseline (2026-06-06)'
 actionability: requires_human_input
 actionability_explanation: >
   A human needs to confirm whether this is a broken signup flow or a tracking regression and
