@@ -1,8 +1,11 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
 
+// Eager, NOT the lazy `api/run` facade: the runner scene is already a route-split chunk and the run viewer is
+// its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense flash. The inbox
+// embeds keep the lazy `RunViewer`. `RunViewerImpl` is an internal sibling, so this is a relative import.
+import { RunViewer } from '../../../components/RunViewerImpl'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 
 export interface TaskRunChatProps {
@@ -45,6 +48,8 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
             taskId={logicProps.taskId}
             runId={logicProps.runId}
             interaction="live"
+            threadListClassName="pt-4"
+            threadRowClassName="pr-4"
             composerValue={draft}
             onComposerChange={setDraft}
             onComposerSubmit={submit}

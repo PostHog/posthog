@@ -568,9 +568,9 @@ export type EngineeringAnalyticsPrLifecycleParams = {
      */
     pr_number: number
     /**
-     * Optional 'owner/name' repository to disambiguate when the PR number exists in more than one connected repo.
+     * 'owner/name' repository the pull request belongs to.
      */
-    repo?: string
+    repo: string
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

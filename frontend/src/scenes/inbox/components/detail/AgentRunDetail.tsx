@@ -193,7 +193,13 @@ function TaskLogBody({
         return (
             <div className="h-[calc(100dvh-22rem)] min-h-[420px] w-full overflow-hidden rounded border border-primary bg-surface-primary">
                 {/* In-progress runs stream live; terminal runs show the static replay. */}
-                <RunViewer taskId={task.id} runId={runId} interaction={replayOnly ? 'read-only' : 'live'} />
+                <RunViewer
+                    taskId={task.id}
+                    runId={runId}
+                    interaction={replayOnly ? 'read-only' : 'live'}
+                    threadRowClassName="px-3"
+                    threadListClassName="py-3"
+                />
             </div>
         )
     }

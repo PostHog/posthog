@@ -514,16 +514,24 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
-    """Ids of runs stuck in QUEUED with ``updated_at`` older than the cutoff.
+def get_stale_queued_task_run_ids(
+    older_than: timedelta,
+    limit: int,
+    *,
+    created_hard_cap: timedelta | None = None,
+    hard_cap_min_queued: timedelta = timedelta(hours=1),
+) -> list[UUID]:
+    """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
-    cutoff = django_timezone.now() - older_than
+    now = django_timezone.now()
+    stale = Q(updated_at__lt=now - older_than)
+    if created_hard_cap is not None:
+        stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
     return list(
-        TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
-        )
+        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+        .filter(stale)
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
     )

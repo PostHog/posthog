@@ -42,6 +42,7 @@ depends_on = [
     "products.customer_analytics",
     "products.dashboards",
     "products.data_modeling",
+    "products.data_tools",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -110,7 +111,6 @@ depends_on = [
     "products.tracing",
     "products.user_interviews",
     "products.mcp_analytics",
-    "products.warehouse_sources_queue",
     "products.web_analytics",
     "products.workflows",
     "products.actions",
@@ -202,8 +202,7 @@ layer = "modules"
 path = "products.conversations"
 depends_on = [
     "ee",
-    "posthog",
-    "products.posthog_ai", "products.tasks", "products.business_knowledge",
+    "posthog", "products.tasks", "products.business_knowledge",
 ]
 layer = "modules"
 
@@ -248,6 +247,7 @@ depends_on = [
     "products.data_modeling",
     "products.data_tools",
     "products.data_warehouse",
+    "products.notifications",
     "products.posthog_ai",
     "products.warehouse_sources_queue",
     "products.workflows",
@@ -260,16 +260,8 @@ depends_on = [
     "ee",
     "posthog",
     "products.cdp",
-    "products.dashboards",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
-]
-layer = "modules"
-
-[[modules]]
-path = "products.desktop_recordings"
-depends_on = [
-    "posthog",
 ]
 layer = "modules"
 
@@ -546,7 +538,6 @@ depends_on = [
     "products.cdp",
     "products.exports",
     "products.signals",
-    "products.workflows",
 ]
 layer = "modules"
 
@@ -722,7 +713,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -807,6 +798,18 @@ expose = [
 ]
 from = [
     "products.warehouse_sources",
+]
+
+# data_modeling — facade landed; external consumers route through backend.facade.* now.
+# This leak exposes its models only to frozen Django migrations (core + the data_warehouse
+# model-migration) that reference the historical model classes directly and cannot route
+# through a facade. Permanent (migrations are immutable), so backend:contract-check stays off.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "products.data_modeling",
 ]
 
 # data_warehouse — facade landed (Phase 2) + presentation wave complete; now enforced via
@@ -971,7 +974,7 @@ from = [
 
 [[modules]]
 path = "products.engineering_analytics"
-depends_on = ["posthog", "products.warehouse_sources", "products.data_warehouse"]
+depends_on = ["posthog", "products.warehouse_sources"]
 layer = "modules"
 
 [[interfaces]]

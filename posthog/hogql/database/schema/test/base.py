@@ -12,8 +12,7 @@ from posthog.schema import HogQLQueryModifiers
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.revenue_analytics.backend.hogql_queries.test.data.structure import (
     STRIPE_CHARGE_COLUMNS,

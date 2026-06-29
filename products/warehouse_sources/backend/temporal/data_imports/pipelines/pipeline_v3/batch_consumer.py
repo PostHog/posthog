@@ -7,6 +7,7 @@ from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 from typing import Any, Protocol
+from uuid import uuid4
 
 import psycopg
 import structlog
@@ -37,7 +38,7 @@ RECONCILE_LOOKBACK_SECONDS = 24 * 60 * 60  # wide enough to catch jobs orphaned 
 
 
 class OwnershipLostError(Exception):
-    """Raised when the advisory lock for a (team_id, schema_id) group is no longer held."""
+    """Raised when the group lease for a (team_id, schema_id) is no longer held by this consumer."""
 
 
 @dataclass
@@ -55,6 +56,9 @@ class BatchConsumerConfig:
     recovery_interval_seconds: float = RECOVERY_INTERVAL_SECONDS
     retry_backoff_base_seconds: int = RETRY_BACKOFF_BASE_SECONDS
     recovery_grace_seconds: int | None = None
+    # Group-lease validity window. Defaults to recovery_grace_seconds so lease
+    # reclamation and the executing-status recovery sweep fire together.
+    lease_ttl_seconds: int | None = None
     reconcile_interval_seconds: float = RECONCILE_INTERVAL_SECONDS
     reconcile_grace_seconds: int = RECONCILE_GRACE_SECONDS
     reconcile_lookback_seconds: int = RECONCILE_LOOKBACK_SECONDS
@@ -67,6 +71,8 @@ class BatchConsumerConfig:
     def __post_init__(self) -> None:
         if self.recovery_grace_seconds is None:
             self.recovery_grace_seconds = RECOVERY_GRACE_SECONDS
+        if self.lease_ttl_seconds is None:
+            self.lease_ttl_seconds = self.recovery_grace_seconds
 
 
 class BatchConsumerAdapter(Protocol):
@@ -90,6 +96,8 @@ class BatchConsumerAdapter(Protocol):
         *,
         limit: int,
         retry_backoff_base_seconds: int,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> list[PendingBatch]: ...
 
     async def unlock(
@@ -97,7 +105,17 @@ class BatchConsumerAdapter(Protocol):
         conn: psycopg.AsyncConnection[Any],
         *,
         batches: list[PendingBatch],
+        owner_token: str,
     ) -> None: ...
+
+    async def release_all_owned(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        owner_token: str,
+    ) -> None:
+        """Release every group this consumer owns. Best-effort cleanup on graceful shutdown."""
+        ...
 
     async def update_status(
         self,
@@ -123,6 +141,17 @@ class BatchConsumerAdapter(Protocol):
         *,
         team_id: int,
         schema_id: str,
+        owner_token: str,
+    ) -> bool: ...
+
+    async def renew_lease(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        team_id: int,
+        schema_id: str,
+        owner_token: str,
+        lease_ttl_seconds: int,
     ) -> bool: ...
 
     async def get_stale_executing(
@@ -169,6 +198,9 @@ class BatchConsumer:
         self._config = config
         self._process_batch = process_batch
         self._adapter = adapter
+        # Per-pod identity for group-lease ownership. A new token each start means
+        # a restarted pod cannot accidentally renew a lease it abandoned pre-restart.
+        self._owner_token = str(uuid4())
         self._health_reporter = health_reporter
         self._metrics = metrics or DELTA_CONSUMER_METRICS
         self._semaphore = asyncio.Semaphore(config.max_concurrency)
@@ -185,6 +217,10 @@ class BatchConsumer:
         # batch_id -> monotonic start, for the stuck-batch watchdog.
         self._inflight_started: dict[str, float] = {}
         self._last_stuck_log_monotonic = 0.0
+
+    @property
+    def _lease_ttl_seconds(self) -> int:
+        return self._config.lease_ttl_seconds or self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS
 
     async def _connect(self) -> psycopg.AsyncConnection[Any]:
         return await psycopg.AsyncConnection.connect(
@@ -230,6 +266,7 @@ class BatchConsumer:
             max_concurrency=self._config.max_concurrency,
             poll_interval=self._config.poll_interval_seconds,
             poll_limit=self._config.poll_limit,
+            owner_token=self._owner_token,
         )
 
         try:
@@ -247,6 +284,8 @@ class BatchConsumer:
                         conn,
                         limit=self._config.poll_limit,
                         retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+                        owner_token=self._owner_token,
+                        lease_ttl_seconds=self._lease_ttl_seconds,
                     )
                 except psycopg.OperationalError as e:
                     # Queue DB unreachable — keep the pod alive; the next iteration reconnects.
@@ -281,7 +320,7 @@ class BatchConsumer:
 
     async def _process_group(self, key: tuple[int, str], batches: list[PendingBatch]) -> None:
         team_id, schema_id = key
-        # Pin the connection that holds the advisory locks so status writes stay on the same session.
+        # Pin the connection that claimed the group lease so status writes and lease renewals stay together.
         lock_conn = self._conn
         await self._semaphore.acquire()
         try:
@@ -329,9 +368,9 @@ class BatchConsumer:
             self._semaphore.release()
             try:
                 assert lock_conn is not None
-                await self._adapter.unlock(lock_conn, batches=batches)
+                await self._adapter.unlock(lock_conn, batches=batches, owner_token=self._owner_token)
             except Exception as e:
-                # A dead session already released its locks server-side; don't crash every concurrent group.
+                # An abandoned lease just expires; releasing eagerly is best-effort, so don't crash sibling groups.
                 logger.exception(
                     self._event("unlock_for_batches_failed"),
                     team_id=team_id,
@@ -348,15 +387,17 @@ class BatchConsumer:
         return await self._ensure_main_conn()
 
     async def _verify_ownership(self, lock_conn: psycopg.AsyncConnection[Any] | None, batch: PendingBatch) -> None:
-        """Raise OwnershipLostError if this session no longer holds the advisory lock."""
+        """Raise OwnershipLostError if this consumer no longer holds the group lease."""
         if lock_conn is None:
             return
         try:
-            owns = await self._adapter.verify_advisory_lock(lock_conn, team_id=batch.team_id, schema_id=batch.schema_id)
+            owns = await self._adapter.verify_advisory_lock(
+                lock_conn, team_id=batch.team_id, schema_id=batch.schema_id, owner_token=self._owner_token
+            )
         except Exception as e:
-            raise OwnershipLostError("lock verification query failed") from e
+            raise OwnershipLostError("lease verification query failed") from e
         if not owns:
-            raise OwnershipLostError(f"advisory lock lost for ({batch.team_id}, {batch.schema_id})")
+            raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
 
     async def _batch_heartbeat(
         self,
@@ -364,12 +405,27 @@ class BatchConsumer:
         batch: PendingBatch,
         attempt: int,
     ) -> None:
-        """Re-insert EXECUTING status periodically to prevent premature recovery."""
+        """Renew the group lease and re-insert EXECUTING status periodically to prevent premature recovery.
+
+        Renewing the lease and refreshing the executing-status grace window on
+        the same cadence keeps the two reclaim signals consistent: a pod that
+        stops heartbeating loses its lease and ages out of the grace window at
+        the same time. ``renew_lease`` returning False means another pod
+        reclaimed the group, so we stop heartbeating immediately.
+        """
         interval = max((self._config.recovery_grace_seconds or RECOVERY_GRACE_SECONDS) / 3, 10.0)
         while True:
             await asyncio.sleep(interval)
             try:
-                await self._verify_ownership(lock_conn, batch)
+                renewed = await self._adapter.renew_lease(
+                    lock_conn,
+                    team_id=batch.team_id,
+                    schema_id=batch.schema_id,
+                    owner_token=self._owner_token,
+                    lease_ttl_seconds=self._lease_ttl_seconds,
+                )
+                if not renewed:
+                    raise OwnershipLostError(f"group lease lost for ({batch.team_id}, {batch.schema_id})")
                 await self._adapter.update_status(
                     lock_conn,
                     batch_id=batch.id,
@@ -635,7 +691,11 @@ class BatchConsumer:
 
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
-        # Hold probe locks so a concurrent consumer can't pick up these batches mid-recovery.
+        # keep_locks lets advisory-lock sinks (duckgres) hold their probe locks
+        # through the re-queue so a concurrent consumer can't pick a batch up
+        # mid-recovery. The lease sink ignores it: get_stale_executing already
+        # excludes any group with a live lease, and the finally-unlock below is a
+        # no-op for leases this pod doesn't own.
         stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=True)
         if not stale:
             self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
@@ -686,9 +746,11 @@ class BatchConsumer:
                 finally:
                     structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
         finally:
-            # Release probe locks acquired by keep_locks=True.
+            # Release probe locks held by keep_locks=True (advisory sinks). For the
+            # lease sink this only deletes leases this pod owns, so it's a no-op for
+            # the abandoned groups recovered above.
             try:
-                await self._adapter.unlock(conn, batches=stale)
+                await self._adapter.unlock(conn, batches=stale, owner_token=self._owner_token)
             except Exception:
                 logger.exception(self._event("recovery_sweep_unlock_failed"))
 
@@ -709,13 +771,16 @@ class BatchConsumer:
         if self._recovery_conn is not None and not self._recovery_conn.closed:
             await self._recovery_conn.close()
 
-        if self._conn is not None and not self._conn.closed:
+        # Release every group we own so a surviving pod can reclaim it immediately
+        # instead of waiting out the lease TTL. Best-effort: if the connection is
+        # broken (or this is a SIGKILL we never reach), the lease just expires.
+        if self._conn is not None and not self._conn.closed and not self._conn.broken:
             try:
-                await self._conn.execute("SELECT pg_advisory_unlock_all()")
+                await self._adapter.release_all_owned(self._conn, owner_token=self._owner_token)
             except Exception as e:
-                # A broken session already lost its advisory locks; still close below.
-                logger.exception(self._event("advisory_unlock_all_failed_on_shutdown"))
+                logger.exception(self._event("release_all_owned_failed_on_shutdown"))
                 capture_exception(e)
+        if self._conn is not None and not self._conn.closed:
             await self._conn.close()
 
         logger.info(self._event("batch_consumer_stopped"))

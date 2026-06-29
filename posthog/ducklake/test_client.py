@@ -39,7 +39,7 @@ class TestDuckLakeModelRedirect:
     def test_materialized_model_resolves_to_ducklake_table_not_s3(self):
         from posthog.models import Organization, Team
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
         from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
         from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
@@ -121,6 +121,20 @@ class TestDuckLakeModelRedirect:
         assert duckgres_data_imports_table_name(schema) in postgres_sql
 
 
+class TestDuckgresShadowCompilation:
+    @mock.patch("posthog.ducklake.client.compile_hogql_to_ducklake_sql")
+    def test_materialization_compile_bypasses_warehouse_access_control(self, mock_compile):
+        from posthog.temporal.data_modeling.activities.materialize_view_duckgres import _compile_hogql_to_postgres_sql
+
+        mock_compile.return_value = ("SELECT * FROM source", {}, "SELECT * FROM source")
+
+        _compile_hogql_to_postgres_sql("SELECT * FROM source", 1)
+
+        query = mock_compile.call_args.args[1]
+        assert query.query == "SELECT * FROM source"
+        assert mock_compile.call_args.kwargs == {"bypass_warehouse_access_control": True}
+
+
 class TestExecuteDuckLakeQuery:
     def test_rejects_both_sql_and_query(self):
         with pytest.raises(ValueError, match="not both"):
@@ -172,7 +186,7 @@ class TestExecuteDuckLakeQuery:
         query = HogQLQuery(query="SELECT count() FROM events")
         result = execute_ducklake_query(1, query=query)
 
-        mock_compile.assert_called_once_with(1, query, team=None)
+        mock_compile.assert_called_once_with(1, query, team=None, user=None, bypass_warehouse_access_control=False)
         assert result.sql == "SELECT count(*) FROM events"
         assert result.hogql == "SELECT count() FROM events"
         assert result.results == [[42]]

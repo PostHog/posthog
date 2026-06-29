@@ -4,6 +4,7 @@ import uuid as uuid_mod
 from datetime import timedelta
 from typing import Optional, cast
 
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import QuerySet
 from django.utils import timezone
@@ -1888,4 +1889,73 @@ class InternalHogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMi
             )
         except Exception as e:
             logger.exception("Error in internal_process_due_schedules", error=str(e))
+            return Response({"error": "Internal server error"}, status=500)
+
+    def internal_update_batch_job_status(self, request: Request, team_id: str, batch_job_id: str) -> Response:
+        """
+        Internal endpoint for the Node-side batch resolver to write the terminal
+        status of a HogFlowBatchJob run. Idempotent: if the row is already in a
+        terminal status, returns 200 without re-writing — the resolver retries
+        this call via cyclotron retry semantics, so safe repeats are required.
+
+        Accepts: { status: "completed" | "failed" }
+        """
+        from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob  # noqa: PLC0415
+
+        if request.method != "PUT":
+            return Response({"error": "Method not allowed"}, status=405)
+
+        try:
+            team = Team.objects.get(id=int(team_id))
+        except (Team.DoesNotExist, ValueError):
+            return Response({"error": "Team not found"}, status=404)
+
+        new_status = request.data.get("status")
+        if new_status not in (HogFlowBatchJob.State.COMPLETED, HogFlowBatchJob.State.FAILED):
+            return Response(
+                {"error": "status must be one of: completed, failed"},
+                status=400,
+            )
+
+        try:
+            batch_job = HogFlowBatchJob.objects.get(id=batch_job_id, team=team)
+        except (HogFlowBatchJob.DoesNotExist, DjangoValidationError, ValueError):
+            # `DjangoValidationError` fires when `batch_job_id` is not a parseable
+            # UUID (UUIDField rejects it before the lookup). `ValueError` is a
+            # belt-and-suspenders catch for str→int / str→UUID edge cases on
+            # other backends. Either way, surface as 404, not 500.
+            return Response({"error": "Batch job not found"}, status=404)
+
+        terminal_states = {
+            HogFlowBatchJob.State.COMPLETED,
+            HogFlowBatchJob.State.FAILED,
+            HogFlowBatchJob.State.CANCELLED,
+        }
+        if batch_job.status in terminal_states:
+            # Idempotent no-op: already in a terminal state.
+            return Response(
+                {
+                    "id": str(batch_job.id),
+                    "status": batch_job.status,
+                    "no_op": True,
+                }
+            )
+
+        try:
+            batch_job.status = new_status
+            batch_job.save(update_fields=["status", "updated_at"])
+            return Response(
+                {
+                    "id": str(batch_job.id),
+                    "status": batch_job.status,
+                    "no_op": False,
+                }
+            )
+        except Exception as e:
+            logger.exception(
+                "Error in internal_update_batch_job_status",
+                error=str(e),
+                team_id=team_id,
+                batch_job_id=batch_job_id,
+            )
             return Response({"error": "Internal server error"}, status=500)

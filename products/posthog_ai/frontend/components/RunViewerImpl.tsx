@@ -29,6 +29,10 @@ export interface RunViewerProps {
      */
     interaction?: 'live' | 'read-only'
     className?: string
+    /** Applied to the thread's list wrapper (`VirtualizedThread.Root`), not the react-window scroll viewport. */
+    threadListClassName?: string
+    /** Applied to each thread item row's centered content (`VirtualizedThread.Row`); header/footer rows excluded. */
+    threadRowClassName?: string
     /**
      * Composer wiring — live mode only. Provide all of `composerValue`/`onComposerChange`/`onComposerSubmit`
      * to render the follow-up composer; the consumer owns the draft and the send (this module never POSTs
@@ -101,6 +105,8 @@ function RunViewerRoot({
     conversationId,
     interaction = 'read-only',
     className,
+    threadListClassName,
+    threadRowClassName,
     composerValue,
     onComposerChange,
     onComposerSubmit,
@@ -133,7 +139,13 @@ function RunViewerRoot({
                 }}
             >
                 <RunViewerBootstrap taskId={taskId} />
-                {children ?? <DefaultRunViewerLayout className={className} />}
+                {children ?? (
+                    <DefaultRunViewerLayout
+                        className={className}
+                        threadListClassName={threadListClassName}
+                        threadRowClassName={threadRowClassName}
+                    />
+                )}
             </RunViewerContext.Provider>
         </BindLogic>
     )
@@ -157,14 +169,18 @@ function RunViewerBootstrap({ taskId }: { taskId: string }): null {
 }
 
 /** Thread slot: the streamed run thread, with the shared run-log skeleton during the first bootstrap. */
-function RunViewerThread(): JSX.Element {
+function RunViewerThread({
+    className,
+    listClassName,
+    rowClassName,
+}: { className?: string; listClassName?: string; rowClassName?: string } = {}): JSX.Element {
     const { bootstrapLoading, threadItems } = useValues(runStreamLogic)
     const showSkeleton = bootstrapLoading && threadItems.length === 0
     if (showSkeleton) {
-        return <RunLogSkeleton />
+        return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
     // An error surfaces as a `handleStreamError` item folded into the thread, so it renders here too.
-    return <ThreadView />
+    return <ThreadView className={className} listClassName={listClassName} rowClassName={rowClassName} />
 }
 
 /**
@@ -241,19 +257,37 @@ function RunViewerComposer(): JSX.Element | null {
 }
 
 /** Default prepackaged layout: thread, then (live only) resources, prompt, composer, and context usage. */
-function DefaultRunViewerLayout({ className }: { className?: string }): JSX.Element {
+function DefaultRunViewerLayout({
+    className,
+    threadClassName,
+    threadListClassName,
+    threadRowClassName,
+}: {
+    className?: string
+    threadClassName?: string
+    threadListClassName?: string
+    threadRowClassName?: string
+}): JSX.Element {
     const { interaction } = useRunViewerContext()
     if (interaction !== 'live') {
         return (
             <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
-                <RunViewerThread />
+                <RunViewerThread
+                    className={threadClassName}
+                    listClassName={threadListClassName}
+                    rowClassName={threadRowClassName}
+                />
             </div>
         )
     }
     return (
         <div className={cn('@container/thread flex flex-col h-full overflow-hidden', className)}>
             <div className="flex-1 min-h-0">
-                <RunViewerThread />
+                <RunViewerThread
+                    className={threadClassName}
+                    listClassName={threadListClassName}
+                    rowClassName={threadRowClassName}
+                />
             </div>
             <ResourcesBar />
             <RunViewerPrompt />
