@@ -1,16 +1,17 @@
 import { dayjs } from 'lib/dayjs'
 
 import { TrendsQuery } from '~/queries/schema/schema-general'
+import { PropertyType } from '~/types'
 
 import { SchemaPropertyGroupProperty } from '../schema/schemaManagementLogic'
 import { buildPropertyGroupTrendsQuery } from './propertyGroupTrendsQuery'
 
 describe('buildPropertyGroupTrendsQuery', () => {
-    const properties = [
+    const properties: SchemaPropertyGroupProperty[] = [
         {
             id: '1',
             name: 'plan',
-            property_type: 'String',
+            property_type: PropertyType.String,
             is_required: true,
             is_optional_in_types: false,
             description: '',
@@ -18,24 +19,24 @@ describe('buildPropertyGroupTrendsQuery', () => {
         {
             id: '2',
             name: 'price',
-            property_type: 'Numeric',
+            property_type: PropertyType.Numeric,
             is_required: false,
             is_optional_in_types: false,
             description: '',
         },
-    ] as SchemaPropertyGroupProperty[]
+    ]
 
     const sourceOf = (...args: Parameters<typeof buildPropertyGroupTrendsQuery>): TrendsQuery =>
         buildPropertyGroupTrendsQuery(...args).query.source as TrendsQuery
 
     it('builds one coverage formula (propertyCount / eventCount) per property', () => {
-        const source = sourceOf('download-game', properties)
+        const source = sourceOf('purchase', properties)
 
         // Base count series A, then one is_set series per property (B, C, …).
         expect(source.series).toHaveLength(3)
-        expect(source.series[0]).toMatchObject({ event: 'download-game', math: 'total' })
+        expect(source.series[0]).toMatchObject({ event: 'purchase', math: 'total' })
         expect(source.series[1]).toMatchObject({
-            event: 'download-game',
+            event: 'purchase',
             properties: [{ key: 'plan', operator: 'is_set' }],
         })
         expect(source.trendsFilter?.formulaNodes).toEqual([
