@@ -2,9 +2,8 @@
 
 use metrics_exporter_prometheus::{PrometheusBuilder, PrometheusHandle};
 
-/// Every message that passed the gate parse, forwarded or not. A team-mismatch event that is
-/// malformed only on a gate-ignored field (e.g. a missing `person_mode`) now counts here as
-/// consumed + skipped rather than being dropped as an invisible serde error.
+/// Every message that passed the gate parse, forwarded or not. The gate ignores most fields, so a
+/// skipped event that is invalid only on an ignored field (e.g. missing `person_mode`) still counts.
 pub const EVENTS_CONSUMED: &str = "shuffler_events_consumed_total";
 pub const EVENTS_FORWARDED: &str = "shuffler_events_forwarded_total";
 pub const EVENTS_DROPPED_NO_PERSON_ID: &str = "shuffler_events_dropped_no_person_id_total";
