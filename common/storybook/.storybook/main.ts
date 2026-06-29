@@ -62,6 +62,12 @@ const config: StorybookConfig = {
             resolve: {
                 dedupe: SINGLETON_PACKAGES,
                 alias: {
+                    // react-shadow (the toolbar's shadow-DOM renderer) imports react-dom/server.
+                    // The `react-dom` singleton alias below is a prefix match, so it would rewrite
+                    // this subpath to a bare path and resolve the `default` (node) export —
+                    // server.node.js extends stream.Readable, which is undefined in the browser
+                    // build and throws at module eval. Pin the browser build, ahead of that alias.
+                    'react-dom/server': path.resolve(FRONTEND, 'node_modules', 'react-dom', 'server.browser.js'),
                     // The app's runtime deps live in frontend/node_modules, not under
                     // common/storybook. Webpack reached them via resolve.modules; Vite has no
                     // equivalent, so point the ones imported by bundled app/quill code there.
