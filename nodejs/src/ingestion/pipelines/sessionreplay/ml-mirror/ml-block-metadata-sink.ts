@@ -12,7 +12,7 @@ import { toBlockMetadataRow } from './block-metadata-row'
 export class MlBlockMetadataSink extends KafkaMetadataSink<MlBlockMetadataOutput> {
     constructor(
         outputs: IngestionOutputs<MlBlockMetadataOutput>,
-        private readonly pseudonymSecret: string
+        private readonly pseudonymSecret: string | Buffer
     ) {
         super(outputs, ML_BLOCK_METADATA_OUTPUT)
     }

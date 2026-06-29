@@ -22,6 +22,7 @@ import {
 import { MlMirrorConfig, getDefaultMlMirrorConfig } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
+import { resolvePseudonymKey } from '~/ingestion/pipelines/sessionreplay/ml-mirror/pseudonym-key'
 import { createProducerRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/producer-registry'
 import { createOutputsRegistry } from '~/ingestion/pipelines/sessionreplay/outputs/registry'
 import { BlackholeSessionBatchFileStorage } from '~/ingestion/pipelines/sessionreplay/sessions/blackhole-session-batch-writer'
@@ -60,14 +61,6 @@ export function buildMlMirrorServerConfig(
         ...overrideConfigWithEnv(getDefaultMlMirrorConfig()),
         ...config,
     }
-}
-
-/** The mirror pseudonymizes ids before they leave the account; without the secret the pseudonyms are brute-forceable. */
-export function requirePseudonymSecret(secret: string): string {
-    if (!secret) {
-        throw new Error('SESSION_RECORDING_ML_PSEUDONYM_SECRET must be set for the ML mirror deployment')
-    }
-    return secret
 }
 
 export class IngestionSessionReplayMlMirrorServer implements NodeServer {
@@ -110,7 +103,7 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         const bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
         const prefix = this.config.SESSION_RECORDING_V2_S3_PREFIX
 
-        const pseudonymSecret = requirePseudonymSecret(this.config.SESSION_RECORDING_ML_PSEUDONYM_SECRET)
+        const pseudonymSecret = await resolvePseudonymKey(this.config)
 
         // Anonymized blocks are written unencrypted, in a single prefix (no retention sharding).
         const fileStorage = s3Client

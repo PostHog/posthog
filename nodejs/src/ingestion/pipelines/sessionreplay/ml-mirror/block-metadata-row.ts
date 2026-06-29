@@ -47,7 +47,7 @@ export function parseBlockUrl(blockUrl: string): { key: string; start: number | 
 }
 
 /** Maps a flush's block metadata to a row, or null for deletion/no-op markers that reference no block. */
-export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string): MlBlockMetadataRow | null {
+export function toBlockMetadataRow(block: SessionBlockMetadata, secret: string | Buffer): MlBlockMetadataRow | null {
     if (!block.blockUrl || block.isDeleted) {
         return null
     }

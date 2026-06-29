@@ -1,7 +1,7 @@
 import { KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA } from '~/common/config/kafka-topics'
 import { getDefaultSessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 
-import { buildMlMirrorServerConfig, requirePseudonymSecret } from './ingestion-session-replay-ml-mirror-server'
+import { buildMlMirrorServerConfig } from './ingestion-session-replay-ml-mirror-server'
 
 describe('buildMlMirrorServerConfig', () => {
     it('defaults the mirror to its own consumer group, distinct from the primary ingester', () => {
@@ -25,15 +25,5 @@ describe('buildMlMirrorServerConfig', () => {
     it('lets an explicit override win over the mirror default', () => {
         const config = buildMlMirrorServerConfig({ INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID: 'custom-group' })
         expect(config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID).toBe('custom-group')
-    })
-})
-
-describe('requirePseudonymSecret', () => {
-    it('throws when the secret is missing (anonymized data would otherwise ship without it)', () => {
-        expect(() => requirePseudonymSecret('')).toThrow('SESSION_RECORDING_ML_PSEUDONYM_SECRET')
-    })
-
-    it('returns the secret when present', () => {
-        expect(requirePseudonymSecret('s3cr3t')).toBe('s3cr3t')
     })
 })
