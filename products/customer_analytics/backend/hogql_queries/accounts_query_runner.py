@@ -221,14 +221,17 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
                 offset=self.query.offset or 0,
             )
 
-        response = self.paginator.execute_hogql_query(
-            query_type="AccountsQuery",
-            query=self.to_query(),
-            team=self.team,
-            user=self.user,
-            timings=self.timings,
-            modifiers=self.modifiers,
-        )
+        try:
+            response = self.paginator.execute_hogql_query(
+                query_type="AccountsQuery",
+                query=self.to_query(),
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+            )
+        except (InternalCHQueryError, BaseHogQLError) as error:
+            raise self._row_query_evaluation_error(error) from error
 
         name_index = self.columns.index(NAME_COLUMN)
         results = [
@@ -274,6 +277,24 @@ class AccountsQueryRunner(AnalyticsQueryRunner[AccountsQueryResponse]):
             timings=self.timings,
             modifiers=self.modifiers,
         )
+
+    def _row_query_evaluation_error(self, error: Exception) -> ExposedHogQLError:
+        # Mirror of `_metric_evaluation_error` for the row query: a stale, mistyped, or
+        # property-nested column in the saved view's `select`/`orderBy`/`filterExpression`
+        # fails to resolve against `system.accounts`. Surface a friendly message instead of
+        # leaking the raw `Field not found` error. We don't isolate the offending expression
+        # by re-running each alone (as the metrics path does) because `orderBy` clauses may
+        # reference `select` aliases, so a clause that's valid in the full query would look
+        # broken in isolation — the underlying error already names the missing field.
+        detail = (
+            "Could not load accounts: a selected column, sort field, or filter references a "
+            "field that doesn't exist on accounts. It may be a column that has since been "
+            "removed, a typo, or an account property — properties must be referenced "
+            "explicitly with JSONExtract(properties, ...) rather than by bare name."
+        )
+        if isinstance(error, (ExposedHogQLError, ExposedCHQueryError)):
+            detail = f"{detail} ({error})"
+        return ExposedHogQLError(detail)
 
     def _metric_evaluation_error(self, metrics: list[str], error: Exception) -> ExposedHogQLError:
         culprits = self._isolate_failing_metrics(metrics) if len(metrics) > 1 else list(metrics)

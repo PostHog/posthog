@@ -489,6 +489,23 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         # The healthy metric should not be blamed.
         self.assertNotIn("`count()`", message)
 
+    @parameterized.expand(
+        [
+            ("select", {"select": ["name", "account_health_scores"]}),
+            ("order_by", {"orderBy": ["account_health_scores"]}),
+            ("filter_expression", {"filterExpression": "account_health_scores > 0"}),
+        ]
+    )
+    def test_stale_column_in_row_query_raises_a_friendly_error(self, _name, query_kwargs):
+        create_account(team_id=self.team.id, name="A")
+        with self.assertRaises(ExposedHogQLError) as ctx:
+            self._run_query(**query_kwargs)
+        message = str(ctx.exception)
+        # The raw "Field not found" still names the column, but it's wrapped with an
+        # actionable hint rather than escaping to error tracking.
+        self.assertIn("account_health_scores", message)
+        self.assertIn("JSONExtract(properties", message)
+
     def test_filter_expression_narrows_the_row_set(self):
         create_account(team_id=self.team.id, name="A", _properties={"score": 80})
         create_account(team_id=self.team.id, name="B", _properties={"score": 20})
