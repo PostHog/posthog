@@ -11,6 +11,7 @@ from urllib.parse import urlparse, urlunparse
 from django.conf import settings
 from django.core import signing
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -3393,6 +3394,27 @@ def _selected_autonomy_tier(payload: dict) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _sync_permission_config_to_task_run(context: dict[str, Any], integration: Integration, selected_tier: str) -> None:
+    run_id = context.get("run_id")
+    task_id = context.get("task_id")
+    if not isinstance(run_id, str) or not isinstance(task_id, str):
+        return
+
+    try:
+        task_run = TaskRun.objects.only("id", "status").get(
+            id=run_id,
+            task_id=task_id,
+            team_id=integration.team_id,
+        )
+    except (TaskRun.DoesNotExist, ValidationError, ValueError):
+        return
+
+    if task_run.is_terminal:
+        return
+
+    TaskRun.update_state_atomic(task_run.id, updates={"slack_autonomy_tier": selected_tier})
+
+
 def _handle_permission_config_select(payload: dict) -> HttpResponse:
     resolved = _resolve_permission_interaction(payload)
     if resolved is None:
@@ -3418,6 +3440,7 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
             "autonomy_tier": selected_tier,
         },
     )
+    _sync_permission_config_to_task_run(context, integration, selected_tier)
 
     selected_label = SlackAutonomyTier(selected_tier).label
     _post_permission_ephemeral_feedback(payload, f"Approval config saved: `{selected_label}`.")

@@ -599,6 +599,8 @@ class TestRepoPickerOptions(TestCase):
         settings = SlackSettings.objects.get(slack_workspace_id="T12345", slack_user_id="U123")
         assert settings.default_integration_id == self.posthog_code_integration.id
         assert settings.autonomy_tier == SlackAutonomyTier.FULL_AUTO
+        task_run.refresh_from_db()
+        assert task_run.state["slack_autonomy_tier"] == SlackAutonomyTier.FULL_AUTO
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
         assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]
