@@ -1,20 +1,23 @@
 """Test that we capture exceptions in activities and workflows to PostHog."""
 
 import uuid
+import asyncio
 import datetime as dt
 from dataclasses import dataclass
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from unittest.mock import patch
 
+import temporalio.exceptions
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import ActivityInboundInterceptor, UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _PostHogClientActivityInboundInterceptor
 
 
 @dataclass
@@ -188,3 +191,30 @@ async def test_workflow_only_error_is_captured(temporal_client: Client):
         assert isinstance(workflow_call[0][0], ApplicationError)
         assert workflow_call[1]["properties"]["temporal.execution_type"] == "workflow"
         assert workflow_call[1]["properties"]["temporal.workflow.id"] == workflow_id
+
+
+class _RaisingActivityInbound(ActivityInboundInterceptor):
+    """Inner interceptor whose execute_activity always raises the given exception."""
+
+    def __init__(self, exc: BaseException) -> None:
+        self._exc = exc
+
+    async def execute_activity(self, input: Any) -> Any:
+        raise self._exc
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cancellation",
+    [asyncio.CancelledError(), temporalio.exceptions.CancelledError("cancelled")],
+)
+async def test_activity_cancellation_is_not_captured(cancellation: BaseException):
+    # Temporal cancels activities on worker shutdown/deploy/heartbeat timeout. The cancellation must
+    # propagate untouched — capturing it would create error-tracking noise on every deploy.
+    interceptor = _PostHogClientActivityInboundInterceptor(_RaisingActivityInbound(cancellation))
+
+    with patch("posthog.temporal.common.posthog_client.capture_exception") as mock_ph_capture:
+        with pytest.raises(type(cancellation)):
+            await interceptor.execute_activity(SimpleNamespace(args=[]))
+
+        mock_ph_capture.assert_not_called()

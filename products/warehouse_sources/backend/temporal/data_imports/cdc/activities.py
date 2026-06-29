@@ -54,6 +54,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCErrorInfo,
     CDCSchemaMergeError,
     classify_cdc_error,
+    is_cancellation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
@@ -696,6 +697,12 @@ class CDCExtractActivity:
             self._update_log_positions()
 
         except Exception as exc:
+            # Temporal cancels this sync activity on worker shutdown, deploy, or heartbeat timeout by
+            # raising CancelledError (a subclass of Exception) — often mid-query inside the WAL flush.
+            # That's not a CDC failure: let it propagate untouched so we don't mark schemas FAILED,
+            # log cdc_extract_failed, or capture phantom error-tracking issues on every deploy.
+            if is_cancellation(exc):
+                raise
             if self.adapter is not None and self.adapter.is_slot_invalidation_error(exc):
                 try:
                     self._recover_from_slot_invalidation(exc)
@@ -1211,6 +1218,10 @@ class CDCExtractActivity:
         policy stops re-running a deterministic failure; retryable ones re-raise as-is to let
         Temporal retry.
         """
+        # A cancellation reaching here (e.g. raised while slot-invalidation recovery was running) is
+        # not a CDC failure: re-raise it untouched rather than classifying it and marking schemas FAILED.
+        if is_cancellation(exc):
+            raise exc
         info = self._handle_failure(exc)
         if not info.retryable:
             self._capture_non_retryable(info)

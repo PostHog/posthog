@@ -1,4 +1,5 @@
 import uuid
+import asyncio
 from contextlib import nullcontext
 from datetime import UTC, datetime
 from typing import Literal
@@ -8,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import pyarrow as pa
 import psycopg.errors
+import temporalio.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.activities import (
@@ -824,6 +826,57 @@ class TestCDCExtractActivity:
         with pytest.raises(RuntimeError, match="connection lost"):
             cdc_extract_activity(inputs)
 
+        mock_reader.close.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("temporal", temporalio.exceptions.CancelledError("cancelled")),
+            ("asyncio", asyncio.CancelledError()),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_cancellation_propagates_without_marking_schema_failed(
+        self,
+        _name,
+        cancellation,
+        mock_close_conns,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+    ):
+        # Temporal cancels the activity on worker shutdown/deploy/heartbeat timeout mid-query. The
+        # broad except must NOT classify this as a CDC failure — otherwise every deploy leaves
+        # phantom FAILED schemas and fires error-tracking noise. The cancellation must re-raise as-is
+        # with the schema left RUNNING (set at the start of the run), and the reader still closed.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = cancellation
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.info.return_value = MagicMock(workflow_id="wf-1", workflow_run_id="run-1", attempt=1)
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+
+        with pytest.raises(type(cancellation)):
+            cdc_extract_activity(inputs)
+
+        # Left RUNNING (set at the start of the run), never flipped to FAILED by the failure path.
+        assert schema.status == "Running"
+        # Cancellation never reaches the slot-invalidation classifier or the failure path.
+        mock_adapter.is_slot_invalidation_error.assert_not_called()
         mock_reader.close.assert_called_once()
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")

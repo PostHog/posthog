@@ -11,9 +11,12 @@ user-facing copy, and the orchestration-level fallbacks.
 from __future__ import annotations
 
 import enum
+import asyncio
 import dataclasses
 from collections.abc import Iterator
 from typing import TYPE_CHECKING
+
+import temporalio.exceptions
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import CDCSourceAdapter
@@ -139,6 +142,20 @@ def _iter_cause_chain(exc: BaseException) -> Iterator[BaseException]:
         seen.add(id(current))
         yield current
         current = current.__cause__ or current.__context__
+
+
+def is_cancellation(exc: BaseException) -> bool:
+    """True if ``exc`` (or anything in its cause chain) is a Temporal/asyncio cancellation.
+
+    Temporal cancels a sync activity on worker shutdown, deploy, or heartbeat timeout by raising
+    ``CancelledError`` — which subclasses ``Exception``, so a broad ``except Exception`` swallows it
+    and misroutes it through the failure path. It's not a CDC failure: callers must let it propagate
+    untouched rather than classifying it, marking schemas FAILED, or capturing it as an error.
+    """
+    return any(
+        isinstance(err, (asyncio.CancelledError, temporalio.exceptions.CancelledError))
+        for err in _iter_cause_chain(exc)
+    )
 
 
 def classify_cdc_error(exc: BaseException, adapter: CDCSourceAdapter | None) -> CDCErrorInfo:

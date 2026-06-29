@@ -1,4 +1,7 @@
+import asyncio
+
 import psycopg.errors
+import temporalio.exceptions
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -9,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import 
     CDCTransactionTooLargeError,
     cdc_error_info,
     classify_cdc_error,
+    is_cancellation,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 
@@ -110,3 +114,29 @@ class TestClassifyCDCError:
         assert info.category is CDCErrorCategory.CONNECTION_FAILED
         assert "hunter2" not in info.friendly_message
         assert "secret.db.internal" not in info.friendly_message
+
+
+class TestIsCancellation:
+    def test_temporal_cancellation_is_detected(self):
+        assert is_cancellation(temporalio.exceptions.CancelledError("cancelled")) is True
+
+    def test_asyncio_cancellation_is_detected(self):
+        assert is_cancellation(asyncio.CancelledError()) is True
+
+    def test_cancellation_in_cause_chain_is_detected(self):
+        # Temporal often injects the cancellation mid-query, so it surfaces wrapped by whatever
+        # blocking call was interrupted (e.g. a psycopg error). The whole chain must be walked,
+        # otherwise the broad except misclassifies the run as a retryable CDC failure.
+        wrapper = psycopg.OperationalError("query interrupted")
+        wrapper.__cause__ = temporalio.exceptions.CancelledError("cancelled")
+        assert is_cancellation(wrapper) is True
+
+    @parameterized.expand(
+        [
+            ("runtime", RuntimeError("boom")),
+            ("connection", psycopg.OperationalError("connection refused")),
+            ("transaction_too_large", CDCTransactionTooLargeError("500001 events")),
+        ]
+    )
+    def test_non_cancellation_is_not_detected(self, _name, exc):
+        assert is_cancellation(exc) is False

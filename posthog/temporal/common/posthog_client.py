@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import is_dataclass
 from typing import Any, Optional
 
@@ -64,6 +65,8 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         _tag_team_id_on_current_span(input)
         try:
             return await super().execute_activity(input)
+        except (asyncio.CancelledError, temporalio.exceptions.CancelledError):
+            raise  # Cancellation (worker shutdown, deploy, or heartbeat timeout) is not an error to capture
         except Exception as e:
             activity_info = activity.info()
             capture_kwargs = {
