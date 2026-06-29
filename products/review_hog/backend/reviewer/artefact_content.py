@@ -47,12 +47,17 @@ ReviewIssueCategory = Literal[
 class ReviewIssueFinding(BaseModel):
     """Content schema for an `issue_finding` artefact: one durable review finding.
 
-    `issue_key` is the finding's stable identity across review turns — the latest row per key is
-    the current state — so a re-review marks a finding still-open / resolved / newly-appeared
-    instead of duplicating it.
+    `issue_key` identifies the finding within its turn (it's `run_index`-prefixed, so the same
+    positional id reused by a later turn can't collide with this one), and `run_index` records the
+    turn that produced it — publishing scopes to a single turn's findings instead of replaying the
+    whole report history. Robust cross-turn *semantic* identity (recognizing the same problem as the
+    PR evolves) is a separate, loop-phase concern.
     """
 
-    issue_key: str = Field(description="Stable identity across turns (e.g. file + anchor + perspective).")
+    issue_key: str = Field(description="Identity within a turn (run_index + file + anchor + perspective + id).")
+    run_index: int = Field(
+        description="The review turn (1-based) that produced this finding; scopes publishing to one turn."
+    )
     title: str = Field(description="Issue title.")
     file: str = Field(description="Repository-relative path to the file containing the issue.")
     lines: list[LineRange] = Field(default_factory=list, description="Affected line ranges.")
