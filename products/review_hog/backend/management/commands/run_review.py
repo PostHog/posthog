@@ -26,7 +26,11 @@ class Command(BaseCommand):
             "--user-id",
             required=True,
             type=int,
-            help="User the sandbox tasks run as (the PR's author, when triggered in the cloud)",
+            help=(
+                "User the sandbox tasks run as (the PR's author, when triggered in the cloud). The CLI "
+                "also pins this as the acting user, so the review applies this user's enabled perspectives "
+                "regardless of the PR author — keeping eval runs deterministic against any PR."
+            ),
         )
         parser.add_argument(
             "--publish",
@@ -44,5 +48,7 @@ class Command(BaseCommand):
         publish = options["publish"]
         mode = "publish" if publish else "no-publish"
         self.stdout.write(self.style.MIGRATE_HEADING(f"ReviewHog ▶ starting · {pr_url} · team {team_id} · {mode}"))
-        report_id = execute_review_pr_workflow(pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish)
+        report_id = execute_review_pr_workflow(
+            pr_url=pr_url, team_id=team_id, user_id=user_id, publish=publish, acting_user_id=user_id
+        )
         self.stdout.write(self.style.SUCCESS(f"ReviewHog ✓ finished · report {report_id}"))
