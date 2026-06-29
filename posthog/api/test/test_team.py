@@ -1212,12 +1212,17 @@ def team_api_test_factory():
             # `{attr, code, detail, type}` envelope (note `invalid` is rendered as `invalid_input`).
             # The per-field/per-value matrix lives in TestTeamSerializerValidationNoDB, which
             # exercises the same TeamSerializer validators without a database.
-            response = self.client.patch("/api/environments/@current/", {"session_recording_sample_rate": "1.5"})
+            # Use a non-numeric value so DRF raises the raw `invalid` code — this is the case that
+            # exercises exceptions-hog rendering it as `invalid_input`. A numeric out-of-range value
+            # yields `max_value`, which is passed through unchanged and would not guard the rename.
+            response = self.client.patch(
+                "/api/environments/@current/", {"session_recording_sample_rate": "Welwyn Garden City"}
+            )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json() == {
                 "attr": "session_recording_sample_rate",
-                "code": "max_value",
-                "detail": "Ensure this value is less than or equal to 1.",
+                "code": "invalid_input",
+                "detail": "A valid number is required.",
                 "type": "validation_error",
             }
 
