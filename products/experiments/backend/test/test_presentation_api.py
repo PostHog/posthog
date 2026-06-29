@@ -2191,6 +2191,74 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["parameters"]["recommended_sample_size"], 1500)
 
+    def test_parameters_feature_flag_config_is_sourced_from_the_flag(self):
+        """The `parameters` projection sources feature-flag config (variants, rollout percentage,
+        aggregation group type) from the linked flag, not the stored `parameters` column. This is
+        what lets us stop persisting the mirror — a stale column must never surface in the response.
+        """
+        ff_key = "ff-config-from-flag"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Source of truth",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control Group", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 100,
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        # Make the flag (the source of truth) diverge from the stored mirror: new rollouts,
+        # an aggregation group type, and a 20% overall rollout.
+        flag = FeatureFlag.objects.get(key=ff_key, team_id=self.team.id)
+        flag.filters = {
+            "groups": [{"properties": [], "rollout_percentage": 20}],
+            "multivariate": {
+                "variants": [
+                    {"key": "control", "name": "Control Group", "rollout_percentage": 60},
+                    {"key": "test", "name": "Test Variant", "rollout_percentage": 40},
+                ]
+            },
+            "aggregation_group_type_index": 1,
+        }
+        flag.save()
+
+        # Leave a deliberately stale mirror in the column — what the reverse-sync used to keep
+        # fresh. The projection must ignore it entirely and read from the flag.
+        experiment = Experiment.objects.get(id=experiment_id)
+        experiment.parameters = {
+            **(experiment.parameters or {}),
+            "feature_flag_variants": [{"key": "stale", "rollout_percentage": 99}],
+            "rollout_percentage": 100,
+            "aggregation_group_type_index": None,
+        }
+        experiment.save()
+
+        expected_variants = [
+            {"key": "control", "name": "Control Group", "rollout_percentage": 60, "split_percent": 60},
+            {"key": "test", "name": "Test Variant", "rollout_percentage": 40, "split_percent": 40},
+        ]
+
+        # Detail endpoint (ExperimentSerializer)
+        detail_parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()[
+            "parameters"
+        ]
+        self.assertEqual(detail_parameters["feature_flag_variants"], expected_variants)
+        self.assertEqual(detail_parameters["rollout_percentage"], 20)
+        self.assertEqual(detail_parameters["aggregation_group_type_index"], 1)
+
+        # List endpoint (ExperimentBasicSerializer shares the same projection)
+        results = self.client.get(f"/api/projects/{self.team.id}/experiments/").json()["results"]
+        list_parameters = next(e["parameters"] for e in results if e["id"] == experiment_id)
+        self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
+        self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
+
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
         response = self.client.post(
