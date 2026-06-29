@@ -1,6 +1,7 @@
 import json
 import asyncio
 from collections.abc import Callable, Sequence
+from functools import partial
 from typing import Any, Literal
 
 from django.conf import settings
@@ -413,11 +414,15 @@ class DeltaTableHelper:
                             .execute()
                         )
 
-                    # Bind the loop variables as defaults so the closure captures this
-                    # iteration's values, not the last iteration's.
+                    # partial binds this iteration's values now (the retry helper supplies
+                    # the table positionally), so the closure can't capture the wrong
+                    # partition's data from a later loop iteration.
                     merge_stats = await self._run_delta_write_with_retry(
-                        lambda table, ft=filtered_table, p=predicate, mcp=merge_commit_properties: _do_merge(
-                            table, ft, p, mcp
+                        partial(
+                            _do_merge,
+                            filtered_table=filtered_table,
+                            predicate=predicate,
+                            merge_commit_properties=merge_commit_properties,
                         ),
                         existing_delta_table,
                         f"merge partition={partition}",
