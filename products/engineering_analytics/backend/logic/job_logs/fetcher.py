@@ -12,19 +12,30 @@ from posthog.models.integration import GITHUB_API_VERSION, _is_safe_github_repo_
 
 _GITHUB_API = "https://api.github.com"
 _BASE_HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": GITHUB_API_VERSION}
+# A connected repo's failed job can print an arbitrarily large log; cap the bytes we pull into memory
+# before thinning (the thinner only caps line count, after the bytes are already decoded).
+_MAX_LOG_BYTES = 20 * 1024 * 1024
 
 
-def fetch_job_log(repo: str, job_id: int, access_token: str, *, timeout: int = 60) -> str | None:
-    """Return the job's full log text, or None if GitHub has purged it (404 — expected for old jobs)."""
+def fetch_job_log(
+    repo: str, job_id: int, access_token: str, *, timeout: int = 60, max_bytes: int = _MAX_LOG_BYTES
+) -> str | None:
+    """Return the job's log text (capped at ``max_bytes``), or None if GitHub purged it (404)."""
     if not _is_safe_github_repo_path(repo):
         # repo is team-writable source config; reject anything but plain owner/repo so a crafted
         # value can't steer this authenticated request to a different GitHub endpoint.
         raise ValueError(f"Unsafe GitHub repo path: {repo!r}")
     url = f"{_GITHUB_API}/repos/{repo}/actions/jobs/{job_id}/logs"
     headers = {**_BASE_HEADERS, "Authorization": f"Bearer {access_token}"}
-    response = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-    raise_if_github_rate_limited(response)
-    if response.status_code == 404:
-        return None
-    response.raise_for_status()
-    return response.text
+    # Stream and stop at the byte budget so a pathological log can't OOM the worker at fetch time.
+    with requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True) as response:
+        raise_if_github_rate_limited(response)
+        if response.status_code == 404:
+            return None
+        response.raise_for_status()
+        body = bytearray()
+        for chunk in response.iter_content(chunk_size=65536):
+            body.extend(chunk)
+            if len(body) >= max_bytes:
+                break
+        return bytes(body[:max_bytes]).decode("utf-8", errors="replace")

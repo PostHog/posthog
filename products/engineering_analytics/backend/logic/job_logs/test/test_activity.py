@@ -38,6 +38,7 @@ def _patch(monkeypatch, *, acquired=True, archive="l1\nl2\nl3"):
     )
     monkeypatch.setattr(activity_module, "fetch_job_log", lambda _repo, _job_id, _token: archive)
     monkeypatch.setattr(activity_module, "JobLogsEmitter", _FakeEmitter)
+    monkeypatch.setattr(activity_module.settings, "OTLP_LOGS_INGEST_ENDPOINT", "http://localhost:8010/i/v1/logs")
 
 
 async def test_emits_and_returns_line_count(monkeypatch):
@@ -68,3 +69,20 @@ async def test_log_unavailable_is_benign(monkeypatch):
     monkeypatch.setattr(activity_module, "fetch_job_log", lambda *_args, **_kwargs: None)
     result = await fetch_and_emit_job_log_activity(_INPUTS)
     assert result == {"status": "log_unavailable", "job_id": 3, "lines": 0}
+
+
+async def test_raises_when_export_disabled(monkeypatch):
+    # No Logs endpoint configured: raise (retryable) before fetching, so the failure isn't marked
+    # done-and-unretryable and we don't spend egress budget on a job we can't emit.
+    fetched = {"called": False}
+
+    def _fetch(*_args, **_kwargs):
+        fetched["called"] = True
+        return "x"
+
+    _patch(monkeypatch)
+    monkeypatch.setattr(activity_module.settings, "OTLP_LOGS_INGEST_ENDPOINT", "")
+    monkeypatch.setattr(activity_module, "fetch_job_log", _fetch)
+    with pytest.raises(ApplicationError):
+        await fetch_and_emit_job_log_activity(_INPUTS)
+    assert fetched["called"] is False

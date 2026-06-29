@@ -37,6 +37,13 @@ def test_raises_on_unexpected_error(requests_mock):
         fetch_job_log("PostHog/posthog", 123, "tok")
 
 
+def test_caps_oversized_log(requests_mock):
+    # A connected repo's job can print an arbitrarily large log; the fetch must bound the bytes
+    # pulled into memory rather than decode the whole response.
+    requests_mock.get(_URL, status_code=200, text="x" * 500)
+    assert len(fetch_job_log("PostHog/posthog", 123, "tok", max_bytes=50)) == 50
+
+
 @pytest.mark.parametrize(
     "bad_repo",
     [
