@@ -80,9 +80,17 @@ export const findingsLogic = kea<findingsLogicType>([
                         return []
                     }
                     // One batched request → one ClickHouse round-trip for every run's report links,
-                    // replacing the per-run fan-out. On failure kea-loaders keeps the prior value, so a
-                    // failed poll leaves the existing report chips on screen rather than clearing them.
-                    return await api.signalScout.runs.emissionReportsBatch(runs.map((run) => run.run_id))
+                    // replacing the per-run fan-out. Report chips are optional enrichment over findings
+                    // that already loaded via `emissions`, and the retry listener re-polls this while any
+                    // recent finding is unlinked — so swallow failures and keep the prior links rather than
+                    // letting the throw hit the global loaders error handler (a token with `signal_scout:read`
+                    // but not `task:read` 403s this endpoint on every poll). The `emissions` loader keeps
+                    // throwing: that one is the page's actual content and should surface an error/retry state.
+                    try {
+                        return await api.signalScout.runs.emissionReportsBatch(runs.map((run) => run.run_id))
+                    } catch {
+                        return values.emissionReports
+                    }
                 },
             },
         ],
