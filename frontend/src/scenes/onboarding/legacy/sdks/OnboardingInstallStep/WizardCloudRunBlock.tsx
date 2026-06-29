@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCheckCircle, IconGithub, IconPullRequest } from '@posthog/icons'
+import { IconCheckCircle, IconChevronDown, IconGithub, IconPullRequest } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -112,8 +112,11 @@ export function WizardCloudRunBlock({
                                 integrationId={githubIntegration.id}
                                 value={selectedRepository ?? ''}
                                 onChange={(repository) => setSelectedRepository(repository)}
-                                className="pl-7"
+                                className="pl-7 pr-7"
                             />
+                            {!selectedRepository && (
+                                <IconChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 z-10 text-base text-muted pointer-events-none" />
+                            )}
                         </div>
                         <LemonButton
                             type="primary"
@@ -126,7 +129,7 @@ export function WizardCloudRunBlock({
                             Install PostHog here
                         </LemonButton>
                     </div>
-                    <div className={`flex items-center gap-1.5 text-xs text-muted ${hideHog ? 'justify-center' : ''}`}>
+                    <div className="flex items-center gap-1.5 text-xs text-muted">
                         <IconCheckCircle className="text-success" />
                         <span>
                             Connected{githubIntegration.display_name ? ` to ${githubIntegration.display_name}` : ''}

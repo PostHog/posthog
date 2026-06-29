@@ -85,7 +85,11 @@ function InstallOptions(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             {/* Frameworks are the same whichever way the wizard runs, so the badges sit above the selector. */}
-            {isCloudOrDev && <WizardFrameworkBadges />}
+            {isCloudOrDev && (
+                <div className="pb-2">
+                    <WizardFrameworkBadges />
+                </div>
+            )}
             {offerCloud && (
                 <LemonSegmentedButton
                     fullWidth
