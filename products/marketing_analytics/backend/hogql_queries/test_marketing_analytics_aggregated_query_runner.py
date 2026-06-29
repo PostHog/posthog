@@ -3,7 +3,7 @@ from typing import Optional
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
-from posthog.schema import BaseMathType, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
+from posthog.schema import BaseMathType, CompareFilter, DateRange, MarketingAnalyticsAggregatedQuery, NodeKind
 
 from posthog.hogql.parser import parse_select
 from posthog.hogql.test.utils import pretty_print_in_tests
@@ -78,3 +78,32 @@ class TestMarketingAnalyticsAggregatedQueryRunner(ClickhouseTestMixin, BaseTest)
 
         # Snapshot the query
         assert pretty_print_in_tests(hogql, self.team.pk) == self.snapshot
+
+    def test_compare_pairs_periods_with_cross_join(self):
+        # The two single-row periods must be paired with a CROSS JOIN. A LEFT JOIN on a constant
+        # condition does not match in ClickHouse, which silently zeroed every previous-period value
+        # in the compare. (The prod ClickHouse can't be reproduced locally — it joins `ON 1` fine —
+        # so this guards the SQL structure, which is the contract.)
+        query = MarketingAnalyticsAggregatedQuery(
+            dateRange=self.default_date_range,
+            compareFilter=CompareFilter(compare=True),
+            properties=[],
+        )
+        runner = self._create_query_runner(query)
+
+        mock_adapter = Mock()
+        mock_adapter.get_source_id.return_value = "test_source"
+        mock_adapter.supports_level.return_value = True
+        mock_adapter.build_query.return_value = parse_select(
+            "SELECT 'Campaign' as campaign, 'id1' as id, 'google' as source, "
+            "100 as impressions, 10 as clicks, 50.0 as cost, 5 as reported_conversion, "
+            "25.0 as reported_conversion_value, 'Campaign' as match_key"
+        )
+
+        # Patch on the class so the previous-period runner (a fresh instance) is mocked too.
+        with patch.object(
+            MarketingAnalyticsAggregatedQueryRunner, "_get_marketing_source_adapters", return_value=[mock_adapter]
+        ):
+            hogql = runner.calculate_with_compare().to_hogql()
+
+        assert "CROSS JOIN" in hogql, f"compare must pair the periods with a CROSS JOIN. Got: {hogql}"

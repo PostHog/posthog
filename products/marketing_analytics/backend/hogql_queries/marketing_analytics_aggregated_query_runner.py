@@ -216,17 +216,16 @@ class MarketingAnalyticsAggregatedQueryRunner(
         previous_period_query = previous_runner.to_query()
         current_period_query = self.to_query()
 
+        # Both sides are a single aggregated row, so pair them with a CROSS JOIN. A LEFT JOIN on a
+        # constant condition does not match in ClickHouse (the previous columns fall back to defaults),
+        # which silently zeroed every previous-period value in the compare.
         join_expr = ast.JoinExpr(
             table=current_period_query,
             alias="current_period",
             next_join=ast.JoinExpr(
                 table=previous_period_query,
                 alias="previous_period",
-                join_type="LEFT JOIN",
-                constraint=ast.JoinConstraint(
-                    expr=ast.Constant(value=1),  # Always join since there's only one row each
-                    constraint_type="ON",
-                ),
+                join_type="CROSS JOIN",
             ),
         )
 
