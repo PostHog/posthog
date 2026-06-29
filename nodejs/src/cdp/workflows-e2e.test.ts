@@ -1002,15 +1002,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).not.toHaveBeenCalled()
         })
 
-        // Skipped: the only test exercising the pure clickhouse_person -> matcher wake path (no
-        // analytics event, matched solely by person_id). It fails in CI with 0 wakes, yet every static
-        // layer checks out by inspection — person_id is persisted as TEXT 'uuid', the findParkedJobs
-        // person-id branch, the person.properties bytecode (byte-identical to a passing executor test),
-        // and isEvaluableCondition. The failure lives in runtime behavior the unit tests mock out, and
-        // it could not be reproduced here (no live Postgres/Cyclotron). Re-enable once it can be run
-        // against real infra and root-caused. The matcher's person-id wake logic is covered by unit
-        // tests with mocked Postgres, so this is a coverage gap on the e2e seam, not on the logic.
-        it.skip('wakes a parked condition wait on a person-property change with no analytics event', async () => {
+        it('wakes a parked condition wait on a person-property change with no analytics event', async () => {
             // The core of removing the 10-minute poll: a property change that produces no analytics
             // event (only a clickhouse_person mutation) must still wake the wait. The matcher's
             // person stream synthesizes a $person_updated globals carrying the new person.properties,
@@ -1020,8 +1012,28 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                 condition: { filters: personPropertyConditionFilters('plan', 'enterprise') },
                 max_wait_duration: '5m',
             })
-            // Trigger person has no `plan`, so the condition fails on entry and the job parks with
-            // person_id set to the trigger person's id ('uuid').
+            // person is not persisted in the job state — the worker re-resolves it from the person store
+            // on dequeue (CyclotronPerson.id = person.uuid). Without a resolvable person the re-parked job
+            // stores person_id = null and the person-stream matcher can never find it. Production resolves
+            // person_id during ingestion before the job parks; mirror that so the parked job carries
+            // person_id = 'uuid' — the same id the clickhouse_person mutation below targets. The resolved
+            // person has no `plan`, so the condition still fails on entry and the job parks as expected.
+            mockPersonRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'uuid',
+                    team_id: team.id,
+                    properties: { email: 'test@posthog.com' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
             await triggerWorkflow(createGlobals())
             await expectParked()
 
