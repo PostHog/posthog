@@ -181,6 +181,33 @@ class TestExternalDataSchemaAdmin(BaseTest):
                     "partitioning_keys_override": None,
                 },
             ),
+            (
+                # Multi-select submits repeated values (a list) rather than a comma-joined string.
+                "to_md5_multiselect_keys",
+                {"partition_mode": "datetime", "partition_format": "month", "partitioning_enabled": True},
+                {"partition_mode": "md5", "partition_count": "10", "partitioning_keys": ["record_id", "action_date"]},
+                {
+                    "partition_mode_override": "md5",
+                    "partition_count_override": 10,
+                    "partitioning_keys_override": ["record_id", "action_date"],
+                },
+            ),
+            (
+                # In-place format change with the mode unchanged — the merged "repartition" case
+                # that used to be a separate action. No keys needed since the mode isn't changing.
+                "datetime_in_place_format_change",
+                {
+                    "partition_mode": "datetime",
+                    "partition_format": "week",
+                    "partitioning_keys": ["action_date"],
+                    "partitioning_enabled": True,
+                },
+                {"partition_mode": "datetime", "partition_format": "day"},
+                {
+                    "partition_mode_override": "datetime",
+                    "partition_format": "day",
+                },
+            ),
         ]
     )
     def test_change_partition_mode_writes_overrides(
@@ -197,7 +224,7 @@ class TestExternalDataSchemaAdmin(BaseTest):
             patch(f"{_ADMIN_MODULE}._is_schedule_paused", return_value=True),
             patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.change_partition_mode_view(self._request("post", post_data), schema.id)
+            response = self.admin.repartition_view(self._request("post", post_data), schema.id)
 
         assert response.status_code == 302
         schema.refresh_from_db()
@@ -210,11 +237,11 @@ class TestExternalDataSchemaAdmin(BaseTest):
 
     @parameterized.expand(
         [
-            # datetime/numerical need exactly one key. The change-mode count/size inputs are
-            # intentionally not `required` (the form disables them when their mode isn't selected,
-            # so a hidden control can't block submission), which means an empty submission reaches
-            # the server and must be rejected here rather than blowing up on int("") or staging a
-            # half-built override.
+            # datetime/numerical need exactly one key (here a mode change supplies none / too many).
+            # The count/size inputs are intentionally not `required` (the form disables them when
+            # their mode isn't selected, so a hidden control can't block submission), which means an
+            # empty submission reaches the server and must be rejected here rather than blowing up on
+            # int("") or staging a half-built override.
             (
                 "datetime_without_single_key",
                 {"partition_mode": "datetime", "partitioning_keys": "record_id,action_date"},
@@ -230,7 +257,7 @@ class TestExternalDataSchemaAdmin(BaseTest):
             patch(f"{_ADMIN_MODULE}.sync_connect"),
             patch(f"{_ADMIN_MODULE}._start_external_data_workflow") as mock_start,
         ):
-            response = self.admin.change_partition_mode_view(self._request("post", post_data), schema.id)
+            response = self.admin.repartition_view(self._request("post", post_data), schema.id)
 
         assert response.status_code == 302
         schema.refresh_from_db()
@@ -249,7 +276,7 @@ class TestExternalDataSchemaAdmin(BaseTest):
             patch.object(self.admin, "has_change_permission", return_value=False),
         ):
             with self.assertRaises(PermissionDenied):
-                self.admin.change_partition_mode_view(self._request("post", post_data), schema.id)
+                self.admin.repartition_view(self._request("post", post_data), schema.id)
 
         schema.refresh_from_db()
         assert "partition_mode_override" not in schema.sync_type_config

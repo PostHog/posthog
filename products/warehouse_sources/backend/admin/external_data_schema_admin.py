@@ -1,5 +1,5 @@
 import time
-from typing import Any, assert_never, get_args
+from typing import Any, assert_never, cast, get_args
 
 from django.conf import settings
 from django.contrib import admin, messages
@@ -65,8 +65,8 @@ def _parse_positive_int(request, field: str, label: str) -> int | None:
 
     Returns the parsed value, or None if the field is empty / not an integer / < 1
     (after posting the appropriate `messages.error`). Callers redirect back to the
-    change page when None is returned. Shared by the repartition and change-partition-mode
-    views, whose forms both take operator-typed partition counts/sizes.
+    change page when None is returned. The repartition form takes operator-typed partition
+    counts/sizes.
     """
     raw = request.POST.get(field, "").strip()
     if not raw:
@@ -81,6 +81,22 @@ def _parse_positive_int(request, field: str, label: str) -> int | None:
         messages.error(request, f"{label} must be >= 1; got {value}.")
         return None
     return value
+
+
+def _parse_partition_keys(request) -> list[str]:
+    """Collect partitioning keys from POST, order-preserving and de-duplicated.
+
+    Handles both form shapes: the multi-select (synced tables) submits repeated
+    `partitioning_keys` values, while the free-text fallback (unsynced tables) submits a
+    single comma-separated value. Returns [] when none were supplied.
+    """
+    keys: list[str] = []
+    for raw in request.POST.getlist("partitioning_keys"):
+        for part in raw.split(","):
+            stripped = part.strip()
+            if stripped and stripped not in keys:
+                keys.append(stripped)
+    return keys
 
 
 @admin.register(ExternalDataSchema)
@@ -118,11 +134,6 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
                 name="external_data_schema_repartition",
             ),
             path(
-                "<uuid:schema_id>/change-partition-mode/",
-                self.admin_site.admin_view(self.change_partition_mode_view),
-                name="external_data_schema_change_partition_mode",
-            ),
-            path(
                 "<uuid:schema_id>/trigger-sync/",
                 self.admin_site.admin_view(self.trigger_sync_view),
                 name="external_data_schema_trigger_sync",
@@ -141,16 +152,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
         return custom_urls + urls
 
     def repartition_view(self, request, schema_id):
-        # Update the partition knob that matches the schema's partition_mode AND
-        # immediately trigger a non-billable resync with reset_pipeline=True.
-        # Repartition without a reset risks mixing old/new partition layouts in
-        # the same Delta table, which corrupts the data with no easy way to
-        # recover — so the two actions are bundled.
-        #
-        # We require an explicit partition_mode on the schema. The pipeline picks
-        # the mode the first time a table is partitioned (based on column shape);
-        # forcing a mode here would cause the next sync to crash if the table
-        # doesn't carry a column compatible with that mode.
+        # Stage partition settings and trigger a non-billable reset resync. Covers both
+        # repartitioning in place (keep the mode, change its knob — count/size/format) and
+        # switching the mode entirely (e.g. md5 → datetime on a date column). The chosen
+        # mode/keys/knob are written as *_override keys that survive the bundled reset and are
+        # consumed once applied. Repartition without the reset would mix old and new layouts in
+        # the same Delta table and corrupt it, so the reset is always bundled in.
         if request.method != "POST":
             return redirect(_change_url(schema_id))
 
@@ -160,64 +167,103 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             messages.error(request, f"Schema {schema_id} not found.")
             return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
 
-        if schema.partition_mode is None:
+        if not self.has_change_permission(request, schema):
+            raise PermissionDenied
+
+        # Mode comes from the form; fall back to the schema's current mode for a pure in-place
+        # repartition. Must resolve to a known mode (the pipeline picks one on the first sync, so
+        # before that the operator has to choose).
+        new_mode = request.POST.get("partition_mode") or schema.partition_mode
+        if new_mode not in get_args(PartitionMode):
             messages.error(
                 request,
-                "Schema has no partition_mode set. Run a sync first so the pipeline can pick "
-                "the appropriate mode for this table, then come back to repartition.",
+                f"Invalid partition_mode: {new_mode!r}. Choose one of {', '.join(get_args(PartitionMode))} "
+                "(or run a sync first so the pipeline picks one).",
             )
             return redirect(_change_url(schema_id))
+        new_mode = cast(PartitionMode, new_mode)
+        mode_changed = new_mode != schema.partition_mode
 
-        # Validate input by mode and stage the value to write. We defer the actual
-        # save so we can do one DB write that updates the partition knob AND sets
-        # reset_pipeline AND records whether to auto-unpause the schedule.
-        partition_field: str
-        partition_value: Any
-        previous_value: Any
-        if schema.partition_mode == "datetime":
+        # Everything is staged as *_override keys: the bundled reset wipes the auto-detected
+        # partition_mode / count / size / keys, so a plain write would be discarded and the source
+        # would re-derive its own values. The overrides survive the reset and are consumed once
+        # applied (see ExternalDataSchema.set_partitioning_enabled).
+        staged: dict[str, Any] = {"partition_mode_override": new_mode}
+        label_bits: list[str] = []
+        if mode_changed:
+            label_bits.append(f"partition_mode: {schema.partition_mode!r} → {new_mode!r}")
+
+        # Keys are optional: omitting them keeps the existing keys (in-place repartition). When
+        # switching INTO datetime/numerical they're required — the existing composite PK is usually
+        # unsuitable for single-column bucketing.
+        keys = _parse_partition_keys(request)
+
+        if new_mode == "datetime":
+            if keys:
+                if len(keys) != 1:
+                    messages.error(
+                        request,
+                        "datetime mode needs exactly one partitioning key — the date/timestamp "
+                        "column to bucket on (e.g. action_date).",
+                    )
+                    return redirect(_change_url(schema_id))
+                staged["partitioning_keys_override"] = keys
+                label_bits.append(f"keys={keys}")
+            elif mode_changed:
+                messages.error(
+                    request,
+                    "Switching to datetime needs exactly one partitioning key — the date/timestamp "
+                    "column to bucket on (e.g. action_date).",
+                )
+                return redirect(_change_url(schema_id))
             new_format = request.POST.get("partition_format")
             if new_format not in PARTITION_FORMAT_CHOICES:
                 messages.error(request, f"Invalid partition_format: {new_format!r}.")
                 return redirect(_change_url(schema_id))
-            partition_field = "partition_format"
-            partition_value = new_format
-            previous_value = schema.partition_format
-        elif schema.partition_mode == "numerical":
+            # partition_format already survives the reset and is read directly by the pipeline.
+            staged["partition_format"] = new_format
+            label_bits.append(f"format={new_format!r}")
+        elif new_mode == "numerical":
+            if keys:
+                if len(keys) != 1:
+                    messages.error(request, "numerical mode needs exactly one integer partitioning key.")
+                    return redirect(_change_url(schema_id))
+                staged["partitioning_keys_override"] = keys
+                label_bits.append(f"keys={keys}")
+            elif mode_changed:
+                messages.error(request, "Switching to numerical needs exactly one integer partitioning key.")
+                return redirect(_change_url(schema_id))
             new_size = _parse_positive_int(request, "partition_size", "partition_size")
             if new_size is None:
                 return redirect(_change_url(schema_id))
-            # Write the *_override key, not partition_size directly: the bundled reset below
-            # wipes partition_size, so a plain write would be discarded and the source would
-            # re-derive its own value. The override survives the reset and is consumed once
-            # applied (see ExternalDataSchema.set_partitioning_enabled).
-            partition_field = "partition_size_override"
-            partition_value = new_size
-            previous_value = schema.partition_size
-        elif schema.partition_mode == "md5":
+            staged["partition_size_override"] = new_size
+            label_bits.append(f"partition_size={new_size}")
+        elif new_mode == "md5":
             new_count = _parse_positive_int(request, "partition_count", "partition_count")
             if new_count is None:
                 return redirect(_change_url(schema_id))
-            # Write the *_override key (survives the reset); see the numerical branch above.
-            partition_field = "partition_count_override"
-            partition_value = new_count
-            previous_value = schema.partition_count
+            if keys:
+                staged["partitioning_keys_override"] = keys
+                label_bits.append(f"keys={keys}")
+            elif mode_changed:
+                # Switching INTO md5: clear any stale keys override so md5 falls back to the table's
+                # primary keys instead of a date column pinned by an earlier datetime attempt.
+                staged["partitioning_keys_override"] = None
+            staged["partition_count_override"] = new_count
+            label_bits.append(f"partition_count={new_count}")
         else:
-            # Exhaustive over PartitionMode after the None check above; assert_never
-            # makes mypy happy and crashes loudly if a new mode is added without
-            # updating this view.
-            assert_never(schema.partition_mode)
+            # Exhaustive over PartitionMode; assert_never makes mypy enforce an update here if a
+            # new mode is ever added.
+            assert_never(new_mode)
 
-        # Display the logical knob name (without the _override suffix). *_override keys are
-        # one-shot (consumed on the next reset); partition_format (datetime mode) survives every
-        # reset, so the "pinned for this reset" note only applies to the override variants.
-        display_field = partition_field.removesuffix("_override")
-        pin_note = " (pinned for this reset)" if partition_field.endswith("_override") else ""
-        change_label = f"{display_field}: {previous_value!r} → {partition_value!r}{pin_note}"
+        change_label = (
+            ", ".join(label_bits) + " (pinned for this reset)" if label_bits else "repartition (pinned for this reset)"
+        )
 
         return self._pause_save_and_resync(
             request,
             schema,
-            staged_updates={partition_field: partition_value},
+            staged_updates=staged,
             change_label=change_label,
             workflow_kind="repartition",
         )
@@ -306,97 +352,6 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             f"{change_label}. Triggered non-billable reset resync (workflow_id={workflow_id}).{pause_note}",
         )
         return redirect(_change_url(schema.id))
-
-    def change_partition_mode_view(self, request, schema_id):
-        # Switch a schema's partition *mode* (md5 / numerical / datetime) and immediately trigger a
-        # non-billable reset resync, mirroring repartition_view's bundled-reset machinery. The
-        # repartition action only tunes the knob *within* the current mode; this one changes the
-        # mode itself — e.g. moving a table with a date column in its composite PK from md5 (which
-        # scatters every change across all buckets) to datetime on that column (bounded,
-        # prunable partitions).
-        #
-        # The chosen mode/keys are written as *_override keys that survive the bundled reset (which
-        # wipes the auto-detected partition_mode/partitioning_keys) and are consumed once applied —
-        # same one-shot semantics as the count/size overrides.
-        if request.method != "POST":
-            return redirect(_change_url(schema_id))
-
-        try:
-            schema = ExternalDataSchema.objects.select_related("source").get(id=schema_id)
-        except ExternalDataSchema.DoesNotExist:
-            messages.error(request, f"Schema {schema_id} not found.")
-            return redirect(reverse("admin:warehouse_sources_externaldataschema_changelist"))
-
-        if not self.has_change_permission(request, schema):
-            raise PermissionDenied
-
-        new_mode = request.POST.get("partition_mode")
-        if new_mode not in get_args(PartitionMode):
-            messages.error(
-                request,
-                f"Invalid partition_mode: {new_mode!r}. Choose one of {', '.join(get_args(PartitionMode))}.",
-            )
-            return redirect(_change_url(schema_id))
-
-        staged: dict[str, Any] = {"partition_mode_override": new_mode}
-        label_bits = [f"partition_mode: {schema.partition_mode!r} → {new_mode!r}"]
-
-        # partitioning_keys: required for datetime/numerical (the single column to bucket on);
-        # optional for md5 (defaults to the table's primary keys). Comma-separated input.
-        raw_keys = request.POST.get("partitioning_keys", "").strip()
-        keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
-
-        if new_mode == "datetime":
-            if len(keys) != 1:
-                messages.error(
-                    request,
-                    "datetime mode needs exactly one partitioning key — the date/timestamp column "
-                    "to bucket on (e.g. action_date).",
-                )
-                return redirect(_change_url(schema_id))
-            new_format = request.POST.get("partition_format")
-            if new_format not in PARTITION_FORMAT_CHOICES:
-                messages.error(request, f"Invalid partition_format: {new_format!r}.")
-                return redirect(_change_url(schema_id))
-            staged["partitioning_keys_override"] = keys
-            # partition_format already survives the reset and is read directly by the pipeline.
-            staged["partition_format"] = new_format
-            label_bits.append(f"keys={keys}")
-            label_bits.append(f"format={new_format!r}")
-        elif new_mode == "numerical":
-            if len(keys) != 1:
-                messages.error(request, "numerical mode needs exactly one integer partitioning key.")
-                return redirect(_change_url(schema_id))
-            new_size = _parse_positive_int(request, "partition_size", "partition_size")
-            if new_size is None:
-                return redirect(_change_url(schema_id))
-            staged["partitioning_keys_override"] = keys
-            staged["partition_size_override"] = new_size
-            label_bits.append(f"keys={keys}")
-            label_bits.append(f"partition_size={new_size}")
-        else:  # md5
-            new_count = _parse_positive_int(request, "partition_count", "partition_count")
-            if new_count is None:
-                return redirect(_change_url(schema_id))
-            # Always stage partitioning_keys_override (None when no keys supplied) so a stale
-            # override from a prior change-mode action — e.g. the date column pinned by an earlier
-            # datetime attempt — is explicitly cleared rather than silently winning the
-            # `partitioning_keys_override or partitioning_keys or …` precedence chain and making md5
-            # hash the wrong column. md5 defaults to the table's primary keys when this is None.
-            staged["partitioning_keys_override"] = keys if keys else None
-            if keys:
-                label_bits.append(f"keys={keys}")
-            staged["partition_count_override"] = new_count
-            label_bits.append(f"partition_count={new_count}")
-
-        change_label = ", ".join(label_bits) + " (pinned for this reset)"
-        return self._pause_save_and_resync(
-            request,
-            schema,
-            staged_updates=staged,
-            change_label=change_label,
-            workflow_kind="change-partition-mode",
-        )
 
     def trigger_sync_view(self, request, schema_id):
         # Ad-hoc external-data-job workflow execution. Bypasses the schedule because
@@ -544,10 +499,12 @@ class ExternalDataSchemaAdmin(admin.ModelAdmin):
             extra_context["current_partition_mode_override"] = obj.partition_mode_override
             extra_context["current_partitioning_keys_override"] = obj.partitioning_keys_override
             extra_context["partitioning_enabled"] = obj.partitioning_enabled
-            extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
-            extra_context["change_partition_mode_url"] = reverse(
-                "admin:external_data_schema_change_partition_mode", args=[obj.id]
+            # Column names for the partition-key multi-select. Populated once the table has synced;
+            # None before the first sync, in which case the template falls back to a free-text input.
+            extra_context["available_columns"] = (
+                sorted((obj.table.columns or {}).keys()) if obj.table and obj.table.columns else None
             )
+            extra_context["repartition_url"] = reverse("admin:external_data_schema_repartition", args=[obj.id])
             extra_context["trigger_sync_url"] = reverse("admin:external_data_schema_trigger_sync", args=[obj.id])
             extra_context["pause_schedule_url"] = reverse("admin:external_data_schema_pause_schedule", args=[obj.id])
             extra_context["unpause_schedule_url"] = reverse(
