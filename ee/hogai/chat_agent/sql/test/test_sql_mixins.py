@@ -1,5 +1,7 @@
 from posthog.test.base import NonAtomicBaseTest
 
+from parameterized import parameterized
+
 from posthog.schema import ChartDisplayType, DataVisualizationNode, HogQLQuery
 
 from ee.hogai.chat_agent.schema_generator.parsers import PydanticOutputParserException
@@ -268,3 +270,19 @@ class TestSQLMixins(NonAtomicBaseTest):
 
         with self.assertRaises(PydanticOutputParserException):
             await mixin._quality_check_output(invalid_output)
+
+    @parameterized.expand(
+        [
+            ("flat", "SELECT event FROM events WHERE event = {foo}"),
+            ("nested", "SELECT event FROM events WHERE event = {foo.bar}"),
+            ("deeply_nested", "SELECT event FROM events WHERE event = {foo.bar.baz}"),
+            ("multiple_chains", "SELECT event FROM events WHERE event = {foo.bar} AND distinct_id = {foo.baz}"),
+        ]
+    )
+    async def test_quality_check_output_resolves_non_filter_placeholders(self, _name: str, query: str):
+        # Dotted placeholders like {foo.bar} produce a multi-segment chain; the dummy
+        # placeholder values must mirror the chain or get_nested_value crashes with
+        # "'Constant' object has no attribute 'get'" during compilation.
+        mixin = self._node
+
+        await mixin._quality_check_output(self._sql_output(query))

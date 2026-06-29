@@ -160,10 +160,25 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
 
             # Handle remaining non-filter placeholders with dummy values.
             if finder.placeholder_fields:
-                dummy_placeholders: dict[str, ast.Expr] = {
-                    str(field[0]): ast.Constant(value=1) for field in finder.placeholder_fields
-                }
-                parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+                # Build a nested dict so the full placeholder chain resolves. A dotted
+                # placeholder like {foo.bar} yields the chain ["foo", "bar"], which the
+                # bytecode resolves via get_nested_value — so a flat {"foo": Constant}
+                # would blow up trying to look up "bar" on a Constant. Mirror the chain
+                # structure instead, e.g. {"foo": {"bar": Constant}}.
+                dummy_placeholders: dict[str, object] = {}
+                for chain in finder.placeholder_fields:
+                    current = dummy_placeholders
+                    for segment in chain[:-1]:
+                        key = str(segment)
+                        nested = current.get(key)
+                        if not isinstance(nested, dict):
+                            nested = {}
+                            current[key] = nested
+                        current = nested
+                    current[str(chain[-1])] = ast.Constant(value=1)
+                parsed_query = cast(
+                    ast.SelectQuery, replace_placeholders(parsed_query, cast(dict[str, ast.Expr], dummy_placeholders))
+                )
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
