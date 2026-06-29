@@ -1137,7 +1137,8 @@ class FinnhubSourceConfig(config.Config):
 
 @config.config
 class FinnworldsSourceConfig(config.Config):
-    pass
+    api_key: str
+    tickers: str
 
 
 @config.config
