@@ -867,13 +867,15 @@ class ModalSandbox(SandboxBase):
             self.wait_for_agent_server_ready(allowed_domains)
 
     def wait_for_agent_server_ready(self, allowed_domains: list[str] | None = None) -> None:
-        if not self._wait_for_health_check():
-            diagnostics = self._diagnose_startup_failure(allowed_domains)
-            raise SandboxExecutionError(
-                "Agent-server failed to start",
-                {"sandbox_id": self.id, **diagnostics},
-                cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
-            )
+        if self._wait_for_health_check():
+            logger.info(f"Agent-server ready in sandbox {self.id}")
+            return
+        diagnostics = self._diagnose_startup_failure(allowed_domains)
+        raise SandboxExecutionError(
+            "Agent-server failed to start",
+            {"sandbox_id": self.id, **diagnostics},
+            cause=RuntimeError(diagnostics.get("failure_reason", "Health check failed after retries")),
+        )
 
     def mark_repo_ready(self, repo_ready_file: str) -> None:
         self.execute(f"touch {shlex.quote(repo_ready_file)}", timeout_seconds=10)
