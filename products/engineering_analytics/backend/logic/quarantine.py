@@ -32,6 +32,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 import requests
+import structlog
 
 from posthog.hogql import ast
 
@@ -55,6 +56,8 @@ from products.engineering_analytics.backend.logic.queries import _curated
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 QUARANTINE_FILENAME = ".test_quarantine.json"
 
@@ -273,6 +276,28 @@ def _most_active_repo(
     return str(owner), str(name)
 
 
+def _repo_is_tracked(team: Team, owner: str, name: str) -> bool:
+    """True when ``owner/name`` has produced CI runs in the team's connected GitHub warehouse —
+    the same authority basis the read path resolves from. Used to bound the client-supplied write
+    repo override to repos the team actually tracks. A team with no connected source has no tracked
+    repos, so this is False (and the caller turns it into a user-safe rejection)."""
+    try:
+        curated = _curated.CuratedGitHubSource.for_team(team)
+    except GitHubSourceNotConnectedError:
+        return False
+    sql = _REPO_TRACKED_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
+    response = curated.run(
+        sql,
+        query_type="engineering_analytics.quarantine_repo_authz",
+        placeholders={
+            "date_from": ast.Constant(value=datetime.now(UTC) - timedelta(days=_AUTHORIZED_REPO_WINDOW_DAYS)),
+            "owner": ast.Constant(value=owner.lower()),
+            "name": ast.Constant(value=name.lower()),
+        },
+    )
+    return bool(response.results)
+
+
 def _fetch_quarantine_text(owner: str, name: str) -> tuple[str | None, str | None]:
     """Returns ``(text, error)``: the file text on 200, ``(None, None)`` on 404
     (no quarantine file is not an error), ``(None, message)`` on any other
@@ -334,6 +359,19 @@ def _unavailable(generated_at: datetime, *, repo: RepoRef | None = None, error: 
 
 _MAX_QUARANTINE_DAYS = 30
 _DEFAULT_QUARANTINE_DAYS = 14
+# A client-supplied write repo must have produced CI runs within this window to count as one
+# the team actually tracks. Generous enough not to reject a quietly-connected repo, bounded so
+# the authorization probe stays a cheap LIMIT 1.
+_AUTHORIZED_REPO_WINDOW_DAYS = 90
+
+_REPO_TRACKED_SELECT = """
+    SELECT 1
+    FROM __RUNS_SOURCE__ AS r
+    WHERE r.run_started_at >= {date_from}
+      AND lower(r.repo_owner) = {owner}
+      AND lower(r.repo_name) = {name}
+    LIMIT 1
+"""
 
 
 def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineRequestResult:
@@ -345,6 +383,25 @@ def request_quarantine(*, team: Team, request: QuarantineRequest) -> QuarantineR
     if not selector:
         raise QuarantineWriteError("A test selector is required.")
 
+    try:
+        return _open_quarantine_pr(team=team, selector=selector, request=request)
+    except QuarantineWriteError:
+        # Already a user-safe message — let it through to the 400 the view renders.
+        raise
+    except Exception as exc:
+        # Everything that can throw past this point is a GitHub integration call (the pure
+        # render/parse helpers only ever raise QuarantineWriteError, caught above). Those
+        # raise a grab-bag of plain Exception/ValueError/KeyError/GitHubIntegrationError that
+        # would otherwise escape handle_exception as a 500. Collapse them into a user-safe 400
+        # and keep the real cause in the logs.
+        logger.warning("quarantine_write_failed", team_id=team.pk, exc_info=exc)
+        raise QuarantineWriteError(
+            "Couldn't open the quarantine pull request — GitHub returned an unexpected error. "
+            "The App may have lost access to the repository; check its installation and try again."
+        ) from exc
+
+
+def _open_quarantine_pr(*, team: Team, selector: str, request: QuarantineRequest) -> QuarantineRequestResult:
     github, owner, name = _resolve_write_target(team, request.repo)
     default_branch = github.get_default_branch(name)
     current = github.get_file_contents(name, QUARANTINE_FILENAME, ref=default_branch)
@@ -434,6 +491,16 @@ def _resolve_write_target(team: Team, repo: str | None) -> tuple[GitHubIntegrati
     if not (_REPO_PART_RE.fullmatch(owner) and _REPO_PART_RE.fullmatch(name)):
         raise QuarantineWriteError(
             f"Invalid repository {(repo or f'{owner}/{name}')!r}: expected an 'owner/name' slug."
+        )
+    # An explicit repo is client-controlled. The org check below only proves the App lives on
+    # that org — without this gate a caller could aim the App's write token at any repo in the
+    # install's org. Constrain it to a repo the team actually tracks (the same warehouse the read
+    # path resolves from); the default path is already constrained because _most_active_repo only
+    # returns the team's own repos.
+    if repo is not None and not _repo_is_tracked(team, owner, name):
+        raise QuarantineWriteError(
+            f"'{owner}/{name}' isn't one of this team's connected repositories — "
+            "quarantine from a repo that appears in your GitHub analytics."
         )
 
     integration_row = Integration.objects.filter(team=team, kind="github").first()

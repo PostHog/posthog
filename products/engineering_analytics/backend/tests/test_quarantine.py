@@ -22,6 +22,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
     _canonical_entry,
     _lifecycle_for,
     _remove_entry,
+    _repo_is_tracked,
     _selector_kind,
     _upsert_entry,
     build_quarantine,
@@ -475,10 +476,15 @@ class TestQuarantineRequest(BaseTest):
     def _install(self, github: mock.Mock, *, has_integration: bool = True) -> mock.Mock:
         gh_patch = mock.patch(f"{_Q}.GitHubIntegration", return_value=github)
         integration_patch = mock.patch(f"{_Q}.Integration")
+        # The explicit repo override is authorized against the team's tracked repos; treat the
+        # test's repo as tracked so these cases exercise the write flow, not the authz gate.
+        tracked_patch = mock.patch(f"{_Q}._repo_is_tracked", return_value=True)
         gh_patch.start()
         integration_cls = integration_patch.start()
+        tracked_patch.start()
         self.addCleanup(gh_patch.stop)
         self.addCleanup(integration_patch.stop)
+        self.addCleanup(tracked_patch.stop)
         integration_cls.objects.filter.return_value.first.return_value = object() if has_integration else None
         return github
 
@@ -559,6 +565,31 @@ class TestQuarantineRequest(BaseTest):
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request())
 
+    def test_explicit_repo_outside_the_team_is_rejected_before_any_write(self) -> None:
+        # A client-supplied repo the team doesn't track must not get the App's write token,
+        # even when it sits in the install's org.
+        github = self._install(_github_mock())
+        with mock.patch(f"{_Q}._repo_is_tracked", return_value=False):
+            with self.assertRaises(contracts.QuarantineWriteError):
+                request_quarantine(team=self.team, request=_request(repo="PostHog/not-ours"))
+        github.create_branch.assert_not_called()
+        github.create_issue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("missing_token", ValueError("GitHub access token not configured")),
+            ("api_failure", Exception("Failed to get default branch: HTTP 404")),
+        ]
+    )
+    def test_github_failure_becomes_a_user_safe_error_not_a_500(self, _name: str, failure: Exception) -> None:
+        # get_default_branch raises plain ValueError/Exception, not QuarantineWriteError; without
+        # translation those escape as a 500 instead of the user-safe 400 the rest of the path gives.
+        github = self._install(_github_mock())
+        github.get_default_branch.side_effect = failure
+        with self.assertRaises(contracts.QuarantineWriteError):
+            request_quarantine(team=self.team, request=_request())
+        github.create_branch.assert_not_called()
+
     def test_malformed_existing_file_aborts_without_writing(self) -> None:
         github = self._install(_github_mock(get_file_contents={"content": "{ not json", "sha": "s"}))
         with self.assertRaises(contracts.QuarantineWriteError):
@@ -583,6 +614,15 @@ class TestQuarantineRequest(BaseTest):
         self._install(_github_mock())
         with self.assertRaises(contracts.QuarantineWriteError):
             request_quarantine(team=self.team, request=_request(**overrides))
+
+    @parameterized.expand([("tracked", [("PostHog", "posthog")], True), ("untracked", [], False)])
+    def test_repo_is_tracked_reflects_warehouse_runs(self, _name: str, results: list, expected: bool) -> None:
+        with mock.patch(_FOR_TEAM, return_value=_curated_source(results)):
+            assert _repo_is_tracked(self.team, "PostHog", "posthog") is expected
+
+    def test_repo_is_tracked_is_false_without_a_connected_source(self) -> None:
+        with mock.patch(_FOR_TEAM, side_effect=contracts.GitHubSourceNotConnectedError("no source")):
+            assert _repo_is_tracked(self.team, "PostHog", "posthog") is False
 
 
 class TestQuarantineRequestAPI(APIBaseTest):
@@ -630,6 +670,16 @@ class TestQuarantineRequestAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED
         called.assert_called_once()
+
+    def test_write_that_cannot_proceed_is_a_400_with_safe_detail(self) -> None:
+        # A QuarantineWriteError (App not installed, malformed file, GitHub failure) must surface
+        # as a user-safe 400, not a 500.
+        with mock.patch(
+            f"{_VIEWS}.request_quarantine", side_effect=contracts.QuarantineWriteError("connect the App first")
+        ):
+            response = self.client.post(self._url(), self._body(), format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["detail"] == "connect the App first"
 
     def test_write_error_becomes_400_with_detail(self) -> None:
         with mock.patch(
