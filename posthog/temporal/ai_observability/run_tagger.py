@@ -667,6 +667,17 @@ class RunTaggerWorkflow(PostHogWorkflow):
                             schedule_to_close_timeout=timedelta(seconds=10),
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
+
+                    # An auth error means the BYOK key is invalid — the key is now marked
+                    # INVALID, so end cleanly instead of re-raising and generating error-tracking noise.
+                    if error_type == "auth_error":
+                        return {
+                            "tags": [],
+                            "skipped": True,
+                            "skip_reason": "auth_error",
+                            "message": e.cause.message,
+                            "tagger_id": tagger["id"],
+                        }
                 raise
 
         # Increment trial counter if using PostHog key (LLM taggers only — Hog taggers have no LLM cost)

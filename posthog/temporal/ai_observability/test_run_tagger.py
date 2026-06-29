@@ -6,10 +6,14 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from temporalio import activity
 from temporalio.exceptions import ApplicationError
+from temporalio.testing import WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models import Organization, Team
 
+from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
 
 from .run_tagger import (
@@ -746,3 +750,67 @@ class TestFetchTaggerActivityDisabled:
 
         with pytest.raises(ApplicationError, match="disabled"):
             await fetch_tagger_activity(inputs)
+
+
+class TestRunTaggerWorkflowAuthError:
+    @pytest.mark.asyncio
+    async def test_byok_auth_error_marks_key_invalid_and_skips_without_raising(self):
+        # A BYOK auth failure means the key is invalid: the workflow should mark the key
+        # INVALID and end as a skip, not re-raise (which would create error-tracking noise).
+        calls: list[str] = []
+        tagger_id = str(uuid.uuid4())
+        key_id = str(uuid.uuid4())
+
+        @activity.defn(name="fetch_tagger_activity")
+        async def mock_fetch_tagger(inputs: RunTaggerInputs) -> dict[str, Any]:
+            calls.append("fetch")
+            return {
+                "id": tagger_id,
+                "name": "LLM tagger",
+                "tagger_type": "llm",
+                "team_id": 1,
+            }
+
+        @activity.defn(name="execute_tagger_activity")
+        async def mock_execute_tagger(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
+            calls.append("execute")
+            raise ApplicationError(
+                "API key is invalid or has been deleted.",
+                {"error_type": "auth_error", "key_id": key_id, "provider": "gemini"},
+                non_retryable=True,
+            )
+
+        @activity.defn(name="update_key_state_activity")
+        async def mock_update_key_state(key_id_arg: str, state: str, error_message: str | None) -> None:
+            calls.append(f"update_key_state:{key_id_arg}:{state}")
+
+        @activity.defn(name="emit_tagger_event_activity")
+        async def mock_emit_tagger_event(inputs: EmitTaggerEventInputs) -> None:
+            calls.append("emit")
+            raise AssertionError("a skipped auth_error must not emit a tagger event")
+
+        task_queue = str(uuid.uuid4())
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[RunTaggerWorkflow],
+                activities=[
+                    mock_fetch_tagger,
+                    mock_execute_tagger,
+                    mock_update_key_state,
+                    mock_emit_tagger_event,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+            ):
+                result: dict[str, Any] = await env.client.execute_workflow(
+                    RunTaggerWorkflow.run,
+                    RunTaggerInputs(tagger_id=tagger_id, event_data=create_mock_event_data(team_id=1)),
+                    id=str(uuid.uuid4()),
+                    task_queue=task_queue,
+                )
+
+        assert calls == ["fetch", "execute", f"update_key_state:{key_id}:{LLMProviderKey.State.INVALID}"]
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "auth_error"
+        assert result["tagger_id"] == tagger_id
