@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Count
 
 from rest_framework import serializers, viewsets
@@ -58,9 +60,10 @@ class DAGSerializer(serializers.ModelSerializer):
     def validate_name(self, value: str) -> str:
         is_rename = self.instance is not None and value != self.instance.name
         if is_rename:
-            if self.instance.is_default:
+            instance = cast(DAG, self.instance)
+            if instance.is_default:
                 raise serializers.ValidationError("The default DAG cannot be renamed.")
-            if self.instance.is_managed:
+            if instance.is_managed:
                 raise serializers.ValidationError("System-managed DAGs cannot be renamed.")
         # Block users from claiming a reserved system name via create or rename.
         if value in RESERVED_DAG_NAMES and (self.instance is None or is_rename):
