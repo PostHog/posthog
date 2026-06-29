@@ -167,4 +167,58 @@ describe('resolveClickedBarSeries', () => {
             expect(result?.seriesIndex).toBe(1)
         })
     })
+
+    describe('grouped layout with a capped track (trackMax)', () => {
+        const labels = ['x']
+        // `b` is capped at 50: 0–20 is fill, 20–50 is drop-off track, 50–100 is the inert "not
+        // present" headroom. `a` reaches the domain max so the value axis tops out at 100.
+        const series: Series[] = [
+            { key: 'a', label: 'A', data: [100] },
+            { key: 'b', label: 'B', data: [20], trackMax: 50 },
+        ]
+        const scales = createBarScales(series, labels, dimensions, {
+            barLayout: 'grouped',
+            axisOrientation: 'vertical',
+        })
+        const subBandCenterX = (key: string): number =>
+            scales.band('x')! + scales.group!(key)! + scales.group!.bandwidth() / 2
+
+        const resolveB = (value: number): PointClickData | null =>
+            resolveClickedBarSeries({
+                clickData: baseClickData(series, 0, 'x', { x: subBandCenterX('b'), y: scales.value(value) }),
+                scales,
+                barLayout: 'grouped',
+                isHorizontal: false,
+                stackedData: undefined,
+                topStackedKeyByAxis: new Map(),
+                series,
+                labels,
+            })
+
+        it.each([
+            { zone: 'fill', value: 10, inTrackArea: false, beyondTrackMax: false },
+            { zone: 'drop-off below the cap', value: 35, inTrackArea: true, beyondTrackMax: false },
+            { zone: 'not-present headroom above the cap', value: 75, inTrackArea: true, beyondTrackMax: true },
+        ])('reports $zone as inTrackArea=$inTrackArea, beyondTrackMax=$beyondTrackMax', (params) => {
+            const result = resolveB(params.value)
+            expect(result?.series.key).toBe('b')
+            expect(result?.inTrackArea).toBe(params.inTrackArea)
+            expect(result?.beyondTrackMax).toBe(params.beyondTrackMax)
+        })
+
+        it('never flags beyondTrackMax for a series without a trackMax', () => {
+            const result = resolveClickedBarSeries({
+                clickData: baseClickData(series, 0, 'x', { x: subBandCenterX('a'), y: scales.value(50) }),
+                scales,
+                barLayout: 'grouped',
+                isHorizontal: false,
+                stackedData: undefined,
+                topStackedKeyByAxis: new Map(),
+                series,
+                labels,
+            })
+            expect(result?.series.key).toBe('a')
+            expect(result?.beyondTrackMax).toBe(false)
+        })
+    })
 })

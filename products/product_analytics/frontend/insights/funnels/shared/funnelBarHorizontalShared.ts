@@ -7,6 +7,16 @@ import type { Series } from '@posthog/quill-charts'
 
 export const FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX = 'funnel-bar-horizontal-segment-'
 export const FUNNEL_BAR_HORIZONTAL_FILLER_KEY = 'funnel-bar-horizontal-filler'
+export const FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY = 'funnel-bar-horizontal-not-present'
+
+/** Faint flat fill for the headroom a shorter compare period leaves below the shared baseline — the
+ *  volume difference vs the larger period, not drop-off. Mode-neutral and kept in sync with the
+ *  vertical chart's `trackBeyondColor` so both layouts read the "not applicable" zone the same way. */
+export const FUNNEL_NOT_PRESENT_FILL = 'rgba(128, 128, 128, 0.12)'
+
+/** Tooltip copy for the "not present" zone, shared by both step layouts. Orientation-neutral (the
+ *  gap is to the right for top-to-bottom bars, above for left-to-right ones). */
+export const FUNNEL_NOT_PRESENT_TOOLTIP = 'Fewer entrants in this period — not a drop-off'
 
 /** Every step's bar is its own single-band chart, so they only line up if they share this
  *  value domain (passed to BarChart as `bars.valueDomain`). Segment data are basis-step
@@ -24,6 +34,9 @@ export function funnelConversionRate(count: number, basisCount: number): number 
 export interface FunnelBarHorizontalSegmentMeta {
     isDropOff: boolean
     breakdownIndex: number | null
+    /** The inert "fewer entrants in this period" band (compare mode). The click handler skips it and
+     *  the tooltip explains it; absent/false for real conversion, drop-off, and breakdown segments. */
+    isNotPresent?: boolean
 }
 
 /** Series for one step's single-band bar. Each series' `data` has exactly one value. */
@@ -33,22 +46,46 @@ export interface FunnelBarHorizontalStepData {
     series: Series<FunnelBarHorizontalSegmentMeta>[]
 }
 
-/** Trailing grey band that fills the bar up to 100% so every step reads against the same axis.
- *  `breakdownIndex` tags the filler with its period/variant in compare mode so a drop-off click
- *  resolves the right series; it stays null for the single-bar and breakdown paths. */
+/** Trailing grey drop-off band filling the bar from the covered segments up to `maxPercent` (100% by
+ *  default). `breakdownIndex` tags the filler with its period/variant in compare mode so a drop-off
+ *  click resolves the right series; it stays null for the single-bar and breakdown paths. In compare
+ *  mode `maxPercent` is capped at the period's own entry level so the band covers only genuine
+ *  drop-off — the remaining headroom is the inert "not present" band, not drop-off. */
 export function buildFunnelBarHorizontalFiller(
     segments: Series<FunnelBarHorizontalSegmentMeta>[],
     color: string,
-    breakdownIndex: number | null = null
+    breakdownIndex: number | null = null,
+    maxPercent: number = RATE_TO_PERCENT
 ): Series<FunnelBarHorizontalSegmentMeta> {
     const covered = segments.reduce((sum, s) => sum + (s.data[0] ?? 0), 0)
     return {
         key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
         label: 'Drop-off',
-        data: [Math.max(0, RATE_TO_PERCENT - covered)],
+        data: [Math.max(0, maxPercent - covered)],
         color,
         visibility: { tooltip: false },
         meta: { isDropOff: true, breakdownIndex },
+    }
+}
+
+/** The inert "not present" band from `capPercent` up to 100% — the headroom a shorter compare period
+ *  leaves below the shared baseline. Distinct faint fill and its own meta flag so the click handler
+ *  skips it (no actors) and the tooltip explains it. Returns null when there's no gap (`capPercent`
+ *  at or above 100%, i.e. the larger period or a non-compare bar). */
+export function buildFunnelBarHorizontalNotPresent(
+    capPercent: number,
+    breakdownIndex: number | null = null
+): Series<FunnelBarHorizontalSegmentMeta> | null {
+    const gap = RATE_TO_PERCENT - capPercent
+    if (gap <= 0) {
+        return null
+    }
+    return {
+        key: FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY,
+        label: 'Not in this period',
+        data: [gap],
+        color: FUNNEL_NOT_PRESENT_FILL,
+        meta: { isDropOff: false, isNotPresent: true, breakdownIndex },
     }
 }
 

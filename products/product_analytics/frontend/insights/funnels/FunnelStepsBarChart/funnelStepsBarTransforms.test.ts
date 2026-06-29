@@ -51,6 +51,39 @@ const breakdownSteps: FunnelStepWithConversionMetrics[] = [
     }),
 ]
 
+// Pure compare: the previous period (0.8 entry) is shorter than the current (1.0) on the shared baseline.
+const compareSteps: FunnelStepWithConversionMetrics[] = [
+    makeStep({
+        fromBasisStep: 1,
+        compare_label: 'current',
+        nested_breakdown: [
+            makeStep({ fromBasisStep: 1, compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.8, compare_label: 'previous' }),
+        ],
+    }),
+    makeStep({
+        fromBasisStep: 0.5,
+        compare_label: 'current',
+        nested_breakdown: [
+            makeStep({ fromBasisStep: 0.5, compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.4, compare_label: 'previous' }),
+        ],
+    }),
+]
+
+const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
+    makeStep({
+        fromBasisStep: 1,
+        compare_label: 'current',
+        nested_breakdown: [
+            makeStep({ fromBasisStep: 1, breakdown_value: 'mobile', compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.8, breakdown_value: 'mobile', compare_label: 'previous' }),
+            makeStep({ fromBasisStep: 0.4, breakdown_value: 'desktop', compare_label: 'current' }),
+            makeStep({ fromBasisStep: 0.25, breakdown_value: 'desktop', compare_label: 'previous' }),
+        ],
+    }),
+]
+
 const options = {
     getColor: () => '#1d4aff',
     getLabel: (variant: FunnelStepWithConversionMetrics) => String(variant.breakdown_value ?? variant.name),
@@ -118,6 +151,23 @@ describe('buildFunnelStepsBarData', () => {
         expect(series).toEqual([])
         expect(labels).toEqual([])
     })
+
+    it('caps the shorter compare period’s track at its entry level, leaving the larger period uncapped', () => {
+        const { series } = buildFunnelStepsBarData(compareSteps, options)
+
+        // current sits at the baseline (no cap); previous is capped at its 80% entry level
+        expect(series.map((s) => s.trackMax)).toEqual([undefined, 80])
+    })
+
+    it.each([
+        { name: 'a non-compare funnel', steps: noBreakdownSteps },
+        // breakdown × compare headroom mixes "smaller breakdown" with "smaller period", so no cap
+        { name: 'breakdown × compare', steps: breakdownCompareSteps },
+    ])('sets no trackMax for $name', ({ steps }) => {
+        const { series } = buildFunnelStepsBarData(steps, options)
+
+        expect(series.every((s) => s.trackMax === undefined)).toBe(true)
+    })
 })
 
 function makeSeries(breakdownIndex: number): Series<FunnelStepsBarSeriesMeta> {
@@ -129,9 +179,12 @@ function makeSeries(breakdownIndex: number): Series<FunnelStepsBarSeriesMeta> {
     }
 }
 
-function makeClick(
-    overrides: Partial<Pick<PointClickData<FunnelStepsBarSeriesMeta>, 'dataIndex' | 'series' | 'inTrackArea'>>
-): Pick<PointClickData<FunnelStepsBarSeriesMeta>, 'dataIndex' | 'series' | 'inTrackArea'> {
+type ClickFields = Pick<
+    PointClickData<FunnelStepsBarSeriesMeta>,
+    'dataIndex' | 'series' | 'inTrackArea' | 'beyondTrackMax'
+>
+
+function makeClick(overrides: Partial<ClickFields>): ClickFields {
     return { dataIndex: 0, series: makeSeries(0), ...overrides }
 }
 
@@ -162,5 +215,14 @@ describe('resolveFunnelStepClick', () => {
 
     it('returns null when the clicked column has no step', () => {
         expect(resolveFunnelStepClick(noBreakdownSteps, makeClick({ dataIndex: 99 }))).toBeNull()
+    })
+
+    it('returns null in the inert "not present" headroom (beyondTrackMax), opening no actors', () => {
+        const target = resolveFunnelStepClick(
+            noBreakdownSteps,
+            makeClick({ dataIndex: 1, inTrackArea: true, beyondTrackMax: true })
+        )
+
+        expect(target).toBeNull()
     })
 })

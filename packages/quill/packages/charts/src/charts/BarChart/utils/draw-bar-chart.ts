@@ -6,11 +6,13 @@ import {
     BAR_TRACK_HOVER_ALPHA,
     type BarShadow,
     clipToRoundedRects,
+    DEFAULT_BAR_NOT_PRESENT_COLOR,
     drawAxes,
     drawBarHighlight,
     drawBars,
     drawBarTracks,
     drawGrid,
+    drawSolidBarTracks,
     type DrawContext,
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
@@ -81,6 +83,8 @@ export interface DrawBarChartStaticArgs {
     roundStackEnds: boolean
     barCornerRadius: number
     barTrack: boolean
+    /** Flat fill for the "beyond `trackMax`" band; falls back to {@link DEFAULT_BAR_NOT_PRESENT_COLOR}. */
+    barTrackBeyondColor: string | undefined
     barShadow: BarsConfig['shadow']
     barFillStyle: BarFillStyle
 }
@@ -101,6 +105,7 @@ export function drawBarChartStatic(
         roundStackEnds,
         barCornerRadius,
         barTrack,
+        barTrackBeyondColor,
         barShadow,
         barFillStyle,
     }: DrawBarChartStaticArgs
@@ -156,9 +161,18 @@ export function drawBarChartStatic(
     // a full-height track over the same band with the wrong corners.
     if (barTrack && barLayout === 'grouped') {
         const [axisStart = 0, axisEnd = 0] = d3Scales.value.range()
+        const beyondColor = barTrackBeyondColor ?? DEFAULT_BAR_NOT_PRESENT_COLOR
         for (const { series: s, bars } of seriesBars) {
-            const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, axisEnd, isHorizontal))
+            // Cap the hatched track at the series' `trackMax` (full axis by default), then fill the
+            // headroom above it with a flat "not applicable" band — so a shorter compare period's
+            // empty space reads as "fewer entrants", not drop-off.
+            const capPixel = s.trackMax != null ? d3Scales.value(s.trackMax) : axisEnd
+            const tracks = bars.map((b) => computeBarTrackRect(b, axisStart, capPixel, isHorizontal))
             drawBarTracks(baseDrawCtx, s, tracks, barCornerRadius)
+            if (s.trackMax != null) {
+                const beyondBands = bars.map((b) => computeBarTrackRect(b, capPixel, axisEnd, isHorizontal))
+                drawSolidBarTracks(ctx, beyondBands, beyondColor, barCornerRadius)
+            }
         }
     }
 
@@ -211,9 +225,12 @@ export function drawBarHoverItems(
             } else {
                 trackColor = `rgba(0,0,0,${BAR_TRACK_HOVER_ALPHA})`
             }
+            // Cap the highlight at the series' trackMax to match the capped resting track —
+            // the headroom above it is inert, so hovering it never resolves to a track item.
+            const trackEnd = s.trackMax != null ? d3Scales.value(s.trackMax) : trackAxisEnd
             drawBarHighlight(
                 ctx,
-                computeBarTrackRect(bar, trackAxisStart, trackAxisEnd, isHorizontal),
+                computeBarTrackRect(bar, trackAxisStart, trackEnd, isHorizontal),
                 trackColor,
                 highlightRadius
             )

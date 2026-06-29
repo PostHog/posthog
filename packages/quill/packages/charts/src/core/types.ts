@@ -46,6 +46,13 @@ export interface Series<Meta = unknown> {
      *  one bar per breakdown value) instead of paying the O(n²) cost of one series per bar. Read by
      *  bar fill, hover highlight, and the tooltip; not by track decorations (`drawBarTracks`). */
     bars?: { color?: string; label?: string; meta?: Meta }[]
+    /** Grouped `track: true` bar charts only: cap this series' hatched track at this value (in
+     *  value-axis units) instead of the full axis. The region from `trackMax` to the axis max is
+     *  drawn as a faint flat "not applicable" band (see {@link BarsConfig.trackBeyondColor}) rather
+     *  than a track, and clicks there report {@link PointClickData.beyondTrackMax}. Used by funnel
+     *  compare bars so a shorter period's empty headroom reads as "fewer entrants", not drop-off.
+     *  Omit (default) for a track that spans the whole axis. */
+    trackMax?: number
     /** Which y-axis this series is scaled against. Defaults to {@link DEFAULT_Y_AXIS_ID}. */
     yAxisId?: string
     /** Mixed-type charts ({@link ComboChart}) read this to draw the series as a bar, line, or
@@ -134,6 +141,11 @@ export interface PointClickData<Meta = unknown> {
      *  bar. Lets consumers route "clicked the empty remainder" differently from "clicked the bar"
      *  (e.g. funnel drop-off vs converted). `undefined` outside grouped click resolution. */
     inTrackArea?: boolean
+    /** Grouped layouts with a capped track only: `true` when the cursor was beyond the hit series'
+     *  {@link Series.trackMax} — i.e. in the faint "not applicable" band above the capped track, not
+     *  in the drop-off region. Lets consumers treat that headroom as inert (e.g. funnel "fewer
+     *  entrants" space, which opens no actors). `undefined` when the series sets no `trackMax`. */
+    beyondTrackMax?: boolean
 }
 
 /** Context object passed to the `renderTooltip` render prop and tooltip event callbacks. */
@@ -342,6 +354,11 @@ export interface BarsConfig {
      *  highlights the track region on hover; pass `{ hover: false }` to draw the track
      *  but leave it inert (no highlight when the cursor is over the empty remainder). */
     track?: boolean | { hover?: boolean }
+    /** Fill for the "beyond {@link Series.trackMax}" band — the headroom above a series whose
+     *  track is capped, drawn flat (no hatch) so it reads as "not applicable" rather than drop-off.
+     *  Pass a resolved color (the consumer owns theme/CSS-var resolution). Only drawn for series
+     *  that set `trackMax`; ignored otherwise. Defaults to a faint neutral when omitted. */
+    trackBeyondColor?: string
     /** Drop shadow under each bar so it reads as layered over a `track`. */
     shadow?: boolean | { color: string; blur: number; offsetX?: number; offsetY?: number }
     /** Bar fill treatment. `flat` (default) is a solid color. `gradient` is a smooth diagonal

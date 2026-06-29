@@ -70,7 +70,10 @@ export function resolveClickedBarSeries<Meta>({
                 return null
             }
             const inTrackArea = cursorOutsideBarFillExtent(bar, cursor, isHorizontal)
-            return { ...rewrite(hit.series, hit.value, dataIndex), inTrackArea }
+            const capPixel = hit.series.trackMax != null ? scales.value(hit.series.trackMax) : null
+            const beyondTrackMax =
+                capPixel != null && (isHorizontal ? cursor.x > capPixel : cursor.y < capPixel)
+            return { ...rewrite(hit.series, hit.value, dataIndex), inTrackArea, beyondTrackMax }
         }
         return null
     }

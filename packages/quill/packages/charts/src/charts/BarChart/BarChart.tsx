@@ -82,6 +82,7 @@ function BarChartInner<Meta = unknown>({
     const {
         cornerRadius: barCornerRadius = 0,
         track: trackConfig = false,
+        trackBeyondColor: barTrackBeyondColor,
         shadow: barShadow,
         divergingStack = false,
         maxBandRange,
@@ -270,6 +271,7 @@ function BarChartInner<Meta = unknown>({
                 roundStackEnds,
                 barCornerRadius,
                 barTrack,
+                barTrackBeyondColor,
                 barShadow,
                 barFillStyle,
             }),
@@ -283,6 +285,7 @@ function BarChartInner<Meta = unknown>({
             roundStackEnds,
             barCornerRadius,
             barTrack,
+            barTrackBeyondColor,
             xTickFormatter,
             barShadow,
             barFillStyle,

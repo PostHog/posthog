@@ -1,9 +1,12 @@
 import {
     buildFunnelBarHorizontalFiller,
+    buildFunnelBarHorizontalNotPresent,
     buildFunnelBars,
     buildFunnelConversionStep,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+    FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    FUNNEL_NOT_PRESENT_FILL,
     funnelConversionRate,
 } from './funnelBarHorizontalShared'
 
@@ -44,6 +47,33 @@ describe('funnelBarHorizontalShared', () => {
                 isDropOff: true,
                 breakdownIndex: 1,
             })
+        })
+
+        it('caps the filler at maxPercent so only genuine drop-off shows below a shorter period’s entry level', () => {
+            // entry level 80, 30% converted → drop-off fills 30→80, not 30→100
+            const filler = buildFunnelBarHorizontalFiller([segment(30)], '#ccc', 1, 80)
+            expect(filler.data).toEqual([50])
+            expect(filler.meta).toEqual({ isDropOff: true, breakdownIndex: 1 })
+        })
+    })
+
+    describe('buildFunnelBarHorizontalNotPresent', () => {
+        it.each([
+            { capPercent: 80, expected: [20], description: 'bands the headroom above a shorter period’s entry level' },
+            { capPercent: 0, expected: [100], description: 'bands the whole track for a zeroed period' },
+        ])('$description', ({ capPercent, expected }) => {
+            const band = buildFunnelBarHorizontalNotPresent(capPercent, 1)
+            expect(band?.key).toBe(FUNNEL_BAR_HORIZONTAL_NOT_PRESENT_KEY)
+            expect(band?.data).toEqual(expected)
+            expect(band?.color).toBe(FUNNEL_NOT_PRESENT_FILL)
+            expect(band?.meta).toEqual({ isDropOff: false, isNotPresent: true, breakdownIndex: 1 })
+        })
+
+        it.each([
+            { capPercent: 100, description: 'the larger period whose track reaches 100%' },
+            { capPercent: 120, description: 'a cap clamped above 100%' },
+        ])('returns null for $description, so no band is rendered', ({ capPercent }) => {
+            expect(buildFunnelBarHorizontalNotPresent(capPercent)).toBeNull()
         })
     })
 

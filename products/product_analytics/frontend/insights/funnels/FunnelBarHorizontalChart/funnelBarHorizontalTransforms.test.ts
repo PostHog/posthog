@@ -301,52 +301,57 @@ describe('buildFunnelBarHorizontalData', () => {
             }),
         ]
 
-        it('gives each step two bars (current then previous), each its own segment + filler', () => {
+        it('gives each step a current and a previous bar; the shorter previous period gains a "not present" band', () => {
             const result = buildFunnelBarHorizontalCompareData(compareSteps, options)
 
             expect(result).toHaveLength(2)
             expect(result.every((step) => step.bars.length === 2)).toBe(true)
-            expect(result.every((step) => step.bars.every((bar) => bar.series.length === 2))).toBe(true)
+            // current (taller): segment + drop-off; previous (shorter): + the inert "not present" band
+            expect(result.every((step) => step.bars[0].series.length === 2)).toBe(true)
+            expect(result.every((step) => step.bars[1].series.length === 3)).toBe(true)
         })
 
-        it('scales each bar to the shared baseline via fromBasisStep, each track summing segment + filler to 100', () => {
+        it('caps the shorter period’s drop-off at its own entry level, with the headroom as a "not present" band', () => {
             const result = buildFunnelBarHorizontalCompareData(compareSteps, options)
 
-            // current: 100% then 50%; previous: 80% then 40% — each on its own 0–100 track
+            // current (entry level 100): segment 100→50, drop-off fills the rest to 100
             expect(result.map((s) => s.bars[0].series[0].data[0])).toEqual([100, 50])
             expect(result.map((s) => s.bars[0].series[1].data[0])).toEqual([0, 50])
+            // previous (entry level 80): segment 80→40, drop-off only up to 80, then a constant 20 "not present" band
             expect(result.map((s) => s.bars[1].series[0].data[0])).toEqual([80, 40])
-            expect(result.map((s) => s.bars[1].series[1].data[0])).toEqual([20, 60])
+            expect(result.map((s) => s.bars[1].series[1].data[0])).toEqual([0, 40])
+            expect(result.map((s) => s.bars[1].series[2].data[0])).toEqual([20, 20])
         })
 
         it.each([
             {
-                description: 'does not force the current step-0 bar to 100 when the previous period is larger',
+                description:
+                    'caps the shorter current period and bands its headroom; the larger previous fills the track',
                 nested_breakdown: [
                     makeStep({ count: 80, fromBasisStep: 0.8, compare_label: 'current' }),
                     makeStep({ count: 100, fromBasisStep: 1, compare_label: 'previous' }),
                 ],
-                // current sits below the shared baseline; previous fills the track
+                // current (entry 80): segment + zero drop-off + 20 "not present"; previous (entry 100) fills the track
                 expectedBars: [
-                    { segment: [80], filler: [20], breakdownIndex: 0 },
-                    { segment: [100], filler: [0], breakdownIndex: 1 },
+                    { series: [[80], [0], [20]], breakdownIndex: 0 },
+                    { series: [[100], [0]], breakdownIndex: 1 },
                 ],
             },
             {
-                description: 'renders a zeroed previous period as an empty track without error',
+                description: 'renders a zeroed previous period as a full "not present" band',
                 nested_breakdown: [
                     makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' }),
                     makeStep({ count: 0, fromBasisStep: 0, compare_label: 'previous' }),
                 ],
                 expectedBars: [
-                    { segment: [100], filler: [0], breakdownIndex: 0 },
-                    { segment: [0], filler: [100], breakdownIndex: 1 },
+                    { series: [[100], [0]], breakdownIndex: 0 },
+                    { series: [[0], [0], [100]], breakdownIndex: 1 },
                 ],
             },
             {
                 description: 'renders a single bar when the step has no previous-period series',
                 nested_breakdown: [makeStep({ count: 100, fromBasisStep: 1, compare_label: 'current' })],
-                expectedBars: [{ segment: [100], filler: [0], breakdownIndex: 0 }],
+                expectedBars: [{ series: [[100], [0]], breakdownIndex: 0 }],
             },
         ])('$description', ({ nested_breakdown, expectedBars }) => {
             const steps: FunnelStepWithConversionMetrics[] = [
@@ -356,8 +361,7 @@ describe('buildFunnelBarHorizontalData', () => {
 
             expect(step.bars).toHaveLength(expectedBars.length)
             expectedBars.forEach((expected, barIndex) => {
-                expect(step.bars[barIndex].series[0].data).toEqual(expected.segment)
-                expect(step.bars[barIndex].series[1].data).toEqual(expected.filler)
+                expect(step.bars[barIndex].series.map((s) => s.data)).toEqual(expected.series)
                 expect(step.bars[barIndex].series[0].meta?.breakdownIndex).toBe(expected.breakdownIndex)
             })
         })
@@ -375,13 +379,16 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(getColor).toHaveBeenCalledWith(compareSteps[1].nested_breakdown![1])
         })
 
-        it('tags both the segment and filler of each bar with its period breakdownIndex', () => {
+        it('tags each bar’s segment, drop-off, and "not present" band for click + tooltip routing', () => {
             const [step] = buildFunnelBarHorizontalCompareData(compareSteps, options)
 
+            // current bar (full height): segment + drop-off
             expect(step.bars[0].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 0 })
             expect(step.bars[0].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 0 })
+            // previous bar (shorter): segment + drop-off + the inert "not present" band
             expect(step.bars[1].series[0].meta).toEqual({ isDropOff: false, breakdownIndex: 1 })
             expect(step.bars[1].series[1].meta).toEqual({ isDropOff: true, breakdownIndex: 1 })
+            expect(step.bars[1].series[2].meta).toEqual({ isDropOff: false, isNotPresent: true, breakdownIndex: 1 })
         })
 
         describe('with breakdown', () => {

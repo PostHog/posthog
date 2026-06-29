@@ -95,6 +95,16 @@ export function resolveBarHoverItems(
             if (hoverPosition && !barContainsPointOnBandAxis(bar, hoverPosition, isHorizontal)) {
                 continue
             }
+            // The headroom above a capped track is inert — no highlight, so it doesn't read as a
+            // clickable drop-off region.
+            const capPixel = s.trackMax != null ? d3Scales.value(s.trackMax) : null
+            if (
+                capPixel != null &&
+                hoverPosition != null &&
+                (isHorizontal ? hoverPosition.x > capPixel : hoverPosition.y < capPixel)
+            ) {
+                continue
+            }
             const isTrackHighlight =
                 barTrackHover &&
                 barLayout === 'grouped' &&

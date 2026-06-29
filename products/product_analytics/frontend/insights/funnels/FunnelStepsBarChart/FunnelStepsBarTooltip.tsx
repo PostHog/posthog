@@ -1,11 +1,16 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
-import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
+import {
+    funnelComparePeriodDateRange,
+    getFunnelAggregateConversionRate,
+    hasBreakdown,
+} from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
+import { FUNNEL_NOT_PRESENT_TOOLTIP } from '../shared/funnelBarHorizontalShared'
 import type { FunnelStepsBarSeriesMeta } from './funnelStepsBarTransforms'
 
 interface FunnelStepsBarTooltipProps {
@@ -38,6 +43,14 @@ export function FunnelStepsBarTooltip({
     const series = step.nested_breakdown?.[breakdownIndex] ?? step
     const aggregateConversionRate = getFunnelAggregateConversionRate(series, step)
 
+    // This period had fewer entrants than the other when its step-0 sits below the shared baseline —
+    // the headroom above its capped track is the volume gap, so flag it as "not present", not
+    // drop-off. Pure compare only — in breakdown × compare the headroom isn't a period gap.
+    const isShorterComparePeriod =
+        series.compare_label != null &&
+        !hasBreakdown(series.breakdown_value) &&
+        (steps[0]?.nested_breakdown?.[breakdownIndex]?.conversionRates.fromBasisStep ?? 1) < 1
+
     return (
         <FunnelTooltip
             showPersonsModal={showPersonsModal}
@@ -51,6 +64,7 @@ export function FunnelStepsBarTooltip({
                     ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
                     : null
             }
+            footerNote={isShorterComparePeriod ? FUNNEL_NOT_PRESENT_TOOLTIP : null}
         />
     )
 }

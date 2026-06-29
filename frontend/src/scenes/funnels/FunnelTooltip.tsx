@@ -38,6 +38,9 @@ export interface FunnelTooltipProps {
     comparePeriodDateRange?: string | null
     /** Baseline conversion rate across all breakdown values; shown only for breakdown variants past the first step. */
     aggregateConversionRate?: number | null
+    /** Muted footnote — used in compare mode to flag that a shorter period's headroom is "fewer
+     *  entrants", not drop-off. Omitted when not set. */
+    footerNote?: string | null
 }
 
 export function FunnelTooltip({
@@ -49,6 +52,7 @@ export function FunnelTooltip({
     embedded = false,
     comparePeriodDateRange,
     aggregateConversionRate,
+    footerNote,
 }: FunnelTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -129,6 +133,12 @@ export function FunnelTooltip({
                 <>
                     <LemonDivider className="my-2" />
                     <ClickToInspectActors groupTypeLabel={groupTypeLabel} />
+                </>
+            )}
+            {footerNote && (
+                <>
+                    <LemonDivider className="my-2" />
+                    <div className="text-muted text-xs">{footerNote}</div>
                 </>
             )}
         </div>
