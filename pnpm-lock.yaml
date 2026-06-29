@@ -2698,7 +2698,7 @@ importers:
     dependencies:
       '@posthog/icons':
         specifier: '*'
-        version: 0.37.3(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        version: 0.37.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@posthog/lemon-ui':
         specifier: '*'
         version: 0.0.0(antd@5.26.0(date-fns@4.1.0)(luxon@3.7.2)(moment@2.29.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(kea-router@3.4.1(kea@4.0.0-pre.5(react@18.3.1)))(kea@4.0.0-pre.5(react@18.3.1))(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
