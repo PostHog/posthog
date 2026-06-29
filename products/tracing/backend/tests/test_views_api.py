@@ -132,9 +132,7 @@ class TestTracingViewAPI(APIBaseTest):
                 "values": [
                     {
                         "type": "AND",
-                        "values": [
-                            {"key": "http.status_code", "value": "500", "type": "span", "operator": "exact"}
-                        ],
+                        "values": [{"key": "http.status_code", "value": "500", "type": "span", "operator": "exact"}],
                     }
                 ],
             },
