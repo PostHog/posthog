@@ -3880,6 +3880,28 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIs(response.json()[0]["xmin_available"], expected_xmin_available)
 
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_database_schema_returns_friendly_message_for_expected_error(self, mock_get_source, mock_capture_exception):
+        source = mock_get_source.return_value
+        source.validate_config.return_value = (True, [])
+        source.parse_config.return_value = Mock()
+        source.validate_credentials.return_value = (True, None)
+        source.get_non_retryable_errors.return_value = {}
+        source.get_schemas.side_effect = Exception("connection timed out")
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/database_schema/",
+            data={"source_type": "Stripe"},
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(
+            response.json().get("message"),
+            "Connection timed out while fetching schemas from the source.",
+        )
+        mock_capture_exception.assert_not_called()
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,
