@@ -4,6 +4,7 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import {
     TracingSpansAggregateCreateBody,
+    TracingSpansAttributeBreakdownCreateBody,
     TracingSpansAttributesRetrieveQueryParams,
     TracingSpansCountCreateBody,
     TracingSpansDurationHistogramCreateBody,
@@ -18,6 +19,27 @@ import {
 import { withUiApp } from '@/resources/ui-apps'
 import { pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
+
+const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
+
+const apmAttributeBreakdown = (): ToolBase<typeof ApmAttributeBreakdownSchema, unknown> => ({
+    name: 'apm-attribute-breakdown',
+    schema: ApmAttributeBreakdownSchema,
+    handler: async (context: Context, params: z.infer<typeof ApmAttributeBreakdownSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attribute-breakdown/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, ['results', 'compare']) as typeof result
+        return filtered
+    },
+})
 
 const ApmAttributeValuesListSchema = TracingSpansValuesRetrieveQueryParams
 
@@ -44,12 +66,12 @@ const apmAttributeValuesList = (): ToolBase<typeof ApmAttributeValuesListSchema,
 
 const ApmAttributesListSchema = TracingSpansAttributesRetrieveQueryParams
 
-const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> => ({
+const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, Schemas._TracingAttributesResponse> => ({
     name: 'apm-attributes-list',
     schema: ApmAttributesListSchema,
     handler: async (context: Context, params: z.infer<typeof ApmAttributesListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
+        const result = await context.api.request<Schemas._TracingAttributesResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/attributes/`,
             query: {
@@ -57,6 +79,7 @@ const apmAttributesList = (): ToolBase<typeof ApmAttributesListSchema, unknown> 
                 limit: params.limit,
                 offset: params.offset,
                 search: params.search,
+                search_values: params.search_values,
             },
         })
         const filtered = pickResponseFields(result, ['results', 'count']) as typeof result
@@ -206,6 +229,9 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
             if (params.excludeAttributes !== undefined) {
                 body['excludeAttributes'] = params.excludeAttributes
             }
+            if (params.offset !== undefined) {
+                body['offset'] = params.offset
+            }
             const result = await context.api.request<unknown>({
                 method: 'POST',
                 path: `/api/projects/${encodeURIComponent(String(projectId))}/tracing/spans/trace/${encodeURIComponent(String(params.trace_id))}/`,
@@ -239,6 +265,7 @@ const queryApmSpans = (): ToolBase<typeof QueryApmSpansSchema, unknown> =>
     })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'apm-attribute-breakdown': apmAttributeBreakdown,
     'apm-attribute-values-list': apmAttributeValuesList,
     'apm-attributes-list': apmAttributesList,
     'apm-services-list': apmServicesList,

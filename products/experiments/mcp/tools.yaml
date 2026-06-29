@@ -48,6 +48,38 @@ tools:
             id:
                 cast: string-int
         ui_app: experiment
+    experiment-calculate-running-time:
+        operation: experiments_calculate_running_time_create
+        enabled: true
+        scopes:
+            - experiment:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Calculate experiment running time
+        description: >
+            Estimate the recommended sample size and how many days an experiment needs to run to detect an effect. This
+            is a stateless statistical calculation — it does not read or modify any experiment, so it works for planning
+            before an experiment exists.
+
+
+            Required: metric_type ('funnel' for conversion rates, 'mean_count' for events per user, 'mean_sum_or_avg'
+            for summed property values per user, 'ratio' or 'retention' for ratio-style metrics) and
+            minimum_detectable_effect (the smallest relative change to detect, as a percentage — e.g. 5 means a 5%
+            lift). number_of_variants defaults to 2 (control + one test).
+
+
+            Provide the baseline one of two ways: pass baseline_value directly (a conversion rate as a fraction 0-1 for
+            funnels, or an average per user for mean metrics), or pass baseline_stats (raw control-group statistics) and
+            let the server derive it. Ratio and retention metrics REQUIRE baseline_stats (with denominator_sum /
+            denominator_sum_squares / numerator_denominator_sum_product for the delta-method variance) or an explicit
+            variance — baseline_value alone is not enough.
+
+
+            Optionally pass exposure_rate_per_day (expected exposures per day across all variants) to also get
+            recommended_running_time_days. The response returns baseline_value, variance (null for funnels),
+            recommended_sample_size (total across variants), and recommended_running_time_days.
     experiment-copy-to-project:
         operation: experiments_copy_to_project_create
         enabled: true
@@ -245,6 +277,9 @@ tools:
             meaning changes to one experiment's flag (e.g. shipping a variant, pausing) will affect both experiments.
             Always confirm the new flag key with the user before duplicating. Optionally provide a custom name (defaults
             to "Original Name (Copy)").
+        include_params:
+            - name
+            - feature_flag_key
         param_overrides:
             id:
                 cast: string-int
@@ -277,8 +312,8 @@ tools:
             ("Experiment has already ended.").
 
 
-            Other options: use ship_variant to end AND roll out a winner. Use pause to temporarily deactivate the flag
-            without ending.
+            Other options: use experiment-ship-variant to end AND roll out a winner. Use pause to temporarily deactivate
+            the flag without ending.
         param_overrides:
             id:
                 cast: string-int
@@ -404,8 +439,6 @@ tools:
             limit:
                 cast: string-int
             offset:
-                cast: string-int
-            created_by_id:
                 cast: string-int
             feature_flag_id:
                 cast: string-int
@@ -803,13 +836,16 @@ tools:
 
 
             Do NOT use this to change lifecycle state — use the dedicated launch, end, pause, resume, archive, or
-            ship_variant tools instead.
+            experiment-ship-variant tools instead.
         include_params:
             - name
             - description
             - parameters
+            - running_time_calculation
+            - excluded_variants
             - metrics
             - metrics_secondary
+            - saved_metrics_ids
             - stats_config
             - exposure_criteria
             - holdout_id
@@ -821,6 +857,14 @@ tools:
         param_overrides:
             id:
                 cast: string-int
+            running_time_calculation:
+                description: >
+                    Persist a running-time / sample-size plan onto the experiment (the planning target shown in the
+                    experiment's running-time panel). Object with optional keys: minimum_detectable_effect (percentage,
+                    e.g. 20 for a 20% lift), recommended_sample_size (total across all variants),
+                    recommended_running_time (days), and exposure_estimate_config.
+            saved_metrics_ids:
+                input_schema: SavedMetricsAttachSchema
         ui_app: experiment
         response:
             include:
@@ -835,8 +879,10 @@ tools:
                 - end_date
                 - created_at
                 - parameters
+                - running_time_calculation
                 - metrics
                 - metrics_secondary
+                - saved_metrics
                 - conclusion
                 - conclusion_comment
     experiments-create-exposure-cohort:
@@ -847,6 +893,15 @@ tools:
         enabled: false
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-metrics-recalculation-create:
+        operation: experiments_metrics_recalculation_create
+        enabled: false
+    experiments-metrics-recalculation-latest-retrieve:
+        operation: experiments_metrics_recalculation_latest_retrieve
+        enabled: false
+    experiments-metrics-recalculation-retrieve:
+        operation: experiments_metrics_recalculation_retrieve
         enabled: false
     experiments-prompt-templates-retrieve:
         operation: experiments_prompt_templates_retrieve

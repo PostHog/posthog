@@ -9,7 +9,6 @@ import posthoganalytics
 from django_filters import BaseInFilter, CharFilter, FilterSet
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema
-from loginas.utils import is_impersonated_session
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, viewsets
 from rest_framework.exceptions import PermissionDenied
@@ -34,6 +33,7 @@ from posthog.cdp.validation import (
     generate_template_bytecode,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.helpers.impersonation import is_impersonated
 from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -203,6 +203,34 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             "execution_order": {"help_text": "Execution priority for transformations. Lower values run first."},
         }
 
+    def _validate_template_is_creatable(self, template: HogFunctionTemplate) -> None:
+        # Hidden templates are internal building blocks (e.g. the native email destination) that the
+        # workflow editor renders but that are never offered as standalone destinations. Block creating a
+        # function from one via this API/MCP entirely — they are not a supported destination type.
+        if template.status == "hidden":
+            raise serializers.ValidationError(
+                {
+                    "template_id": f"Template '{template.template_id}' is internal and cannot be used to create a function."
+                }
+            )
+
+    def _validate_hidden_template_not_enabled(self, attrs: dict, is_create: bool) -> None:
+        # Creating from a hidden template is already blocked outright. For an existing function built from
+        # one (the unsupported standalone destinations this PR is about), allow disabling and deleting so it
+        # can be cleaned up, but never let it stay enabled — block any update that would leave it enabled,
+        # including content edits (hog/inputs/filters) that omit `enabled` while it is currently on.
+        if is_create or not isinstance(self.instance, HogFunction) or attrs.get("deleted") is True:
+            return
+        if attrs.get("enabled", self.instance.enabled) is not True:
+            return
+        template = HogFunctionTemplate.get_template(self.instance.template_id) if self.instance.template_id else None
+        if template is not None and template.status == "hidden":
+            raise serializers.ValidationError(
+                {
+                    "enabled": "This function was created from an internal template and can only be disabled or deleted, not kept enabled."
+                }
+            )
+
     # NOTE: All pre-validation should be done here such as loading the template info etc.
     def to_internal_value(self, data):
         self.initial_data = data
@@ -249,6 +277,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if template_id:
                 template = HogFunctionTemplate.objects.get(template_id=data["template_id"])
                 if template:
+                    self._validate_template_is_creatable(template)
                     data["hog"] = data.get("hog") or template.code
                     data["inputs_schema"] = data.get("inputs_schema") or template.inputs_schema
                     data["inputs"] = data.get("inputs") or {}
@@ -280,6 +309,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         is_create = self.context.get("is_create") or (
             self.context.get("view") and self.context["view"].action == "create"
         )
+
+        self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Check for transformation limit per team when the function will be enabled
         # We allow unlimited creation of disabled transformations as they don't run during ingestion
@@ -686,7 +717,7 @@ class HogFunctionViewSet(
                         team_id=self.team_id,
                         user=user,
                         item_id=str(function.id),
-                        was_impersonated=is_impersonated_session(request),
+                        was_impersonated=is_impersonated(request),
                         scope="HogFunction",
                         activity="updated",
                         detail=Detail(

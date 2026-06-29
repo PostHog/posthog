@@ -2,6 +2,7 @@
 # `person_distinct_id_overrides` in `posthog.models.person.sql` for its replacement tables, or
 # https://github.com/PostHog/posthog/pull/23616 for additional context.
 
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_PERSON_OVERRIDE
@@ -147,6 +148,7 @@ GROUP BY
 """
 
 # ClickHouse dictionaries allow us to JOIN events with their new override_person_ids (if any).
+CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
 PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
     CREATE DICTIONARY IF NOT EXISTS `{CLICKHOUSE_DATABASE}`.`person_overrides_dict`
     {ON_CLUSTER_CLAUSE()} (
@@ -155,7 +157,7 @@ PERSON_OVERRIDES_CREATE_DICTIONARY_SQL = f"""
         override_person_id UUID
     )
     PRIMARY KEY team_id, old_person_id
-    SOURCE(CLICKHOUSE(QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}'))
+    SOURCE(CLICKHOUSE(QUERY '{GET_LATEST_PERSON_OVERRIDE_ID_SQL}' USER '{CLICKHOUSE_DICT_READER_USER}' PASSWORD '{CLICKHOUSE_DICT_READER_PASSWORD}'))
     LAYOUT(COMPLEX_KEY_HASHED(PREALLOCATE 1))
 
     -- The LIFETIME setting indicates to ClickHouse to automatically update this dictionary

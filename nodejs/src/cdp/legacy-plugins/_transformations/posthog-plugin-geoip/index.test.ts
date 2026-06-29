@@ -1,8 +1,9 @@
 import { City } from '@maxmind/geoip2-node'
 
-import { defaultConfig } from '../../../../config/config'
-import { GeoIPService, GeoIp } from '../../../../utils/geoip'
-import { parseJSON } from '../../../../utils/json-parse'
+import { defaultConfig } from '~/common/config/config'
+import { GeoIPService, GeoIp } from '~/common/utils/geoip'
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { createPageview, resetMeta } from '../../test-utils'
 import { LegacyTransformationPluginMeta } from '../../types'
 import { processEvent } from './index'
@@ -32,7 +33,7 @@ describe('posthog-plugin-geoip', () => {
     }
 
     test('event is enriched with IP location', () => {
-        const event = processEvent({ ...createPageview(), ip: '12.87.118.0' }, resetMetaWithMmdb())
+        const event = processEvent({ ...createPageview(), ip: '216.160.83.56' }, resetMetaWithMmdb())
         expect(event!.properties).toMatchInlineSnapshot(`
             {
               "$active_feature_flags": [
@@ -43,18 +44,18 @@ describe('posthog-plugin-geoip', () => {
               "$browser_version": 86,
               "$current_url": "http://localhost:8000/instance/status",
               "$device_id": "17554768afe5cb-0fc915d2a583cf-166f6152-1ea000-175543686ffdc5",
-              "$geoip_accuracy_radius": 20,
-              "$geoip_city_name": "Cleveland",
+              "$geoip_accuracy_radius": 22,
+              "$geoip_city_name": "Milton",
               "$geoip_continent_code": "NA",
               "$geoip_continent_name": "North America",
               "$geoip_country_code": "US",
               "$geoip_country_name": "United States",
-              "$geoip_latitude": 41.5,
-              "$geoip_longitude": -81.6938,
-              "$geoip_postal_code": "44192",
-              "$geoip_subdivision_1_code": "OH",
-              "$geoip_subdivision_1_name": "Ohio",
-              "$geoip_time_zone": "America/New_York",
+              "$geoip_latitude": 47.2513,
+              "$geoip_longitude": -122.3149,
+              "$geoip_postal_code": "98354",
+              "$geoip_subdivision_1_code": "WA",
+              "$geoip_subdivision_1_name": "Washington",
+              "$geoip_time_zone": "America/Los_Angeles",
               "$host": "localhost:8000",
               "$initial_referrer": "$direct",
               "$initial_referring_domain": "$direct",
@@ -66,38 +67,38 @@ describe('posthog-plugin-geoip', () => {
               "$screen_height": 1120,
               "$screen_width": 1790,
               "$set": {
-                "$geoip_accuracy_radius": 20,
+                "$geoip_accuracy_radius": 22,
                 "$geoip_city_confidence": null,
-                "$geoip_city_name": "Cleveland",
+                "$geoip_city_name": "Milton",
                 "$geoip_continent_code": "NA",
                 "$geoip_continent_name": "North America",
                 "$geoip_country_code": "US",
                 "$geoip_country_name": "United States",
-                "$geoip_latitude": 41.5,
-                "$geoip_longitude": -81.6938,
-                "$geoip_postal_code": "44192",
-                "$geoip_subdivision_1_code": "OH",
-                "$geoip_subdivision_1_name": "Ohio",
+                "$geoip_latitude": 47.2513,
+                "$geoip_longitude": -122.3149,
+                "$geoip_postal_code": "98354",
+                "$geoip_subdivision_1_code": "WA",
+                "$geoip_subdivision_1_name": "Washington",
                 "$geoip_subdivision_2_code": null,
                 "$geoip_subdivision_2_name": null,
-                "$geoip_time_zone": "America/New_York",
+                "$geoip_time_zone": "America/Los_Angeles",
               },
               "$set_once": {
-                "$initial_geoip_accuracy_radius": 20,
+                "$initial_geoip_accuracy_radius": 22,
                 "$initial_geoip_city_confidence": null,
-                "$initial_geoip_city_name": "Cleveland",
+                "$initial_geoip_city_name": "Milton",
                 "$initial_geoip_continent_code": "NA",
                 "$initial_geoip_continent_name": "North America",
                 "$initial_geoip_country_code": "US",
                 "$initial_geoip_country_name": "United States",
-                "$initial_geoip_latitude": 41.5,
-                "$initial_geoip_longitude": -81.6938,
-                "$initial_geoip_postal_code": "44192",
-                "$initial_geoip_subdivision_1_code": "OH",
-                "$initial_geoip_subdivision_1_name": "Ohio",
+                "$initial_geoip_latitude": 47.2513,
+                "$initial_geoip_longitude": -122.3149,
+                "$initial_geoip_postal_code": "98354",
+                "$initial_geoip_subdivision_1_code": "WA",
+                "$initial_geoip_subdivision_1_name": "Washington",
                 "$initial_geoip_subdivision_2_code": null,
                 "$initial_geoip_subdivision_2_name": null,
-                "$initial_geoip_time_zone": "America/New_York",
+                "$initial_geoip_time_zone": "America/Los_Angeles",
               },
               "$time": 1606383312.494,
               "$user_id": "3erf45reXthrGser675waeHFAsbv4AsadfR",
@@ -110,43 +111,43 @@ describe('posthog-plugin-geoip', () => {
     })
 
     test('person is enriched with IP location', () => {
-        const event = processEvent({ ...createPageview(), ip: '12.87.118.0' }, resetMetaWithMmdb())
+        const event = processEvent({ ...createPageview(), ip: '216.160.83.56' }, resetMetaWithMmdb())
         expect(event!.properties!.$set).toMatchInlineSnapshot(`
             {
-              "$geoip_accuracy_radius": 20,
+              "$geoip_accuracy_radius": 22,
               "$geoip_city_confidence": null,
-              "$geoip_city_name": "Cleveland",
+              "$geoip_city_name": "Milton",
               "$geoip_continent_code": "NA",
               "$geoip_continent_name": "North America",
               "$geoip_country_code": "US",
               "$geoip_country_name": "United States",
-              "$geoip_latitude": 41.5,
-              "$geoip_longitude": -81.6938,
-              "$geoip_postal_code": "44192",
-              "$geoip_subdivision_1_code": "OH",
-              "$geoip_subdivision_1_name": "Ohio",
+              "$geoip_latitude": 47.2513,
+              "$geoip_longitude": -122.3149,
+              "$geoip_postal_code": "98354",
+              "$geoip_subdivision_1_code": "WA",
+              "$geoip_subdivision_1_name": "Washington",
               "$geoip_subdivision_2_code": null,
               "$geoip_subdivision_2_name": null,
-              "$geoip_time_zone": "America/New_York",
+              "$geoip_time_zone": "America/Los_Angeles",
             }
         `)
         expect(event!.properties!.$set_once).toMatchInlineSnapshot(`
             {
-              "$initial_geoip_accuracy_radius": 20,
+              "$initial_geoip_accuracy_radius": 22,
               "$initial_geoip_city_confidence": null,
-              "$initial_geoip_city_name": "Cleveland",
+              "$initial_geoip_city_name": "Milton",
               "$initial_geoip_continent_code": "NA",
               "$initial_geoip_continent_name": "North America",
               "$initial_geoip_country_code": "US",
               "$initial_geoip_country_name": "United States",
-              "$initial_geoip_latitude": 41.5,
-              "$initial_geoip_longitude": -81.6938,
-              "$initial_geoip_postal_code": "44192",
-              "$initial_geoip_subdivision_1_code": "OH",
-              "$initial_geoip_subdivision_1_name": "Ohio",
+              "$initial_geoip_latitude": 47.2513,
+              "$initial_geoip_longitude": -122.3149,
+              "$initial_geoip_postal_code": "98354",
+              "$initial_geoip_subdivision_1_code": "WA",
+              "$initial_geoip_subdivision_1_name": "Washington",
               "$initial_geoip_subdivision_2_code": null,
               "$initial_geoip_subdivision_2_name": null,
-              "$initial_geoip_time_zone": "America/New_York",
+              "$initial_geoip_time_zone": "America/Los_Angeles",
             }
         `)
     })
@@ -157,51 +158,51 @@ describe('posthog-plugin-geoip', () => {
             return remainingResult
         }
         const event = processEvent(
-            { ...createPageview(), ip: '12.87.118.0' },
+            { ...createPageview(), ip: '216.160.83.56' },
             resetMetaWithMmdb(removeCityNameFromLookupResult)
         )
         expect(event!.properties!.$set).toMatchInlineSnapshot(`
             {
-              "$geoip_accuracy_radius": 20,
+              "$geoip_accuracy_radius": 22,
               "$geoip_city_confidence": null,
               "$geoip_city_name": null,
               "$geoip_continent_code": "NA",
               "$geoip_continent_name": "North America",
               "$geoip_country_code": "US",
               "$geoip_country_name": "United States",
-              "$geoip_latitude": 41.5,
-              "$geoip_longitude": -81.6938,
-              "$geoip_postal_code": "44192",
-              "$geoip_subdivision_1_code": "OH",
-              "$geoip_subdivision_1_name": "Ohio",
+              "$geoip_latitude": 47.2513,
+              "$geoip_longitude": -122.3149,
+              "$geoip_postal_code": "98354",
+              "$geoip_subdivision_1_code": "WA",
+              "$geoip_subdivision_1_name": "Washington",
               "$geoip_subdivision_2_code": null,
               "$geoip_subdivision_2_name": null,
-              "$geoip_time_zone": "America/New_York",
+              "$geoip_time_zone": "America/Los_Angeles",
             }
         `)
         expect(event!.properties!.$set_once).toMatchInlineSnapshot(`
             {
-              "$initial_geoip_accuracy_radius": 20,
+              "$initial_geoip_accuracy_radius": 22,
               "$initial_geoip_city_confidence": null,
               "$initial_geoip_city_name": null,
               "$initial_geoip_continent_code": "NA",
               "$initial_geoip_continent_name": "North America",
               "$initial_geoip_country_code": "US",
               "$initial_geoip_country_name": "United States",
-              "$initial_geoip_latitude": 41.5,
-              "$initial_geoip_longitude": -81.6938,
-              "$initial_geoip_postal_code": "44192",
-              "$initial_geoip_subdivision_1_code": "OH",
-              "$initial_geoip_subdivision_1_name": "Ohio",
+              "$initial_geoip_latitude": 47.2513,
+              "$initial_geoip_longitude": -122.3149,
+              "$initial_geoip_postal_code": "98354",
+              "$initial_geoip_subdivision_1_code": "WA",
+              "$initial_geoip_subdivision_1_name": "Washington",
               "$initial_geoip_subdivision_2_code": null,
               "$initial_geoip_subdivision_2_name": null,
-              "$initial_geoip_time_zone": "America/New_York",
+              "$initial_geoip_time_zone": "America/Los_Angeles",
             }
         `)
     })
 
     test('event is skipped using $geoip_disable', () => {
-        const testEvent = { ...createPageview(), ip: '12.87.118.0', properties: { $geoip_disable: true } }
+        const testEvent = { ...createPageview(), ip: '216.160.83.56', properties: { $geoip_disable: true } }
         const processedEvent = processEvent(parseJSON(JSON.stringify(testEvent)), resetMetaWithMmdb())
         expect(testEvent).toEqual(processedEvent)
     })

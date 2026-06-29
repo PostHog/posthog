@@ -205,7 +205,9 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Experiment
   list([
     'description',
+    'excluded_variants',
     'exposure_criteria',
+    'feature_flag_auto_archived',
     'filters',
     'metrics',
     'metrics_secondary',
@@ -245,6 +247,7 @@
 # name: TestVisitorFieldSnapshots.test_primitive_fields_FeatureFlag
   list([
     'active',
+    'archived',
     'bucketing_identifier',
     'created_at',
     'ensure_experience_continuity',
@@ -701,6 +704,7 @@
     'save',
     'start_date',
     'status',
+    'status_label',
     'team_id',
     'updated_at',
   ])
@@ -784,6 +788,7 @@
     '__static_attributes__',
     '__str__',
     '_evaluation_tag_names',
+    '_has_experiment',
     '_meta',
     '_payloads',
     '_tombstone_suffix',
@@ -852,10 +857,11 @@
     '__static_attributes__',
     '__str__',
     '_meta',
+    '_unwrapped_query_kind',
     'alert_set',
+    'alertable_query_kind',
     'alertconfiguration_set',
     'annotation_set',
-    'are_alerts_supported',
     'caching_state',
     'caching_states',
     'created_by_id',
@@ -871,6 +877,8 @@
     'filters_hash',
     'funnel',
     'generate_query_metadata',
+    'get_analytics_query_kinds',
+    'get_analytics_query_metadata',
     'get_effective_query',
     'get_file_system_representation',
     'get_file_system_unfiled',

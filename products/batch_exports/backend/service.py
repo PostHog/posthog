@@ -1142,6 +1142,8 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
         enable_select_queries=True,
         limit_top_select=False,
     )
+    # Export models are only events/persons/sessions; warehouse tables and views are denied.
+    # Pass bypass_warehouse_access_control=True or a user if that becomes an issue.
     context.database = Database.create_for(team=batch_export.team, modifiers=context.modifiers)
 
     temporal = sync_connect()
@@ -1385,6 +1387,8 @@ class BatchExportInsertInputs:
     batch_export_id: str | None = None
     destination_default_fields: list[BatchExportField] | None = None
     stage_folder: str | None = None
+    # Total rows staged for this run (from ClickHouse), used to report export progress
+    records_total: int | None = None
     on_demand: bool = False
 
     def get_is_backfill(self) -> bool:

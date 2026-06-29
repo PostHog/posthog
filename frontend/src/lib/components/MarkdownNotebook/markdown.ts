@@ -96,6 +96,7 @@ const INLINE_TAG_NAMES = ['ref', 'mention'] as const
 type InlineTagName = (typeof INLINE_TAG_NAMES)[number]
 const INLINE_TAG_OPEN_REGEX = /^<(ref|mention)\s+id=(?:"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)')\s*>/
 let generatedNodeIdCounter = 0
+const serializedNodeCache = new WeakMap<NotebookBlockNode, string>()
 
 export function parseMarkdownNotebook(markdown: string | null | undefined): NotebookDocument {
     const lines = (markdown ?? '').replace(/\r\n?/g, '\n').split('\n')
@@ -143,6 +144,10 @@ export function parseMarkdownNotebook(markdown: string | null | undefined): Note
 }
 
 export function serializeMarkdownNotebook(document: NotebookDocument): string {
+    if (document.nodes.length === 1 && isEmptyNotebookTitleNode(document.nodes[0])) {
+        return ''
+    }
+
     const shouldPreserveEmptyParagraphs = document.nodes.length > 1
     const serialized = document.nodes
         .map((node) => serializeDocumentNode(node, shouldPreserveEmptyParagraphs))
@@ -155,7 +160,22 @@ export function serializeMarkdownNotebook(document: NotebookDocument): string {
     return shouldPreserveTrailingEmptyParagraph ? serialized : serialized.trimEnd()
 }
 
+function isEmptyNotebookTitleNode(node: NotebookBlockNode | undefined): boolean {
+    return !!node && node.type === 'heading' && node.level === 1 && serializeInlineNodes(node.children) === ''
+}
+
 export function serializeNode(node: NotebookBlockNode): string {
+    const cachedValue = serializedNodeCache.get(node)
+    if (cachedValue !== undefined) {
+        return cachedValue
+    }
+
+    const serialized = serializeNodeUncached(node)
+    serializedNodeCache.set(node, serialized)
+    return serialized
+}
+
+function serializeNodeUncached(node: NotebookBlockNode): string {
     if (node.type === 'heading') {
         const [firstLine, ...followingLines] = serializeInlineNodes(node.children).split('\n')
         return [`${'#'.repeat(node.level ?? 1)} ${firstLine}`, ...followingLines.map(escapeMarkdownLineStart)].join(

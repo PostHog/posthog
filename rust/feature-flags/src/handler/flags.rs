@@ -12,6 +12,7 @@ use crate::{
     utils::user_agent::{RuntimeType, UserAgentInfo},
 };
 use axum::extract::State;
+use chrono_tz::Tz;
 use common_types::TeamId;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -331,6 +332,7 @@ fn collect_excluded_by_tags(
 pub async fn evaluate_for_request(
     state: &State<router::State>,
     team_id: i32,
+    team_timezone: Tz,
     distinct_id: String,
     device_id: Option<String>,
     filtered_flags: FeatureFlagList,
@@ -361,6 +363,7 @@ pub async fn evaluate_for_request(
 
     let ctx = FeatureFlagEvaluationContext {
         team_id,
+        team_timezone,
         distinct_id,
         device_id,
         feature_flags: filtered_flags,
@@ -630,6 +633,7 @@ mod tests {
         let server_sdks = vec![
             "posthog-python/1.4.0",
             "posthog-ruby/2.0.0",
+            "posthog-ruby2.0.0",
             "posthog-php/3.0.0",
             "posthog-java/1.0.0",
             "posthog-go/0.1.0",

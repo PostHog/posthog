@@ -108,6 +108,17 @@ and will always look like a drop (see the partial-bucket guard in `anomaly-metho
 
 When a metric moves, **attribute it before deciding** — re-run the insight with its own breakdown (or add a `GROUP BY` in SQL) to find which segment drove the move. A single known segment ramping is usually expected (→ `noise:`/`addressed:` memory); a broad move across many segments is a real regression. See [`references/anomaly-methods.md`](references/anomaly-methods.md).
 
+**Change-detection lens (optional).** Point/level scoring catches an outlier _bucket_; it
+misses a metric whose mean holds but whose **distribution shifts shape** (variance, tail, mix)
+and it won't tell you _where_ a drift began. For that, run a two-sample Kolmogorov-Smirnov test
+in `Bash` + `python3` — inline as a self-contained heredoc, or fetch the bundled
+`scripts/ks2.py` via `llma-skill-file-get` and write it to `/tmp` first (it is **not** on disk
+in a scheduled run). Compare two seasonality-matched windows, or sweep an ordered series for
+the changepoint. Pull **histograms** (`GROUP BY` a value bucket), not raw rows, to stay cheap
+and under the `execute-sql` cap. Full recipe, calibration (incl. the changepoint multiple-
+comparisons caveat), and the seasonality caveat in
+[`references/anomaly-methods.md`](references/anomaly-methods.md).
+
 ### Explore — discover new high-value insights/dashboards to add
 
 Spend a slice of each run widening coverage so the watchlist tracks what the team currently
@@ -123,6 +134,13 @@ cares about:
 
 For each new candidate, do a first read to set its baseline and cadence, then add a
 `watchlist:` entry. Don't add more than a few per run — let coverage grow steadily.
+
+Explore is not only additive — **importance decays.** Every few days (~3), re-pull the ranking
+and reconcile the _existing_ watchlist against it: promote newly-hot items, demote or retire
+ones whose dashboards have gone cold. A large or "mature" watchlist is **not** a reason to skip
+explore — a frozen watchlist tracks last week's priorities, not today's. The refresh cadence and
+the `importance-refresh` memo are in
+[`references/watchlist-and-memory.md`](references/watchlist-and-memory.md).
 
 ### Save memory as you go
 
@@ -203,6 +221,10 @@ Direct (read-only):
   non-saved series or custom baselines.
 - `read-data-schema` — confirm events/properties before any SQL.
 - `inbox-reports-list` — check whether the move is already reported before emitting.
+
+Local: `Bash` + `python3` — the distribution-shift lens: run a pure-stdlib two-sample KS /
+changepoint inline, or fetch the bundled `scripts/ks2.py` via `llma-skill-file-get` and write
+it to `/tmp` first (not on disk in a scheduled run). Feed it histograms from `execute-sql`.
 
 Write (user-facing, gated on `notebook:write`):
 

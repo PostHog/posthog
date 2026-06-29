@@ -123,10 +123,22 @@ export PERSONS_READONLY_DATABASE_URL=${PERSONS_READONLY_DATABASE_URL:-postgres:/
 export PERSONS_WRITE_DATABASE_URL=${PERSONS_WRITE_DATABASE_URL:-$PERSONS_DATABASE_URL}
 # nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
 export PERSONS_READ_DATABASE_URL=${PERSONS_READ_DATABASE_URL:-$PERSONS_READONLY_DATABASE_URL}
+# nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
+export PERSONS_DB_WRITER_URL=${PERSONS_DB_WRITER_URL:-$PERSONS_DATABASE_URL}
+# nosemgrep: env-default-belongs-in-env-development -- bash variable ref in default
+export PERSONS_DB_READER_URL=${PERSONS_DB_READER_URL:-$PERSONS_READONLY_DATABASE_URL}
 export BEHAVIORAL_COHORTS_DATABASE_URL=${BEHAVIORAL_COHORTS_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/behavioral_cohorts}
 export FLAGS_READ_STORE_DATABASE_URL=${FLAGS_READ_STORE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/flags_read_store}
 export CYCLOTRON_DATABASE_URL=${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}
 export CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron_node}
+
+# Clean up orphaned dev processes left behind by a previous unclean shutdown.
+# These "zombies" hold ports and memory and cause most local dev issues. Only
+# orphans are killed — processes under an active process manager are left alone.
+# Set HOGLI_SKIP_ZOMBIE_CHECK=1 to skip. Never let it fail the script (set -e).
+if [[ -z "${HOGLI_SKIP_ZOMBIE_CHECK:-}" ]] && command -v hogli &>/dev/null; then
+    hogli doctor:zombies --yes || true
+fi
 
 # Geo files
 ./bin/download-mmdb

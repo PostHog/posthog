@@ -1,6 +1,7 @@
 import type { TooltipContext } from '@posthog/quill-charts'
 
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
+import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
@@ -14,6 +15,8 @@ interface FunnelBarHorizontalTooltipProps {
     breakdownFilter: BreakdownFilter | null | undefined
     groupTypeLabel: string
     showPersonsModal: boolean
+    resolvedDateRange?: Parameters<typeof funnelComparePeriodDateRange>[1]
+    compareTo?: Parameters<typeof funnelComparePeriodDateRange>[2]
 }
 
 export function FunnelBarHorizontalTooltip({
@@ -23,6 +26,8 @@ export function FunnelBarHorizontalTooltip({
     breakdownFilter,
     groupTypeLabel,
     showPersonsModal,
+    resolvedDateRange,
+    compareTo,
 }: FunnelBarHorizontalTooltipProps): JSX.Element | null {
     const entry = context.seriesData[0]
     if (!entry) {
@@ -32,6 +37,7 @@ export function FunnelBarHorizontalTooltip({
     const breakdownIndex = entry.series.meta?.breakdownIndex
     const series =
         breakdownIndex != null && step.nested_breakdown?.[breakdownIndex] ? step.nested_breakdown[breakdownIndex] : step
+    const aggregateConversionRate = getFunnelAggregateConversionRate(series, step)
 
     return (
         <FunnelTooltip
@@ -40,6 +46,12 @@ export function FunnelBarHorizontalTooltip({
             series={series}
             groupTypeLabel={groupTypeLabel}
             breakdownFilter={breakdownFilter}
+            aggregateConversionRate={aggregateConversionRate}
+            comparePeriodDateRange={
+                series.compare_label
+                    ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
+                    : null
+            }
         />
     )
 }

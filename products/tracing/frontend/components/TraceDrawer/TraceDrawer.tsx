@@ -34,6 +34,11 @@ export interface TraceDrawerProps {
     ts: string | null
     spans: Span[]
     loading: boolean
+    /** The open trace has more spans than the loaded pages — drives the waterfall's infinite scroll. */
+    hasMoreSpans?: boolean
+    /** A next page of spans is being fetched (shows a bottom spinner without the full overlay). */
+    loadingMoreSpans?: boolean
+    onLoadMoreSpans?: () => void
     selectedSpanId: string | null
     onSelectSpan: (spanId: string | null) => void
     onClose: () => void
@@ -49,6 +54,9 @@ export function TraceDrawer({
     ts,
     spans,
     loading,
+    hasMoreSpans = false,
+    loadingMoreSpans = false,
+    onLoadMoreSpans,
     selectedSpanId,
     onSelectSpan,
     onClose,
@@ -129,6 +137,9 @@ export function TraceDrawer({
                         spans={spans}
                         selectedSpanId={selectedSpanId}
                         onSpanSelect={onSelectSpan}
+                        hasMore={hasMoreSpans}
+                        loadingMore={loadingMoreSpans}
+                        onLoadMore={onLoadMoreSpans}
                     />
                 </div>
                 <div

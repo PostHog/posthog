@@ -13,6 +13,8 @@ import type {
     AppMetricsTotalsResponseApi,
     MetricsHasMetricsRetrieve200,
     MetricsValuesRetrieveParams,
+    _MetricAnomalyReportApi,
+    _MetricAnomalyRequestApi,
     _MetricNamesResponseApi,
     _MetricQueryRequestApi,
     _MetricQueryResponseApi,
@@ -57,6 +59,27 @@ export const eventFilterMetricsTotalsRetrieve = async (
     return apiMutator<AppMetricsTotalsResponseApi>(getEventFilterMetricsTotalsRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getMetricsCharacterizeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/metrics/characterize/`
+}
+
+/**
+ * Characterize a metric anomaly: compare an anomaly window against a
+ * baseline, find the onset, and rank which label values moved.
+ */
+export const metricsCharacterizeCreate = async (
+    projectId: string,
+    _metricAnomalyRequestApi: _MetricAnomalyRequestApi,
+    options?: RequestInit
+): Promise<_MetricAnomalyReportApi> => {
+    return apiMutator<_MetricAnomalyReportApi>(getMetricsCharacterizeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(_metricAnomalyRequestApi),
     })
 }
 

@@ -14,6 +14,7 @@ from django.dispatch import receiver
 from django.utils import timezone
 
 import structlog
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -28,6 +29,7 @@ from posthog.models.person import Person
 from posthog.models.person.util import get_person_by_uuid
 from posthog.models.property import Property, PropertyGroup
 from posthog.models.utils import RootTeamManager, RootTeamMixin, sane_repr
+from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.schema_enums import ProductKey
 from posthog.settings.base_variables import TEST
 
@@ -443,7 +445,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
             start_idx = batch_index * batch_size
             end_idx = start_idx + batch_size
-            return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
+            with personhog_caller_tag("cohorts/uuid-batch"):
+                return get_person_uuids_by_distinct_ids(team_id, items[start_idx:end_idx])
 
         batch_iterator = FunctionBatchIterator(create_uuid_batch, batch_size=batch_size, max_items=len(items))
         return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
@@ -454,6 +457,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         batchsize=DEFAULT_COHORT_INSERT_BATCH_SIZE,
         *,
         team_id: int,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -462,13 +466,19 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             items: List of user UUIDs to be inserted into the cohort.
             batchsize: Number of UUIDs to process in each batch.
             team_id: The ID of the team to which the cohort belongs.
+            raise_on_error: When True, a batch insert failure is re-raised and terminal
+                cohort state is left for the caller to finalize, instead of being swallowed
+                and recorded on the cohort here. Use when the caller records its own
+                success/failure outcome and must not treat a partial insert as success.
 
         Returns:
             The number of batches processed.
         """
 
         batch_iterator = ArrayBatchIterator(items, batch_size=batchsize)
-        return self._insert_users_list_with_batching(batch_iterator, insert_in_clickhouse=True, team_id=team_id)
+        return self._insert_users_list_with_batching(
+            batch_iterator, insert_in_clickhouse=True, team_id=team_id, raise_on_error=raise_on_error
+        )
 
     def insert_users_by_email(
         self,
@@ -544,6 +554,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         insert_in_clickhouse: bool = False,
         *,
         team_id: int,
+        raise_on_error: bool = False,
     ) -> int:
         """
         Insert a list of users identified by their UUID into the cohort, for the given team.
@@ -556,74 +567,29 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Returns:
             Number of batches processed.
         """
-        from posthog.personhog_client.gate import use_personhog
-
-        from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort
+        from products.cohorts.backend.models.util import count_cohort_members
 
         current_batch_index = -1
         processing_error = None
-        personhog = use_personhog()
         try:
-            from django.db import connections, router
+            for batch_index, batch in batch_iterator:
+                current_batch_index = batch_index
+                self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
 
-            if personhog:
-                for batch_index, batch in batch_iterator:
-                    current_batch_index = batch_index
-                    self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
-            else:
-                db_write = router.db_for_write(Person) or "default"
-                db_read = router.db_for_read(Person) or "default"
-                persons_connection = connections[db_write]
-                cursor = persons_connection.cursor()
-                cohort_people_table = CohortPeople._meta.db_table
-                for batch_index, batch in batch_iterator:
-                    current_batch_index = batch_index
-
-                    persons_query = (
-                        Person.objects.db_manager(db_read)  # nosemgrep: no-direct-persons-db-orm
-                        .filter(team_id=team_id)
-                        .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
-                    )
-                    if insert_in_clickhouse:
-                        # Both querysets must use db_write so Django can merge the
-                        # .exclude() into a single NOT IN subquery. Using db_read
-                        # for Person + db_write for CohortPeople causes a
-                        # "Subqueries aren't allowed across different databases"
-                        # ValueError when the aliases differ (production config).
-                        insert_uuids_query = (
-                            Person.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
-                            .filter(team_id=team_id, uuid__in=batch)
-                            .exclude(
-                                id__in=CohortPeople.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
-                                .filter(cohort_id=self.id)
-                                .values_list("person_id", flat=True)
-                            )
-                        )
-                        insert_static_cohort(
-                            list(insert_uuids_query.values_list("uuid", flat=True)),
-                            self.pk,
-                            team_id=team_id,
-                        )
-
-                    # Dedup via LEFT JOIN so the exclusion stays entirely in SQL,
-                    # avoiding the O(cohort_size) memory cost of loading all
-                    # existing member IDs into Python. Both tables live on the
-                    # persons DB so the join works on the db_write cursor.
-                    sql, params = persons_query.only("pk").query.sql_with_params()
-                    query = f"""
-                        INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
-                        SELECT p."id", {self.pk}, {self.version or "NULL"}
-                        FROM ({sql}) AS p
-                        LEFT JOIN "{cohort_people_table}" AS cp
-                            ON cp."person_id" = p."id" AND cp."cohort_id" = {self.pk}
-                        WHERE cp."person_id" IS NULL
-                        ON CONFLICT DO NOTHING
-                    """
-                    cursor.execute(query, params)
-
+        except SoftTimeLimitExceeded as err:
+            # Let a Celery soft-time-limit interruption propagate so the task's time limit
+            # actually bounds the run. Swallowing it here (as the broad except below would)
+            # leaves the caller's loop running past the limit, since Celery raises it once.
+            # Record it as a processing error so the finally marks the run as failed
+            # rather than a successful calculation.
+            processing_error = err
+            raise
         except Exception as err:
             processing_error = err
-            if settings.DEBUG:
+            # When the caller owns terminal-state finalization (raise_on_error), surface
+            # the failure instead of swallowing it, so a partial insert can't be recorded
+            # as success. The finally block below skips its own error save in this mode.
+            if settings.DEBUG or raise_on_error:
                 raise
             capture_exception(
                 err,
@@ -651,7 +617,11 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
                     additional_properties={"cohort_id": self.id, "team_id": team_id},
                 )
 
-            self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
+            # In raise_on_error mode the caller finalizes cohort state on failure, so skip
+            # the error save here to avoid double-counting errors_calculating. The success
+            # path (processing_error is None) still finalizes state as usual.
+            if not (raise_on_error and processing_error is not None):
+                self._safe_save_cohort_state(team_id=team_id, processing_error=processing_error)
 
         return current_batch_index + 1
 
@@ -676,7 +646,8 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         from products.cohorts.backend.models.util import insert_static_cohort
 
         # Cohort membership only needs id/uuid, so skip the unbounded per-person distinct-id fetch.
-        persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
+        with personhog_caller_tag("cohorts/static-insert"):
+            persons = get_persons_by_uuids(team_id, batch, distinct_id_limit=0)
         if not persons:
             return
 
@@ -738,13 +709,13 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         )
 
         try:
-            # Get person by UUID
-            person = get_person_by_uuid(team_id, str(user_uuid))
+            # Only person.id/uuid are used (to resolve and remove the row), so skip the distinct-id fetch.
+            with personhog_caller_tag("cohorts/static-remove"):
+                person = get_person_by_uuid(team_id, str(user_uuid), distinct_id_limit=0)
             if person is None:
                 raise Person.DoesNotExist
 
-            # Check if person is in the cohort — routed through personhog when enabled,
-            # falling back to the persons-DB ORM query otherwise.
+            # Check if person is in the cohort via personhog.
             is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.

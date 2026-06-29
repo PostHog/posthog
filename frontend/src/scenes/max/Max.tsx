@@ -29,6 +29,7 @@ import { SidePanelTab } from '~/types'
 
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
+import { MaxNotConfigured } from './components/MaxNotConfigured'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
@@ -37,7 +38,7 @@ import { HistoryPreview } from './HistoryPreview'
 import { Intro } from './Intro'
 import { MaxLogicProps, SIDE_PANEL_PANEL_ID, maxLogic } from './maxLogic'
 import { MaxThreadLogicProps, maxThreadLogic } from './maxThreadLogic'
-import { Thread } from './Thread'
+import { SandboxComposerSurfaces, Thread } from './Thread'
 
 export const scene: SceneExport = {
     component: Max,
@@ -95,6 +96,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     } = useValues(maxLogic(logicProps))
     const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
+    const { isMaxAvailable } = useValues(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         ...logicProps,
@@ -104,7 +106,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
 
     const { closeSidePanel } = useActions(sidePanelLogic)
 
-    const content = (
+    const content = !isMaxAvailable ? (
+        <MaxNotConfigured />
+    ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
                 {conversationHistoryVisible ? (
@@ -143,6 +147,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                             </div>
                         )}
                         <Thread className={cn('p-3', sidePanel && 'p-1')} />
+                        <SandboxComposerSurfaces />
                         {!conversation?.has_unsupported_content && (
                             <SidebarQuestionInput isSticky sidePanel={sidePanel} />
                         )}

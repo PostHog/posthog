@@ -12,10 +12,13 @@ import { TeamMembershipLevel } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { GitHubRepoSummary } from 'lib/integrations/GitHubRepoSummary'
 import { IntegrationScopesWarning } from 'lib/integrations/IntegrationScopesWarning'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
 import { integrationsLogic } from './integrationsLogic'
+import { getIntegrationNameFromKind } from './utils'
 
 export function IntegrationView({
     integration,
@@ -27,6 +30,7 @@ export function IntegrationView({
     schema?: { requiredScopes?: string }
 }): JSX.Element {
     const { deleteIntegration } = useActions(integrationsLogic)
+    const { currentTeam } = useValues(teamLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -60,13 +64,16 @@ export function IntegrationView({
         </div>
     )
 
+    const integrationName = getIntegrationNameFromKind(integration.kind)
+
     return (
         <div className="rounded border bg-surface-primary">
             <div className="flex flex-wrap justify-between items-center p-2 gap-2">
                 <div className="flex gap-4 items-center ml-2">
                     <img
                         src={integration.icon_url}
-                        alt={`${integration.kind} integration`}
+                        alt={`Integration for ${integrationName}`}
+                        title={integrationName}
                         className="w-10 h-10 rounded"
                     />
                     <div>
@@ -105,6 +112,22 @@ export function IntegrationView({
                                 installationId={integration.config?.installation_id}
                                 accountType={integration.config?.account?.type}
                                 accountName={integration.config?.account?.name}
+                                onBeforeManage={
+                                    currentTeam?.id
+                                        ? async () => {
+                                              await api.create(
+                                                  `api/projects/${currentTeam.id}/integrations/github/prepare_callback/`,
+                                                  {
+                                                      next: urls.project(
+                                                          currentTeam.id,
+                                                          urls.settings('project-integrations')
+                                                      ),
+                                                      installation_id: integration.config?.installation_id,
+                                                  }
+                                              )
+                                          }
+                                        : undefined
+                                }
                             />
                         )}
                     </div>

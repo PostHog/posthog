@@ -5,6 +5,11 @@
             "description": "Filter by enabled status",
             "type": "boolean"
         },
+        "evaluation_type": {
+            "description": "Filter by evaluation type\n\n* `llm_judge` - LLM as a judge\n* `hog` - Hog\n* `sentiment` - Sentiment analysis",
+            "enum": ["hog", "llm_judge", "sentiment"],
+            "type": "string"
+        },
         "id__in": {
             "description": "Multiple values may be separated by commas.",
             "items": {

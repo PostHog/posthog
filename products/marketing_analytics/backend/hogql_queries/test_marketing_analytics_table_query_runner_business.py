@@ -27,9 +27,11 @@ from products.data_warehouse.backend.test.utils import create_data_warehouse_tab
 from products.marketing_analytics.backend.hogql_queries.marketing_analytics_table_query_runner import (
     MarketingAnalyticsTableQueryRunner,
 )
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSource,
+)
 
 TEST_DATE_FROM = "2024-01-01"
 TEST_DATE_TO = "2024-12-31"

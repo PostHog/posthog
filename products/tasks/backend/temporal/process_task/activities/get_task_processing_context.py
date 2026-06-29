@@ -1,4 +1,6 @@
+import json
 from dataclasses import dataclass
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
@@ -14,8 +16,14 @@ from products.tasks.backend.constants import (
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
-from products.tasks.backend.exceptions import TaskInvalidStateError, TaskNotFoundError
+from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
+from products.tasks.backend.logic.services.sandbox_config import (
+    MAX_SANDBOX_CPU_CORES,
+    MAX_SANDBOX_MEMORY_GB,
+    MAX_SANDBOX_TTL_SECONDS,
+)
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.temporal.constants import resolve_inactivity_timeout
 from products.tasks.backend.temporal.observability import emit_agent_log, log_with_activity_context
 from products.tasks.backend.temporal.process_task.utils import (
     format_allowed_domains_for_log,
@@ -65,6 +73,9 @@ class TaskProcessingContext:
     sandbox_event_ingest_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
+    # Burstable by default; the per-run state can opt out to pin a fixed-size box
+    # (request == limit). Captured at workflow start so it's stable across activity retries.
+    burstable_sandbox_resources_enabled: bool = True
 
     @property
     def mode(self) -> str:
@@ -107,6 +118,40 @@ class TaskProcessingContext:
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
+
+    def inactivity_timeout(self) -> timedelta:
+        """How long the run may sit idle before the workflow times it out.
+
+        Longer for user-driven runs (explicitly user-created, or with no origin
+        product) than for automated/background runs. A global env override or a
+        per-task override set at creation time both take precedence.
+        """
+        is_user_origin = not self.origin_product or self.origin_product == Task.OriginProduct.USER_CREATED.value
+        return resolve_inactivity_timeout(is_user_origin=is_user_origin, state=self.state)
+
+    def sandbox_resource_overrides(self) -> dict[str, float | int]:
+        """SandboxConfig field overrides requested at task creation (compute + TTL).
+
+        Empty when the task requested none — callers spread it into SandboxConfig so
+        unset fields keep their defaults. `bool` is excluded explicitly since it's an
+        `int` subclass and would otherwise slip through as 0/1. Values are clamped to
+        server-owned bounds (and non-positive values ignored) as defense-in-depth, so
+        even if an override reaches here via an unexpected path it can't provision an
+        oversized sandbox.
+        """
+        overrides: dict[str, float | int] = {}
+        state = self.state or {}
+        for state_key, config_key, max_value in (
+            ("sandbox_cpu_cores", "cpu_cores", MAX_SANDBOX_CPU_CORES),
+            ("sandbox_memory_gb", "memory_gb", MAX_SANDBOX_MEMORY_GB),
+        ):
+            value = state.get(state_key)
+            if isinstance(value, int | float) and not isinstance(value, bool) and value > 0:
+                overrides[config_key] = float(min(value, max_value))
+        ttl = state.get("sandbox_ttl_seconds")
+        if isinstance(ttl, int | float) and not isinstance(ttl, bool) and ttl > 0:
+            overrides["ttl_seconds"] = int(min(ttl, MAX_SANDBOX_TTL_SECONDS))
+        return overrides
 
     def get_sandbox_environment(self):
         """Resolve the SandboxEnvironment, team-scoped and respecting privacy."""
@@ -154,6 +199,12 @@ def _is_sandbox_event_ingest_enabled(
     run_id: str,
     state: dict | None = None,
 ) -> bool:
+    # Local dev disables the analytics SDK, so the captured flag below is always False there.
+    # Pointing ingest at the local agent-proxy is the opt-in and must win over the captured value;
+    # prod (DEBUG off) still gates on the flag.
+    if settings.DEBUG and settings.TASKS_AGENT_PROXY_INGEST_URL:
+        return True
+
     state_override = (state or {}).get("sandbox_event_ingest_enabled")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -186,13 +237,35 @@ def _is_sandbox_event_ingest_enabled(
     return enabled
 
 
+def _vm_sandbox_allowed_origin_products(payload: object) -> set[str]:
+    if isinstance(payload, str):
+        try:
+            payload = json.loads(payload)
+        except (ValueError, TypeError):
+            payload = None
+    value = payload.get("origin_products") if isinstance(payload, dict) else payload
+    if isinstance(value, list) and all(isinstance(item, str) for item in value):
+        return {item for item in value if isinstance(item, str)}
+    return set()
+
+
 def _is_modal_vm_sandbox_enabled(
     *,
     distinct_id: str,
     organization_id: str,
     run_id: str,
+    origin_product: str | None,
+    allowed_domains: list[str] | None,
     state: dict | None = None,
 ) -> bool:
+    if allowed_domains is not None:
+        log_with_activity_context(
+            "modal_vm_sandbox_skipped_restricted_egress",
+            run_id=run_id,
+            use_modal_vm_sandbox=False,
+        )
+        return False
+
     state_override = (state or {}).get("use_modal_vm_sandbox")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -213,16 +286,47 @@ def _is_modal_vm_sandbox_enabled(
                 send_feature_flag_events=False,
             )
         )
+        allowed_origins: set[str] = set()
+        if enabled:
+            payload = posthoganalytics.get_feature_flag_payload(
+                MODAL_VM_SANDBOX_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+            )
+            allowed_origins = _vm_sandbox_allowed_origin_products(payload)
     except Exception as e:
         log_with_activity_context("modal_vm_sandbox_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
+    result = enabled and origin_product in allowed_origins
     log_with_activity_context(
         "modal_vm_sandbox_flag_checked",
         run_id=run_id,
-        use_modal_vm_sandbox=enabled,
+        flag_enabled=enabled,
+        origin_product=origin_product,
+        allowed_origin_products=sorted(allowed_origins),
+        use_modal_vm_sandbox=result,
     )
-    return enabled
+    return result
+
+
+def _is_burstable_sandbox_resources_enabled(
+    *,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    # Burstable by default; the per-run state can pin a fixed-size box (request == limit).
+    state_override = (state or {}).get("burstable_sandbox_resources_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "burstable_sandbox_resources_state_override",
+            run_id=run_id,
+            burstable_sandbox_resources_enabled=state_override,
+        )
+        return state_override
+    return True
 
 
 def _is_modal_network_allowlist_enabled(
@@ -279,8 +383,10 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             "task__github_integration",
             "task__github_user_integration",
         ).get(id=run_id)
-    except ObjectDoesNotExist as e:
-        raise TaskNotFoundError(f"TaskRun {run_id} not found", {"run_id": run_id}, cause=e)
+    except ObjectDoesNotExist:
+        # The row may simply not be visible yet (creating transaction not committed) or
+        # be mid-cancel/delete. Retry rather than fail fatally so the transient window recovers.
+        raise TaskRunNotReadyError(f"TaskRun {run_id} not found", {"run_id": run_id})
 
     emit_agent_log(run_id, "debug", "Fetching task details")
 
@@ -368,6 +474,8 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
+        origin_product=task.origin_product,
+        allowed_domains=allowed_domains,
         state=state,
     )
     emit_agent_log(
@@ -385,6 +493,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         run_id,
         "debug",
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
+    )
+    burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
     )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
@@ -417,4 +534,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
+        burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
     )

@@ -1,6 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
-import { Suspense, lazy } from 'react'
+import { Suspense, lazy, useEffect } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@posthog/lemon-ui'
@@ -8,7 +8,7 @@ import { LemonButton, LemonTag, Spinner, SpinnerOverlay, Tooltip } from '@postho
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { dayjs } from 'lib/dayjs'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -28,9 +28,7 @@ import { AIObservabilityTraceEvents } from './components/AIObservabilityTraceEve
 import { SentimentBar } from './components/SentimentTag'
 import { TranscriptBubbleStream } from './ConversationDisplay/TranscriptBubbleStream'
 import { SessionTurn } from './extractSessionTurns'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
-import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
-import { resolveSessionTitle } from './sessionTitle'
+import { llmSessionTitleLazyLoaderLogic } from './llmSessionTitleLazyLoaderLogic'
 import { formatLLMCost, getTraceTimestamp, sanitizeTraceUrlSearchParams } from './utils'
 
 const LLMASessionFeedbackDisplay = lazy(() =>
@@ -58,63 +56,31 @@ export function AIObservabilitySessionScene(): JSX.Element {
     )
 }
 
-function SessionTraceSentimentBar({ traceId, createdAt }: { traceId: string; createdAt?: string }): JSX.Element | null {
-    const { sentimentByTraceId, isTraceLoading } = useValues(llmSentimentLazyLoaderLogic)
-    const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
-
-    const cached = sentimentByTraceId[traceId]
-    const loading = isTraceLoading(traceId)
-
-    if (cached === undefined && !loading) {
-        ensureSentimentLoaded(
-            traceId,
-            createdAt
-                ? { dateFrom: createdAt, dateTo: dayjs(createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString() }
-                : undefined
-        )
-    }
-
-    if (cached === null) {
+function SessionTraceSentimentBar({ sentiment }: { sentiment?: LLMTrace['sentiment'] }): JSX.Element | null {
+    if (!sentiment) {
         return null
     }
 
     return (
-        <SentimentBar
-            label={cached?.label ?? 'neutral'}
-            score={cached?.score ?? 0}
-            loading={loading || cached === undefined}
-            messages={cached?.messages}
-        />
+        <SentimentBar label={sentiment.label ?? 'neutral'} score={sentiment.score ?? 0} messages={sentiment.messages} />
     )
 }
 
 function SessionSceneWrapper(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const showFeedback = !!featureFlags[FEATURE_FLAGS.POSTHOG_AI_CONVERSATION_FEEDBACK_LLMA_SESSIONS]
-    const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
 
-    const {
-        traces,
-        responseLoading,
-        responseError,
-        sessionTurns,
-        hasMoreData,
-        nextDataLoading,
-        summariesLoading,
-        fullTraces,
-        traceSummaries,
-    } = useValues(aiObservabilitySessionDataLogic)
-    const { sessionId } = useValues(aiObservabilitySessionLogic)
+    const { traces, responseLoading, responseError, sessionTurns, hasMoreData, nextDataLoading, summariesLoading } =
+        useValues(aiObservabilitySessionDataLogic)
+    const { sessionId, dateRange } = useValues(aiObservabilitySessionLogic)
     const { summarizeAllTraces, loadNextData } = useActions(aiObservabilitySessionDataLogic)
     const { dataProcessingAccepted } = useValues(maxGlobalLogic)
+    const { getSessionTitle } = useValues(llmSessionTitleLazyLoaderLogic)
+    const { ensureSessionTitleLoaded } = useActions(llmSessionTitleLazyLoaderLogic)
     // Compute the URL search-param passthrough once for the page, not per turn —
     // every `SessionTurnView` consumes the same `traceSearchParams`.
     const { searchParams } = useValues(router)
     const traceSearchParams = sanitizeTraceUrlSearchParams(searchParams, { removeSearch: true })
-
-    const showSessionSummarization =
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SESSION_SUMMARIZATION] ||
-        featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EARLY_ADOPTERS]
 
     // Calculate session aggregates
     const sessionStats = traces.reduce(
@@ -126,13 +92,12 @@ function SessionSceneWrapper(): JSX.Element {
         { totalCost: 0, totalLatency: 0, traceCount: 0 }
     )
 
-    const firstTrace = traces[0]
-    const firstFullTrace = firstTrace ? fullTraces[firstTrace.id] : undefined
-    const cachedSummaryTitle = firstTrace ? traceSummaries[firstTrace.id]?.title : undefined
-    // Prefer the cached LLM summary when present; otherwise derive a title from
-    // the first trace (full event tree when loaded, else the lite trace for
-    // traceName fallback while loading).
-    const heroTitle = cachedSummaryTitle || resolveSessionTitle(firstFullTrace ?? firstTrace)
+    // Same loader as the sessions list, time-bounded to the page's date range.
+    const heroTitle = getSessionTitle(sessionId)
+    const titleLoading = heroTitle === undefined
+    useEffect(() => {
+        ensureSessionTitleLoaded(sessionId, dateRange ?? undefined)
+    }, [sessionId, dateRange, ensureSessionTitleLoaded])
 
     if (responseLoading) {
         return <SpinnerOverlay />
@@ -145,9 +110,13 @@ function SessionSceneWrapper(): JSX.Element {
     }
 
     return (
-        <div className="relative flex flex-col gap-4">
+        <div className="relative flex flex-col gap-4 max-w-[75rem]">
             <SceneBreadcrumbBackButton />
-            {heroTitle && <h1 className="text-2xl font-semibold leading-tight m-0 break-words">{heroTitle}</h1>}
+            {titleLoading ? (
+                <LemonSkeleton className="h-8 w-96 max-w-full" />
+            ) : (
+                heroTitle && <h1 className="text-2xl font-semibold leading-tight m-0 break-words">{heroTitle}</h1>
+            )}
             <header className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="flex gap-1.5 flex-wrap">
                     <LemonTag size="medium" className="bg-surface-primary">
@@ -173,24 +142,16 @@ function SessionSceneWrapper(): JSX.Element {
                         </Suspense>
                     )}
                 </div>
-                {showSessionSummarization && (
-                    <SummarizeAllButton
-                        loading={summariesLoading}
-                        dataProcessingAccepted={dataProcessingAccepted}
-                        onSummarize={summarizeAllTraces}
-                    />
-                )}
+                <SummarizeAllButton
+                    loading={summariesLoading}
+                    dataProcessingAccepted={dataProcessingAccepted}
+                    onSummarize={summarizeAllTraces}
+                />
             </header>
 
             <div className="flex flex-col">
                 {sessionTurns.map((turn) => (
-                    <SessionTurnView
-                        key={turn.trace.id}
-                        turn={turn}
-                        showSentiment={showSentiment}
-                        showSessionSummarization={!!showSessionSummarization}
-                        traceSearchParams={traceSearchParams}
-                    />
+                    <SessionTurnView key={turn.trace.id} turn={turn} traceSearchParams={traceSearchParams} />
                 ))}
                 {hasMoreData && (
                     <div className="flex justify-center pt-4">
@@ -258,13 +219,9 @@ function SummarizeAllButton({
 
 function SessionTurnView({
     turn,
-    showSentiment,
-    showSessionSummarization,
     traceSearchParams,
 }: {
     turn: SessionTurn
-    showSentiment: boolean
-    showSessionSummarization: boolean
     traceSearchParams: Record<string, unknown>
 }): JSX.Element {
     const { traceSummaries, loadingFullTraces, fullTraces, stepsExpandedTraceIds, expandedGenerationIds } = useValues(
@@ -298,9 +255,7 @@ function SessionTurnView({
             </div>
             <div className="flex gap-10 pb-4">
                 <div className="flex-1 min-w-0 flex flex-col gap-2">
-                    {showSessionSummarization && summary && (
-                        <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />
-                    )}
+                    {summary && <TurnSummaryLine summary={summary} summaryUrl={summaryUrl} />}
 
                     <TurnBody turn={turn} isLoading={isLoading} onLoad={() => loadFullTrace(trace.id)} />
 
@@ -343,7 +298,6 @@ function SessionTurnView({
 
                     {showStepsPanel && (
                         <StepsPanel
-                            traceId={trace.id}
                             fullTrace={fullTrace}
                             expandedEventIds={expandedGenerationIds}
                             onToggleEventExpand={toggleGenerationExpanded}
@@ -352,7 +306,7 @@ function SessionTurnView({
                 </div>
 
                 <div className="w-40 shrink-0 flex flex-col gap-1 text-xs text-muted">
-                    {showSentiment && <SessionTraceSentimentBar traceId={trace.id} createdAt={trace.createdAt} />}
+                    <SessionTraceSentimentBar sentiment={trace.sentiment} />
                     <div className="flex flex-col gap-1 items-start">
                         {hasTranscript && (
                             <LemonButton size="xsmall" type="tertiary" onClick={() => toggleSteps(trace.id)}>
@@ -427,12 +381,10 @@ function TurnBody({
 }
 
 function StepsPanel({
-    traceId,
     fullTrace,
     expandedEventIds,
     onToggleEventExpand,
 }: {
-    traceId: string
     fullTrace: LLMTrace | undefined
     expandedEventIds: Set<string>
     onToggleEventExpand: (eventId: string) => void
@@ -444,7 +396,6 @@ function StepsPanel({
                 isLoading={false}
                 expandedEventIds={expandedEventIds}
                 onToggleEventExpand={onToggleEventExpand}
-                traceId={traceId}
             />
         </div>
     )

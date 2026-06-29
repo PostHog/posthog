@@ -1,4 +1,4 @@
-import { uploadToS3 } from '../storage'
+import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
 
 const mockDone = jest.fn().mockResolvedValue({})
 const mockOn = jest.fn()
@@ -137,7 +137,7 @@ describe('S3 client proxy routing', () => {
             jest.doMock('@aws-sdk/credential-provider-node', () => ({
                 defaultProvider: (init: unknown) => mockDefaultProvider(init),
             }))
-            const { uploadToS3: fresh } = require('../storage')
+            const { uploadToS3: fresh } = require('~/session-replay/recording-rasterizer/storage')
             await fresh('/tmp/v.mp4', 'b', 'p', 'i')
             mock = require('@aws-sdk/client-s3').S3Client as jest.Mock
         })

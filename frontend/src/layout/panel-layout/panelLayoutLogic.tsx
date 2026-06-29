@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 import { router, urlToAction } from 'kea-router'
 
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
-import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
@@ -172,8 +172,8 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
             },
         ],
         expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: false, apps: true } as Record<string, boolean>,
-            { persist: true },
+            { ai: true, project: true, files: true, favorites: false, tools: true } as Record<string, boolean>,
+            { persist: true, prefix: 'v2.' },
             {
                 toggleNavSection: (state, { section }) => ({
                     ...state,

@@ -15,7 +15,6 @@ from .provider_keys import LLMProviderKeyValidationViewSet, LLMProviderKeyViewSe
 from .proxy import SUPPORTED_MODELS_WITH_THINKING, LLMProxyViewSet
 from .review_queues import ReviewQueueItemViewSet, ReviewQueueViewSet
 from .score_definitions import ScoreDefinitionViewSet
-from .sentiment import AIObservabilitySentimentViewSet
 from .summarization import AIObservabilitySummarizationViewSet
 from .taggers import TaggerViewSet
 from .text_repr import AIObservabilityTextReprViewSet
@@ -44,7 +43,6 @@ __all__ = [
     "ReviewQueueViewSet",
     "ReviewQueueItemViewSet",
     "ScoreDefinitionViewSet",
-    "AIObservabilitySentimentViewSet",
     "AIObservabilityOfflineEvaluationsViewSet",
     "PersonalSpendViewSet",
     "TaggerViewSet",

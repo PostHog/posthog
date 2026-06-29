@@ -27,10 +27,12 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     verify_data_imports_ducklake_copy_activity,
 )
 
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
 
 
 class _FakeColumn:
@@ -89,6 +91,9 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         only_evaluate_locally=False,
         send_feature_flag_events=True,
     ):
+        if key == "duckgres-batch-sink":
+            # The sink-exclusion check runs first; this team is not sink-enabled.
+            return False
         captured["key"] = key
         captured["distinct_id"] = distinct_id
         captured["groups"] = groups
@@ -98,7 +103,7 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
         return flag_enabled
 
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.posthoganalytics.feature_enabled",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
         fake_feature_enabled,
     )
 
@@ -110,6 +115,25 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(monkeypatch
     assert captured["groups"] == {"organization": str(ateam.organization_id), "project": str(ateam.id)}
     assert captured["only_evaluate_locally"] is True
     assert captured["send_feature_flag_events"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_data_imports_gate_skips_duckgres_sink_teams(monkeypatch, ateam):
+    """A team on the duckgres batch sink must never also run the copy workflow."""
+
+    def fake_feature_enabled(key, distinct_id, **kwargs):
+        # Both flags enabled: the sink exclusion must win.
+        return True
+
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
+        fake_feature_enabled,
+    )
+
+    result = await ducklake_copy_data_imports_gate_activity(DuckLakeCopyWorkflowGateInputs(team_id=ateam.id))
+
+    assert result is False
 
 
 @pytest.mark.asyncio
@@ -267,10 +291,10 @@ async def test_prepare_data_imports_ducklake_metadata_activity_empty_schema_ids(
     assert result == []
 
 
-def _create_mock_catalog():
-    """Create a mock DuckLakeCatalog with cross-account settings."""
-    mock_catalog = MagicMock()
-    mock_catalog.to_public_config.return_value = {
+def _create_mock_server():
+    """Create a mock DuckgresServer (catalog connection config + bucket)."""
+    mock_server = MagicMock()
+    mock_server.to_catalog_public_config.return_value = {
         "DUCKLAKE_RDS_HOST": "localhost",
         "DUCKLAKE_RDS_PORT": "5432",
         "DUCKLAKE_RDS_DATABASE": "ducklake",
@@ -281,14 +305,9 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_ACCESS_KEY": "",
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
-    mock_catalog.bucket = "test-bucket"
-    mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_catalog.cross_account_external_id = "external-id-123"
-    mock_cross_account_dest = MagicMock()
-    mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
-    mock_cross_account_dest.bucket_name = "test-bucket"
-    mock_catalog.to_cross_account_destination.return_value = mock_cross_account_dest
-    return mock_catalog
+    mock_server.catalog_password = "password"
+    mock_server.bucket = "test-bucket"
+    return mock_server
 
 
 def test_resolve_data_imports_staging_uri_returns_none_in_dev(monkeypatch):
@@ -298,7 +317,7 @@ def test_resolve_data_imports_staging_uri_returns_none_in_dev(monkeypatch):
     )
     mock_get_catalog = MagicMock(side_effect=AssertionError("catalog lookup should not run in dev mode"))
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_by_team_org",
         mock_get_catalog,
     )
 
@@ -316,25 +335,25 @@ def test_resolve_data_imports_staging_uri_raises_without_prod_catalog(monkeypatc
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_by_team_org",
         MagicMock(return_value=None),
     )
 
     with pytest.raises(ApplicationError) as exc_info:
         ducklake_module._resolve_data_imports_staging_uri("s3://source/team_1/customers", team_id=1)
 
-    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert "No DuckgresServer configured for team 1" in str(exc_info.value)
     assert exc_info.value.non_retryable is True
 
 
 def test_resolve_data_imports_staging_uri_uses_prod_catalog(monkeypatch):
-    catalog = _create_mock_catalog()
+    catalog = _create_mock_server()
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
         MagicMock(return_value=False),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_by_team_org",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_by_team_org",
         MagicMock(return_value=catalog),
     )
 
@@ -438,13 +457,8 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
         MagicMock(return_value="org-123"),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_organization",
-        MagicMock(return_value=_create_mock_catalog()),
-    )
-    mock_server = MagicMock()
-    monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_for_organization",
-        MagicMock(return_value=mock_server),
+        MagicMock(return_value=_create_mock_server()),
     )
     mock_stage = MagicMock()
     monkeypatch.setattr(
@@ -477,8 +491,6 @@ def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     mock_stage.assert_called_once_with(
         source_uri="s3://bucket/team_1/customers",
         catalog_bucket="test-bucket",
-        role_arn="arn:aws:iam::123456789012:role/test-role",
-        external_id="external-id-123",
         organization_id="org-123",
     )
     execute_calls = mock_conn.execute.call_args_list
@@ -923,7 +935,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         MagicMock(return_value="org-123"),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_organization",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_for_organization",
         MagicMock(return_value=None),
     )
 
@@ -942,7 +954,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
     with pytest.raises(ApplicationError) as exc_info:
         copy_data_imports_to_ducklake_activity(inputs)
 
-    assert "No DuckLakeCatalog configured for team 1" in str(exc_info.value)
+    assert "No DuckgresServer configured for team 1" in str(exc_info.value)
     assert exc_info.value.non_retryable is True
 
 
@@ -1025,8 +1037,8 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
         call_counts["copy"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
+        ducklake_module,
+        "feature_enabled_or_false",
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
@@ -1092,9 +1104,11 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
         return []
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
-        lambda *args, **kwargs: True,
+        ducklake_module,
+        "feature_enabled_or_false",
+        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
+        # and a catch-all True would wrongly trip it.
+        lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
     monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
@@ -1182,9 +1196,11 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
         call_counts["cleanup"] += 1
 
     monkeypatch.setattr(
-        ducklake_module.posthoganalytics,
-        "feature_enabled",
-        lambda *args, **kwargs: True,
+        ducklake_module,
+        "feature_enabled_or_false",
+        # Key-aware: the gate checks the duckgres-batch-sink exclusion first,
+        # and a catch-all True would wrongly trip it.
+        lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
     monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)

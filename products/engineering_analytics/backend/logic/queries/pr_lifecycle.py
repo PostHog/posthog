@@ -8,9 +8,9 @@ shapes the rows into the ``PRLifecycle`` contract; no GitHub-isms or domain rule
 live here.
 """
 
-from posthog.hogql import ast
+from datetime import datetime
 
-from posthog.models.team import Team
+from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
@@ -21,7 +21,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequest,
     RepoRef,
 )
-from products.engineering_analytics.backend.logic.queries import _curated
+from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
 # The curated subqueries and the repo filter are filled with str.replace (trusted
 # constants), leaving the HogQL {value} placeholders untouched for parse_select.
@@ -32,13 +32,13 @@ _HEADER = """
         author_handle, author_avatar_url, is_bot,
         repo_owner, repo_name, head_sha
     FROM __PR_SOURCE__ AS pr
-    WHERE number = {pr_number} __REPO_FILTER__
+    WHERE number = {pr_number} AND repo_owner = {repo_owner} AND repo_name = {repo_name}
     ORDER BY created_at DESC
     LIMIT 1
 """
 
 _RUNS = """
-    SELECT workflow_name, status, conclusion, run_started_at, updated_at
+    SELECT id, workflow_name, status, conclusion, run_started_at, updated_at
     FROM __RUNS_SOURCE__ AS r
     WHERE head_sha = {head_sha}
     ORDER BY run_started_at ASC
@@ -47,22 +47,19 @@ _RUNS = """
 
 def query_pr_lifecycle(
     *,
-    team: Team,
+    curated: CuratedGitHubSource,
     pr_number: int,
-    repo_owner: str | None,
-    repo_name: str | None,
+    repo_owner: str,
+    repo_name: str,
 ) -> PRLifecycle | None:
-    placeholders: dict[str, ast.Expr] = {"pr_number": ast.Constant(value=pr_number)}
-    repo_filter = ""
-    if repo_owner and repo_name:
-        repo_filter = "AND repo_owner = {repo_owner} AND repo_name = {repo_name}"
-        placeholders["repo_owner"] = ast.Constant(value=repo_owner)
-        placeholders["repo_name"] = ast.Constant(value=repo_name)
-
-    header_sql = _HEADER.replace("__PR_SOURCE__", _curated.pr_source()).replace("__REPO_FILTER__", repo_filter)
-    header = _curated.run_query(
+    placeholders: dict[str, ast.Expr] = {
+        "pr_number": ast.Constant(value=pr_number),
+        "repo_owner": ast.Constant(value=repo_owner),
+        "repo_name": ast.Constant(value=repo_name),
+    }
+    header_sql = _HEADER.replace("__PR_SOURCE__", curated.pr_source())
+    header = curated.run(
         header_sql,
-        team=team,
         query_type="engineering_analytics.pr_lifecycle.header",
         placeholders=placeholders,
     )
@@ -104,11 +101,23 @@ def query_pr_lifecycle(
         closed_at=closed_at,
     )
 
-    events = [PRLifecycleEvent(kind=PRLifecycleEventKind.OPENED, at=created_at)]
+    events: list[PRLifecycleEvent] = []
+
+    def add(
+        kind: PRLifecycleEventKind, at: datetime | None, *, detail: str | None = None, run_id: int | None = None
+    ) -> None:
+        # Timestamps come from parseDateTimeBestEffort, which yields NULL on a malformed/missing
+        # value, so `at` can be None. Skip those events — a timeline can't place an event with no
+        # time, and `at` is non-nullable on the contract, so building one would raise. Guarding
+        # here keeps a single bad run timestamp from failing the whole PR's lifecycle (and the
+        # sort below never sees a None key).
+        if at is not None:
+            events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id))
+
+    add(PRLifecycleEventKind.OPENED, created_at)
     runs = (
-        _curated.run_query(
-            _RUNS.replace("__RUNS_SOURCE__", _curated.run_source()),
-            team=team,
+        curated.run(
+            _RUNS.replace("__RUNS_SOURCE__", curated.run_source()),
             query_type="engineering_analytics.pr_lifecycle.runs",
             placeholders={"head_sha": ast.Constant(value=head_sha)},
         )
@@ -116,18 +125,17 @@ def query_pr_lifecycle(
         else None
     )
     if runs is not None:
-        for workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
-            events.append(
-                PRLifecycleEvent(kind=PRLifecycleEventKind.CI_STARTED, at=run_started_at, detail=workflow_name)
-            )
+        for run_id, workflow_name, status, conclusion, run_started_at, updated_at in runs.results:
+            run_id = int(run_id) if run_id is not None else None
+            add(PRLifecycleEventKind.CI_STARTED, run_started_at, detail=workflow_name, run_id=run_id)
             if status == "completed":
                 detail = f"{workflow_name}: {conclusion}" if conclusion else workflow_name
-                events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.CI_FINISHED, at=updated_at, detail=detail))
+                add(PRLifecycleEventKind.CI_FINISHED, updated_at, detail=detail, run_id=run_id)
 
     if merged_at is not None:
-        events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.MERGED, at=merged_at))
+        add(PRLifecycleEventKind.MERGED, merged_at)
     elif closed_at is not None:
-        events.append(PRLifecycleEvent(kind=PRLifecycleEventKind.CLOSED, at=closed_at))
+        add(PRLifecycleEventKind.CLOSED, closed_at)
 
     events.sort(key=lambda event: event.at)
     return PRLifecycle(pull_request=pull_request, events=events)

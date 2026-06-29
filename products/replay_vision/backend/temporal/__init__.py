@@ -12,6 +12,7 @@ from products.replay_vision.backend.temporal.activities import (
     embed_summarizer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
+    emit_observation_signal_activity,
     ensure_session_asset_activity,
     fetch_session_events_activity,
     find_scanner_candidates_activity,
@@ -33,6 +34,15 @@ from products.replay_vision.backend.temporal.gemini_cleanup_sweep import (
 )
 from products.replay_vision.backend.temporal.reconciler import ReconcileScannerSchedulesWorkflow
 from products.replay_vision.backend.temporal.sweep_workflow import SweepScannerWorkflow
+from products.replay_vision.backend.temporal.vision_actions import (
+    ProcessVisionActionWorkflow,
+    create_vision_action_run_activity,
+    emit_action_ready_activity,
+    evaluate_due_vision_actions_activity,
+    synthesize_group_summary_activity,
+    update_vision_action_run_activity,
+    validate_vision_action_activity,
+)
 from products.replay_vision.backend.temporal.workflow import ApplyScannerWorkflow
 
 WORKFLOWS = [
@@ -41,6 +51,7 @@ WORKFLOWS = [
     RefreshScannerEstimatesWorkflow,
     ReplayVisionGeminiCleanupSweepWorkflow,
     SweepScannerWorkflow,
+    ProcessVisionActionWorkflow,
 ]
 ACTIVITIES: list[Callable[..., Any]] = [
     create_observation_activity,
@@ -56,6 +67,7 @@ ACTIVITIES: list[Callable[..., Any]] = [
     embed_summarizer_observation_activity,
     emit_classifier_tags_activity,
     emit_observation_event_activity,
+    emit_observation_signal_activity,
     cleanup_gemini_file_activity,
     find_scanner_candidates_activity,
     count_in_flight_applies_activity,
@@ -67,16 +79,29 @@ ACTIVITIES: list[Callable[..., Any]] = [
     list_stale_scanner_estimates_activity,
     refresh_scanner_estimate_activity,
     sweep_gemini_files_activity,
+    evaluate_due_vision_actions_activity,
+    create_vision_action_run_activity,
+    validate_vision_action_activity,
+    synthesize_group_summary_activity,
+    emit_action_ready_activity,
+    update_vision_action_run_activity,
 ]
 
 __all__ = [
     "ACTIVITIES",
     "WORKFLOWS",
     "ApplyScannerWorkflow",
+    "ProcessVisionActionWorkflow",
     "ReconcileScannerSchedulesWorkflow",
     "RefreshScannerEstimatesWorkflow",
     "ReplayVisionGeminiCleanupSweepWorkflow",
     "SweepScannerWorkflow",
+    "create_vision_action_run_activity",
+    "emit_action_ready_activity",
+    "evaluate_due_vision_actions_activity",
+    "synthesize_group_summary_activity",
+    "update_vision_action_run_activity",
+    "validate_vision_action_activity",
     "advance_scanner_watermark_activity",
     "call_scanner_provider_activity",
     "cleanup_gemini_file_activity",
@@ -87,6 +112,7 @@ __all__ = [
     "embed_summarizer_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
+    "emit_observation_signal_activity",
     "ensure_session_asset_activity",
     "fetch_session_events_activity",
     "find_scanner_candidates_activity",

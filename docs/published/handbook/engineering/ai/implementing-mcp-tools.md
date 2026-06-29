@@ -167,16 +167,16 @@ Product teams own their definitions and control which operations are exposed as 
 **Workflow: scaffold, configure, generate.**
 
 1. **Scaffold** a starter YAML with all operations disabled.
-   `--product` discovers endpoints in two ways (same priority as frontend type generation):
-   1. **`x-product`** — matches endpoints whose product attribution equals the product name.
-      ViewSets in `products/<name>/backend/` are auto-attributed via the module path.
-      ViewSets elsewhere (e.g. `posthog/api/`, `ee/`) need
-      `@extend_schema(extensions={"x-product": "<product>"})`.
-   2. **URL substring fallback** — selects endpoints whose path contains `/<name>/`
-      (hyphens normalized to underscores).
+   `--product` discovers endpoints by their **`x-product`** attribution —
+   it matches endpoints whose product attribution equals the product name.
+   ViewSets in `products/<name>/backend/` are auto-attributed via the module path.
+   ViewSets elsewhere (e.g. `posthog/api/`, `ee/`) need
+   `@extend_schema(extensions={"x-product": "<product>"})`.
+   There is deliberately no URL-based matching — paths are a lossy signal of
+   ownership and used to pull endpoints into the wrong product's tool list.
 
-   If your product's API routes use a different slug than the product folder name
-   (e.g. `workflows` product with `/hog_flows/` routes),
+   The same applies when your product's API routes use a different slug than
+   the product folder name (e.g. `workflows` product with `/hog_flows/` routes):
    add `@extend_schema(extensions={"x-product": "workflows"})` to the ViewSet so
    the scaffold can find them.
 

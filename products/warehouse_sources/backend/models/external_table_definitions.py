@@ -11,7 +11,7 @@ from posthog.hogql.database.models import (
     StringJSONDatabaseField,
 )
 
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 external_tables: dict[str, dict[str, DatabaseField]] = {
     "*": {

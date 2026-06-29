@@ -16,6 +16,7 @@ from products.signals.backend.temporal.backfill_error_tracking import (
 )
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
+    check_signals_quota_limited_activity,
     flush_signals_to_s3_activity,
     signal_with_start_grouping_v2_activity,
     submit_signal_to_buffer_activity,
@@ -98,6 +99,7 @@ ACTIVITIES = [
     stamp_dispatched_signals_scout_runs_activity,
     assign_and_emit_signal_activity,
     capture_signal_dropped_activity,
+    check_signals_quota_limited_activity,
     delete_report_activity,
     emit_eval_signal_activity,
     fetch_report_contexts_activity,

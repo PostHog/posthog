@@ -31,6 +31,7 @@ import type {
     PaginatedHogFlowMinimalListApi,
     PaginatedHogFlowTemplateListApi,
     PatchedHogFlowApi,
+    PatchedHogFlowGraphUpdateApi,
     PatchedHogFlowScheduleApi,
     PatchedHogFlowTemplateApi,
     WorkflowStatsRowApi,
@@ -348,6 +349,24 @@ export const hogFlowsBatchJobsCreate = async (
     })
 }
 
+export const getHogFlowsGraphPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/hog_flows/${id}/graph/`
+}
+
+export const hogFlowsGraphPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedHogFlowGraphUpdateApi?: PatchedHogFlowGraphUpdateApi,
+    options?: RequestInit
+): Promise<HogFlowApi> => {
+    return apiMutator<HogFlowApi>(getHogFlowsGraphPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedHogFlowGraphUpdateApi),
+    })
+}
+
 export const getHogFlowsInvocationResultsRetrieveUrl = (
     projectId: string,
     id: string,
@@ -638,6 +657,29 @@ export const hogFlowsUserBlastRadiusCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(blastRadiusRequestApi),
+    })
+}
+
+export const getInternalHogFlowsBatchJobsStatusUpdateUrl = (teamId: string, batchJobId: string) => {
+    return `/api/projects/${teamId}/internal/hog_flows/batch_jobs/${batchJobId}/status`
+}
+
+/**
+ * Internal endpoint for the Node-side batch resolver to write the terminal
+ * status of a HogFlowBatchJob run. Idempotent: if the row is already in a
+ * terminal status, returns 200 without re-writing — the resolver retries
+ * this call via cyclotron retry semantics, so safe repeats are required.
+ *
+ * Accepts: { status: "completed" | "failed" }
+ */
+export const internalHogFlowsBatchJobsStatusUpdate = async (
+    teamId: string,
+    batchJobId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getInternalHogFlowsBatchJobsStatusUpdateUrl(teamId, batchJobId), {
+        ...options,
+        method: 'PUT',
     })
 }
 

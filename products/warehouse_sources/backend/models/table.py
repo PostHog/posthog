@@ -14,6 +14,7 @@ from clickhouse_driver.errors import ServerException as ClickHouseServerExceptio
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -30,9 +31,10 @@ from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMe
 from posthog.schema_enums import DatabaseSerializedFieldType
 from posthog.settings import TEST
 from posthog.sync import database_sync_to_async
-from posthog.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
-from products.data_warehouse.backend.direct_postgres import (
+from products.data_warehouse.backend.facade.sources import (
+    DIRECT_MYSQL_SCHEMA_OPTION,
+    DIRECT_MYSQL_TABLE_OPTION,
     DIRECT_POSTGRES_CATALOG_OPTION,
     DIRECT_POSTGRES_SCHEMA_OPTION,
     DIRECT_POSTGRES_TABLE_OPTION,
@@ -44,12 +46,15 @@ from products.warehouse_sources.backend.models.util import (
     clean_type,
     remove_named_tuples,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
 from .external_table_definitions import external_tables
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models import User
 
 SERIALIZED_FIELD_TO_CLICKHOUSE_MAPPING: dict[DatabaseSerializedFieldType, str] = {
     DatabaseSerializedFieldType.INTEGER: "Int64",
@@ -188,7 +193,13 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             prefix = ""
         return self.name[len(prefix) :]
 
-    def validate_column_type(self, column_key) -> bool:
+    def validate_column_type(
+        self,
+        column_key: str,
+        *,
+        user: Optional["User"] = None,
+        bypass_warehouse_access_control: bool = False,
+    ) -> bool:
         from posthog.hogql.query import execute_hogql_query
 
         columns = self.columns or {}
@@ -210,6 +221,8 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 query,
                 self.team,
                 modifiers=HogQLQueryModifiers(s3TableUseInvalidColumns=True),
+                user=user,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
             )
             return True
         except:
@@ -461,7 +474,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable:
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable:
         columns = self.columns or {}
 
         fields: dict[str, FieldOrTable] = {}
@@ -518,6 +531,27 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 postgres_catalog=postgres_catalog,
                 postgres_schema=postgres_schema,
                 postgres_table_name=postgres_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_mysql:
+            job_inputs = self.external_data_source.job_inputs or {}
+            mysql_schema = (
+                self.options.get(DIRECT_MYSQL_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_MYSQL_SCHEMA_OPTION), str)
+                else job_inputs.get("schema") or job_inputs.get("database", "")
+            )
+            mysql_table_name = (
+                self.options.get(DIRECT_MYSQL_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_MYSQL_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectMySQLTable(
+                name=self.name,
+                fields=fields,
+                mysql_schema=mysql_schema,
+                mysql_table_name=mysql_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

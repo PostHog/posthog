@@ -7,6 +7,8 @@ Short TTLs ensure stale data expires quickly without explicit invalidation.
 
 import json
 import hashlib
+from collections.abc import Generator
+from contextlib import contextmanager
 
 from django.core.cache import cache
 
@@ -291,6 +293,31 @@ def set_cached_teams_user(tenant_id: str, teams_user_id: str, user_info: dict) -
 
 RESOLVED_GROUPS_CACHE_TTL = 12 * 60 * 60  # 12 hours
 RESOLVED_GROUPS_NEGATIVE_CACHE_TTL = 60 * 60  # 1 hour
+
+
+# Slack Ticket Creation Lock
+# Serializes concurrent ticket creation for the same Slack thread so two reaction_added
+# events from different users can't both pass the existence checks and create duplicate
+# tickets. cache.add is atomic (Redis SETNX): only one worker acquires. Short TTL is a
+# safety net so a crashed worker can't wedge a thread permanently.
+
+SLACK_TICKET_CREATE_LOCK_TTL = 30  # seconds
+
+
+@contextmanager
+def slack_ticket_create_lock(team_id: int, channel: str, thread_ts: str) -> Generator[bool]:
+    """Atomic Redis lock to serialize ticket creation for a Slack thread.
+
+    Yields True if the lock was acquired, False if another worker holds it.
+    Releases the lock on exit when acquired.
+    """
+    key = _make_cache_key("slack_ticket_create_lock", str(team_id), channel, thread_ts)
+    acquired = cache.add(key, True, timeout=SLACK_TICKET_CREATE_LOCK_TTL)
+    try:
+        yield acquired
+    finally:
+        if acquired:
+            cache.delete(key)
 
 
 def _resolved_groups_cache_key(team_id: int, distinct_ids: list[str]) -> str:

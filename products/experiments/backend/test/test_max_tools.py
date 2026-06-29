@@ -164,6 +164,7 @@ class TestCreateExperimentTool(APIBaseTest):
             "status": "draft",
             "metrics_count": 0,
             "secondary_metrics_count": 0,
+            "saved_metrics_count": 0,
             "has_description": False,
             "has_conclusion_comment": False,
             "variant_count": 2,
@@ -212,7 +213,8 @@ class TestCreateExperimentTool(APIBaseTest):
             {"key": "control", "name": "Control", "rollout_percentage": 50},
             {"key": "test", "name": "Test", "rollout_percentage": 50},
         ]
-        assert experiment.parameters["minimum_detectable_effect"] == 30
+        assert "minimum_detectable_effect" not in experiment.parameters
+        assert experiment.running_time_calculation == {"minimum_detectable_effect": 30}
         assert experiment.metrics == []
         assert experiment.metrics_secondary == []
 

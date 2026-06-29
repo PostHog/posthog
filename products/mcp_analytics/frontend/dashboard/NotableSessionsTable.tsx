@@ -1,19 +1,21 @@
-import { LemonSkeleton, Link } from '@posthog/lemon-ui'
+import { Link } from '@posthog/lemon-ui'
 import {
     Badge,
     Card,
     CardFooter,
     CardHeader,
     CardTitle,
+    Skeleton,
     Table,
     TableBody,
     TableCell,
+    TableEmpty,
     TableHead,
     TableHeader,
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { formatPercentage } from 'lib/utils'
+import { formatPercentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import { type NotableSession } from '../mcpDashboardOverviewLogic'
@@ -44,28 +46,24 @@ function StatusPill({ errorRatePct }: { errorRatePct: number }): JSX.Element {
 function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loading: boolean }): JSX.Element {
     if (loading && sessions.length === 0) {
         return (
-            <TableRow>
-                <TableCell colSpan={5}>
-                    <div className="space-y-2 py-1">
-                        {Array.from({ length: 4 }).map((_, i) => (
-                            <LemonSkeleton key={i} className="h-3.5 w-full" />
-                        ))}
-                    </div>
-                </TableCell>
-            </TableRow>
+            <TableBody>
+                <TableRow>
+                    <TableCell colSpan={5}>
+                        <div className="space-y-2 py-1">
+                            {Array.from({ length: 4 }).map((_, i) => (
+                                <Skeleton key={i} className="h-3.5 w-full" />
+                            ))}
+                        </div>
+                    </TableCell>
+                </TableRow>
+            </TableBody>
         )
     }
     if (sessions.length === 0) {
-        return (
-            <TableRow>
-                <TableCell colSpan={5} align="center" className="py-6 text-secondary">
-                    No notable sessions in the last 30 days.
-                </TableCell>
-            </TableRow>
-        )
+        return <TableEmpty className="py-6 text-secondary">No notable sessions in the last 30 days.</TableEmpty>
     }
     return (
-        <>
+        <TableBody>
             {sessions.map((entry) => (
                 <TableRow key={entry.session.session_id}>
                     <TableCell className="whitespace-nowrap">
@@ -83,7 +81,7 @@ function SessionRows({ sessions, loading }: { sessions: NotableSession[]; loadin
                     </TableCell>
                 </TableRow>
             ))}
-        </>
+        </TableBody>
     )
 }
 
@@ -109,9 +107,7 @@ export function NotableSessionsTable({
                         <TableHead expand>Why notable</TableHead>
                     </TableRow>
                 </TableHeader>
-                <TableBody>
-                    <SessionRows sessions={sessions} loading={loading} />
-                </TableBody>
+                <SessionRows sessions={sessions} loading={loading} />
             </Table>
             {sessions.length > 0 && (
                 <CardFooter className="justify-end">

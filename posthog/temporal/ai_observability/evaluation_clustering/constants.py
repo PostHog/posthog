@@ -84,4 +84,4 @@ EVENT_NAME_EVALUATION_CLUSTERS = "$ai_evaluation_clusters"
 # Minimum accumulated embeddings required before clustering will run for a job.
 # For a new eval job sampling up to 250/hour this is typically reached within an hour
 # of activity; until then the Stage B workflow reports "not enough embeddings yet".
-MIN_EMBEDDINGS_FOR_CLUSTERING = 20
+MIN_EMBEDDINGS_FOR_CLUSTERING = 100

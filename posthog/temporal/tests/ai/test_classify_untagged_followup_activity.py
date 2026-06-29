@@ -7,8 +7,11 @@ from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.ai.posthog_code_slack_mention import PostHogCodeSlackMentionWorkflowInputs
-from posthog.temporal.ai.slack_app import classify_message_is_agent_directed, classify_untagged_followup_activity
+from posthog.temporal.ai.slack_app import (
+    PostHogCodeSlackMentionWorkflowInputs,
+    classify_message_is_agent_directed,
+    classify_untagged_followup_activity,
+)
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
 
@@ -69,7 +72,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
 
     def test_classifier_true_returns_true(self):
         with (
-            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.services.slack_messages.cached_collect_thread_messages", return_value=[]),
             patch(
                 "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=True,
@@ -82,7 +85,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
 
     def test_classifier_false_returns_false(self):
         with (
-            patch("products.slack_app.backend.api._collect_thread_messages", return_value=[]),
+            patch("products.slack_app.backend.services.slack_messages.cached_collect_thread_messages", return_value=[]),
             patch(
                 "posthog.temporal.ai.slack_app.activities.classifiers.classify_message_is_agent_directed",
                 return_value=False,
@@ -95,7 +98,7 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         on the message text alone rather than dropping silently."""
         with (
             patch(
-                "products.slack_app.backend.api._collect_thread_messages",
+                "products.slack_app.backend.services.slack_messages.cached_collect_thread_messages",
                 side_effect=RuntimeError("slack hiccup"),
             ),
             patch(

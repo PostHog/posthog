@@ -30,6 +30,7 @@ from products.replay_vision.backend.temporal.constants import (
     build_apply_scanner_workflow_id,
 )
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
+from products.signals.backend.models import SignalSourceConfig
 
 
 class _VisionAPITestCase(APIBaseTest):
@@ -667,6 +668,33 @@ class TestScannerEstimatePersistence(_VisionAPITestCase):
         self.mock_refresh_estimate.assert_called_once()
 
 
+class TestScannerSignalSourceEnablement(_VisionAPITestCase):
+    def _payload(self, **overrides: Any) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "name": "signal-enablement",
+            "scanner_type": ScannerType.MONITOR,
+            "scanner_config": {"prompt": "p"},
+            "model": ScannerModel.GEMINI_3_FLASH,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _has_source_config(self) -> bool:
+        return SignalSourceConfig.objects.filter(team=self.team, source_product="replay_vision").exists()
+
+    def test_creating_with_emits_signals_writes_no_source_config(self) -> None:
+        # Scanner findings are self-authorizing — the scanner is the config, so no SignalSourceConfig row is created.
+        resp = self.client.post(self.scanners_url, data=self._payload(emits_signals=True), format="json")
+        self.assertEqual(resp.status_code, 201, resp.json())
+        assert not self._has_source_config()
+
+    def test_enabling_emits_signals_on_update_writes_no_source_config(self) -> None:
+        scanner = self._create_scanner()
+        resp = self.client.patch(f"{self.scanners_url}{scanner.id}/", data={"emits_signals": True}, format="json")
+        self.assertEqual(resp.status_code, 200, resp.json())
+        assert not self._has_source_config()
+
+
 class TestReplayScannerViewSetFeatureFlag(APIBaseTest):
     @property
     def scanners_url(self) -> str:
@@ -768,6 +796,34 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         self.assertEqual(resp.json()["session_id"], obs.session_id)
         self.assertIsNone(resp.json()["scanner_result"])  # null until succeeded
 
+    def test_recording_subject_email_exposed(self) -> None:
+        self._create_observation(session_id="s1", distinct_id="sub-1", recording_subject_email="subject@acme.com")
+        resp = self.client.get(self.observations_url(str(self.scanner.id)))
+        self.assertEqual(resp.status_code, 200)
+        row = resp.json()["results"][0]
+        self.assertEqual(row["distinct_id"], "sub-1")
+        self.assertEqual(row["recording_subject_email"], "subject@acme.com")
+
+    def test_recording_subject_email_null_when_unset(self) -> None:
+        self._create_observation(session_id="s1")
+        resp = self.client.get(self.observations_url(str(self.scanner.id)))
+        row = resp.json()["results"][0]
+        self.assertIsNone(row["distinct_id"])
+        self.assertIsNone(row["recording_subject_email"])
+
+    def test_filter_by_recording_subject(self) -> None:
+        self._create_observation(session_id="s1", recording_subject_email="alice@acme.com")
+        self._create_observation(session_id="s2", recording_subject_email="bob@other.com")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?recording_subject=ACME")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["s1"])
+
+    def test_order_by_recording_subject_sorts_nulls_last(self) -> None:
+        self._create_observation(session_id="s1", recording_subject_email="zoe@acme.com")
+        self._create_observation(session_id="s2", recording_subject_email="alice@acme.com")
+        self._create_observation(session_id="s3")  # no subject — sorts last regardless of direction
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=recording_subject_email")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["s2", "s1", "s3"])
+
     def test_retrieve_observation_exposes_scanner_result_when_succeeded(self) -> None:
         obs = self._create_observation(
             status=ObservationStatus.SUCCEEDED,
@@ -814,6 +870,23 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?{field}={value}")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(len(resp.json()["results"]), expected_count)
+
+    @parameterized.expand(
+        [
+            ("single", "a", {"a"}),
+            ("multiple", "a,b", {"a", "b"}),
+            ("all", "a,b,c", {"a", "b", "c"}),
+            ("unknown_ignored", "a,zzz", {"a"}),
+            ("no_match", "zzz", set()),
+        ]
+    )
+    def test_filter_by_session_ids(self, _name: str, filter_value: str, expected: set[str]) -> None:
+        self._create_observation(session_id="a")
+        self._create_observation(session_id="b")
+        self._create_observation(session_id="c")
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?session_id={filter_value}")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual({r["session_id"] for r in resp.json()["results"]}, expected)
 
     def test_order_by_created_at_descending(self) -> None:
         first = self._create_observation(session_id="first")
@@ -1390,6 +1463,40 @@ class TestSessionReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.session_observations_url}{observation.id}/")
         self.assertEqual(resp.status_code, 200)
         self.assertEqual(resp.json()["id"], str(observation.id))
+
+    def test_retrieve_exposes_same_scanner_prev_next_neighbors(self) -> None:
+        now = timezone.now()
+        old = self._create_observation(self.scanner_a, "s-old")
+        mid = self._create_observation(self.scanner_a, "s-mid")
+        new = self._create_observation(self.scanner_a, "s-new")
+        # A different scanner's observation falling between mid and new must NOT be a neighbor.
+        other = self._create_observation(self.scanner_b, "s-other")
+        ReplayObservation.objects.filter(pk=old.id).update(created_at=now - timedelta(minutes=2))
+        ReplayObservation.objects.filter(pk=mid.id).update(created_at=now - timedelta(minutes=1))
+        ReplayObservation.objects.filter(pk=new.id).update(created_at=now)
+        ReplayObservation.objects.filter(pk=other.id).update(created_at=now - timedelta(seconds=30))
+
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/").json()
+        self.assertEqual(body["previous_observation_id"], str(new.id))  # newer sibling
+        self.assertEqual(body["next_observation_id"], str(old.id))  # older sibling
+
+        newest = self.client.get(f"{self.session_observations_url}{new.id}/").json()
+        self.assertIsNone(newest["previous_observation_id"])
+        self.assertEqual(newest["next_observation_id"], str(mid.id))
+
+        oldest = self.client.get(f"{self.session_observations_url}{old.id}/").json()
+        self.assertEqual(oldest["previous_observation_id"], str(mid.id))
+        self.assertIsNone(oldest["next_observation_id"])
+
+    def test_retrieve_neighbors_break_ties_on_id_for_same_timestamp(self) -> None:
+        ts = timezone.now()
+        trio = [self._create_observation(self.scanner_a, f"s-tie-{i}") for i in range(3)]
+        ReplayObservation.objects.filter(pk__in=[o.id for o in trio]).update(created_at=ts)
+        # Identical created_at falls back to id ASC (the list's tiebreak), so the middle id's neighbors are its siblings.
+        lo, mid, hi = sorted(trio, key=lambda o: o.id)
+        body = self.client.get(f"{self.session_observations_url}{mid.id}/").json()
+        self.assertEqual(body["previous_observation_id"], str(lo.id))
+        self.assertEqual(body["next_observation_id"], str(hi.id))
 
 
 class TestReplayScannerEstimateAction(ClickhouseTestMixin, _VisionAPITestCase):

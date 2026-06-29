@@ -86,7 +86,8 @@ export function PageHeaderCustom(): JSX.Element {
     const canArchive = canEdit && canArchiveExperiment(experiment)
     const canDelete = canEdit
 
-    const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
+    const handleArchive = (): void =>
+        confirmArchiveExperiment(experiment, (disableFlag) => archiveExperiment(disableFlag))
     const handleDelete = (): void =>
         confirmDeleteExperiment({
             projectId: currentProjectId,

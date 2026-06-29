@@ -5,7 +5,6 @@ from django.db.models import Q
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import extend_schema, extend_schema_field
-from loginas.utils import is_impersonated_session
 from rest_framework import mixins, permissions, serializers, status, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.request import Request
@@ -14,6 +13,7 @@ from rest_framework.response import Response
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cdp.validation import HogFunctionFiltersSerializer
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 
@@ -63,7 +63,10 @@ class HogFlowTemplateActionSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=400)
     description = serializers.CharField(allow_blank=True, default="")
     on_error = serializers.ChoiceField(
-        choices=["continue", "abort", "complete", "branch"], required=False, allow_null=True
+        choices=["continue", "abort"],
+        required=False,
+        allow_null=True,
+        help_text="On failure: continue (skip the action and proceed) or abort (stop the run).",
     )
     created_at = serializers.IntegerField(required=False)
     updated_at = serializers.IntegerField(required=False)
@@ -285,7 +288,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(serializer.context["request"]),
+            was_impersonated=is_impersonated(serializer.context["request"]),
             item_id=serializer.instance.id,
             scope="HogFlowTemplate",
             activity="created",
@@ -318,7 +321,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=serializer.context["request"].user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=serializer.instance.id,
             scope="HogFlowTemplate",
             activity="updated",
@@ -333,7 +336,7 @@ class HogFlowTemplateViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.Mod
             organization_id=self.organization.id,
             team_id=self.team_id,
             user=user,
-            was_impersonated=is_impersonated_session(self.request),
+            was_impersonated=is_impersonated(self.request),
             item_id=instance.id,
             scope="HogFlowTemplate",
             activity="deleted",
