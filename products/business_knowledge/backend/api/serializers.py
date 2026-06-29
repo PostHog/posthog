@@ -556,11 +556,6 @@ class AggregatedGapSerializer(serializers.Serializer):
     normalized_topic = serializers.CharField(read_only=True, help_text="Normalized cluster key.")
     topic = serializers.CharField(read_only=True, help_text="Representative raw topic string.")
     ticket_count = serializers.IntegerField(read_only=True, help_text="Number of distinct tickets with this gap.")
-    sample_ticket_ids = serializers.ListField(
-        child=serializers.CharField(),
-        read_only=True,
-        help_text="Up to 5 sample ticket IDs.",
-    )
 
 
 class GapActionSerializer(serializers.Serializer):

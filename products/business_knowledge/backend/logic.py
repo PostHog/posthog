@@ -15,7 +15,6 @@ from urllib.parse import urlsplit
 from uuid import UUID
 
 from django.conf import settings
-from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.search import SearchQuery, SearchRank, SearchVector
 from django.db import (
     connection as db_connection,
@@ -2623,7 +2622,6 @@ class AggregatedGap:
     normalized_topic: str
     topic: str
     ticket_count: int
-    sample_ticket_ids: list[str]
 
 
 def aggregate_gap_suggestions(
@@ -2638,7 +2636,6 @@ def aggregate_gap_suggestions(
         .values("normalized_topic")
         .annotate(
             ticket_count=Count("ticket_id", distinct=True),
-            sample_ticket_ids=ArrayAgg("ticket_id", distinct=True, ordering="ticket_id"),
             representative_topic=Substr(Max("topic"), 1, 500),
         )
         .order_by("-ticket_count")[:limit]
@@ -2648,7 +2645,6 @@ def aggregate_gap_suggestions(
             normalized_topic=r["normalized_topic"],
             topic=r["representative_topic"],
             ticket_count=r["ticket_count"],
-            sample_ticket_ids=[str(tid) for tid in (r["sample_ticket_ids"] or [])[:5]],
         )
         for r in rows
     ]

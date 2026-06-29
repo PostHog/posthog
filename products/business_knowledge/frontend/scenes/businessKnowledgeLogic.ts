@@ -28,7 +28,6 @@ export interface AggregatedGap {
     normalized_topic: string
     topic: string
     ticket_count: number
-    sample_ticket_ids: string[]
 }
 
 export type KnowledgeSource = KnowledgeSourceApi

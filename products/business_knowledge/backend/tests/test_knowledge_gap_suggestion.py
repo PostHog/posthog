@@ -158,3 +158,46 @@ class TestKnowledgeGapSuggestionAPI(APIBaseTest):
         data = response.json()
         results = data if isinstance(data, list) else data.get("results", data)
         assert len(results) == 0
+
+    def test_aggregate_does_not_expose_ticket_ids(self, _ff) -> None:
+        logic.upsert_knowledge_gaps(self.team.id, str(uuid.uuid4()), ["Leaky topic"])
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        results = data if isinstance(data, list) else data.get("results", data)
+        assert len(results) == 1
+        assert "sample_ticket_ids" not in results[0]
+
+
+@patch("posthoganalytics.feature_enabled", return_value=True)
+class TestKnowledgeGapSuggestionScopes(APIBaseTest):
+    """A token must carry `ticket:read` to reach ticket-derived data via the per-ticket path."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/business_knowledge/gap_suggestions/"
+        self.ticket_id = str(uuid.uuid4())
+        logic.upsert_knowledge_gaps(self.team.id, self.ticket_id, ["Topic A"])
+
+    def _auth_with_pak(self, scopes: list[str]) -> None:
+        key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {key}")
+
+    def test_aggregate_allowed_with_business_knowledge_read_only(self, _ff) -> None:
+        self._auth_with_pak(["business_knowledge:read"])
+        response = self.client.get(self.url)
+        assert response.status_code == status.HTTP_200_OK
+
+    def test_per_ticket_denied_without_ticket_read(self, _ff) -> None:
+        self._auth_with_pak(["business_knowledge:read"])
+        response = self.client.get(f"{self.url}?ticket_id={self.ticket_id}")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_per_ticket_allowed_with_ticket_read(self, _ff) -> None:
+        self._auth_with_pak(["business_knowledge:read", "ticket:read"])
+        response = self.client.get(f"{self.url}?ticket_id={self.ticket_id}")
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        results = data if isinstance(data, list) else data.get("results", data)
+        assert len(results) == 1

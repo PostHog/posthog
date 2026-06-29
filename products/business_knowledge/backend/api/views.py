@@ -1,6 +1,6 @@
 """DRF views for business_knowledge."""
 
-from typing import cast
+from typing import Any, cast
 from uuid import UUID
 
 from django.conf import settings
@@ -525,6 +525,17 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
+        # The per-ticket list path (`?ticket_id=`) returns data derived from a specific support
+        # ticket (topic, status, outcome, ticket type), so a token reaching it must also carry
+        # `ticket:read` — `business_knowledge:read` alone must not be a backdoor to ticket data.
+        # Only applies to token auth; session users are gated by team membership (and already have
+        # ticket access via the ticket API). Returning None elsewhere falls back to the default
+        # `business_knowledge` scope for the action.
+        if self.action == "list" and request.query_params.get("ticket_id"):
+            return ["business_knowledge:read", "ticket:read"]
+        return None
+
     @extend_schema(
         parameters=[
             OpenApiParameter(
@@ -532,7 +543,8 @@ class KnowledgeGapSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 type=OpenApiTypes.UUID,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                description="When provided, returns per-ticket gap rows instead of aggregated view.",
+                description="When provided, returns per-ticket gap rows instead of aggregated view. "
+                "Requires `ticket:read` scope in addition to `business_knowledge:read`.",
             ),
         ],
         responses={200: KnowledgeGapSuggestionSerializer(many=True)},
