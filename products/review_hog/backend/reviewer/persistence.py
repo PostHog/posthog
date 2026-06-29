@@ -271,9 +271,9 @@ def _load_working_state(team_id: int, report_id: str, artefact_type: str, head_s
 # --- Findings & verdicts ---------------------------------------------------------------------------
 
 
-def persist_findings(*, team_id: int, report_id: str, issues: list[Issue]) -> int:
+def persist_findings(*, team_id: int, report_id: str, issues: list[Issue], run_index: int) -> int:
     """Append the canonical post-dedup findings as `issue_finding` artefacts. Returns the count."""
-    pairs = _persistable_findings(issues)
+    pairs = _persistable_findings(issues, run_index)
     if not pairs:
         return 0
     with transaction.atomic():
@@ -285,7 +285,7 @@ def persist_findings(*, team_id: int, report_id: str, issues: list[Issue]) -> in
 
 
 def persist_verdicts(
-    *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation]
+    *, team_id: int, report_id: str, issues: list[Issue], validations: dict[str, IssueValidation], run_index: int
 ) -> int:
     """Append each persisted finding's validation verdict as a `validation_verdict` artefact.
 
@@ -295,7 +295,7 @@ def persist_verdicts(
     keyed by the live issue id (`{pass}-{chunk}-{issue}`). Returns the count.
     """
     drafts: list[ValidationVerdict] = []
-    for issue, finding in _persistable_findings(issues):
+    for issue, finding in _persistable_findings(issues, run_index):
         validation = validations.get(issue.id)
         if validation is None:
             continue
@@ -320,7 +320,7 @@ def persist_verdicts(
     return len(drafts)
 
 
-def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: IssueValidation) -> bool:
+def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: IssueValidation, run_index: int) -> bool:
     """Append one issue's validation verdict as a `validation_verdict` artefact; return whether it did.
 
     The single-issue counterpart of `persist_verdicts`, for the per-issue validate fan-out: a verdict
@@ -329,7 +329,7 @@ def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: I
     a verdict with no finding would dangle).
     """
     try:
-        finding = _to_finding(issue)
+        finding = _to_finding(issue, run_index)
         verdict = ValidationVerdict(
             issue_key=finding.issue_key,
             is_valid=validation.is_valid,
@@ -345,18 +345,20 @@ def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: I
     return True
 
 
-def load_valid_findings(*, team_id: int, report_id: str) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
-    """The current valid findings paired with their verdicts, latest-wins per `issue_key`.
+def load_valid_findings(
+    *, team_id: int, report_id: str, run_index: int
+) -> list[tuple[ReviewIssueFinding, ValidationVerdict]]:
+    """This turn's valid findings paired with their verdicts, latest-wins per `issue_key`.
 
-    The DB-driven source for publishing: the latest finding and latest verdict for each `issue_key`
-    are joined, and only pairs the validator ruled valid are returned. This is the canonical
-    latest-wins read the artefact log was designed for.
+    The DB-driven source for publishing, scoped to `run_index`: only the findings *this* turn
+    produced are returned, so publishing never replays a prior turn's findings — which is what
+    re-posted a comment the PR already carried. The latest finding and latest verdict for each
+    `issue_key` are joined, and only pairs the validator ruled valid are returned.
 
-    This reads the report's whole history (all turns), not just the current head — correct for the
-    single-turn run today (one turn's findings) and publish being disabled. Cross-turn supersession
-    (mark a finding resolved / still-open / newly-appeared instead of accumulating) needs semantic
-    identity, not the per-turn positional `issue_key`, and lands with the loop (see ARCHITECTURE.md,
-    Deferred / future).
+    A finding still open across turns is re-found and re-keyed each turn, so it stays scoped to its
+    own turn here; leaving the prior turn's comment in place (never re-posting) is handled by the
+    review-time dedup against live PR comments. Recognizing it as the *same* finding (to resolve or
+    update the existing comment) needs cross-turn semantic identity and lands with the loop.
     """
     findings: dict[str, ReviewIssueFinding] = {}
     verdicts: dict[str, ValidationVerdict] = {}
@@ -378,6 +380,8 @@ def load_valid_findings(*, team_id: int, report_id: str) -> list[tuple[ReviewIss
             logger.warning("Skipping unparseable %s artefact %s: %s", row.type, row.id, e)
             continue
         if isinstance(content, ReviewIssueFinding):
+            if content.run_index != run_index:
+                continue
             findings[content.issue_key] = content
         elif isinstance(content, ValidationVerdict):
             verdicts[content.issue_key] = content
@@ -387,6 +391,32 @@ def load_valid_findings(*, team_id: int, report_id: str) -> list[tuple[ReviewIss
         if verdict is not None and verdict.is_valid:
             pairs.append((finding, verdict))
     return pairs
+
+
+def load_prior_findings(*, team_id: int, report_id: str, before_run_index: int) -> list[ReviewIssueFinding]:
+    """Findings ReviewHog surfaced in earlier turns of this report (run_index < before_run_index).
+
+    Fed back into the review prompt as the "already covered" set so a re-review doesn't spend sandbox
+    time re-deriving a problem a prior turn already found — including the low-priority ones we keep but
+    never post, which aren't visible as inline PR comments. Latest finding per `issue_key` wins; the
+    `run_index` cutoff keeps the current turn from seeing its own findings on a resume.
+    """
+    findings: dict[str, ReviewIssueFinding] = {}
+    rows = (
+        ReviewReportArtefact.objects.for_team(team_id)
+        .filter(report_id=report_id, type=ReviewReportArtefact.ArtefactType.ISSUE_FINDING)
+        .order_by("created_at", "id")
+    )
+    for row in rows:
+        try:
+            content = parse_artefact_content(row.type, row.content)
+        except ArtefactContentValidationError as e:
+            logger.warning("Skipping unparseable issue_finding artefact %s: %s", row.id, e)
+            continue
+        assert isinstance(content, ReviewIssueFinding)
+        if content.run_index < before_run_index:
+            findings[content.issue_key] = content
+    return list(findings.values())
 
 
 def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str) -> None:
@@ -399,21 +429,22 @@ def finalize_review_report(*, team_id: int, report_id: str, body_markdown: str) 
     )
 
 
-def _issue_key(issue: Issue) -> str:
-    """Identity for a finding, shared by its verdict so they pair 1:1.
+def _issue_key(issue: Issue, run_index: int) -> str:
+    """Identity for a finding within its turn, shared by its verdict so they pair 1:1.
 
     Built from the pipeline's unique issue id (`{pass}-{chunk}-{issue}`) behind a readable
-    file/line/perspective prefix — the id makes the key unique within a turn, so two distinct
-    findings on the same line from the same perspective don't collapse and shadow each other. Robust
-    cross-turn identity (the id is reassigned each turn and line numbers shift as the PR evolves)
-    needs semantic matching and is a loop-phase concern.
+    run/file/line/perspective prefix. The `run_index` prefix makes it turn-unique: the positional id
+    is reassigned every turn, so without it a later turn's finding collided with an earlier one's key
+    — silently shadowing or duplicating it. The id keeps it unique within the turn (two distinct
+    findings on the same line from the same perspective don't collapse). Robust cross-turn *semantic*
+    identity (line numbers shift as the PR evolves) needs matching and is a loop-phase concern.
     """
     start = issue.lines[0].start if issue.lines else 0
     perspective = issue.source_perspective or "unknown"
-    return f"{issue.file}:{start}:{perspective}:{issue.id}"
+    return f"r{run_index}:{issue.file}:{start}:{perspective}:{issue.id}"
 
 
-def _persistable_findings(issues: list[Issue]) -> list[tuple[Issue, ReviewIssueFinding]]:
+def _persistable_findings(issues: list[Issue], run_index: int) -> list[tuple[Issue, ReviewIssueFinding]]:
     """Pair each canonical issue with its durable finding, dropping any that fail durable validation.
 
     Shared by both persist passes so a verdict is only ever written for an issue that produced a
@@ -422,16 +453,17 @@ def _persistable_findings(issues: list[Issue]) -> list[tuple[Issue, ReviewIssueF
     pairs: list[tuple[Issue, ReviewIssueFinding]] = []
     for issue in issues:
         try:
-            pairs.append((issue, _to_finding(issue)))
+            pairs.append((issue, _to_finding(issue, run_index)))
         except ValidationError as e:
             logger.warning("Skipping finding %s that failed durable validation: %s", issue.id, e)
     return pairs
 
 
-def _to_finding(issue: Issue) -> ReviewIssueFinding:
+def _to_finding(issue: Issue, run_index: int) -> ReviewIssueFinding:
     """Map a live pipeline `Issue` onto the durable `ReviewIssueFinding` content schema."""
     return ReviewIssueFinding(
-        issue_key=_issue_key(issue),
+        issue_key=_issue_key(issue, run_index),
+        run_index=run_index,
         title=issue.title,
         file=issue.file,
         lines=issue.lines,
