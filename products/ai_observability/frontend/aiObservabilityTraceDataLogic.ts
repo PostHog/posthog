@@ -217,7 +217,8 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
             (s) => [s.response],
             (response): LLMTrace | undefined => {
                 const traceResponse = response as TraceQueryResponse | null
-                return traceResponse?.results?.[0]
+                const trace = traceResponse?.results?.[0]
+                return trace ? withDerivedRootContent(trace) : undefined
             },
         ],
         showableEvents: [
@@ -626,10 +627,50 @@ export function findNodeForEvent(tree: EnrichedTraceTreeNode[], eventId: string)
     return null
 }
 
+// When a trace has no `$ai_trace` event the runner leaves `inputState`/`outputState`
+// empty, but the trace still groups its events by `$ai_trace_id`, and the root-level
+// spans (those whose parent is the trace itself) carry the same `$ai_input_state` /
+// `$ai_output_state` shape. Derive the trace-level state from them — input from the
+// earliest root span, output from the latest — so the top-level node can render the
+// conversation instead of an empty panel. Generations are intentionally skipped: a bare
+// generation has no `*_state`, so a pseudo-trace of loose generations derives nothing and
+// keeps its first-generation focus behaviour.
+export function deriveRootContentFromEvents(
+    events: LLMTraceEvent[],
+    traceId: string
+): { inputState?: any; outputState?: any } {
+    const isPresent = (value: any): boolean => value != null && value !== ''
+    const rootEvents = events
+        .filter((event) => (event.properties.$ai_parent_id ?? event.properties.$ai_trace_id) === traceId)
+        .sort((a, b) => dayjs(a.createdAt).valueOf() - dayjs(b.createdAt).valueOf())
+
+    const inputState = rootEvents.find((event) => isPresent(event.properties.$ai_input_state))?.properties
+        .$ai_input_state
+    const outputState = [...rootEvents].reverse().find((event) => isPresent(event.properties.$ai_output_state))
+        ?.properties.$ai_output_state
+
+    return { inputState, outputState }
+}
+
+// Folds derived root content into a trace that has no real `$ai_trace` event so the
+// downstream focus decision (`getInitialFocusEventId`) and the rendered root node agree.
+export function withDerivedRootContent(trace: LLMTrace): LLMTrace {
+    if (trace.inputState || trace.outputState) {
+        return trace
+    }
+    const { inputState, outputState } = deriveRootContentFromEvents(trace.events, trace.id)
+    if (inputState === undefined && outputState === undefined) {
+        return trace
+    }
+    return { ...trace, inputState, outputState }
+}
+
 // The trace query runner folds the $ai_trace event into the trace itself (its
-// `inputState`/`outputState`) and drops it from `events`, so populated state is the
-// only signal left that a real $ai_trace event existed. Mirrors the scene's
-// `isTopLevelTraceWithoutContent` so the focus decision and the rendered root agree.
+// `inputState`/`outputState`) and drops it from `events`. When there's no $ai_trace
+// event we fall back to state derived from the root-level spans (see
+// `withDerivedRootContent`), so populated state means the root has renderable content
+// — whether real or derived. Mirrors the scene's `isTopLevelTraceWithoutContent` so the
+// focus decision and the rendered root agree.
 export function traceHasRootContent(trace: LLMTrace | undefined): boolean {
     return !!trace && (!!trace.inputState || !!trace.outputState)
 }

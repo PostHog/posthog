@@ -4,6 +4,7 @@ import { LLMTrace, LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import {
     TraceTreeNode,
+    deriveRootContentFromEvents,
     getEffectiveEventId,
     getInitialFocusEventId,
     getSingleTraceLoadTiming,
@@ -11,6 +12,7 @@ import {
     resolveTraceEventById,
     restoreTree,
     traceHasRootContent,
+    withDerivedRootContent,
 } from './aiObservabilityTraceDataLogic'
 
 describe('aiObservabilityTraceDataLogic: restoreTree', () => {
@@ -291,6 +293,105 @@ describe('traceHasRootContent', () => {
     it('is false for a pseudo-trace with no folded-in $ai_trace content', () => {
         expect(traceHasRootContent(makeTrace())).toBe(false)
         expect(traceHasRootContent(undefined)).toBe(false)
+    })
+})
+
+describe('deriveRootContentFromEvents', () => {
+    const spanEvent = (id: string, createdAt: string, properties: LLMTraceEvent['properties'] = {}): LLMTraceEvent => ({
+        id,
+        event: '$ai_span',
+        createdAt,
+        properties: { $ai_parent_id: 'trace-1', ...properties },
+    })
+
+    it('derives input from the earliest root span and output from the latest, by timestamp', () => {
+        const events: LLMTraceEvent[] = [
+            spanEvent('late', '2024-01-01T00:00:02Z', { $ai_output_state: { result: 'final' } }),
+            spanEvent('early', '2024-01-01T00:00:00Z', { $ai_input_state: { messages: ['hi'] } }),
+            spanEvent('mid', '2024-01-01T00:00:01Z', {
+                $ai_input_state: { messages: ['ignored'] },
+                $ai_output_state: { result: 'ignored' },
+            }),
+        ]
+
+        expect(deriveRootContentFromEvents(events, 'trace-1')).toEqual({
+            inputState: { messages: ['hi'] },
+            outputState: { result: 'final' },
+        })
+    })
+
+    it('ignores nested (non-root) spans whose parent is not the trace', () => {
+        const events: LLMTraceEvent[] = [
+            spanEvent('nested', '2024-01-01T00:00:00Z', {
+                $ai_parent_id: 'some-root-span',
+                $ai_input_state: { messages: ['nested'] },
+            }),
+            spanEvent('root', '2024-01-01T00:00:01Z', { $ai_input_state: { messages: ['root'] } }),
+        ]
+
+        expect(deriveRootContentFromEvents(events, 'trace-1')).toMatchObject({ inputState: { messages: ['root'] } })
+    })
+
+    it('derives nothing from loose generations that carry no *_state', () => {
+        const events: LLMTraceEvent[] = [
+            {
+                id: 'gen',
+                event: '$ai_generation',
+                createdAt: '2024-01-01T00:00:00Z',
+                properties: { $ai_trace_id: 'trace-1', $ai_input: 'prompt', $ai_output_choices: 'answer' },
+            },
+        ]
+
+        expect(deriveRootContentFromEvents(events, 'trace-1')).toEqual({
+            inputState: undefined,
+            outputState: undefined,
+        })
+    })
+})
+
+describe('withDerivedRootContent', () => {
+    const makeTrace = (overrides: Partial<LLMTrace> = {}): LLMTrace => ({
+        id: 'trace-1',
+        createdAt: '2024-01-01T00:00:00Z',
+        distinctId: 'user-1',
+        events: [],
+        ...overrides,
+    })
+
+    it('fills in derived state for a trace without a real $ai_trace event', () => {
+        const trace = makeTrace({
+            events: [
+                {
+                    id: 'root',
+                    event: '$ai_span',
+                    createdAt: '2024-01-01T00:00:00Z',
+                    properties: { $ai_parent_id: 'trace-1', $ai_input_state: { messages: ['hi'] } },
+                },
+            ],
+        })
+
+        expect(withDerivedRootContent(trace).inputState).toEqual({ messages: ['hi'] })
+    })
+
+    it('leaves a real $ai_trace event (already-populated state) untouched', () => {
+        const trace = makeTrace({
+            inputState: { messages: ['real'] },
+            events: [
+                {
+                    id: 'root',
+                    event: '$ai_span',
+                    createdAt: '2024-01-01T00:00:00Z',
+                    properties: { $ai_parent_id: 'trace-1', $ai_input_state: { messages: ['derived'] } },
+                },
+            ],
+        })
+
+        expect(withDerivedRootContent(trace)).toBe(trace)
+    })
+
+    it('returns the trace unchanged when there is no content to derive', () => {
+        const trace = makeTrace()
+        expect(withDerivedRootContent(trace)).toBe(trace)
     })
 })
 
