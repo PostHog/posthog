@@ -374,7 +374,7 @@ def _capture_report_emitted(
         "outcome": outcome,
         "skipped_reason": result.skipped_reason,
         "evidence_count": evidence_count,
-        "title": _clip(title, MAX_REPORT_TITLE_LENGTH),
+        "title": title,
         "summary": _clip(summary, _MAX_TELEMETRY_SUMMARY_LEN),
         "actionability": actionability,
         "already_addressed": already_addressed,
