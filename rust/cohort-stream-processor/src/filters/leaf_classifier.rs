@@ -11,6 +11,11 @@ use crate::filters::CohortId;
 use crate::stage1::key::LeafStateKey;
 use crate::stage1::pick_state::pick_state_variant;
 
+/// HogVM `RETURN` opcode, appended to each program at load. Python-compiled cohort bytecode ends at
+/// its root comparison with no `RETURN`, which the Rust VM would hit as `EndOfProgram`. A program
+/// already ending in `RETURN` stops at the first, so the appended one is inert.
+const OP_RETURN: i64 = 38;
+
 /// Why a leaf was dropped during parse. Used as the `reason` label on the skip counter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LeafDropReason {
@@ -170,7 +175,9 @@ fn condition_hash_bytes(value: Option<&Value>) -> Option<[u8; 16]> {
 
 fn bytecode_array(value: Option<&Value>) -> Option<Arc<Vec<Value>>> {
     let array = value?.as_array()?;
-    Some(Arc::new(array.clone()))
+    let mut bytecode = array.clone();
+    bytecode.push(Value::from(OP_RETURN));
+    Some(Arc::new(bytecode))
 }
 
 /// A referenced cohort id as a JSON number or string-encoded int.
@@ -199,9 +206,16 @@ mod tests {
 
     const HASH: &str = "0123456789abcdef";
 
-    /// A representative bytecode program.
+    /// A representative bytecode program, as compiled (no trailing `RETURN`).
     fn bytecode() -> Value {
         json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
+    }
+
+    /// The stored form of [`bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
+    fn bytecode_loaded() -> Vec<Value> {
+        let mut bc = bytecode().as_array().unwrap().clone();
+        bc.push(json!(OP_RETURN));
+        bc
     }
 
     fn hash_bytes() -> [u8; 16] {
@@ -227,7 +241,7 @@ mod tests {
         assert_eq!(leaf.event_key, "$pageview");
         assert_eq!(leaf.time_value, Some(7));
         assert_eq!(leaf.leaf_state_key, LeafStateKey::for_behavioral(&leaf));
-        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
+        assert_eq!(leaf.bytecode.as_ref(), &bytecode_loaded());
         assert_eq!(
             leaf.state_variant,
             Some(crate::stage1::state::StateVariant::BehavioralSingle),
@@ -468,7 +482,7 @@ mod tests {
         };
         assert_eq!(leaf.condition_hash, hash_bytes());
         assert_eq!(leaf.leaf_state_key, LeafStateKey(hash_bytes()));
-        assert_eq!(leaf.bytecode.as_ref(), bytecode().as_array().unwrap());
+        assert_eq!(leaf.bytecode.as_ref(), &bytecode_loaded());
         assert_eq!(leaf.raw, node);
     }
 

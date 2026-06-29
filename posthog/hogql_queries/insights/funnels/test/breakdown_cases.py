@@ -41,7 +41,7 @@ from posthog.test.test_journeys import journeys_for
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql_queries.insights.funnels.breakdown_cases"
 

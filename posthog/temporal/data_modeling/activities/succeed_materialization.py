@@ -7,8 +7,7 @@ from temporalio import activity
 
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_modeling.backend.models import Node
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
+from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, Node
 
 from .utils import update_node_system_properties
 
