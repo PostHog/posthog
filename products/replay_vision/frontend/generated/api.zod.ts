@@ -396,6 +396,8 @@ export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
 
 export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
 
+export const visionScannersSuggestTagsCreateBodyTagsMax = 200
+
 export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
 export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
 
@@ -407,6 +409,7 @@ export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
             .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
         tags: zod
             .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
+            .max(visionScannersSuggestTagsCreateBodyTagsMax)
             .optional()
             .describe('The current tag vocabulary, so suggestions never duplicate a tag the user already has.'),
         multi_label: zod

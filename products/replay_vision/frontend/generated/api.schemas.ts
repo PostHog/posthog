@@ -761,6 +761,7 @@ export interface SuggestTagsRequestApi {
     prompt: string
     /**
      * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+     * @maxItems 200
      * @items.maxLength 200
      */
     tags?: string[]
