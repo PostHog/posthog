@@ -1,29 +1,63 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCheckCircle, IconX } from '@posthog/icons'
-import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
+import { IconCheckCircle, IconPullRequest, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, Spinner } from '@posthog/lemon-ui'
+
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { cn } from 'lib/utils/css-classes'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
-import { InstallationProgress, installationProgressLogic, InstallationStep } from './installationProgressLogic'
+import {
+    InstallationPhase,
+    InstallationProgress,
+    installationProgressLogic,
+    InstallationStepStatus,
+} from './installationProgressLogic'
 
-function StepIcon({ status }: { status: InstallationStep['status'] }): JSX.Element {
+// Header badge — a tinted disc whose icon reflects the overall phase.
+function StatusBadge({ phase }: { phase: InstallationPhase }): JSX.Element {
+    const base = 'w-8 h-8 rounded-full flex items-center justify-center shrink-0'
+    if (phase === 'completed') {
+        return (
+            <span className={cn(base, 'bg-success-highlight')}>
+                <IconCheckCircle className="text-success text-lg" />
+            </span>
+        )
+    }
+    if (phase === 'error') {
+        return (
+            <span className={cn(base, 'bg-danger-highlight')}>
+                <IconWarning className="text-danger text-lg" />
+            </span>
+        )
+    }
+    return (
+        <span className={cn(base, 'bg-border')}>
+            <Spinner />
+        </span>
+    )
+}
+
+// Timeline dot for a single step.
+function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
     if (status === 'completed') {
-        return <IconCheckCircle className="text-success shrink-0" />
+        return <IconCheckCircle className="text-success text-base" />
     }
     if (status === 'failed') {
-        return <IconX className="text-danger shrink-0" />
+        return <IconX className="text-danger text-base" />
     }
     if (status === 'in_progress') {
-        return <Spinner className="shrink-0" />
+        return <Spinner className="text-base" textColored />
     }
-    return <span className="w-3.5 h-3.5 rounded-full border border-border shrink-0" />
+    return <span className="w-4 h-4 rounded-full border-2 border-border" />
 }
 
 /**
- * Presentational renderer for an `InstallationProgress` — the stepper plus terminal payoff (PR link) or
- * failure. Pure (no logic/streams) so every state, including the error variants, is storyable in
- * isolation. The container `InstallationProgressView` feeds it live progress from the Installation layer.
+ * Presentational renderer for an `InstallationProgress`: a status header, a progress bar, a connected
+ * step timeline, and the terminal payoff (PR link) or failure detail. Pure (no logic/streams) so every
+ * state, including the error variants, is storyable in isolation. The container `InstallationProgressView`
+ * feeds it live progress from the Installation layer.
  */
 export function InstallationProgressContent({
     progress,
@@ -34,42 +68,80 @@ export function InstallationProgressContent({
 }): JSX.Element {
     const { phase, steps, error, prUrl } = progress
 
-    const bannerType = phase === 'completed' ? 'success' : phase === 'error' ? 'error' : 'info'
+    const total = steps.length
+    const completedCount = steps.filter((s) => s.status === 'completed').length
+    const percent = total > 0 ? Math.round((completedCount / total) * 100) : 0
+
     const headline =
         phase === 'completed'
             ? 'PostHog is wired up'
             : phase === 'error'
-              ? (error?.title ?? 'Installation failed')
-              : 'Setting up PostHog…'
+              ? (error?.title ?? "Setup didn't finish")
+              : 'Setting up PostHog'
+    const subtitle =
+        phase === 'completed'
+            ? prUrl
+                ? 'We opened a pull request for you to review.'
+                : "You're all set."
+            : phase === 'error'
+              ? "We couldn't finish the setup."
+              : phase === 'connecting'
+                ? 'Getting things ready…'
+                : 'Working on it — feel free to keep going.'
 
     return (
-        <LemonBanner type={bannerType} onClose={onDismiss}>
-            <div className="flex w-full flex-col gap-2" data-attr="installation-progress">
-                <div className="font-semibold">{headline}</div>
-                {steps.length > 0 && (
-                    <ul className="flex flex-col gap-1.5 m-0 p-0 list-none">
-                        {steps.map((step) => (
-                            <li key={step.id} className="flex items-center gap-2 text-sm">
-                                <StepIcon status={step.status} />
-                                <span className={step.status === 'pending' ? 'text-muted' : ''}>{step.label}</span>
-                                {step.detail && <span className="text-xs text-muted truncate">— {step.detail}</span>}
-                            </li>
-                        ))}
-                    </ul>
-                )}
-                {phase === 'error' && error?.detail && <div className="text-sm text-muted">{error.detail}</div>}
-                {phase === 'completed' && prUrl && (
-                    <Link to={prUrl} target="_blank">
-                        Review your pull request
-                    </Link>
-                )}
-                {phase !== 'completed' && phase !== 'error' && (
-                    <div className="text-xs text-muted">
-                        This runs in the background — keep going and we'll keep this updated.
-                    </div>
+        <div className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-4" data-attr="installation-progress">
+            <div className="flex items-start gap-3">
+                <StatusBadge phase={phase} />
+                <div className="flex-1 min-w-0">
+                    <h4 className="font-semibold m-0">{headline}</h4>
+                    <p className="text-sm text-muted m-0">{subtitle}</p>
+                </div>
+                {onDismiss && (
+                    <LemonButton size="small" icon={<IconX />} onClick={onDismiss} tooltip="Dismiss" aria-label="Dismiss" />
                 )}
             </div>
-        </LemonBanner>
+
+            {total > 0 && (phase === 'running' || phase === 'completed') && (
+                <LemonProgress percent={percent} strokeColor={phase === 'completed' ? 'var(--success)' : undefined} />
+            )}
+
+            {total > 0 && (
+                <ol className="flex flex-col m-0 p-0 list-none">
+                    {steps.map((step, i) => (
+                        <li key={step.id} className="flex gap-3">
+                            <div className="flex flex-col items-center pt-0.5">
+                                <StepIcon status={step.status} />
+                                {i < steps.length - 1 && <div className="w-px flex-1 bg-border my-1 min-h-[0.75rem]" />}
+                            </div>
+                            <div className="flex-1 min-w-0 pb-3">
+                                <div
+                                    className={cn(
+                                        'text-sm',
+                                        step.status === 'pending' && 'text-muted',
+                                        step.status === 'failed' && 'text-danger font-medium',
+                                        step.status === 'in_progress' && 'font-medium'
+                                    )}
+                                >
+                                    {step.label}
+                                </div>
+                                {step.detail && <div className="text-xs text-muted truncate">{step.detail}</div>}
+                            </div>
+                        </li>
+                    ))}
+                </ol>
+            )}
+
+            {phase === 'error' && error?.detail && (
+                <div className="text-sm text-danger bg-danger-highlight rounded p-2">{error.detail}</div>
+            )}
+
+            {phase === 'completed' && prUrl && (
+                <LemonButton type="primary" to={prUrl} targetBlank icon={<IconPullRequest />} center>
+                    Review pull request
+                </LemonButton>
+            )}
+        </div>
     )
 }
 
