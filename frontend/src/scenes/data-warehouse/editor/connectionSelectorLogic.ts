@@ -24,11 +24,13 @@ export const ADD_SNOWFLAKE_DIRECT_CONNECTION = '__add_snowflake_direct_connectio
 export const CONFIGURE_SOURCES = '__configure_sources__'
 
 export interface ConnectionSelectOption {
-    value: string
+    // A leaf carries a `value`; a node carries nested `options` and renders as a submenu.
+    value?: string
     label: string
     disabled?: boolean
     iconSrc?: string
     managementUrl?: string
+    options?: ConnectionSelectOption[]
 }
 
 export interface ConnectionSelectOptionGroup {
@@ -131,9 +133,22 @@ export const connectionSelectorLogic = kea<connectionSelectorLogicType>([
                     {
                         options: [
                             { value: CONFIGURE_SOURCES, label: 'Configure sources' },
-                            { value: ADD_POSTGRES_DIRECT_CONNECTION, label: '+ Add Postgres direct connection' },
-                            { value: ADD_MYSQL_DIRECT_CONNECTION, label: '+ Add MySQL direct connection' },
-                            { value: ADD_SNOWFLAKE_DIRECT_CONNECTION, label: '+ Add Snowflake direct connection' },
+                            {
+                                label: 'Add direct connection',
+                                options: [
+                                    {
+                                        value: ADD_POSTGRES_DIRECT_CONNECTION,
+                                        label: 'Postgres',
+                                        iconSrc: IconPostgres,
+                                    },
+                                    { value: ADD_MYSQL_DIRECT_CONNECTION, label: 'MySQL', iconSrc: IconMySQL },
+                                    {
+                                        value: ADD_SNOWFLAKE_DIRECT_CONNECTION,
+                                        label: 'Snowflake',
+                                        iconSrc: IconSnowflake,
+                                    },
+                                ],
+                            },
                         ],
                     },
                 ]
