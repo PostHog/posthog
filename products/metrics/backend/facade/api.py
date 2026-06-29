@@ -12,6 +12,8 @@ from posthog.models import Team
 
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
+    CompanionMetric,
+    InvestigationResult,
     MetricAnomalyReport,
     MetricEventSample,
     MetricFilter,
@@ -23,6 +25,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
+from products.metrics.backend.investigation import investigate as _investigate
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
@@ -263,4 +266,45 @@ def characterize_metric_anomaly(
         quantile=quantile,
         filters=filters,
         candidate_keys=candidate_keys,
+    )
+
+
+def investigate(
+    *,
+    team: Team,
+    metric_name: str,
+    anomaly_from: dt.datetime,
+    anomaly_to: dt.datetime,
+    baseline_from: dt.datetime | None = None,
+    baseline_to: dt.datetime | None = None,
+    aggregation: str | None = None,
+    quantile: float | None = None,
+    filters: tuple[MetricFilter, ...] = (),
+    candidate_keys: tuple[str, ...] | None = None,
+    companions: tuple[CompanionMetric, ...] = (),
+) -> InvestigationResult:
+    """Investigate a metric symptom end to end and return one structured result.
+
+    Builds on `characterize_metric_anomaly`: it characterizes the metric over
+    the anomaly window, then characterizes each `companion` over the SAME window
+    to confirm or rule it out (e.g. throughput flat -> not a traffic surge),
+    classifies blast radius from the movers, implicates a service for the
+    logs/traces pivot, and emits re-runnable chart specs.
+
+    The result is the single shape the agent narrates, the in-app explorer
+    renders, and the incident report serializes. Raises `ValueError` for invalid
+    windows/aggregations — the presentation layer surfaces these as 400s.
+    """
+    return _investigate(
+        team=team,
+        metric_name=metric_name,
+        anomaly_from=anomaly_from,
+        anomaly_to=anomaly_to,
+        baseline_from=baseline_from,
+        baseline_to=baseline_to,
+        aggregation=aggregation,
+        quantile=quantile,
+        filters=filters,
+        candidate_keys=candidate_keys,
+        companions=companions,
     )
