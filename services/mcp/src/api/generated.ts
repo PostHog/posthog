@@ -9902,11 +9902,11 @@ export namespace Schemas {
       UsePosthogInSlack: 'use_posthog_in_slack',
     } as const;
 
-    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+    export type AwsS3DestinationConfigType = typeof AwsS3DestinationConfigType[keyof typeof AwsS3DestinationConfigType];
 
 
-    export const AzureBlobDestinationConfigType = {
-      AzureBlob: 'AzureBlob',
+    export const AwsS3DestinationConfigType = {
+      AwsS3: 'AwsS3',
     } as const;
 
     /**
@@ -9928,15 +9928,93 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `JSONLines` - JSONLines
      * * `Parquet` - Parquet
+     * * `JSONLines` - JSONLines
      */
     export type FileFormatEnum = typeof FileFormatEnum[keyof typeof FileFormatEnum];
 
 
     export const FileFormatEnum = {
-      JSONLines: 'JSONLines',
       Parquet: 'Parquet',
+      JSONLines: 'JSONLines',
+    } as const;
+
+    /**
+     * Typed configuration for an AWS S3 batch-export destination.
+     *
+     * AWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of
+     * `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
+     */
+    export interface AwsS3DestinationConfig {
+      /** Name of the destination bucket. */
+      bucket_name: string;
+      /** Region the bucket is in (e.g. 'us-east-1'). */
+      region: string;
+      /** Object key prefix applied to every exported file. */
+      prefix: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+       *
+       * * `brotli` - brotli
+       * * `gzip` - gzip
+       * * `lz4` - lz4
+       * * `snappy` - snappy
+       * * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+       *
+       * * `Parquet` - Parquet
+       * * `JSONLines` - JSONLines */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      /**
+         * Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').
+         * @nullable
+         */
+      encryption?: string | null;
+      /**
+         * KMS key ID to use when encryption is 'aws:kms'.
+         * @nullable
+         */
+      kms_key_id?: string | null;
+      type: AwsS3DestinationConfigType;
+    }
+
+    export type AwsS3DestinationRequestType = typeof AwsS3DestinationRequestType[keyof typeof AwsS3DestinationRequestType];
+
+
+    export const AwsS3DestinationRequestType = {
+      AwsS3: 'AwsS3',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an AWS S3 batch-export destination.
+     */
+    export interface AwsS3DestinationRequest {
+      type: AwsS3DestinationRequestType;
+      /** ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: AwsS3DestinationConfig;
+    }
+
+    /**
+     * * `AwsS3` - AwsS3
+     */
+    export type AwsS3DestinationRequestTypeEnum = typeof AwsS3DestinationRequestTypeEnum[keyof typeof AwsS3DestinationRequestTypeEnum];
+
+
+    export const AwsS3DestinationRequestTypeEnum = {
+      AwsS3: 'AwsS3',
+    } as const;
+
+    export type AzureBlobDestinationConfigType = typeof AzureBlobDestinationConfigType[keyof typeof AzureBlobDestinationConfigType];
+
+
+    export const AzureBlobDestinationConfigType = {
+      AzureBlob: 'AzureBlob',
     } as const;
 
     /**
@@ -10541,14 +10619,59 @@ export namespace Schemas {
       type: PostgresDestinationConfigType;
     }
 
-    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig;
+    export type S3CompatibleDestinationConfigType = typeof S3CompatibleDestinationConfigType[keyof typeof S3CompatibleDestinationConfigType];
+
+
+    export const S3CompatibleDestinationConfigType = {
+      S3Compatible: 'S3Compatible',
+    } as const;
+
+    /**
+     * Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
+     * DigitalOcean Spaces, etc.).
+     *
+     * Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
+     * Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
+     * `products/batch_exports/backend/service.py`.
+     */
+    export interface S3CompatibleDestinationConfig {
+      /** Name of the destination bucket. */
+      bucket_name: string;
+      /** Region the bucket is in (e.g. 'us-east-1'). */
+      region: string;
+      /** Object key prefix applied to every exported file. */
+      prefix: string;
+      /** Optional compression codec applied to exported files. Valid codecs depend on file_format.
+       *
+       * * `brotli` - brotli
+       * * `gzip` - gzip
+       * * `lz4` - lz4
+       * * `snappy` - snappy
+       * * `zstd` - zstd */
+      compression?: CompressionEnum | null;
+      /** File format used for exported objects.
+       *
+       * * `Parquet` - Parquet
+       * * `JSONLines` - JSONLines */
+      file_format?: FileFormatEnum;
+      /**
+         * If set, rolls to a new file once the current file exceeds this size in MB.
+         * @nullable
+         */
+      max_file_size_mb?: number | null;
+      /** Use virtual-hosted-style addressing rather than path-style. */
+      use_virtual_style_addressing?: boolean;
+      type: S3CompatibleDestinationConfigType;
+    }
+
+    export type BatchExportDestinationConfig = DatabricksDestinationConfig | AzureBlobDestinationConfig | BigQueryDestinationConfig | PostgresDestinationConfig | AwsS3DestinationConfig | S3CompatibleDestinationConfig;
 
     /**
      * Serializer for an BatchExportDestination model.
      *
      * The `config` field is polymorphic and typed only for destinations that keep
-     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
-     * Other destination types accept the same JSON shape but without a typed
+     * credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
+     * AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
      * OpenAPI schema. Secret fields are stripped from `config` on read.
      */
     export interface BatchExportDestination {
@@ -10568,7 +10691,7 @@ export namespace Schemas {
        * * `NoOp` - Noop
        * * `FileDownload` - File Download */
       type: BatchExportDestinationTypeEnum;
-      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
+      /** Destination-specific configuration. Fields depend on `type`. Credentials for integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses. */
       config: BatchExportDestinationConfig;
       /**
          * The integration for this destination.
@@ -10576,7 +10699,7 @@ export namespace Schemas {
          */
       integration?: number | null;
       /**
-         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, BigQuery, and Postgres destinations; unused for other types.
+         * ID of a team-scoped Integration providing credentials. Required when creating Databricks, AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials remain supported); unused for other types.
          * @nullable
          */
       integration_id?: number | null;
@@ -11527,7 +11650,24 @@ export namespace Schemas {
       config: PostgresDestinationConfig;
     }
 
-    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest;
+    export type S3CompatibleDestinationRequestType = typeof S3CompatibleDestinationRequestType[keyof typeof S3CompatibleDestinationRequestType];
+
+
+    export const S3CompatibleDestinationRequestType = {
+      S3Compatible: 'S3Compatible',
+    } as const;
+
+    /**
+     * Request shape for creating or updating an S3-compatible batch-export destination.
+     */
+    export interface S3CompatibleDestinationRequest {
+      type: S3CompatibleDestinationRequestType;
+      /** ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. Preferred over inline credentials. Use the integrations-list MCP tool to find one. */
+      integration_id?: number;
+      config: S3CompatibleDestinationConfig;
+    }
+
+    export type BatchExportDestinationRequest = DatabricksDestinationRequest | AzureBlobDestinationRequest | BigQueryDestinationRequest | PostgresDestinationRequest | AwsS3DestinationRequest | S3CompatibleDestinationRequest;
 
     /**
      * Request body for create/partial_update on BatchExportViewSet.
@@ -23890,6 +24030,31 @@ export namespace Schemas {
       deleted: boolean;
     }
 
+    export interface GapAction {
+      /**
+         * Optional knowledge source to link when accepting.
+         * @nullable
+         */
+      resolved_source_id?: string | null;
+    }
+
+    export interface GapTopicAction {
+      /** The normalized topic key identifying the gap cluster to act on. */
+      normalized_topic: string;
+      /**
+         * Optional knowledge source to link when accepting.
+         * @nullable
+         */
+      resolved_source_id?: string | null;
+    }
+
+    export interface GapTopicActionResult {
+      /** The normalized topic cluster that was acted on. */
+      readonly normalized_topic: string;
+      /** Number of gap rows whose status changed. */
+      readonly updated: number;
+    }
+
     export type GenerateRequestStepsItem = { [key: string]: unknown };
 
     export interface GenerateRequest {
@@ -27538,6 +27703,30 @@ export namespace Schemas {
       readonly source_name: string;
       /** Title of the document this chunk belongs to. */
       readonly document_title: string;
+    }
+
+    export interface KnowledgeGapSuggestion {
+      /** Unique identifier for this gap suggestion. */
+      readonly id: string;
+      /** The ticket that surfaced this gap. */
+      readonly ticket_id: string;
+      /** Raw topic the AI couldn't answer. */
+      readonly topic: string;
+      /** Normalized cluster key for grouping. */
+      readonly normalized_topic: string;
+      /** Ticket classification type. */
+      readonly ticket_type: string;
+      /** Pipeline outcome that produced this gap. */
+      readonly outcome: string;
+      /** Current status: pending, accepted, or dismissed. */
+      readonly status: string;
+      /**
+         * Knowledge source created to fill this gap.
+         * @nullable
+         */
+      readonly resolved_source_id: string | null;
+      /** When this gap was first recorded. */
+      readonly created_at: string;
     }
 
     /**
@@ -31443,6 +31632,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: IntervieweeContext[];
+    }
+
+    export interface PaginatedKnowledgeGapSuggestionList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: KnowledgeGapSuggestion[];
     }
 
     export interface PaginatedKnowledgeSourceList {
@@ -46663,6 +46861,32 @@ export namespace Schemas {
       trigger?: TriggerEnum;
     }
 
+    export interface RecapHighlight {
+      /** Stable highlight identifier, e.g. 'milestone', 'rising_page', 'top_source'. */
+      id: string;
+      /** Emoji for the highlight. */
+      emoji: string;
+      /** Short headline for the highlight, e.g. 'Rising star page'. */
+      title: string;
+      /** The standout value, e.g. a page path or visitor count. */
+      value: string;
+      /** Supporting sentence for the highlight. */
+      detail: string;
+    }
+
+    export interface RecapPersona {
+      /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
+      id: string;
+      /** Display name for the persona, e.g. 'Traffic Magnet'. */
+      name: string;
+      /** Emoji representing the persona. */
+      emoji: string;
+      /** One-line explanation of why this persona was assigned this week. */
+      blurb: string;
+      /** Hex accent color for rendering the persona card. */
+      color: string;
+    }
+
     export interface RecomputeResult {
       run: Run;
       counts_changed: boolean;
@@ -47013,6 +47237,16 @@ export namespace Schemas {
          */
       recommended_running_time_days: number | null;
     }
+
+    /**
+     * * `S3Compatible` - S3Compatible
+     */
+    export type S3CompatibleDestinationRequestTypeEnum = typeof S3CompatibleDestinationRequestTypeEnum[keyof typeof S3CompatibleDestinationRequestTypeEnum];
+
+
+    export const S3CompatibleDestinationRequestTypeEnum = {
+      S3Compatible: 'S3Compatible',
+    } as const;
 
     /**
      * Form fields that must be submitted verbatim with the file upload
@@ -52757,6 +52991,41 @@ export namespace Schemas {
       task_id: string;
       /** Id of the idling warm Run. The normal create+run path reuses and activates it on submit. */
       run_id: string;
+    }
+
+    export interface WebAnalyticsRecapResponse {
+      /** Unique visitors. */
+      visitors: NumericMetric;
+      /** Total pageviews. */
+      pageviews: NumericMetric;
+      /** Total sessions. */
+      sessions: NumericMetric;
+      /** Bounce rate (0–100). */
+      bounce_rate: NumericMetric;
+      /** Average session duration. */
+      avg_session_duration: DurationMetric;
+      /** Top 5 pages by unique visitors. */
+      top_pages: TopPage[];
+      /** Top 5 traffic sources by unique visitors. */
+      top_sources: TopSource[];
+      /** Goal conversions. */
+      goals: Goal[];
+      /** Link to the Web analytics dashboard for this project. */
+      dashboard_url: string;
+      /** The single weekly persona assigned from this week's data. */
+      persona: RecapPersona;
+      /** Up to three screenshot-worthy superlatives for the week. */
+      highlights: RecapHighlight[];
+      /** Human-readable period label, e.g. 'Last 7 days'. */
+      period_label: string;
+      /** First date included in the recap period, in the project timezone. */
+      period_start: string;
+      /** Final date included in the recap period, in the project timezone. */
+      period_end: string;
+      /** Name of the project this recap is for. */
+      project_name: string;
+      /** Canonical link to this project's weekly recap. */
+      recap_url: string;
     }
 
     export interface WeeklyDigestResponse {
@@ -58615,6 +58884,17 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type EnvironmentsWebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
+    };
+
     export type EnvironmentsWebAnalyticsWeeklyDigestParams = {
     /**
      * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query (faster).
@@ -59949,6 +60229,21 @@ export namespace Schemas {
      * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
      */
     rerank?: boolean;
+    };
+
+    export type BusinessKnowledgeGapSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
+     */
+    ticket_id?: string;
     };
 
     export type BusinessKnowledgeSourcesListParams = {
@@ -66082,6 +66377,17 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    };
+
+    export type WebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean;
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number;
     };
 
     export type WebAnalyticsWeeklyDigestParams = {
