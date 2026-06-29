@@ -137,7 +137,7 @@ export const NotConnected: Story = cloudRunStory({
     waitForSelector: '[data-attr="wizard-cloud-run-connect-github"]',
 })
 
-/** GitHub connected, no repo chosen — repo picker shown, "Open my pull request" disabled. */
+/** GitHub connected, no repo chosen — repo picker shown, "Install PostHog here" disabled. */
 export const Connected: Story = cloudRunStory({
     integrations: [githubIntegration],
     waitForSelector: '[data-attr="wizard-cloud-run-open-pr"]',
@@ -223,7 +223,7 @@ export const Playground: StoryObj<PlaygroundArgs> = {
         repository: {
             control: 'select',
             options: ['', 'web', 'api', 'mobile-app'],
-            description: 'Repository to pre-select — empty leaves "Open my pull request" disabled',
+            description: 'Repository to pre-select — empty leaves "Install PostHog here" disabled',
         },
         pullRequestQueued: {
             control: 'boolean',

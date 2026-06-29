@@ -123,7 +123,7 @@ export function WizardCloudRunBlock({
                             disabledReason={selectedRepository ? undefined : 'Pick a repository first'}
                             data-attr="wizard-cloud-run-open-pr"
                         >
-                            Open my pull request
+                            Install PostHog here
                         </LemonButton>
                     </div>
                     <div className={`flex items-center gap-1.5 text-xs text-muted ${hideHog ? 'justify-center' : ''}`}>
