@@ -2,6 +2,8 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
+import { FilterLogicalOperator, PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
+
 import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsViewer/Filters/logsViewerFiltersLogic'
 import { logsPatternsCreate } from 'products/logs/frontend/generated/api'
 import type { _LogsPatternsResponseApi } from 'products/logs/frontend/generated/api.schemas'
@@ -75,6 +77,39 @@ describe('logsPatternsLogic', () => {
         expect(mockCreate).toHaveBeenLastCalledWith(
             expect.any(String),
             expect.objectContaining({ query: expect.objectContaining({ severityLevels: ['error'] }) })
+        )
+    })
+
+    it('scopes mining to the embedding viewer pinned filters', async () => {
+        // A scoped embedded viewer (e.g. person/trace logs) pins a filter so Patterns mode
+        // can't mine project-wide logs — assert it reaches the query via `queryFilterGroup`.
+        const pinnedFilters: UniversalFiltersGroup = {
+            type: FilterLogicalOperator.And,
+            values: [
+                {
+                    key: 'distinct_id',
+                    value: ['user-123'],
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.LogAttribute,
+                },
+            ],
+        }
+        const scopedFiltersLogic = logsViewerFiltersLogic({ id: 'scoped-viewer', pinnedFilters })
+        scopedFiltersLogic.mount()
+        const scopedLogic = logsPatternsLogic({ id: 'scoped-viewer' })
+        scopedLogic.mount()
+
+        await expectLogic(scopedLogic).toDispatchActions(['loadPatternsSuccess'])
+
+        expect(mockCreate).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                query: expect.objectContaining({
+                    filterGroup: expect.objectContaining({
+                        values: [expect.objectContaining({ values: pinnedFilters.values })],
+                    }),
+                }),
+            })
         )
     })
 })

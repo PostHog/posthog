@@ -78,7 +78,7 @@ export function LogsPatterns({ id }: { id: string }): JSX.Element {
             title: 'Last seen',
             dataIndex: 'last_seen',
             render: (_, row) => <TZLabel time={row.last_seen} />,
-            sorter: (a, b) => (a.last_seen < b.last_seen ? -1 : 1),
+            sorter: (a, b) => (a.last_seen < b.last_seen ? -1 : a.last_seen > b.last_seen ? 1 : 0),
         },
     ]
 
