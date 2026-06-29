@@ -35,7 +35,7 @@ import subprocess
 import urllib.request
 from urllib.parse import urlsplit
 
-from hogland import AccessType, AuthenticationError, ConflictError, Hogland, NotFoundError
+from hogland import AccessType, AuthenticationError, BoxSpec, ConflictError, Hogland, NotFoundError
 
 from .backend import ExecResult, PreviewBackend
 
@@ -287,28 +287,23 @@ class HoglandBackend(PreviewBackend):
             # A racing run created it between our get and create — fetch the winner.
             self._pen = self._client.get_pen(self.name)
 
-    def _pen_spec(self) -> dict:
+    def _pen_spec(self) -> BoxSpec:
         """The spec the pen remembers — sizing, the golden it seeds from, and the
-        exposed web port. It records enough for a wake/EnsureUp to rebuild the box
-        from the pen alone, and the exposed port is what makes ``wake=on-request``
-        a valid policy. A plain dict because the wire wants a flat ``web_port``
-        (the SDK's BoxSpec model carries sizing but not the exposure port)."""
-        return {
-            "snapshot_id": self.snapshot,
-            "cpus": self.cpus,
-            "memory_mib": self.memory_mib,
-            "disk_gib": self.disk_gib,
-            "disk_class": self.disk_class,
-            # The server's BoxSpec marks these throughput caps required (no
-            # omitempty); 0 = unthrottled. A model-backed SDK sends them
-            # implicitly — a plain dict must include them or huma 422s.
-            "disk_mbps": 0,
-            "disk_iops": 0,
-            "net_mbps": 0,
-            "kind": self.kind,
-            "web_port": self.web_port,
-            "ttl_seconds": self.ttl_seconds,
-        }
+        exposed web port (``web_port``, which is what makes ``wake=on-request`` a
+        valid policy). Records enough for a wake/EnsureUp to rebuild the box from
+        the pen alone. Built as the SDK's BoxSpec so the wire body carries every
+        field the server requires (the throughput caps default to 0) — this code
+        never re-derives the contract by hand."""
+        return BoxSpec(
+            snapshot_id=self.snapshot,
+            cpus=self.cpus,
+            memory_mib=self.memory_mib,
+            disk_gib=self.disk_gib,
+            disk_class=self.disk_class,
+            kind=self.kind,
+            web_port=self.web_port,
+            ttl_seconds=self.ttl_seconds,
+        )
 
     def _source_alias(self) -> str | None:
         """The seed alias the pen can re-restore from if its snapshots are GC'd.
@@ -410,9 +405,14 @@ class HoglandBackend(PreviewBackend):
                 # poll runs before the first exec()/write_file() that would refresh
                 # it — so re-mint here too, or readiness spins to timeout on a
                 # token that expired mid-restore. _refresh_auth swaps self._box to
-                # the fresh client's handle.
+                # the fresh client's handle. Guard it: a transient failure while
+                # re-minting (token endpoint / get() blip) must be polled through,
+                # not raised out of the loop.
                 last = str(e)
-                self._refresh_auth()
+                try:
+                    self._refresh_auth()
+                except Exception as refresh_err:  # noqa: BLE001 — keep polling
+                    last = f"{e}; refresh failed: {refresh_err}"
             except Exception as e:  # noqa: BLE001 — keep polling through transient API errors
                 last = str(e)
             time.sleep(interval)
