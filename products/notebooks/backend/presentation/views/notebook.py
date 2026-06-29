@@ -781,7 +781,9 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self._get_notebook_for_kernel()
 
         try:
-            response = execute_hogql_query(query=serializer.validated_data["query"], team=self.team)
+            response = execute_hogql_query(
+                query=serializer.validated_data["query"], team=self.team, user=self._current_user()
+            )
         except Exception as err:
             logger.exception("notebook_hogql_execute_failed", notebook_short_id=notebook.short_id)
             return Response({"error": str(err)}, status=400)

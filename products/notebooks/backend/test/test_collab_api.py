@@ -1,5 +1,6 @@
 import json
 import time
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -21,6 +22,14 @@ from products.notebooks.backend.models import Notebook
 
 SAMPLE_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type": "text", "text": "Test"}]}]}
 UPDATED_DOC = {"type": "doc", "content": [{"type": "heading", "content": [{"type": "text", "text": "Updated"}]}]}
+
+
+class _FakeHogQLResponse:
+    def __init__(self, payload: dict[str, Any]) -> None:
+        self.payload = payload
+
+    def dict(self, exclude_none: bool = False) -> dict[str, Any]:
+        return self.payload
 
 
 class TestNotebookCollabSaveAPI(APIBaseTest):
@@ -760,3 +769,20 @@ class TestNotebookMarkdownSaveAPI(APIBaseTest):
 
         response = self._markdown_save(notebook, version=notebook["version"], markdown="anything")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
+
+
+class TestNotebookHogQLExecuteAPI(APIBaseTest):
+    def test_hogql_execute_passes_request_user(self) -> None:
+        notebook = Notebook.objects.create(team=self.team, created_by=self.user, last_modified_by=self.user)
+
+        with patch("products.notebooks.backend.presentation.views.notebook.execute_hogql_query") as mock_execute:
+            mock_execute.return_value = _FakeHogQLResponse({"results": [[1]], "columns": ["count"]})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/notebooks/{notebook.short_id}/hogql/execute/",
+                data={"query": "select * from warehouse_table"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_execute.assert_called_once()
+        assert mock_execute.call_args.kwargs["user"] == self.user
