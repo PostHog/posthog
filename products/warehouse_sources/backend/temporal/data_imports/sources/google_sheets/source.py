@@ -154,17 +154,6 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
             fields=cast(
                 list[FieldType],
                 [
-                    SourceFieldInputConfig(
-                        name="spreadsheet_url",
-                        label="Spreadsheet URL",
-                        type=SourceFieldInputConfigType.TEXT,
-                        required=True,
-                        placeholder="",
-                        caption=f'Paste the full Google Sheet URL. If you choose the shared service account method below, first share the sheet with **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** ("Viewer" is enough).',
-                        # Treated as sensitive so the URL is redacted from API responses — knowing a
-                        # sheet URL is part of what makes the shared-service-account path abusable.
-                        secret=True,
-                    ),
                     SourceFieldSelectConfig(
                         # required=False so the generated `auth_method` carries a default: existing
                         # sources predate this field, and config validation on update must not reject
@@ -172,10 +161,15 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                         name="auth_method",
                         label="Authentication method",
                         required=False,
-                        defaultValue="oauth",
+                        defaultValue="service_account",
                         options=[
                             SourceFieldSelectConfigOption(
-                                label="Connect a Google account (recommended)",
+                                label="Share with PostHog's service account",
+                                value="service_account",
+                                fields=None,
+                            ),
+                            SourceFieldSelectConfigOption(
+                                label="Connect a Google account",
                                 value="oauth",
                                 fields=cast(
                                     list[FieldType],
@@ -193,12 +187,17 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                                     ],
                                 ),
                             ),
-                            SourceFieldSelectConfigOption(
-                                label="Share with PostHog's service account",
-                                value="service_account",
-                                fields=None,
-                            ),
                         ],
+                    ),
+                    SourceFieldInputConfig(
+                        name="spreadsheet_url",
+                        label="Spreadsheet URL",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="",
+                        caption=f'Paste the full Google Sheet URL. For the shared service account method, first share the sheet with **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** ("Viewer" is enough).',
+                        # A sheet URL is not a credential, so it isn't redacted from API responses.
+                        secret=False,
                     ),
                 ],
             ),

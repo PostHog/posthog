@@ -7696,7 +7696,7 @@ class TestSensitiveFieldClassification(APIBaseTest):
             "customer_id",
             "google_ads_integration_id",
             "is_mcc_account",
-            # spreadsheet_url is intentionally sensitive now (secret=True), so it's no longer nonsensitive.
+            "spreadsheet_url",
             "linkedin_ads_integration_id",
             "meta_ads_integration_id",
             "sync_lookback_days",
