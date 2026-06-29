@@ -1,43 +1,13 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { IconCheckCircle, IconPullRequest, IconWarning, IconX } from '@posthog/icons'
+import { IconCheckCircle, IconPullRequest, IconX } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
-import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { cn } from 'lib/utils/css-classes'
 
 import { activeCloudRunLogic } from './activeCloudRunLogic'
-import {
-    InstallationPhase,
-    InstallationProgress,
-    installationProgressLogic,
-    InstallationStepStatus,
-} from './installationProgressLogic'
-
-// Header badge — a tinted disc whose icon reflects the overall phase.
-function StatusBadge({ phase }: { phase: InstallationPhase }): JSX.Element {
-    const base = 'w-8 h-8 rounded-full flex items-center justify-center shrink-0'
-    if (phase === 'completed') {
-        return (
-            <span className={cn(base, 'bg-success-highlight')}>
-                <IconCheckCircle className="text-success text-lg" />
-            </span>
-        )
-    }
-    if (phase === 'error') {
-        return (
-            <span className={cn(base, 'bg-danger-highlight')}>
-                <IconWarning className="text-danger text-lg" />
-            </span>
-        )
-    }
-    return (
-        <span className={cn(base, 'bg-border')}>
-            <Spinner />
-        </span>
-    )
-}
+import { InstallationProgress, installationProgressLogic, InstallationStepStatus } from './installationProgressLogic'
 
 // Timeline dot for a single step.
 function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
@@ -54,10 +24,10 @@ function StepIcon({ status }: { status: InstallationStepStatus }): JSX.Element {
 }
 
 /**
- * Presentational renderer for an `InstallationProgress`: a status header, a progress bar, a connected
- * step timeline, and the terminal payoff (PR link) or failure detail. Pure (no logic/streams) so every
- * state, including the error variants, is storyable in isolation. The container `InstallationProgressView`
- * feeds it live progress from the Installation layer.
+ * Presentational renderer for an `InstallationProgress`: a text header, a connected step timeline, and
+ * the terminal payoff (PR link) or failure detail. Pure (no logic/streams) so every state, including
+ * the error variants, is storyable in isolation. The container `InstallationProgressView` feeds it live
+ * progress from the Installation layer.
  */
 export function InstallationProgressContent({
     progress,
@@ -67,10 +37,6 @@ export function InstallationProgressContent({
     onDismiss?: () => void
 }): JSX.Element {
     const { phase, steps, error, prUrl } = progress
-
-    const total = steps.length
-    const completedCount = steps.filter((s) => s.status === 'completed').length
-    const percent = total > 0 ? Math.round((completedCount / total) * 100) : 0
 
     const headline =
         phase === 'completed'
@@ -90,11 +56,10 @@ export function InstallationProgressContent({
                 : 'Working on it — feel free to keep going.'
 
     return (
-        <div className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-4" data-attr="installation-progress">
-            <div className="flex items-start gap-3">
-                <StatusBadge phase={phase} />
-                <div className="flex-1 min-w-0">
-                    <h4 className="font-semibold m-0">{headline}</h4>
+        <div className="rounded-lg border border-border bg-bg-light p-4 flex flex-col gap-3" data-attr="installation-progress">
+            <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                    <h4 className={cn('font-semibold m-0', phase === 'error' && 'text-danger')}>{headline}</h4>
                     <p className="text-sm text-muted m-0">{subtitle}</p>
                 </div>
                 {onDismiss && (
@@ -102,11 +67,7 @@ export function InstallationProgressContent({
                 )}
             </div>
 
-            {total > 0 && (phase === 'running' || phase === 'completed') && (
-                <LemonProgress percent={percent} strokeColor={phase === 'completed' ? 'var(--success)' : undefined} />
-            )}
-
-            {total > 0 && (
+            {steps.length > 0 && (
                 <ol className="flex flex-col m-0 p-0 list-none">
                     {steps.map((step, i) => (
                         <li key={step.id} className="flex gap-3">
