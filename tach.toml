@@ -716,7 +716,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
@@ -801,6 +801,18 @@ expose = [
 ]
 from = [
     "products.warehouse_sources",
+]
+
+# data_modeling — facade landed; external consumers route through backend.facade.* now.
+# This leak exposes its models only to frozen Django migrations (core + the data_warehouse
+# model-migration) that reference the historical model classes directly and cannot route
+# through a facade. Permanent (migrations are immutable), so backend:contract-check stays off.
+[[interfaces]]
+expose = [
+    "backend\\.models.*",
+]
+from = [
+    "products.data_modeling",
 ]
 
 # data_warehouse — facade landed (Phase 2) + presentation wave complete; now enforced via

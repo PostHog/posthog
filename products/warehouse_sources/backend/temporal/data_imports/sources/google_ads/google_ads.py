@@ -72,13 +72,35 @@ def _ensure_grpc_receive_limit() -> None:
 
 
 # ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
-# endpoint over the network. A transient hiccup on that hop (e.g. a proxy connection timeout)
-# surfaces as ``google.auth.exceptions.TransportError`` — the stored credential is fine, only the
-# request failed, so a short backoff usually clears it. Riding it out here avoids failing (and
-# re-capturing) the whole import activity before a single row is fetched. Auth rejections surface
-# as ``RefreshError`` (handled as non-retryable elsewhere), not ``TransportError``, so retrying
-# here never masks bad credentials.
+# endpoint over the network. Two failure shapes on that hop are transient and usually clear on a
+# short backoff: a connection-level hiccup (e.g. a proxy timeout) surfaces as
+# ``google.auth.exceptions.TransportError``, while a server-side blip surfaces as a ``RefreshError``
+# carrying a 5xx token-endpoint response. Riding both out here avoids failing (and re-capturing) the
+# whole import activity before a single row is fetched. Auth rejections (revoked/expired refresh
+# token, restricted API access) also surface as ``RefreshError`` but carry an OAuth error body, not
+# a 5xx — they are not retried here and still hit the non-retryable handling elsewhere.
 _MAX_CLIENT_INIT_ATTEMPTS = 4
+
+# google-auth flags token-endpoint responses with status 500/503/504/408/429 as retryable
+# (``RefreshError.retryable``), but its retryable set omits 502 Bad Gateway. Google's frontend
+# returns 502 as a transient HTML "Error 502 (Server Error)" page while a backend is briefly
+# unreachable — as recoverable as the codes it does retry — so we recognise it explicitly.
+_BAD_GATEWAY_REFRESH_ERROR_SIGNATURE = "502 (Server Error)"
+
+
+def _is_transient_client_init_error(exc: BaseException) -> bool:
+    """Return True for a client-construction failure worth riding out in-process.
+
+    Covers a connection-level ``TransportError`` and a ``RefreshError`` carrying a transient 5xx
+    token-endpoint response. An auth-rejection ``RefreshError`` (revoked/expired credential,
+    restricted API access) is not transient — it carries ``retryable=False`` and an OAuth error
+    body, never a 5xx — so it returns False and the caller's non-retryable handling still applies.
+    """
+    if isinstance(exc, google_auth_exceptions.TransportError):
+        return True
+    if isinstance(exc, google_auth_exceptions.RefreshError):
+        return getattr(exc, "retryable", False) or _BAD_GATEWAY_REFRESH_ERROR_SIGNATURE in str(exc)
+    return False
 
 
 def _load_client_with_transient_retry(
@@ -86,18 +108,19 @@ def _load_client_with_transient_retry(
     *,
     max_attempts: int = _MAX_CLIENT_INIT_ATTEMPTS,
 ) -> GoogleAdsClient:
-    """Build a ``GoogleAdsClient`` from a config dict, retrying a transient transport failure.
+    """Build a ``GoogleAdsClient`` from a config dict, retrying a transient token-refresh failure.
 
-    Only the token-refresh network hop is retried; a ``RefreshError`` (revoked/expired credential)
-    or any other error re-raises immediately so the caller's non-retryable handling still applies.
+    Only transient failures on the token-refresh hop are retried (see
+    ``_is_transient_client_init_error``); any other error — including an auth-rejection
+    ``RefreshError`` — re-raises immediately so the caller's non-retryable handling still applies.
     """
     attempt = 0
     while True:
         try:
             return GoogleAdsClient.load_from_dict(config_dict)
-        except google_auth_exceptions.TransportError:
+        except Exception as e:
             attempt += 1
-            if attempt >= max_attempts:
+            if attempt >= max_attempts or not _is_transient_client_init_error(e):
                 raise
             time.sleep(min(2 * attempt, 30))
 

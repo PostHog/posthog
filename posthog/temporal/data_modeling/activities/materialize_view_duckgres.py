@@ -13,9 +13,13 @@ from posthog.ph_client import feature_enabled_or_false
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.logger import get_logger
 
-from products.data_modeling.backend.models import Node, NodeType
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Node,
+    NodeType,
+)
 from products.endpoints.backend.services.materialization import prepare_executable_query
 
 LOGGER = get_logger(__name__)
