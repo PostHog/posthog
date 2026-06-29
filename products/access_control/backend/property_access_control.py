@@ -278,6 +278,7 @@ def get_restricted_properties_for_team(
     *,
     team_id: int,
     user: User | None,
+    team: Team | None = None,
 ) -> set[tuple[str, int]]:
     """
     Returns the set of (property_name, property_type) pairs that are restricted for the given user on the team.
@@ -291,6 +292,9 @@ def get_restricted_properties_for_team(
 
     :param team_id: The team whose property restrictions we are checking.
     :param user: (optional) The user making the query. When not provided, only the default (property-level) rules apply.
+    :param team: (optional) The already-loaded ``Team``. Pass this when the caller holds the team in memory
+        (e.g. a query runner) so the feature-availability check reuses it instead of re-fetching by id. This
+        keeps the access-control check off the database on the common HogQL query cache-key hot path.
 
     :returns: A set of (property_name, property_definition_type) tuples that are restricted.
     """
@@ -302,7 +306,7 @@ def get_restricted_properties_for_team(
             return cached
 
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
-    if not is_property_access_control_enabled(team_id=team_id):
+    if not is_property_access_control_enabled(team=team, team_id=team_id):
         empty_no_feature: set[tuple[str, int]] = set()
         if cache is not None:
             cache[cache_key] = empty_no_feature

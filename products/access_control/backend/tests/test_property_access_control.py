@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
+from posthog.models.team import Team
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import (
@@ -530,3 +531,10 @@ class TestQueryTimeFeatureGate(BaseTest):
         assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
             ("gated_event_prop", PropertyDefinition.Type.EVENT)
         }
+
+    def test_passing_in_memory_team_skips_team_fetch_on_disabled_path(self):
+        # The HogQL query cache-key hot path holds the team in memory and passes it in; the feature-gate
+        # short-circuit must reuse it rather than re-fetching the team by id from a saturated pool.
+        team = Team.objects.select_related("organization").get(pk=self.team.pk)
+        with self.assertNumQueries(0):
+            assert get_restricted_properties_for_team(team=team, team_id=team.pk, user=None) == set()

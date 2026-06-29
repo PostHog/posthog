@@ -2003,7 +2003,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
-        restricted = get_restricted_properties_for_team(team_id=self.team.pk, user=self.user)
+        restricted = get_restricted_properties_for_team(team=self.team, team_id=self.team.pk, user=self.user)
         if not restricted:
             return None
         return sorted(restricted)
