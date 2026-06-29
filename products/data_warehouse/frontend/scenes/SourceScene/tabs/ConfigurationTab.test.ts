@@ -1,15 +1,15 @@
 import type { ExternalDataSource } from '~/types'
 
-import { isLegacyGoogleServiceAccountAuthSource } from './ConfigurationTab'
+import { isGoogleServiceAccountAuthNotYetOnIntegrations } from './ConfigurationTab'
 
-describe('isLegacyGoogleServiceAccountAuthSource', () => {
+describe('isGoogleServiceAccountAuthNotYetOnIntegrations', () => {
     it('returns true for BigQuery sources with no key_file and no integration id', () => {
         const source = {
             source_type: 'BigQuery',
             job_inputs: {},
         } as ExternalDataSource
 
-        expect(isLegacyGoogleServiceAccountAuthSource(source)).toBe(true)
+        expect(isGoogleServiceAccountAuthNotYetOnIntegrations(source)).toBe(true)
     })
 
     it('returns false when an integration id already exists', () => {
@@ -20,7 +20,7 @@ describe('isLegacyGoogleServiceAccountAuthSource', () => {
             },
         } as ExternalDataSource
 
-        expect(isLegacyGoogleServiceAccountAuthSource(source)).toBe(false)
+        expect(isGoogleServiceAccountAuthNotYetOnIntegrations(source)).toBe(false)
     })
 
     it('returns false for non-BigQuery sources', () => {
@@ -31,6 +31,6 @@ describe('isLegacyGoogleServiceAccountAuthSource', () => {
             },
         } as ExternalDataSource
 
-        expect(isLegacyGoogleServiceAccountAuthSource(source)).toBe(false)
+        expect(isGoogleServiceAccountAuthNotYetOnIntegrations(source)).toBe(false)
     })
 })

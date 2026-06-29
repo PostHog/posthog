@@ -22,7 +22,7 @@ interface ConfigurationTabProps {
 
 const GOOGLE_CLOUD_CREDENTIAL_FIELD_ID = 'source-field-google_cloud_service_account_integration_id'
 
-export function isLegacyGoogleServiceAccountAuthSource(source: ExternalDataSource | null): boolean {
+export function isGoogleServiceAccountAuthNotYetOnIntegrations(source: ExternalDataSource | null): boolean {
     // Only supports BigQuery for now
     if (!source || source.source_type !== 'BigQuery') {
         return false
@@ -113,7 +113,7 @@ function UpdateSourceConnectionFormContainer(): JSX.Element {
         return <LemonSkeleton />
     }
 
-    const showLegacyGoogleServiceAccountAuthBanner = isLegacyGoogleServiceAccountAuthSource(source)
+    const showLegacyGoogleServiceAccountAuthBanner = isGoogleServiceAccountAuthNotYetOnIntegrations(source)
 
     return (
         <>
