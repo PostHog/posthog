@@ -58,6 +58,7 @@ the row lists both.
 | attio             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | azure_devops      | HTTP                        | requests                                                        | ✅                          |
 | bamboohr          | HTTP                        | requests                                                        | ✅                          |
+| beamer            | HTTP                        | requests                                                        | ✅                          |
 | bigquery          | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads          | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | braintree         | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -304,7 +305,6 @@ doesn't conflict with concurrent PRs.
 - azure_table_storage
 - babelforce
 - basecamp
-- beamer
 - bigcommerce
 - bigmailer
 - bitly

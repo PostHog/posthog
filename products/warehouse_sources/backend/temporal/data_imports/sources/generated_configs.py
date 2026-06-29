@@ -399,7 +399,7 @@ class BaserowSourceConfig(config.Config):
 
 @config.config
 class BeamerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
