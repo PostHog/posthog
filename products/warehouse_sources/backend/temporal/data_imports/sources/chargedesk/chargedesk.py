@@ -118,6 +118,19 @@ def _iter_pages(
                 )
                 yield items, None
                 return
+            if oldest_ts == window_max:
+                # The whole offset window collapsed onto a single timestamp: more than `max_offset` rows
+                # share `oldest_ts`, so re-pinning `[max]` to the same value would re-fetch this exact page
+                # forever (offset can't advance past the cap). Surface it and stop rather than spin until
+                # Temporal kills the activity. The unreachable tail is a hard limitation of an offset+`[max]`
+                # API when a single timestamp exceeds the offset cap.
+                logger.warning(
+                    f"ChargeDesk: {cfg.name} has more than {cfg.max_offset} rows at {cfg.timestamp_field}="
+                    f"{oldest_ts}; the offset cap prevents fetching the rest of this timestamp, stopping "
+                    f"pagination for this window."
+                )
+                yield items, None
+                return
             logger.debug(f"ChargeDesk: {cfg.name} reached offset cap, shifting {cfg.filter_param}[max] to {oldest_ts}")
             next_offset = 0
             next_window_max = oldest_ts

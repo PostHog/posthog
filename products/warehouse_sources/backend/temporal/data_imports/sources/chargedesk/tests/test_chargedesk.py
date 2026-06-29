@@ -49,7 +49,9 @@ class _FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            raise requests.HTTPError(f"{self.status_code} Client Error")
+            response = requests.Response()
+            response.status_code = self.status_code
+            raise requests.HTTPError(f"{self.status_code} Client Error", response=response)
 
 
 class _PagedSession:
@@ -100,7 +102,7 @@ class TestIterPages:
         session = _PagedSession(_charges([("a", 30), ("b", 20)]))
         cfg = _cfg(page_size=5)
         results = list(
-            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)
+            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)  # type: ignore[arg-type]
         )
 
         assert len(results) == 1
@@ -112,7 +114,7 @@ class TestIterPages:
         session = _PagedSession(_charges([("a", 50), ("b", 40), ("c", 30), ("d", 20), ("e", 10)]))
         cfg = _cfg(page_size=2)
         results = list(
-            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)
+            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)  # type: ignore[arg-type]
         )
 
         # 5 rows / page_size 2 => full pages [a,b],[c,d] then terminal short page [e]
@@ -128,7 +130,7 @@ class TestIterPages:
         session = _PagedSession(_charges([("a", 50), ("b", 40), ("c", 30), ("d", 20)]))
         cfg = _cfg(page_size=2, max_offset=2)
         results = list(
-            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)
+            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)  # type: ignore[arg-type]
         )
 
         # First page [a,b]; cap hit -> shift occurred[max] to oldest seen (40), reset offset 0.
@@ -142,10 +144,24 @@ class TestIterPages:
         all_ids = [r["charge_id"] for items, _ in results for r in items]
         assert set(all_ids) == {"a", "b", "c", "d"}
 
+    def test_stops_when_offset_cap_window_collapses_to_one_timestamp(self) -> None:
+        # More rows than the offset cap can reach all share the same timestamp. Re-pinning [max] to that
+        # timestamp would re-fetch the same page forever; pagination must terminate instead of spinning.
+        session = _PagedSession(_charges([("a", 100), ("b", 100), ("c", 100), ("d", 100)]))
+        cfg = _cfg(page_size=2, max_offset=2)
+        results = list(
+            _iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=None, start_offset=0, start_window_max=None)  # type: ignore[arg-type]
+        )
+
+        # Terminates (the final page carries no resume state) rather than looping indefinitely.
+        assert results[-1][1] is None
+        # It shifted [max] to 100 exactly once, then stopped on the next identical-timestamp page.
+        assert sum(1 for c in session.calls if c.get("occurred[max]") == 100) >= 1
+
     def test_min_filter_passed_through(self) -> None:
         session = _PagedSession(_charges([("a", 50), ("b", 40), ("c", 30)]))
         cfg = _cfg(page_size=5)
-        list(_iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=35, start_offset=0, start_window_max=None))
+        list(_iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=35, start_offset=0, start_window_max=None))  # type: ignore[arg-type]
         assert session.calls[0]["occurred[min]"] == 35
 
     def test_filter_param_differs_from_timestamp_field(self) -> None:
@@ -160,7 +176,7 @@ class TestIterPages:
             filter_param="created",
             page_size=5,
         )
-        list(_iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=60, start_offset=0, start_window_max=None))
+        list(_iter_pages(session, ("k", ""), cfg, MagicMock(), min_value=60, start_offset=0, start_window_max=None))  # type: ignore[arg-type]
         assert session.calls[0]["created[min]"] == 60
 
 
@@ -173,7 +189,7 @@ class TestRunPass:
 
         tables = list(
             _run_pass(
-                session,
+                session,  # type: ignore[arg-type]
                 ("k", ""),
                 cfg,
                 MagicMock(),

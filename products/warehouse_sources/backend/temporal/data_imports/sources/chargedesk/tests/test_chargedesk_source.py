@@ -7,6 +7,7 @@ from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
     ReleaseStatus,
+    SourceFieldInputConfig,
 )
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.chargedesk import source as source_module
@@ -38,6 +39,7 @@ class TestChargedeskSourceConfig:
         fields = ChargedeskSource().get_source_config.fields
         assert len(fields) == 1
         api_key_field = fields[0]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
         assert api_key_field.name == "api_key"
         # The secret key must be stored as a password/secret, never plain text.
         assert api_key_field.secret is True
