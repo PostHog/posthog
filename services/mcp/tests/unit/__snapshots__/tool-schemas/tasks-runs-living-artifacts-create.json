@@ -42,6 +42,21 @@
             "maxLength": 255,
             "type": "string"
         },
+        "slack_channel_id": {
+            "description": "For slack_message drafts, optional target Slack channel ID such as C123. Defaults to the run's mapped Slack channel.",
+            "maxLength": 80,
+            "type": "string"
+        },
+        "slack_delivery_mode": {
+            "description": "For slack_message artifacts, use 'draft' to post a Slack approval card before sending or 'send' to preserve immediate delivery into the mapped Slack thread.\n\n* `send` - send\n* `draft` - draft",
+            "enum": ["send", "draft"],
+            "type": "string"
+        },
+        "slack_thread_ts": {
+            "description": "For slack_message drafts, optional target Slack thread timestamp. Omit to post in the target channel root.",
+            "maxLength": 80,
+            "type": "string"
+        },
         "source_artifact_id": {
             "description": "Existing run artifact id to use as the initial content source.",
             "type": "string"

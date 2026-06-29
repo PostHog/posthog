@@ -34,6 +34,21 @@
             "maxLength": 255,
             "type": "string"
         },
+        "slack_channel_id": {
+            "description": "For unsent slack_message drafts, optional replacement target Slack channel ID such as C123.",
+            "maxLength": 80,
+            "type": "string"
+        },
+        "slack_delivery_mode": {
+            "description": "For unsent slack_message drafts, keep or switch the artifact to draft mode before approval.\n\n* `send` - send\n* `draft` - draft",
+            "enum": ["send", "draft"],
+            "type": "string"
+        },
+        "slack_thread_ts": {
+            "description": "For unsent slack_message drafts, optional replacement target Slack thread timestamp.",
+            "maxLength": 80,
+            "type": "string"
+        },
         "source_artifact_id": {
             "description": "Existing run artifact id to use as the next version content source.",
             "type": "string"
