@@ -27,10 +27,13 @@ fn behavioral_bytecode() -> Value {
     json!(["_H", 1, 32, "$pageview", 32, "event", 1, 1, 11])
 }
 
+/// HogVM `RETURN` opcode, appended to stored bytecode by the catalog loader.
+const OP_RETURN: i64 = 38;
+
 /// The stored form of [`behavioral_bytecode`]: the loader appends a trailing `RETURN` (opcode 38).
 fn behavioral_bytecode_loaded() -> Vec<Value> {
     let mut bc = behavioral_bytecode().as_array().unwrap().clone();
-    bc.push(json!(38));
+    bc.push(json!(OP_RETURN));
     bc
 }
 
