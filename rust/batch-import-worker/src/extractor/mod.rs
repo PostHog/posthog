@@ -376,47 +376,39 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_plain_gzip_extractor_simple() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let gzip_file = temp_dir.path().join("test.gz");
-        let test_content = "line1\nline2\nline3\n";
-        create_test_gzip_file(test_content, &gzip_file)?;
+    async fn test_plain_gzip_extractor_newline_normalization() -> Result<()> {
+        // The extractor guarantees exactly one trailing newline on non-empty
+        // content and leaves empty content untouched.
+        // (case name, raw input, expected decompressed output)
+        let cases: [(&str, &str, &str); 3] = [
+            (
+                "already terminated",
+                "line1\nline2\nline3\n",
+                "line1\nline2\nline3\n",
+            ),
+            (
+                "missing trailing newline",
+                "line1\nline2\nline3",
+                "line1\nline2\nline3\n",
+            ),
+            ("empty file", "", ""),
+        ];
 
-        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
-        let (data, size) = reader.read_to_end_for_test(8192).await;
+        for (name, input, expected) in cases {
+            let temp_dir = TempDir::new()?;
+            let gzip_file = temp_dir.path().join("test.gz");
+            create_test_gzip_file(input, &gzip_file)?;
 
-        assert_eq!(size as usize, test_content.len());
-        assert_eq!(data, test_content.as_bytes());
-        Ok(())
-    }
+            let mut reader = PlainGzipExtractor.open_reader(gzip_file);
+            let (data, size) = reader.read_to_end_for_test(8192).await;
 
-    #[tokio::test]
-    async fn test_plain_gzip_extractor_adds_newline_when_missing() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let gzip_file = temp_dir.path().join("test.gz");
-        let test_content = "line1\nline2\nline3"; // No trailing newline
-        create_test_gzip_file(test_content, &gzip_file)?;
-
-        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
-        let (data, size) = reader.read_to_end_for_test(8192).await;
-
-        assert_eq!(size as usize, test_content.len() + 1); // +1 for added newline
-        assert_eq!(data, format!("{test_content}\n").as_bytes());
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_plain_gzip_extractor_empty_file() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let gzip_file = temp_dir.path().join("empty.gz");
-        create_test_gzip_file("", &gzip_file)?;
-
-        let mut reader = PlainGzipExtractor.open_reader(gzip_file);
-        let (data, size) = reader.read_to_end_for_test(8192).await;
-
-        // No newline appended for empty content.
-        assert_eq!(size, 0);
-        assert!(data.is_empty());
+            assert_eq!(
+                size as usize,
+                expected.len(),
+                "size mismatch for case: {name}"
+            );
+            assert_eq!(data, expected.as_bytes(), "data mismatch for case: {name}");
+        }
         Ok(())
     }
 

@@ -113,6 +113,127 @@ async fn reset_backoff_after_success(
     model.reset_backoff_in_db(&context.db).await
 }
 
+/// DB-free core of [`Job::get_next_chunk`]: pick the next unfinished part, lazily
+/// discover its (decompressed) size, fetch+parse one chunk, and advance the
+/// in-memory part offset. A newly discovered `total_size` is mirrored into the
+/// model in memory only — no DB write happens here, which keeps the
+/// fetch/select/cleanup loop (and the per-part staging cleanup it drives via the
+/// terminal `offset >= total` read) testable without a database.
+///
+/// Returns the fetched `(key, parsed, reset_backoff)`. `reset_backoff` is `false`
+/// only on the empty-key short-circuit (so the caller skips the success backoff
+/// reset, matching the original control flow) and `true` otherwise. `None` means
+/// every part is done.
+pub(crate) async fn select_and_fetch_next_chunk(
+    state: &Mutex<JobState>,
+    model: &Mutex<JobModel>,
+    source: &dyn DataSource,
+    transform: &Arc<ParserFn>,
+    chunk_size: usize,
+    job_id: Uuid,
+) -> Result<Option<(String, Parsed<Vec<InternallyCapturedEvent>>, bool)>, Error> {
+    let mut state = state.lock().await;
+
+    let Some(next_part) = state.parts.iter_mut().find(|p| !p.is_done()) else {
+        info!(job_id = %job_id, "Found no next part, returning");
+        return Ok(None); // We're done fetching
+    };
+
+    let key = next_part.key.clone();
+    source.prepare_key(&key).await?;
+
+    if next_part.total_size.is_none() {
+        if let Some(actual_size) = source.size(&key).await? {
+            next_part.total_size = Some(actual_size);
+            info!(job_id = %job_id, "Updated total size for key {}: {}", key, actual_size);
+
+            {
+                let mut model = model.lock().await;
+                if let Some(model_state) = &mut model.state {
+                    if let Some(model_part) = model_state.parts.iter_mut().find(|p| p.key == key) {
+                        model_part.total_size = Some(actual_size);
+                    }
+                }
+            }
+
+            if actual_size == 0 {
+                info!(
+                    job_id = %job_id,
+                    "No data available for this key: {} try to get the next chunk",
+                    key
+                );
+                next_part.current_offset = actual_size;
+                return Ok(Some((
+                    key.clone(),
+                    Parsed {
+                        consumed: 0,
+                        data: vec![],
+                    },
+                    false,
+                )));
+            }
+        }
+    }
+
+    info!(job_id = %job_id, "Fetching part chunk {:?}", next_part);
+
+    let next_chunk = source
+        .get_chunk(&next_part.key, next_part.current_offset, chunk_size as u64)
+        .await
+        .context(format!("Fetching part chunk {next_part:?}"))?;
+
+    let is_last_chunk = match next_part.total_size {
+        Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
+        None => false,
+    };
+
+    let chunk_bytes = next_chunk.len();
+
+    info!(job_id = %job_id, "Fetched part chunk {:?}", next_part);
+    let m_tf = transform.clone();
+    let key_for_error = key.clone();
+    // This is computationally expensive, so we run it in a blocking task
+    let parsed = tokio::task::spawn_blocking(move || (m_tf)(next_chunk))
+        .await?
+        .map_err(|e| {
+            let inner_msg = get_user_message(&e);
+            e.context(UserError::new(format!(
+                "Parsing data in file '{key_for_error}' failed: {inner_msg}"
+            )))
+        })
+        .context(format!("Processing part chunk {next_part:?}"))?;
+
+    info!(
+        job_id = %job_id,
+        "Parsed part chunk {:?}, consumed {} bytes",
+        next_part, parsed.consumed
+    );
+
+    // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
+    if parsed.consumed < chunk_bytes && is_last_chunk {
+        return Err(Error::msg(format!(
+            "Failed to parse data from part {} at offset {} - {} bytes left unconsumed",
+            next_part.key,
+            next_part.current_offset,
+            chunk_bytes - parsed.consumed
+        )));
+    }
+
+    // If we consumed no bytes and have no parsed data but there was data to consume, something went wrong.
+    // Note: don't error if we have no parsed data but have consumed bytes - invalid events may have been all filtered out
+    if parsed.consumed == 0 && parsed.data.is_empty() && chunk_bytes > 0 {
+        return Err(Error::msg(format!(
+            "Failed to parse any data from part {} at offset {}",
+            next_part.key, next_part.current_offset
+        )));
+    }
+
+    // Update the in-memory part state (the read will be committed to the DB once the write is done)
+    next_part.current_offset += parsed.consumed as u64;
+
+    Ok(Some((key, parsed, true)))
+}
+
 pub struct Job {
     pub context: Arc<AppContext>,
     handle: Handle,
@@ -375,137 +496,28 @@ impl Job {
     async fn get_next_chunk(
         &self,
     ) -> Result<Option<(String, Parsed<Vec<InternallyCapturedEvent>>)>, Error> {
-        let mut state = self.state.lock().await;
-
-        let Some(next_part) = state.parts.iter_mut().find(|p| !p.is_done()) else {
-            info!(job_id = %self.job_id, "Found no next part, returning");
+        let Some((key, parsed, reset_backoff)) = select_and_fetch_next_chunk(
+            &self.state,
+            &self.model,
+            self.source.as_ref(),
+            &self.transform,
+            self.chunk_size,
+            self.job_id,
+        )
+        .await?
+        else {
             return Ok(None); // We're done fetching
         };
 
-        let key = next_part.key.clone();
-        self.source.prepare_key(&key).await?;
-
-        if next_part.total_size.is_none() {
-            if let Some(actual_size) = self.source.size(&key).await? {
-                next_part.total_size = Some(actual_size);
-                info!(job_id = %self.job_id, "Updated total size for key {}: {}", key, actual_size);
-
-                {
-                    let mut model = self.model.lock().await;
-                    if let Some(model_state) = &mut model.state {
-                        if let Some(model_part) =
-                            model_state.parts.iter_mut().find(|p| p.key == key)
-                        {
-                            model_part.total_size = Some(actual_size);
-                        }
-                    }
-                }
-
-                if actual_size == 0 {
-                    info!(
-                        job_id = %self.job_id,
-                        "No data available for this key: {} try to get the next chunk",
-                        key
-                    );
-                    next_part.current_offset = actual_size;
-                    return Ok(Some((
-                        key.clone(),
-                        Parsed {
-                            consumed: 0,
-                            data: vec![],
-                        },
-                    )));
-                }
-            }
-        }
-
-        info!(job_id = %self.job_id, "Fetching part chunk {:?}", next_part);
-
-        let next_chunk = self
-            .source
-            .get_chunk(
-                &next_part.key,
-                next_part.current_offset,
-                self.chunk_size as u64,
-            )
-            .await
-            .context(format!("Fetching part chunk {next_part:?}"))?;
-
-        // Streaming sources only discover the total decompressed size once the
-        // read reaches EOF (it is `None` beforehand). Re-query right after the
-        // fetch so this iteration sees the now-known size: `is_last_chunk` is
-        // evaluated correctly and `PartState.total_size` is persisted now, so the
-        // part reads as done next iteration instead of taking one extra empty
-        // `get_chunk`/commit. Mirrors the lock order (state -> model) above.
-        if next_part.total_size.is_none() {
-            if let Some(actual_size) = self.source.size(&key).await? {
-                next_part.total_size = Some(actual_size);
-
-                let mut model = self.model.lock().await;
-                if let Some(model_state) = &mut model.state {
-                    if let Some(model_part) = model_state.parts.iter_mut().find(|p| p.key == key) {
-                        model_part.total_size = Some(actual_size);
-                    }
-                }
-            }
-        }
-
-        let is_last_chunk = match next_part.total_size {
-            Some(total_size) => next_part.current_offset + next_chunk.len() as u64 > total_size,
-            None => false,
-        };
-
-        let chunk_bytes = next_chunk.len();
-
-        info!(job_id = %self.job_id, "Fetched part chunk {:?}", next_part);
-        let m_tf = self.transform.clone();
-        let key_for_error = key.clone();
-        // This is computationally expensive, so we run it in a blocking task
-        let parsed = tokio::task::spawn_blocking(move || (m_tf)(next_chunk))
-            .await?
-            .map_err(|e| {
-                let inner_msg = get_user_message(&e);
-                e.context(UserError::new(format!(
-                    "Parsing data in file '{key_for_error}' failed: {inner_msg}"
-                )))
-            })
-            .context(format!("Processing part chunk {next_part:?}"))?;
-
-        info!(
-            job_id = %self.job_id,
-            "Parsed part chunk {:?}, consumed {} bytes",
-            next_part, parsed.consumed
-        );
-
-        // If this is the last chunk and we didn't consume all of it, we have leftover unparseable data.
-        if parsed.consumed < chunk_bytes && is_last_chunk {
-            return Err(Error::msg(format!(
-                "Failed to parse data from part {} at offset {} - {} bytes left unconsumed",
-                next_part.key,
-                next_part.current_offset,
-                chunk_bytes - parsed.consumed
-            )));
-        }
-
-        // If we consumed no bytes and have no parsed data but there was data to consume, something went wrong.
-        // Note: don't error if we have no parsed data but have consumed bytes - invalid events may have been all filtered out
-        if parsed.consumed == 0 && parsed.data.is_empty() && chunk_bytes > 0 {
-            return Err(Error::msg(format!(
-                "Failed to parse any data from part {} at offset {}",
-                next_part.key, next_part.current_offset
-            )));
-        }
-
-        // Update the in-memory part state (the read will be committed to the DB once the write is done)
-        next_part.current_offset += parsed.consumed as u64;
-
-        let ret_key = key.clone();
-        {
+        // The only DB write in this path, kept out of the core above so the
+        // fetch/select/cleanup loop stays testable without a database. Skipped on
+        // the empty-key short-circuit, matching the original control flow.
+        if reset_backoff {
             let mut model = self.model.lock().await;
             reset_backoff_after_success(self.context.clone(), &mut model).await?;
         }
 
-        Ok(Some((ret_key, parsed)))
+        Ok(Some((key, parsed)))
     }
 
     async fn do_commit(&self) -> Result<(), Error> {
@@ -1165,6 +1177,246 @@ mod tests {
             let handle = make_handle(token.clone());
             token.cancel();
             assert!(handle.is_shutting_down());
+        }
+    }
+
+    /// Drives the real DB-free read loop (`select_and_fetch_next_chunk`) against
+    /// the real `DateRangeExportSource` + `PlainGzipExtractor` over `httpmock`, to
+    /// lock the per-part staging-cleanup invariant: the compressed `.raw` for a
+    /// part is deleted as soon as that part is fully read — by the job loop itself,
+    /// without `cleanup_after_job`. This is the invariant the A1 change broke (it
+    /// marked a part done on the EOF read, skipping the terminal `offset >= total`
+    /// read that triggers `remove_prepared_key`), so these fail if A1 returns.
+    mod staging_cleanup_invariant_tests {
+        use super::*;
+        use crate::extractor::ExtractorType;
+        use crate::source::date_range_export::{AuthConfig, DateRangeExportSource};
+        use chrono::{TimeZone, Utc};
+        use flate2::write::GzEncoder;
+        use flate2::Compression;
+        use std::io::Write;
+        use std::path::{Path, PathBuf};
+        use tempfile::TempDir;
+
+        fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+            encoder.write_all(data).unwrap();
+            encoder.finish().unwrap()
+        }
+
+        /// Build a source spanning `hours` one-hour intervals (one key per hour),
+        /// all served the same gzipped body by the mock.
+        fn build_source(base_url: String, staging: &Path, hours: u32) -> DateRangeExportSource {
+            let start = Utc.with_ymd_and_hms(2023, 1, 1, 0, 0, 0).unwrap();
+            let end = Utc.with_ymd_and_hms(2023, 1, 1, hours, 0, 0).unwrap();
+            DateRangeExportSource::builder(
+                base_url,
+                start,
+                end,
+                3600,
+                ExtractorType::PlainGzip.create_extractor(),
+                staging.to_path_buf(),
+            )
+            .with_auth(AuthConfig::None)
+            .with_date_format("%Y-%m-%dT%H:%M:%SZ".to_string())
+            .with_headers(HashMap::new())
+            .build()
+            .unwrap()
+        }
+
+        /// A transform that consumes the whole chunk and emits no events. The
+        /// cleanup invariant is about offsets reaching `total` and the terminal
+        /// read firing — parsing semantics are irrelevant here, so this keeps the
+        /// loop advancing deterministically by exactly the bytes read.
+        fn consume_all_transform() -> Arc<ParserFn> {
+            Arc::new(Box::new(|bytes: Vec<u8>| {
+                Ok(Parsed {
+                    consumed: bytes.len(),
+                    data: Vec::new(),
+                })
+            }))
+        }
+
+        fn count_raw_files(dir: &Path) -> usize {
+            let mut count = 0;
+            let mut stack = vec![dir.to_path_buf()];
+            while let Some(d) = stack.pop() {
+                let Ok(entries) = std::fs::read_dir(&d) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    let path: PathBuf = entry.path();
+                    if path.is_dir() {
+                        stack.push(path);
+                    } else if path.extension().and_then(|e| e.to_str()) == Some("raw") {
+                        count += 1;
+                    }
+                }
+            }
+            count
+        }
+
+        fn dummy_model(state: JobState) -> JobModel {
+            JobModel {
+                id: Uuid::now_v7(),
+                team_id: 1,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                lease_id: None,
+                leased_until: None,
+                status: model::JobStatus::Running,
+                status_message: None,
+                display_status_message: None,
+                state: Some(state),
+                import_config: config::JobConfig {
+                    source: config::SourceConfig::Folder(config::FolderSourceConfig {
+                        path: "/tmp".to_string(),
+                    }),
+                    data_format: crate::parse::format::FormatConfig::JsonLines {
+                        skip_blanks: true,
+                        content: crate::parse::content::ContentType::Captured,
+                    },
+                    sink: config::SinkConfig::NoOp,
+                    import_events: true,
+                    generate_identify_events: false,
+                    generate_group_identify_events: false,
+                },
+                secrets: config::JobSecrets {
+                    secrets: HashMap::new(),
+                },
+                backoff_attempt: 0,
+                backoff_until: None,
+                was_leased: false,
+            }
+        }
+
+        fn job_state(keys: &[String]) -> JobState {
+            JobState {
+                parts: keys
+                    .iter()
+                    .map(|key| PartState {
+                        key: key.clone(),
+                        current_offset: 0,
+                        total_size: None,
+                    })
+                    .collect(),
+            }
+        }
+
+        #[tokio::test]
+        async fn test_single_part_raw_cleaned_up_by_read_loop_without_job_cleanup() {
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..2000 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 1);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 1);
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = consume_all_transform();
+
+            // Small chunk so the loop takes several passes before EOF.
+            let mut peak_raw = 0;
+            loop {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    1024,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                peak_raw = peak_raw.max(count_raw_files(staging.path()));
+                if next.is_none() {
+                    break;
+                }
+            }
+
+            // The loop alone (no cleanup_after_job) must have deleted the .raw via
+            // the terminal post-EOF read. With A1 this stays 1 (leaked).
+            assert_eq!(
+                count_raw_files(staging.path()),
+                0,
+                "the read loop must delete the part's .raw once it is fully read, without cleanup_after_job"
+            );
+            assert_eq!(
+                peak_raw, 1,
+                "exactly one .raw should exist while the part is in flight"
+            );
+        }
+
+        #[tokio::test]
+        async fn test_multi_part_peak_staging_bounded_to_one_part() {
+            let server = MockServer::start();
+            let mut body = String::new();
+            for i in 0..2000 {
+                body.push_str(&format!("{{\"event\":\"e{i}\"}}\n"));
+            }
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(body.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            // Two one-hour intervals -> two keys processed back to back.
+            let source = build_source(server.url("/export"), staging.path(), 2);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+            assert_eq!(keys.len(), 2);
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = consume_all_transform();
+
+            // Two invariants across the whole run:
+            //  - peak coexisting .raw files stays at 1 (per-part terminal cleanup
+            //    deletes part 1's .raw before part 2 is read), and
+            //  - after the loop, zero .raw remain — cleaned by the loop alone.
+            // The final-count check is the decisive A1 catch: with A1, the *last*
+            // part is marked done on its EOF read, its terminal cleanup read never
+            // fires, and (with no later part to trigger the prepare-time sweep) its
+            // .raw leaks until end-of-job. The earlier parts happen to be swept by
+            // the next part's prepare, so the final count, not the peak, is what
+            // exposes the regression here.
+            let mut peak_raw = 0;
+            loop {
+                let next = select_and_fetch_next_chunk(
+                    &state,
+                    &model,
+                    &source,
+                    &transform,
+                    1024,
+                    Uuid::now_v7(),
+                )
+                .await
+                .unwrap();
+                peak_raw = peak_raw.max(count_raw_files(staging.path()));
+                if next.is_none() {
+                    break;
+                }
+            }
+
+            assert_eq!(
+                peak_raw, 1,
+                "peak staging must be bounded to a single part's .raw; coexisting raws means a completed part was not cleaned up"
+            );
+            assert_eq!(
+                count_raw_files(staging.path()),
+                0,
+                "all parts' .raw files must be cleaned up by the read loop alone"
+            );
         }
     }
 }

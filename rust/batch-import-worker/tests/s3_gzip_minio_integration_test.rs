@@ -13,18 +13,15 @@ use batch_import_worker::{
     source::DataSource,
 };
 use common_types::{InternallyCapturedEvent, RawEvent};
-use flate2::write::GzEncoder;
-use flate2::Compression;
 use std::collections::HashSet;
-use std::io::Write;
 use std::sync::Arc;
 use tempfile::NamedTempFile;
 use uuid::Uuid;
 
 mod common;
 use common::{
-    cleanup_bucket, create_minio_client, ensure_bucket_exists, MINIO_ACCESS_KEY, MINIO_ENDPOINT,
-    MINIO_SECRET_KEY,
+    cleanup_bucket, create_minio_client, ensure_bucket_exists, gzip_bytes, MINIO_ACCESS_KEY,
+    MINIO_ENDPOINT, MINIO_SECRET_KEY,
 };
 
 const TEST_BUCKET: &str = "batch-import-test";
@@ -43,12 +40,6 @@ fn make_captured_event(i: u32) -> String {
         "properties": { "idx": i }
     })
     .to_string()
-}
-
-fn gzip_bytes(data: &[u8]) -> Vec<u8> {
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
-    encoder.write_all(data).unwrap();
-    encoder.finish().unwrap()
 }
 
 #[tokio::test]
