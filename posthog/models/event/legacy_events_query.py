@@ -115,7 +115,7 @@ class LegacyEventsListQuery:
         self.user = user
         self.modifiers: HogQLQueryModifiers = create_default_modifiers_for_team(team)
         self.database = Database.create_for(team=team, user=user, modifiers=self.modifiers)
-        self.database._timezone = "UTC"
+        self.database._timezone = str(ZoneInfo("UTC"))
 
     def run(
         self,
