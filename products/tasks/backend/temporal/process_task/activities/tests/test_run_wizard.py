@@ -20,7 +20,7 @@ class TestBuildWizardCommand(SimpleTestCase):
         # dev/test-only and rejected by published builds), and the token must come from
         # POSTHOG_WIZARD_API_KEY in the env, never the command line. A regression to --ci or an
         # inline --api-key would break cloud runs / leak the token.
-        command = _build_wizard_command("/tmp/workspace/repos/acme/app", 123, WIZARD_PACKAGE)
+        command = _build_wizard_command("/tmp/workspace/repos/acme/app", 123)
 
         assert "--headless-DONOTUSE-EXPERIMENTAL" in command
         assert "--ci" not in command
@@ -39,7 +39,7 @@ class TestBuildWizardCommand(SimpleTestCase):
         # local instance instead of failing cloud region detection on a locally-minted token. Prod
         # must keep inferring the region from the token, so the flag must not leak when DEBUG is off.
         with override_settings(DEBUG=debug):
-            command = _build_wizard_command("/tmp/workspace/repos/a/b", 1, WIZARD_PACKAGE)
+            command = _build_wizard_command("/tmp/workspace/repos/a/b", 1)
 
         assert ('--base-url "$POSTHOG_API_URL"' in command) is debug
 
@@ -50,7 +50,7 @@ class TestBuildWizardCommand(SimpleTestCase):
             return_value=instance_region,
         ):
             assert _wizard_region() == expected
-            assert f"--region {expected}" in _build_wizard_command("/tmp/workspace/repos/a/b", 1, WIZARD_PACKAGE)
+            assert f"--region {expected}" in _build_wizard_command("/tmp/workspace/repos/a/b", 1)
 
     def test_format_wizard_output_captures_exit_code_stdout_and_stderr(self) -> None:
         # The agent reads this file to understand what the wizard did; dropping stderr (where wizard
