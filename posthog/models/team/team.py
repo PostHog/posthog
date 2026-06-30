@@ -554,6 +554,7 @@ class Team(UUIDTClassicModel):
     test_account_filters = field_access_control(
         models.JSONField(
             default=list,
+            blank=True,
             help_text="""Filters used to identify internal/test users. Each entry is a property filter.
 
             Supported entry types and the exact shape each accepts:
