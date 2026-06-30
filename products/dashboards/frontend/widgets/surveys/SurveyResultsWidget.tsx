@@ -1,9 +1,9 @@
 import posthog from 'posthog-js'
 import { useState } from 'react'
 
-import { IconMessage } from '@posthog/icons'
 import { LemonSkeleton } from '@posthog/lemon-ui'
 
+import { MicrophoneHog } from 'lib/components/hedgehogs'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
@@ -115,7 +115,7 @@ function SurveyResultsWidgetMessage({
                     className="flex max-w-xs flex-col items-center gap-2 px-2 text-balance"
                     data-attr="survey-results-widget-message"
                 >
-                    <IconMessage className="size-12 shrink-0 text-muted" />
+                    <MicrophoneHog className="size-24 shrink-0" />
                     <p className="m-0 text-base font-semibold text-primary">{title}</p>
                     <p className="m-0 text-sm text-muted">{message}</p>
                     {cta}
