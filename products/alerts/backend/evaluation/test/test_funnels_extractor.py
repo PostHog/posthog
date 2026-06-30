@@ -101,9 +101,6 @@ def test_none_result_raises_runtime_error():
         _extract(None)
 
 
-# --- Trends funnel (historical conversion-rate time series) ---
-
-
 def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
     days = [f"2024-01-{i + 1:02d}" for i in range(len(data))]
     series: dict = {"count": len(data), "data": data, "days": days, "labels": days}
@@ -112,22 +109,31 @@ def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
     return series
 
 
-def test_trends_funnel_defaults_to_last_complete_period():
-    # The latest period is still in progress, so by default the alert evaluates the last complete one.
-    result = _extract([_trends_series([10.0, 25.0, 40.0])], viz="trends")
+@pytest.mark.parametrize(
+    "condition_type,check_ongoing,expected_index,expected_value",
+    [
+        # Default: the latest period is in progress, so anchor the last *complete* one.
+        (AlertConditionType.ABSOLUTE_VALUE, False, 1, 20.0),
+        # check_ongoing_interval anchors the latest (in-progress) period instead.
+        (AlertConditionType.ABSOLUTE_VALUE, True, 2, 40.0),
+        # Relative conditions use the same anchor (then diff it against the period before it).
+        (AlertConditionType.RELATIVE_INCREASE, False, 1, 20.0),
+        (AlertConditionType.RELATIVE_INCREASE, True, 2, 40.0),
+    ],
+)
+def test_trends_funnel_anchor_selection(condition_type, check_ongoing, expected_index, expected_value):
+    result = _extract(
+        [_trends_series([10.0, 20.0, 40.0])],
+        viz="trends",
+        condition_type=condition_type,
+        config=_config(check_ongoing_interval=check_ongoing),
+    )
     assert result.subject == "The funnel conversion rate"
     assert result.unit == "%"
     assert result.is_breakdown is False
     series = result.series[0]
-    assert series.current_index == 1
-    assert series.points[series.current_index].value == 25.0
-
-
-def test_trends_funnel_check_ongoing_interval_evaluates_latest_period():
-    result = _extract([_trends_series([10.0, 25.0, 40.0])], viz="trends", config=_config(check_ongoing_interval=True))
-    series = result.series[0]
-    assert series.current_index == 2
-    assert series.points[series.current_index].value == 40.0
+    assert series.current_index == expected_index
+    assert series.points[series.current_index].value == expected_value
 
 
 def test_trends_funnel_breakdown_yields_one_series_per_value():
@@ -155,31 +161,6 @@ def test_trends_funnel_compare_evaluates_current_period_only():
 def test_trends_funnel_empty_result_raises_extraction_error():
     with pytest.raises(AlertExtractionError, match="no data"):
         _extract([], viz="trends")
-
-
-def test_trends_funnel_relative_anchors_on_last_complete_period():
-    # By default a relative condition compares the last *complete* period (the second-to-last point)
-    # against the one before it — anchoring on the in-progress latest period would diff a partial rate.
-    result = _extract(
-        [_trends_series([10.0, 20.0, 40.0])], viz="trends", condition_type=AlertConditionType.RELATIVE_INCREASE
-    )
-    series = result.series[0]
-    assert series.current_index == 1
-    assert series.points[series.current_index].value == 20.0
-
-
-def test_trends_funnel_relative_check_ongoing_interval_anchors_on_latest_period():
-    # check_ongoing_interval applies to relative conditions too: anchor the latest period and diff it
-    # against the one before (today vs the prior period).
-    result = _extract(
-        [_trends_series([10.0, 20.0, 40.0])],
-        viz="trends",
-        condition_type=AlertConditionType.RELATIVE_INCREASE,
-        config=_config(check_ongoing_interval=True),
-    )
-    series = result.series[0]
-    assert series.current_index == 2
-    assert series.points[series.current_index].value == 40.0
 
 
 def test_unsupported_viz_raises():

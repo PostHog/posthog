@@ -71,7 +71,16 @@ export type AlertFormType = Pick<
     insight?: QueryBasedInsightModel['id']
 }
 
-export function canCheckOngoingInterval(alert?: AlertType | AlertFormType): boolean {
+export function canCheckOngoingInterval(
+    alert?: AlertType | AlertFormType,
+    { isTrendsFunnel = false }: { isTrendsFunnel?: boolean } = {}
+): boolean {
+    // A funnel conversion rate isn't biased low over a partial period, so a trends funnel can always
+    // check the ongoing one (steps funnels have no periods). A trends count is cumulative, so it's only
+    // safe for an absolute/increase check above an upper bound.
+    if (isFunnelsAlertConfig(alert?.config)) {
+        return isTrendsFunnel
+    }
     const upper = alert?.threshold?.configuration?.bounds?.upper
     return (
         (alert?.condition?.type === AlertConditionType.ABSOLUTE_VALUE ||

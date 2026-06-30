@@ -21,11 +21,12 @@ import {
 import { initKeaTests } from '~/test/init'
 import { InsightLogicProps, InsightShortId } from '~/types'
 
-import { alertFormLogic, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
+import { alertFormLogic, canCheckOngoingInterval, thresholdAlertHasBounds, type AlertFormType } from './alertFormLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
 import { deriveFunnelAlertPreview } from './funnelAlertPreview'
 import { deriveHogQLAlertPreview, HOGQL_ANY_ROW_MAX_ROWS, HOGQL_LAST_ROW_MAX_ROWS } from './hogqlAlertPreview'
 import { insightAlertsLogic } from './insightAlertsLogic'
+import { supportsOngoingInterval } from './types'
 import type { AlertType } from './types'
 
 const Insight42 = '42' as InsightShortId
@@ -825,14 +826,31 @@ describe('alertFormLogic', () => {
             [
                 'default evaluates the last complete period (the latest is in progress)',
                 { result: [trend([10, 25, 40])] },
+                FROM_START,
                 { lower: 50 },
+                undefined,
+                undefined,
                 { status: 'ok', values: [value(null, 25, true)], isBreakdown: false, hasBounds: true },
             ],
             [
-                'a null anchored period coerces to 0%',
+                // Regression guard: the backend skips a null anchor, so the preview must not read it as a
+                // breaching 0% against a lower bound.
+                'a null anchor period is treated as no data, not a 0% breach',
                 { result: [trend([null, 25])] },
+                FROM_START,
+                { lower: 50 },
                 undefined,
-                { status: 'ok', values: [value(null, 0, false)], isBreakdown: false, hasBounds: false },
+                undefined,
+                { status: 'ok', values: [value(null, 0, false)], isBreakdown: false, hasBounds: true },
+            ],
+            [
+                'check_ongoing_interval evaluates the latest (in-progress) period',
+                { result: [trend([10, 25, 40])] },
+                ongoing,
+                { lower: 30 },
+                undefined,
+                undefined,
+                { status: 'ok', values: [value(null, 40, false)], isBreakdown: false, hasBounds: true },
             ],
             [
                 'breakdown yields one value per series and drops previous-period rows',
@@ -843,7 +861,10 @@ describe('alertFormLogic', () => {
                         { ...trend([8, 30], ['Chrome']), compare_label: 'previous' },
                     ],
                 },
+                FROM_START,
                 { lower: 8 },
+                undefined,
+                undefined,
                 {
                     status: 'ok',
                     values: [value('Chrome', 10, false), value('Safari', 5, true)],
@@ -851,102 +872,123 @@ describe('alertFormLogic', () => {
                     hasBounds: true,
                 },
             ],
-        ])('trends funnel: %s', (_name, insightData, bounds, expected) => {
-            expect(
-                deriveFunnelAlertPreview(
-                    insightData as Record<string, any> | null,
-                    FROM_START as any,
-                    bounds as any,
-                    true
-                )
-            ).toEqual(expected)
-        })
-
-        it('trends funnel: check_ongoing_interval evaluates the latest (in-progress) period', () => {
-            const preview = deriveFunnelAlertPreview({ result: [trend([10, 25, 40])] }, ongoing, { lower: 30 }, true)
-            expect(preview).toEqual({
-                status: 'ok',
-                values: [value(null, 40, false)],
-                isBreakdown: false,
-                hasBounds: true,
-            })
-        })
-
-        it('trends funnel: relative condition evaluates the last complete period vs the prior one', () => {
-            // [40, 30, 5]: 5 is the in-progress period (skipped by default); the alert compares 30 against 40.
-            const preview = deriveFunnelAlertPreview(
+            [
+                // 5 is the in-progress period (skipped by default); compares 30 against 40 — a 10-point
+                // drop, over the 8-point upper bound → breach.
+                'relative decrease evaluates the last complete period vs the prior one',
                 { result: [trend([40, 30, 5])] },
                 FROM_START,
                 { upper: 8 },
-                true,
                 AlertConditionType.RELATIVE_DECREASE,
-                InsightThresholdType.ABSOLUTE
-            )
-            // Dropped 10 points (40 → 30), which is more than the 8-point upper bound → breach.
-            expect(preview).toEqual({
-                status: 'ok',
-                values: [{ label: null, rate: 30, previousRate: 40, breaching: true }],
-                isBreakdown: false,
-                hasBounds: true,
-                relative: true,
-            })
-        })
-
-        it('trends funnel: relative with check_ongoing_interval diffs the in-progress period', () => {
-            // check_ongoing → anchor the latest period (5) against the prior one (30): a 25-point drop.
-            const preview = deriveFunnelAlertPreview(
+                InsightThresholdType.ABSOLUTE,
+                {
+                    status: 'ok',
+                    values: [{ label: null, rate: 30, previousRate: 40, breaching: true }],
+                    isBreakdown: false,
+                    hasBounds: true,
+                    relative: true,
+                },
+            ],
+            [
+                // check_ongoing → anchor the latest period (5) against the prior one (30): a 25-point drop.
+                'relative decrease with check_ongoing_interval diffs the in-progress period',
                 { result: [trend([40, 30, 5])] },
                 ongoing,
                 { upper: 8 },
-                true,
                 AlertConditionType.RELATIVE_DECREASE,
-                InsightThresholdType.ABSOLUTE
-            )
-            expect(preview).toEqual({
-                status: 'ok',
-                values: [{ label: null, rate: 5, previousRate: 30, breaching: true }],
-                isBreakdown: false,
-                hasBounds: true,
-                relative: true,
-            })
-        })
-
-        it('trends funnel: relative with a percentage threshold compares the ratio change', () => {
-            // 60 → 40 is a 33% relative drop. Percentage-threshold bounds are stored as a ratio (0.3),
-            // so the change (0.333) breaches — mirroring the backend comparator's _relative_value.
-            const preview = deriveFunnelAlertPreview(
+                InsightThresholdType.ABSOLUTE,
+                {
+                    status: 'ok',
+                    values: [{ label: null, rate: 5, previousRate: 30, breaching: true }],
+                    isBreakdown: false,
+                    hasBounds: true,
+                    relative: true,
+                },
+            ],
+            [
+                // 60 → 40 is a 33% relative drop; percentage bounds are a ratio (0.3), so 0.333 breaches —
+                // mirroring the backend comparator's _relative_value.
+                'relative decrease with a percentage threshold compares the ratio change',
                 { result: [trend([60, 40])] },
-                ongoing, // 2 points + ongoing → anchor the latest (40) against the prior (60)
+                ongoing,
                 { upper: 0.3 },
-                true,
                 AlertConditionType.RELATIVE_DECREASE,
-                InsightThresholdType.PERCENTAGE
-            )
-            expect(preview).toEqual({
-                status: 'ok',
-                values: [{ label: null, rate: 40, previousRate: 60, breaching: true }],
-                isBreakdown: false,
-                hasBounds: true,
-                relative: true,
-            })
-        })
-
-        it('trends funnel: relative condition with only one complete period flags no prior', () => {
-            const preview = deriveFunnelAlertPreview(
-                { result: [trend([30, 20])] }, // only one complete period (20 is in progress)
+                InsightThresholdType.PERCENTAGE,
+                {
+                    status: 'ok',
+                    values: [{ label: null, rate: 40, previousRate: 60, breaching: true }],
+                    isBreakdown: false,
+                    hasBounds: true,
+                    relative: true,
+                },
+            ],
+            [
+                'relative with only one complete period flags no prior',
+                { result: [trend([30, 20])] }, // 20 is in progress; only one complete period
                 FROM_START,
                 { upper: 5 },
-                true,
                 AlertConditionType.RELATIVE_DECREASE,
-                InsightThresholdType.ABSOLUTE
-            )
-            expect(preview).toEqual({
-                status: 'ok',
-                values: [{ label: null, rate: 30, breaching: false }],
-                isBreakdown: false,
-                hasBounds: true,
-                relative: true,
-            })
+                InsightThresholdType.ABSOLUTE,
+                {
+                    status: 'ok',
+                    values: [{ label: null, rate: 30, breaching: false }],
+                    isBreakdown: false,
+                    hasBounds: true,
+                    relative: true,
+                },
+            ],
+        ])('trends funnel: %s', (_name, insightData, config, bounds, conditionType, thresholdType, expected) => {
+            expect(
+                deriveFunnelAlertPreview(
+                    insightData as Record<string, any> | null,
+                    config as any,
+                    bounds as any,
+                    true,
+                    conditionType as any,
+                    thresholdType as any
+                )
+            ).toEqual(expected)
+        })
+    })
+
+    describe('ongoing-interval gating', () => {
+        const funnelConfig = { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', funnel_step: null }
+        const trendsAbsoluteWithUpper = (condition: AlertConditionType): any => ({
+            condition: { type: condition },
+            threshold: { configuration: { bounds: { upper: 10 } } },
+        })
+
+        // supportsOngoingInterval is config-level: trends and funnels carry check_ongoing_interval; the
+        // steps-vs-trends funnel gate lives in canCheckOngoingInterval below.
+        it.each([
+            ['trends config', { type: 'TrendsAlertConfig', series_index: 0 }, true],
+            ['funnel config', funnelConfig, true],
+            ['SQL config', { type: 'HogQLAlertConfig', evaluation: 'last_row' }, false],
+            ['null', null, false],
+        ])('supportsOngoingInterval(%s) === %s', (_name, config, expected) => {
+            expect(supportsOngoingInterval(config as any)).toBe(expected)
+        })
+
+        it('canCheckOngoingInterval: a steps funnel cannot, a trends funnel can', () => {
+            const funnelAlert: any = { config: funnelConfig, condition: { type: AlertConditionType.RELATIVE_DECREASE } }
+            expect(canCheckOngoingInterval(funnelAlert, { isTrendsFunnel: false })).toBe(false)
+            expect(canCheckOngoingInterval(funnelAlert, { isTrendsFunnel: true })).toBe(true)
+        })
+
+        it.each([
+            ['absolute value with an upper bound', AlertConditionType.ABSOLUTE_VALUE, true],
+            ['relative increase with an upper bound', AlertConditionType.RELATIVE_INCREASE, true],
+            ['relative decrease (never)', AlertConditionType.RELATIVE_DECREASE, false],
+        ])('canCheckOngoingInterval trends: %s → %s', (_name, condition, expected) => {
+            expect(canCheckOngoingInterval(trendsAbsoluteWithUpper(condition))).toBe(expected)
+        })
+
+        it('canCheckOngoingInterval trends: absolute without an upper bound cannot', () => {
+            const alert: any = {
+                condition: { type: AlertConditionType.ABSOLUTE_VALUE },
+                threshold: { configuration: { bounds: {} } },
+            }
+            expect(canCheckOngoingInterval(alert)).toBe(false)
         })
     })
 })

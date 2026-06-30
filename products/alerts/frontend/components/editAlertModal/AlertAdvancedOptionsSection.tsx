@@ -16,9 +16,6 @@ import { QuietHoursFields } from '../QuietHoursFields'
 export interface AlertAdvancedOptionsSectionProps {
     alertForm: AlertFormType
     canCheckOngoingInterval: boolean
-    /** Historical-trend funnels are a time series, so they can check the ongoing period too; steps
-     * funnels can't, so the funnel ongoing toggle is gated on this. */
-    isTrendsFunnel: boolean
     projectTimezone: string
     enabledAdvancedOptionsCount: number
     onSetAlertFormValue: <K extends keyof AlertFormType>(key: K, value: AlertFormType[K]) => void
@@ -27,25 +24,20 @@ export interface AlertAdvancedOptionsSectionProps {
 export function AlertAdvancedOptionsSection({
     alertForm,
     canCheckOngoingInterval: can_check_ongoing_interval,
-    isTrendsFunnel,
     projectTimezone,
     enabledAdvancedOptionsCount,
     onSetAlertFormValue,
 }: AlertAdvancedOptionsSectionProps): JSX.Element {
     const config = alertForm?.config
     const ongoingIsFunnel = isFunnelsAlertConfig(config)
-    // Trends alerts apply unconditionally; historical-trend funnels only (steps funnels aren't a series).
-    const showOngoingInterval = supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || isTrendsFunnel)
-    // Funnel rates aren't monotonic over a partial period, so the funnel toggle is ungated — unlike trends,
-    // which only allow it for absolute-value/increase above an upper threshold.
+    // Trends alerts show the toggle even when ineligible (disabled); funnels only when eligible.
+    const showOngoingInterval =
+        supportsOngoingInterval(config) && (isTrendsAlertConfig(config) || can_check_ongoing_interval)
     const ongoingChecked =
-        (isTrendsAlertConfig(config) || isFunnelsAlertConfig(config)) &&
-        !!config.check_ongoing_interval &&
-        (ongoingIsFunnel || can_check_ongoing_interval)
-    const ongoingDisabledReason =
-        ongoingIsFunnel || can_check_ongoing_interval
-            ? undefined
-            : 'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
+        supportsOngoingInterval(config) && !!config.check_ongoing_interval && can_check_ongoing_interval
+    const ongoingDisabledReason = can_check_ongoing_interval
+        ? undefined
+        : 'Can only alert for ongoing period when checking for absolute value/increase above a set upper threshold.'
     const ongoingTooltip = ongoingIsFunnel
         ? 'By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint.'
         : "Checks the insight value for the ongoing period (current week/month) that hasn't yet completed. Use this if you want to be alerted right away when the insight value rises/increases above threshold"

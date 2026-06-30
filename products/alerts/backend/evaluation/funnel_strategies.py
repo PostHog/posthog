@@ -111,10 +111,7 @@ FUNNEL_VIZ_STRATEGIES: dict[FunnelVizType, FunnelVizStrategy] = {
 
 
 def strategy_for_viz(viz: FunnelVizType | None) -> FunnelVizStrategy:
-    # Time-to-convert (a duration) and flow (a sankey) have no conversion-rate metric, so they have no
-    # strategy and the frontend hides alerts for them. Raise ValueError, not KeyError/AlertExtractionError,
-    # so the alert API maps it to a 400 at save time — the only path that reaches an unsupported viz,
-    # since saved alerts are validated first.
+    # ValueError (not KeyError) so the API maps an unsupported viz to a 400 at save time.
     strategy = FUNNEL_VIZ_STRATEGIES.get(viz or FunnelVizType.STEPS)
     if strategy is None:
         raise ValueError(f"Funnel alerts aren't supported for the '{viz}' visualization.")
@@ -122,8 +119,6 @@ def strategy_for_viz(viz: FunnelVizType | None) -> FunnelVizStrategy:
 
 
 def _is_current_period_row(row: Any) -> bool:
-    # Current unless explicitly tagged as another compare period; non-compared rows carry no
-    # compare_label and count as current. Positive check so any future compare label is excluded too.
     return not isinstance(row, dict) or row.get("compare_label") in (None, "current")
 
 
@@ -146,8 +141,6 @@ def _current_period_only(result: Any) -> Any:
 
 
 def _require_series_list(result: Any, viz_label: str) -> list[Any]:
-    """Normalize to a non-empty result list. An empty/wrong-shaped result is a "no data" case routed
-    to the errored-alert path. (A ``None`` result is caught earlier, in the extractor.)"""
     if not result or not isinstance(result, list):
         raise AlertExtractionError(f"Funnel {viz_label} alert query returned no data.")
     return result
@@ -165,8 +158,7 @@ def _steps_per_breakdown(result: Any) -> list[list[dict[str, Any]]]:
 
 
 def _label_for_breakdown(breakdown: Any) -> str:
-    """Series label from a breakdown value: ``None`` (no breakdown) reads as "conversion"; a list of
-    breakdown parts joins with ", ". Shared by every viz type and mirrors the frontend's `_breakdownLabel`."""
+    # Mirrors the frontend's `_breakdownLabel`.
     if breakdown is None:
         return "conversion"
     return ", ".join(str(v) for v in breakdown) if isinstance(breakdown, list) else str(breakdown)

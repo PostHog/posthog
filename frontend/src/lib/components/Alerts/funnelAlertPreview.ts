@@ -42,8 +42,8 @@ interface FunnelStep {
 }
 
 // A trends funnel series is a conversion-rate time series, not a step list: `data` holds the 0–100
-// rate per period. The alert evaluates the latest period, so the preview reads the last point. A gap
-// period can be null, so coerce non-numbers to 0 (the runner already fills 0) to match the backend.
+// rate per period. A gap period can be null; the backend maps it to None and skips it, so the preview
+// treats a null anchor as no-data rather than reading it as a (potentially breaching) 0.
 interface FunnelTrendsSeries {
     data?: (number | null)[]
     breakdown_value?: unknown
@@ -59,24 +59,28 @@ function _deriveTrendsPreview(
     const relative =
         conditionType === AlertConditionType.RELATIVE_INCREASE || conditionType === AlertConditionType.RELATIVE_DECREASE
     const values: FunnelAlertPreviewValue[] = series.map((s) => {
-        // A gap period can be null; coerce to 0 to match the backend (the runner already fills 0).
-        const data = (s.data ?? []).map((value) => (typeof value === 'number' ? value : 0))
+        const data = s.data ?? []
         const label = _breakdownLabel(s.breakdown_value)
         // By default the latest period is still in progress, so anchor on the last complete one;
-        // check_ongoing_interval anchors on the latest instead. Same anchor for absolute and relative,
-        // clamped to 0 like the backend's `max(len - 1 if ongoing else len - 2, 0)`.
+        // check_ongoing_interval anchors on the latest. Clamped to 0 like the backend's
+        // `max(len - 1 if ongoing else len - 2, 0)`.
         const anchorIndex = Math.max(checkOngoing ? data.length - 1 : data.length - 2, 0)
-        const rate = data[anchorIndex] ?? 0
+        const anchor = data[anchorIndex]
+        // The backend skips a null/gap anchor period (no fire); mirror that rather than reading it as 0.
+        if (typeof anchor !== 'number') {
+            return { label, rate: 0, breaching: false }
+        }
         if (!relative) {
-            return { label, rate, breaching: valueBreachesBounds(rate, bounds) }
+            return { label, rate: anchor, breaching: valueBreachesBounds(anchor, bounds) }
         }
         // Relative: diff the anchor against the period before it (same as the backend comparator).
-        const previousRate = anchorIndex >= 1 ? data[anchorIndex - 1] : undefined
+        const prev = anchorIndex >= 1 ? data[anchorIndex - 1] : undefined
+        const previousRate = typeof prev === 'number' ? prev : undefined
         const breaching =
             previousRate === undefined
                 ? false
-                : valueBreachesBounds(_relativeChange(conditionType!, thresholdType, rate, previousRate), bounds)
-        return { label, rate, previousRate, breaching }
+                : valueBreachesBounds(_relativeChange(conditionType!, thresholdType, anchor, previousRate), bounds)
+        return { label, rate: anchor, previousRate, breaching }
     })
     return {
         status: 'ok',
