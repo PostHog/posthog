@@ -1,9 +1,12 @@
 import re
+import time
 import asyncio
+from collections.abc import Callable
 from datetime import datetime
-from typing import Literal, Optional
+from typing import Literal, Optional, TypeVar
 
 from django.conf import settings
+from django.db import OperationalError, close_old_connections
 
 from structlog.types import FilteringBoundLogger
 
@@ -23,6 +26,51 @@ class NonRetryableException(Exception):
         This is the same as ``Exception.__cause__``.
         """
         return self.__cause__
+
+
+# PgBouncer kills a query that waits too long for a backend connection with `query_wait_timeout`,
+# and surfaces a transaction-pooler drop mid-sync as `the connection is closed`. Both are transient
+# pressure on PostHog's *own* database (not a problem with the row being read/written), and the same
+# operation on a fresh connection almost always succeeds.
+_DB_POOL_TIMEOUT_SUBSTRINGS = ("query_wait_timeout", "the connection is closed")
+
+_T = TypeVar("_T")
+
+
+def _is_db_pool_timeout(error: BaseException) -> bool:
+    """True if a Django ``OperationalError`` is pgbouncer timing out / dropping our own DB connection."""
+    if not isinstance(error, OperationalError):
+        return False
+    message = str(error).lower()
+    return any(substring in message for substring in _DB_POOL_TIMEOUT_SUBSTRINGS)
+
+
+def retry_on_db_pool_timeout(
+    operation: Callable[[], _T],
+    logger: FilteringBoundLogger,
+    *,
+    max_attempts: int = 4,
+) -> _T:
+    """Run a Django ORM ``operation``, transparently retrying transient pgbouncer pool timeouts.
+
+    Absorbs the blip in-process — refreshing the connection between tries — instead of letting it
+    escape the activity, where the Temporal interceptor would capture it as a fresh exception even
+    though Temporal would just retry anyway. A genuinely stuck pool exhausts the retries and re-raises,
+    so the error stays visible and Temporal still retries the activity. Non-pooler errors re-raise
+    immediately.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except OperationalError as e:
+            attempt += 1
+            if not _is_db_pool_timeout(e) or attempt >= max_attempts:
+                raise
+            logger.warning("db_pool_timeout_retry", attempt=attempt, max_attempts=max_attempts, error=str(e))
+            # Drop the (possibly dead) connection so the next attempt grabs a fresh one.
+            close_old_connections()
+            time.sleep(min(attempt, 5))
 
 
 # 10 mins buffer to avoid deleting files Clickhouse may be reading

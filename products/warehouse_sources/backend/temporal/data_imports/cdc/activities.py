@@ -62,7 +62,10 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     PostgresProducer,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3.writer import S3BatchWriter
-from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
+from products.warehouse_sources.backend.temporal.data_imports.util import (
+    NonRetryableException,
+    retry_on_db_pool_timeout,
+)
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
     _build_schema_snapshot,
 )
@@ -756,7 +759,9 @@ class CDCExtractActivity:
         """Mark CDC schemas as Running at the start."""
         for schema in self.cdc_schemas:
             schema.status = ExternalDataSchema.Status.RUNNING
-            schema.save(update_fields=["status", "updated_at"])
+            # Internal pipeline bookkeeping: skip the activity-log _get_before_update SELECT,
+            # which needs a fresh pooler connection and raises query_wait_timeout under load.
+            schema.save(update_fields=["status", "updated_at"], skip_activity_log=True)
 
     # ------------------------------------------------------------------
     # PK column loading
@@ -1069,7 +1074,9 @@ class CDCExtractActivity:
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.latest_error = None
             schema.last_synced_at = now
-            schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            schema.save(
+                update_fields=["status", "latest_error", "last_synced_at", "updated_at"], skip_activity_log=True
+            )
             self._record_run_heartbeat(schema, now)
             # Per-schema breadcrumb so the Syncs UI shows _why_ the latest run produced no rows.
             self._schema_log(schema).info(
@@ -1162,7 +1169,12 @@ class CDCExtractActivity:
                 job.status = ExternalDataJob.Status.FAILED
                 job.latest_error = error
                 job.finished_at = dt.datetime.now(tz=dt.UTC)
-                job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"])
+                # This runs from the failure handler, so a pooler timeout here would otherwise leave the
+                # job stuck RUNNING and mask the original error — retry the write so FAILED is recorded.
+                retry_on_db_pool_timeout(
+                    lambda job=job: job.save(update_fields=["status", "latest_error", "finished_at", "updated_at"]),
+                    self.log,
+                )
 
     def _recover_from_slot_invalidation(self, exc: Exception) -> None:
         """The slot can't be resumed (invalidated or dropped on the source DB): recreate it
@@ -1187,7 +1199,7 @@ class CDCExtractActivity:
             self._reset_schema_to_snapshot(schema, clear_deferred_runs=True)
             schema.status = ExternalDataSchema.Status.FAILED
             schema.latest_error = SLOT_INVALIDATION_RECOVERY_MESSAGE
-            schema.save(update_fields=["status", "latest_error", "updated_at"])
+            schema.save(update_fields=["status", "latest_error", "updated_at"], skip_activity_log=True)
             self._schema_log(schema).warning("cdc_schema_reset_for_slot_recovery", schema_id=str(schema.id))
 
         resource_fields = self.adapter.recreate_slot(
@@ -1235,7 +1247,7 @@ class CDCExtractActivity:
             if not marked_broken:
                 schema.status = ExternalDataSchema.Status.FAILED
                 schema.latest_error = friendly
-                schema.save(update_fields=["status", "latest_error", "updated_at"])
+                schema.save(update_fields=["status", "latest_error", "updated_at"], skip_activity_log=True)
             # User-facing column gets the friendly copy; the raw error still routes to structured
             # logs / the Syncs log viewer for debugging.
             self._schema_log(schema).error(
@@ -1309,7 +1321,9 @@ class CDCExtractActivity:
             schema.status = ExternalDataSchema.Status.COMPLETED
             schema.latest_error = None
             schema.last_synced_at = now
-            schema.save(update_fields=["status", "latest_error", "last_synced_at", "updated_at"])
+            schema.save(
+                update_fields=["status", "latest_error", "last_synced_at", "updated_at"], skip_activity_log=True
+            )
             self._record_run_heartbeat(schema, now)
             # Breadcrumb for idle tables; _handle_no_changes only covers the whole-source-quiet case.
             if schema.name not in synced_tables:

@@ -50,6 +50,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
     validate_and_coerce_row_filters,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import CDCHandledExternally
+from products.warehouse_sources.backend.temporal.data_imports.util import retry_on_db_pool_timeout
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 LOGGER = get_logger(__name__)
@@ -282,16 +283,19 @@ async def import_data_activity_sync(inputs: ImportDataActivityInputs) -> Pipelin
 def _get_models(
     job_id: str,
 ) -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
-    job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
-    schema: ExternalDataSchema | None = job.schema
-    source: ExternalDataSource | None = job.pipeline
-    if schema is None:
-        raise Exception("No schema attached to job")
-    if source is None:
-        raise Exception("No source attached to job")
+    def _load() -> tuple[ExternalDataJob, ExternalDataSchema, ExternalDataSource, DataWarehouseTable | None]:
+        job = ExternalDataJob.objects.select_related("schema", "schema__table").get(id=job_id)
+        schema: ExternalDataSchema | None = job.schema
+        source: ExternalDataSource | None = job.pipeline
+        if schema is None:
+            raise Exception("No schema attached to job")
+        if source is None:
+            raise Exception("No source attached to job")
 
-    table: DataWarehouseTable | None = schema.table
-    return job, schema, source, table
+        table: DataWarehouseTable | None = schema.table
+        return job, schema, source, table
+
+    return retry_on_db_pool_timeout(_load, LOGGER)
 
 
 async def _handle_import_error(
