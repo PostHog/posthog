@@ -101,6 +101,8 @@ function getKeyPlaceholder(provider: LLMProvider): string {
             return 'Enter your Fireworks API key'
         case 'azure_openai':
             return 'Enter your Azure OpenAI API key'
+        case 'minimax':
+            return 'Enter your MiniMax API key'
     }
 }
 

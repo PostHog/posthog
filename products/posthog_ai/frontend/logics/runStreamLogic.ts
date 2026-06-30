@@ -8,6 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
+import { userLogic } from 'scenes/userLogic'
 
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
@@ -686,6 +687,7 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
     let statusSeq = 0
     let compactSeq = 0
     let taskSeq = 0
+    let consoleSeq = 0
 
     const pushHuman = (text: string): void => {
         items = insertHumanMessageAtTurnStart(items, {
@@ -944,8 +946,21 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
             }
             continue
         }
+        if (method === '_posthog/console') {
+            const message = typeof params.message === 'string' ? params.message : ''
+            const level = typeof params.level === 'string' ? params.level : 'info'
+            if (message) {
+                items.push({
+                    id: `console-${consoleSeq++}`,
+                    type: 'debug',
+                    text: message,
+                    debugLevel: level,
+                })
+            }
+            continue
+        }
         if (method?.startsWith('_posthog/')) {
-            // run_started, usage_update, resources_used, sdk_session, console, sandbox_output, … — no thread item.
+            // run_started, usage_update, resources_used, sdk_session, sandbox_output, … — no thread item.
             continue
         }
         if (method !== 'session/update') {
@@ -1020,6 +1035,23 @@ export function foldLogToThread(entries: StoredEntry[], options: { isResumeRun: 
 }
 
 /**
+ * Whether a folded item renders any content. Empty priming thoughts and step-less progress rows fold
+ * into the thread but render nothing; drop them here so a virtualized consumer never reserves an empty,
+ * gap-padded row. Tool items are always paired with an invocation (see `upsertInvocationItem`), and
+ * `debug` rows are gated separately by `showDebugItems`, so neither needs a content check here.
+ */
+function rendersThreadItemContent(item: ThreadItem): boolean {
+    switch (item.type) {
+        case 'assistant_thought':
+            return !!item.text?.trim()
+        case 'progress':
+            return (item.progressSteps?.length ?? 0) > 0
+        default:
+            return true
+    }
+}
+
+/**
  * Owns the SSE connection to the products/tasks stream endpoint (a `fetch` reader driven by
  * `eventsource-parser`, so a reconnect can resume via a Last-Event-ID header), parses the ACP wire
  * format, and produces thread-shaped state the renderer consumes. Coexistence sibling to
@@ -1041,7 +1073,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
     key((props) => (props.replayOnly ? `replay:${props.streamKey}` : props.streamKey)),
     path((key) => ['products', 'posthog_ai', 'frontend', 'logics', 'runStreamLogic', key]),
     connect(() => ({
-        values: [projectLogic, ['currentProjectId'], featureFlagLogic, ['featureFlags'], preflightLogic, ['preflight']],
+        values: [
+            projectLogic,
+            ['currentProjectId'],
+            featureFlagLogic,
+            ['featureFlags'],
+            preflightLogic,
+            ['preflight', 'isDev'],
+            userLogic,
+            ['user'],
+        ],
     })),
     actions({
         /**
@@ -1059,6 +1100,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Internal: the live run history snapshot finished loading or was intentionally skipped. */
         bootstrapLogReady: true,
         closeSse: true,
+        /**
+         * The conversations/open POST is in flight — drives the optimistic "spinning up" indicator
+         * before any SSE state exists. The caller (maxThreadLogic) flips it on before the POST and off
+         * on the no-handle/failure paths; the success path lets `openSseForRun` clear it via the reducer.
+         */
+        setRunOpening: (opening: boolean) => ({ opening }),
         sseConnecting: true,
         sseOpened: true,
         sseReconnecting: (attempt: number) => ({ attempt }),
@@ -1164,6 +1211,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
         reset: true,
     }),
     reducers({
+        // True while the conversations/open POST is in flight, before any SSE state exists. Folds into
+        // `streamPhase` as provisioning so the thread shows the optimistic "spinning up" indicator
+        // immediately on send. Cleared once a real stream lifecycle takes over (or ends/errors).
+        runOpening: [
+            false,
+            {
+                setRunOpening: (_, { opening }) => opening,
+                openSseForRun: () => false,
+                sseOpened: () => false,
+                handleStreamError: () => false,
+                handleTerminalStatus: () => false,
+                pushErrorItem: () => false,
+                reset: () => false,
+            },
+        ],
         sseStatus: [
             'idle' as RunSseStatus,
             {
@@ -1425,7 +1487,25 @@ export const runStreamLogic = kea<runStreamLogicType>([
             (s) => [s.log, s.isBootstrapResumeRun],
             (log, isResumeRun): FoldedThread => foldLogToThread(log.entries, { isResumeRun }),
         ],
-        threadItems: [(s) => [s.foldedThread], (foldedThread): ThreadItem[] => foldedThread.threadItems],
+        /**
+         * Whether `_posthog/console` debug rows should surface in the thread. Derived from the current
+         * user's staff/impersonation flag and dev environment, so debug items are filtered out of
+         * `threadItems` for non-privileged users — never reaching the virtualizer.
+         */
+        showDebugItems: [
+            (s) => [s.user, s.isDev],
+            (user, isDev): boolean => !!user?.is_staff || !!user?.is_impersonated || !!isDev,
+        ],
+        threadItems: [
+            (s) => [s.foldedThread, s.showDebugItems],
+            (foldedThread, showDebugItems): ThreadItem[] =>
+                // Filtering lives here, not in the renderer: a row the renderer would return `null` for
+                // (a content-less item, or a debug row a non-privileged user can't see) still reserves an
+                // empty, gap-padded slot in the virtualized thread. Drop them before they become rows.
+                foldedThread.threadItems.filter(
+                    (item: ThreadItem) => (item.type !== 'debug' || showDebugItems) && rendersThreadItemContent(item)
+                ),
+        ],
         toolInvocations: [
             (s) => [s.foldedThread],
             (foldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
@@ -1457,28 +1537,78 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         /**
          * Stream lifecycle phase gating the bottom-of-thread thinking indicator. `provisioning` = the
-         * cold-boot window — the stream is opening or open but the agent hasn't started yet (the
-         * workflow is still setting up the sandbox); it holds the gerund loader off until `run_started`
-         * so it can't show before a turn begins. Boot UX is surfaced by `_posthog/progress` items, not
-         * a dedicated indicator. `thinking` = the agent is working a turn (mirrors `isThinking`), and is
+         * cold-boot window — the conversations/open POST is in flight (`runOpening`), or the stream is
+         * opening/open but the agent hasn't started yet (the workflow is still setting up the sandbox).
+         * `ThreadView` shows a fixed "spinning up" indicator here until a real `_posthog/progress`
+         * boot step lands (which then takes over) or `run_started` flips the phase to `thinking`. The
+         * playful gerund loader is held off until `thinking` so it never shows before a turn begins.
+         * `thinking` = the agent is working a turn (mirrors `isThinking`), and is
          * what `ThreadView` gates the gerund loader on; `idle` otherwise (terminal, errored, or
          * not yet connecting). A read-only viewer is always `idle` — it never streams.
          */
         streamPhase: [
-            (s, p) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus, p.replayOnly!],
-            (runStarted, isThinking, currentRunStatus, sseStatus, replayOnly): 'provisioning' | 'thinking' | 'idle' => {
+            (s, p) => [s.runStarted, s.isThinking, s.currentRunStatus, s.sseStatus, s.runOpening, p.replayOnly!],
+            (
+                runStarted,
+                isThinking,
+                currentRunStatus,
+                sseStatus,
+                runOpening,
+                replayOnly
+            ): 'provisioning' | 'thinking' | 'idle' => {
                 // A read-only snapshot never provisions or thinks — there is no live stream behind it.
                 if (replayOnly) {
                     return 'idle'
                 }
                 const connecting = sseStatus === 'connecting' || sseStatus === 'open' || sseStatus === 'reconnecting'
-                if (connecting && !runStarted && !isTerminalRunStatus(currentRunStatus)) {
+                // `runOpening` covers the conversations/open POST window, before any SSE state exists.
+                if ((connecting || runOpening) && !runStarted && !isTerminalRunStatus(currentRunStatus)) {
                     return 'provisioning'
                 }
                 if (isThinking) {
                     return 'thinking'
                 }
                 return 'idle'
+            },
+        ],
+        /**
+         * Whether the bottom-of-thread gerund loader ("Thinking…", "Pondering…") should show. The
+         * loader is a *gap filler*: it stands in only while the agent is working a turn but nothing
+         * visible is streaming at the tail — i.e. it is genuinely "thinking". It hides the moment the
+         * tail produces visible output: a streaming assistant message, an in-flight tool call, or a
+         * running structured-progress activity (each already conveys "the agent is busy"). Reasoning is
+         * deliberately NOT a hide condition — the gerund is what fills the thinking/reasoning period
+         * (and the explicit `agent_thought_chunk` thinking signal arrives during exactly these gaps).
+         */
+        showThinkingIndicator: [
+            (s) => [s.streamPhase, s.threadItems, s.toolInvocations],
+            (streamPhase, threadItems, toolInvocations): boolean => {
+                if (streamPhase !== 'thinking') {
+                    return false
+                }
+                // Scan the current turn only (items after the last separator).
+                const turnStart = threadItems.findLastIndex((item) => item.type === 'turn_separator') + 1
+                for (let i = turnStart; i < threadItems.length; i++) {
+                    const item = threadItems[i]
+                    // A running structured-progress activity owns the "busy" line.
+                    if (item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')) {
+                        return false
+                    }
+                    // A tool actively running already shows its own spinner.
+                    if (
+                        item.type === 'tool_invocation' &&
+                        item.toolCallId &&
+                        ['pending', 'in_progress'].includes(toolInvocations.get(item.toolCallId)?.status ?? '')
+                    ) {
+                        return false
+                    }
+                }
+                // The visible tail is streaming answer text — that's writing, not thinking.
+                const tail = threadItems[threadItems.length - 1]
+                if (tail?.type === 'assistant_message' && tail.complete !== true) {
+                    return false
+                }
+                return true
             },
         ],
         /** Whether the run exposes any git artifact worth surfacing — gates the pre/post-turn coding UI. */

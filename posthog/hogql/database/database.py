@@ -90,6 +90,7 @@ from posthog.hogql.database.schema.experiment_metric_events_preaggregated import
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
+from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -99,7 +100,13 @@ from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetr
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_touchpoints_preaggregated import MarketingTouchpointsPreaggregatedTable
-from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
+from posthog.hogql.database.schema.metrics import (
+    MetricAttributesTable,
+    MetricSamplesTable,
+    MetricSeriesTable,
+    MetricsKafkaMetricsTable,
+    MetricsTable,
+)
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -176,7 +183,7 @@ if TYPE_CHECKING:
 
     from posthog.models import User
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 tracer = trace.get_tracer(__name__)
 
@@ -374,7 +381,12 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
+                    "hog_invocation_results": TableNode(
+                        name="hog_invocation_results", table=HogInvocationResultsTable()
+                    ),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
+                    "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
                     "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
                     "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
                     "error_tracking_fingerprint_issue_state": TableNode(
@@ -795,7 +807,7 @@ class Database(BaseModel):
             HogQLQuery,
         )
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         tables: dict[str, DatabaseSchemaTable] = {}
 
@@ -1069,7 +1081,7 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         with timings.measure("team", emit_span=True):
             if team_id is None and team is None:
@@ -1310,7 +1322,7 @@ class Database(BaseModel):
 
         db_span = trace.get_current_span()
 
-        from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+        from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
         team = sources.team
         team_id = team.pk
@@ -1561,9 +1573,16 @@ class Database(BaseModel):
 
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
-                                # where a.b.c will contain the table
+                                # where a.b.c will contain the table.
+                                # Snowflake stores identifiers uppercase but resolves them
+                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
+                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
                                 warehouse_tables.add_child(
-                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    TableNode.create_nested_for_chain(
+                                        table_chain,
+                                        table_for_key,
+                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                    ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
 

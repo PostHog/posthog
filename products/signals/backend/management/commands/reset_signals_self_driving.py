@@ -21,7 +21,7 @@ from products.signals.backend.models import (
 from products.signals.backend.scout_harness.skill_loader import SIGNALS_SCOUT_SKILL_PREFIX
 from products.skills.backend.models.skills import LLMSkill
 
-# Seed tag stamped on canonical scouts + the `authoring-signals-scouts` companion; this DEBUG
+# Seed tag stamped on canonical scouts + the `authoring-scouts` companion; this DEBUG
 # reset preserves tagged rows. Not a perfect canonical marker (`_scout_origin` also checks the
 # name ships on disk), but wizard customs (`llma-skill-create`) carry no tag, so tag-only suffices.
 SEEDED_BY_HARNESS = "signals_scout_harness"

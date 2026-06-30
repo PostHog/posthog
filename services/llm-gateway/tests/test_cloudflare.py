@@ -29,6 +29,21 @@ def test_inject_cloudflare_params_prefix_matches_cost_alias_keys() -> None:
     assert kwargs["model"] in COST_ALIASES
 
 
+def test_inject_cloudflare_params_defaults_drop_params_true() -> None:
+    # CF routes through litellm's OpenAI-compatible surface, which 400s on provider-specific params
+    # (Anthropic's reasoning_effort etc.). drop_params must default on so those are dropped, not fatal.
+    kwargs: dict = {"model": "@cf/zai-org/glm-5.2"}
+    _inject_cloudflare_params(kwargs, "https://api.cloudflare.com/test/ai/v1", "secret")
+    assert kwargs["drop_params"] is True
+
+
+def test_inject_cloudflare_params_preserves_explicit_drop_params() -> None:
+    # setdefault semantics: a caller that explicitly opts out keeps their value.
+    kwargs: dict = {"model": "@cf/zai-org/glm-5.2", "drop_params": False}
+    _inject_cloudflare_params(kwargs, "https://api.cloudflare.com/test/ai/v1", "secret")
+    assert kwargs["drop_params"] is False
+
+
 def test_allowlist_derived_from_cost_aliases() -> None:
     # Any @cf/ entry in COST_ALIASES must be reachable through the allowlist,
     # otherwise we'd have a priced model we refuse to route.

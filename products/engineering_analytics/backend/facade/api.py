@@ -28,6 +28,8 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRLifecycle,
     PullRequestList,
     QuarantineFile,
+    QuarantineRequest,
+    QuarantineRequestResult,
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunDetail,
@@ -55,7 +57,7 @@ def get_pr_lifecycle(
     *,
     team: Team,
     pr_number: int,
-    repo: str | None = None,
+    repo: str,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> PRLifecycle | None:
@@ -202,3 +204,12 @@ def get_quarantine(
     # no source) so it stays fail-open where the curated reads above don't — ``source_id`` /
     # ``user_access_control`` only matter when it falls back to the connected source's most-active repo.
     return logic.build_quarantine(team=team, repo=repo, source_id=source_id, user_access_control=user_access_control)
+
+
+def request_quarantine(
+    *,
+    team: Team,
+    request: QuarantineRequest,
+    user_access_control: "UserAccessControl | None" = None,
+) -> QuarantineRequestResult:
+    return logic.request_quarantine(team=team, request=request, user_access_control=user_access_control)

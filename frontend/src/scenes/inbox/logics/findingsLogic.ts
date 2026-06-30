@@ -36,10 +36,10 @@ function severityRank(severity: SignalReportPriority | null): number {
 
 /**
  * Fleet-wide findings logic — the cross-troop counterpart of the per-scout `scoutDetailLogic`. Reuses
- * `scoutFleetLogic`'s polled runs window to find every scout's recent emitted runs, fetches each run's
- * emissions + report links, and flattens them into one searchable/filterable/sortable list. Singleton,
- * mounted only by the findings page, so the per-run fan-out stays lazy (the callout reads the cheap
- * `scoutFleetLogic.emittedFindingsSummary` instead).
+ * `scoutFleetLogic`'s polled runs window to find every scout's recent emitted runs, fetches their
+ * emissions + report links in two batched requests, and flattens them into one
+ * searchable/filterable/sortable list. Singleton, mounted only by the findings page, so the fetch stays
+ * lazy (the callout reads the cheap `scoutFleetLogic.emittedFindingsSummary` instead).
  */
 export const findingsLogic = kea<findingsLogicType>([
     path(['scenes', 'inbox', 'logics', 'findingsLogic']),
@@ -53,12 +53,9 @@ export const findingsLogic = kea<findingsLogicType>([
         setScoutFilter: (scoutFilter: string) => ({ scoutFilter }),
         setSeverityFilter: (severityFilter: string) => ({ severityFilter }),
         setSortKey: (sortKey: FindingsSortKey) => ({ sortKey }),
-        // Some (but not all) per-run emission fetches failed — the list is incomplete. Carries the
-        // failed-run count so the page can warn that findings are missing rather than hiding it.
-        setEmissionsPartialFailure: (failedRuns: number) => ({ failedRuns }),
     }),
 
-    loaders(({ values, actions }) => ({
+    loaders(({ values }) => ({
         emissions: [
             [] as SignalScoutEmission[],
             {
@@ -67,24 +64,10 @@ export const findingsLogic = kea<findingsLogicType>([
                     if (runs.length === 0) {
                         return []
                     }
-                    // allSettled, not all: one failed run's fetch shouldn't discard every other run's
-                    // findings — surface the partial set.
-                    const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissions(run.run_id))
-                    )
-                    const fulfilled = settled.filter(
-                        (result): result is PromiseFulfilledResult<SignalScoutEmission[]> =>
-                            result.status === 'fulfilled'
-                    )
-                    // All fetches failed while the runs say these emitted — throw so the page shows an
-                    // error, not a false "no findings".
-                    if (fulfilled.length === 0) {
-                        throw new Error('Failed to load scout findings')
-                    }
-                    // A partial failure returns the findings that loaded, but flag the gap so the page
-                    // can warn — silently dropping a scout's findings would mislead a triage decision.
-                    actions.setEmissionsPartialFailure(settled.length - fulfilled.length)
-                    return fulfilled.flatMap((result) => result.value)
+                    // One batched request for the whole window: the backend flattens every run's
+                    // findings newest-first (each row carries its run_id). A throw surfaces as the
+                    // page's error/retry state — far cheaper than the old per-run fan-out.
+                    return await api.signalScout.runs.emissionsBatch(runs.map((run) => run.run_id))
                 },
             },
         ],
@@ -96,20 +79,18 @@ export const findingsLogic = kea<findingsLogicType>([
                     if (runs.length === 0) {
                         return []
                     }
-                    // Retain the prior round's links for a failed run (this re-runs on the poll); its
-                    // links are the ones whose source_id is prefixed `run:<run_id>:`.
-                    const previous = values.emissionReports
-                    const settled = await Promise.allSettled(
-                        runs.map((run) => api.signalScout.runs.emissionReports(run.run_id))
-                    )
-                    return runs.flatMap((run, index) => {
-                        const result = settled[index]
-                        if (result.status === 'fulfilled') {
-                            return result.value
-                        }
-                        const prefix = `run:${run.run_id}:`
-                        return previous.filter((link) => link.source_id.startsWith(prefix))
-                    })
+                    // One batched request → one ClickHouse round-trip for every run's report links,
+                    // replacing the per-run fan-out. Report chips are optional enrichment over findings
+                    // that already loaded via `emissions`, and the retry listener re-polls this while any
+                    // recent finding is unlinked — so swallow failures and keep the prior links rather than
+                    // letting the throw hit the global loaders error handler (a token with `signal_scout:read`
+                    // but not `task:read` 403s this endpoint on every poll). The `emissions` loader keeps
+                    // throwing: that one is the page's actual content and should surface an error/retry state.
+                    try {
+                        return await api.signalScout.runs.emissionReportsBatch(runs.map((run) => run.run_id))
+                    } catch {
+                        return values.emissionReports
+                    }
                 },
             },
         ],
@@ -123,23 +104,13 @@ export const findingsLogic = kea<findingsLogicType>([
             { setSeverityFilter: (_, { severityFilter }) => severityFilter },
         ],
         sortKey: ['newest' as FindingsSortKey, { setSortKey: (_, { sortKey }) => sortKey }],
-        // True only when the most recent emissions load failed outright (all per-run fetches rejected).
+        // True only when the most recent emissions load failed outright (the batched fetch rejected).
         emissionsLoadFailed: [
             false,
             {
                 loadEmissions: () => false,
                 loadEmissionsSuccess: () => false,
                 loadEmissionsFailure: () => true,
-            },
-        ],
-        // Count of runs whose emission fetch failed while others succeeded — the list is incomplete.
-        // Reset when a fresh load starts; a clean success sets it to 0 via the partial-failure action.
-        emissionsPartialFailedRuns: [
-            0,
-            {
-                loadEmissions: () => 0,
-                loadEmissionsFailure: () => 0,
-                setEmissionsPartialFailure: (_, { failedRuns }) => failedRuns,
             },
         ],
     }),

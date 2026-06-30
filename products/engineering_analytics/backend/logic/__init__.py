@@ -24,7 +24,10 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
-from products.engineering_analytics.backend.logic.quarantine import build_quarantine as build_quarantine
+from products.engineering_analytics.backend.logic.quarantine import (
+    build_quarantine as build_quarantine,
+    request_quarantine as request_quarantine,
+)
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
@@ -58,6 +61,8 @@ _MAX_WINDOW_DAYS = 366
 # handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
 def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
     return query_pr_lifecycle(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 

@@ -19,7 +19,7 @@
         "kea-test-utils": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
         "@posthog/lemon-ui": "*",
         "@testing-library/jest-dom": "*",
         "@testing-library/react": "*",
