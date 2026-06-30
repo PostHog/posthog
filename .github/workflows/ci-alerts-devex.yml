@@ -13,24 +13,17 @@ name: Master CI Alerts
 # state to race or lose). See .github/scripts/ci-alerts-devex.js.
 
 on:
-    # Reconcile within ~a minute of a gating workflow finishing on master, instead of waiting on
-    # the schedule below — GitHub heavily throttles cron under repo load (observed ~hourly, not
-    # every 5m), so the cron alone leaves master breakage undetected for far too long. Keep the
-    # cron as a backstop for resolves and quiet periods. The job is gated to master-push runs.
+    # Reconcile within ~a minute of master CI finishing, instead of waiting on the schedule below —
+    # GitHub heavily throttles cron under repo load (observed ~hourly, not every 5m), so the cron
+    # alone leaves master breakage undetected for far too long. Each reconcile reads ALL gating
+    # workflows regardless of which one triggered it, so we hook only Backend CI — the long-pole
+    # that runs on ~every master push — to get the freshness without ~11 redundant runs per push.
+    # `branches: [master]` keeps PR completions from firing at all. Cron stays a backstop for
+    # resolves, quiet periods, and any push that didn't run Backend CI.
     workflow_run:
-        workflows:
-            - 'Python CI'
-            - 'Backend CI'
-            - 'Node.js CI'
-            - 'Frontend CI'
-            - 'Storybook'
-            - 'Security'
-            - 'Dagster CI'
-            - 'E2E CI Playwright'
-            - 'Rust CI'
-            - 'MCP CI'
-            - 'LLM Services CI'
+        workflows: ['Backend CI']
         types: [completed]
+        branches: [master]
     schedule:
         - cron: '*/5 * * * *'
     workflow_dispatch: # manual trigger for testing
@@ -62,11 +55,10 @@ env:
 
 jobs:
     check-master:
-        # workflow_run fires for every branch/event of the listed workflows; only reconcile for
-        # master-push completions so PR CI doesn't spin up a runner. schedule/dispatch always run.
+        # branches: master already filters to master at the trigger; this drops the rare master
+        # Backend CI run not from a push (e.g. manual re-run) so we only reconcile real pushes.
         if: >-
-            github.event_name != 'workflow_run' ||
-            (github.event.workflow_run.head_branch == 'master' && github.event.workflow_run.event == 'push')
+            github.event_name != 'workflow_run' || github.event.workflow_run.event == 'push'
         runs-on: ubuntu-latest
         timeout-minutes: 5
         steps:
