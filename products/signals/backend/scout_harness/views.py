@@ -1096,12 +1096,16 @@ class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
 
     `scope_object = "signal_scout_internal"` makes this a strictly scout-run-only surface: the object is
     in `INTERNAL_API_SCOPE_OBJECTS`, so session auth, personal API keys, and the `*` consent wildcard are
-    all rejected (`posthog/permissions.py`), and only the harness sandbox's OAuth token — which carries
+    all rejected (`posthog/permissions.py`), and only a harness sandbox OAuth token — which carries
     `signal_scout_internal:write`, satisfying the default `list` action's `signal_scout_internal:read`
-    requirement (write implies read) — can reach it. So this never enters a customer's public MCP catalog
-    and needs no new public scope; same reachability story as `emit-signal`, the other internal-scope
-    scout tool. Every scout posture (baseline and report-channel) carries the internal scope, so any scout
-    can route, but it's only useful to a report-channel scout setting `suggested_reviewers`.
+    requirement (write implies read) — can reach it. The roster is member PII (emails, names, GitHub
+    logins), and this gate keeps it off every user-grantable credential and out of a customer's public MCP
+    catalog — the same internal-vs-external boundary as `emit-signal`, the other internal-scope scout tool.
+    The narrower `signal_scout_report` scope (report-channel scouts only) would tighten this to the tool's
+    sole consumer, but that scope is transient — a temporary split kept only while emit-signal and
+    emit-report coexist — so a durable tool stays on `signal_scout_internal` rather than coupling to a scope
+    slated for removal. The residual exposure (a baseline scout reading its own team's roster) is bounded to
+    the single-team sandbox token.
 
     The roster is resolved server-side (a plain ORM read via `Team.all_users_with_access()`, not a DRF
     request through the OAuth permission layer), which is why the org-nested `org-members-list` tool —

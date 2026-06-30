@@ -1478,11 +1478,10 @@ class TestScoutHarnessMembersAPI(APIBaseTest):
 
     @parameterized.expand([("session", None), ("public_read_token", "read_only")])
     def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:
-        # The roster is gated on the internal `signal_scout_internal` scope object, so neither a
-        # logged-in session (the CSRF / PAK class) nor a public `read_only` MCP token — which lacks
-        # any `signal_scout_internal` scope — can reach it; only the sandbox's internal-scoped token
-        # can. Guards against the scope_object being downgraded to the public `signal_scout`, which
-        # would leak member emails / logins to any team member holding a `signal_scout:read` PAK.
+        # The roster (member PII) is gated on the internal `signal_scout_internal` scope object, so neither
+        # a logged-in session (the CSRF / PAK class) nor a public `read_only` MCP token — which carries no
+        # internal scope — can reach it; only a sandbox scout token can. Guards the internal-vs-external
+        # boundary: keeps member emails / logins off every user-grantable credential and the public catalog.
         if scopes is None:
             self.client.credentials()
             self.client.force_login(self.user)
