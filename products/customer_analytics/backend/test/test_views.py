@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.apps import apps
+
 from parameterized import parameterized
 from rest_framework import status
 
@@ -1849,3 +1851,37 @@ class TestCustomPropertyValueViewSet(APIBaseTest):
         response = self.client.get(self.endpoint)
 
         self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+
+class TestCustomPropertySourceViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.endpoint = f"/api/projects/{self.team.id}/custom_property_sources/"
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        self.view = saved_query_model.objects.create(
+            team=self.team, name="billing_view", columns={"org_id": {}, "mrr": {}}
+        )
+        self.definition = create_custom_property_definition(team_id=self.team.id, name="MRR")
+
+    def test_create_list_and_toggle_round_trip(self):
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+        assert created.json()["is_enabled"] is True
+
+        listed = self.client.get(self.endpoint)
+        assert listed.status_code == status.HTTP_200_OK
+        assert [s["id"] for s in listed.json()["results"]] == [source_id]
+
+        toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        assert toggled.status_code == status.HTTP_200_OK
+        assert toggled.json()["is_enabled"] is False

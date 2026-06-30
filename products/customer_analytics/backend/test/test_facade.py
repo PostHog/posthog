@@ -1,7 +1,12 @@
+from uuid import uuid4
+
+import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from posthog.models import Organization, User
+from django.apps import apps
+
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.tag import Tag
 from posthog.models.tagged_item import TaggedItem
@@ -11,8 +16,9 @@ from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,
 )
-from products.customer_analytics.backend.models import Account
+from products.customer_analytics.backend.models import Account, CustomPropertyDefinition, CustomPropertySource
 from products.customer_analytics.backend.models.account import AccountAssignment, AccountProperties
+from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
 from products.customer_analytics.backend.test.factories import create_account
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
@@ -485,3 +491,85 @@ class TestCustomerAnalyticsCRUDFacade(BaseTest):
             )
             is None
         )
+
+
+class TestCustomPropertySourceFacade(TeamScopedTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        self.view = saved_query_model.objects.create(
+            team=self.team, name="billing_view", columns={"org_id": {}, "mrr": {}}
+        )
+        self.definition = CustomPropertyDefinition.objects.create(team=self.team, name="MRR")
+
+    def _create(self, **overrides):
+        kwargs: dict = {
+            "team_id": self.team.id,
+            "definition_id": self.definition.id,
+            "saved_query_id": self.view.id,
+            "source_column": "mrr",
+            "key_column": "org_id",
+            "is_enabled": True,
+            "user": self.user,
+        }
+        kwargs.update(overrides)
+        return facade.create_custom_property_source(**kwargs)
+
+    def test_create_returns_contract(self):
+        result = self._create()
+
+        assert isinstance(result, contracts.CustomPropertySourceView)
+        assert result.definition == self.definition.id
+        assert result.saved_query == self.view.id
+        assert result.source_column == "mrr"
+        assert result.is_enabled is True
+        assert result.id is not None
+        assert CustomPropertySource.objects.for_team(self.team.id).filter(id=result.id).exists()
+
+    def test_create_rejects_saved_query_from_another_team(self):
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_view = saved_query_model.objects.create(team=other_team, name="other_view", columns={})
+
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            self._create(saved_query_id=other_view.id)
+
+    def test_create_rejects_definition_from_another_team(self):
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_definition = CustomPropertyDefinition.objects.create(team=other_team, name="Other MRR")
+
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            self._create(definition_id=other_definition.id)
+
+    def test_create_rejects_second_source_for_same_definition(self):
+        self._create()
+
+        with pytest.raises(facade.CustomPropertySourceValidationError):
+            self._create()
+
+    def test_update_reenable_resets_failure_streak_and_clears_error(self):
+        source = self._create()
+        CustomPropertySource.objects.filter(id=source.id).update(
+            is_enabled=False, consecutive_failures=5, last_sync_error="boom"
+        )
+
+        result = facade.update_custom_property_source(
+            team_id=self.team.id, source_id=source.id, fields={"is_enabled": True}
+        )
+        assert result is not None
+
+        assert result.is_enabled is True
+        assert result.consecutive_failures == 0
+        assert result.last_sync_error is None
+
+    def test_update_returns_none_for_missing_source(self):
+        result = facade.update_custom_property_source(
+            team_id=self.team.id, source_id=str(uuid4()), fields={"is_enabled": False}
+        )
+        assert result is None
+
+    def test_delete_removes_source(self):
+        source = self._create()
+
+        assert facade.delete_custom_property_source(team_id=self.team.id, source_id=source.id) is True
+        assert not CustomPropertySource.objects.for_team(self.team.id).filter(id=source.id).exists()

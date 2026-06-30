@@ -272,6 +272,31 @@ class CustomPropertyDefinitionView:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertySourceView:
+    """A custom-property source: binds a materialized view's column to a definition, feeding its
+    values on each materialization.
+
+    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
+    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    definition: UUID | None = None
+    saved_query: UUID | None = None
+    source_column: str = ""
+    key_column: str = ""
+    is_enabled: bool = True
+    consecutive_failures: int = 0
+    last_synced_at: datetime | None = None
+    last_sync_error: str | None = None
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+
+
+@stdlib_dataclass(frozen=True)
 class AccountNotebookView:
     """An account notebook as returned by the nested account-notebooks endpoints.
 

@@ -391,6 +391,94 @@ export interface PatchedCustomPropertyDefinitionApi {
     readonly references?: readonly CustomPropertyReferenceApi[]
 }
 
+/**
+ * Binds a materialized data-warehouse view column to a custom property definition; the view's
+ * values are synced onto matching accounts on each materialization.
+ */
+export interface CustomPropertySourceApi {
+    readonly id: string
+    /** UUID of the custom property definition this source feeds. One source per definition. */
+    definition: string
+    /** UUID of the data-warehouse saved query (materialized view) to read values from. */
+    saved_query: string
+    /**
+     * Column in the view whose value is written to the property.
+     * @maxLength 400
+     */
+    source_column: string
+    /**
+     * Column in the view whose value matches an account's external_id.
+     * @maxLength 400
+     */
+    key_column: string
+    /** Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count. */
+    is_enabled?: boolean
+    /** Consecutive failed sync runs; the source auto-disables at the cap. */
+    readonly consecutive_failures: number
+    /**
+     * When the most recent sync run finished.
+     * @nullable
+     */
+    readonly last_synced_at: string | null
+    /**
+     * Error summary from the last run, or null if it succeeded.
+     * @nullable
+     */
+    readonly last_sync_error: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedCustomPropertySourceListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: CustomPropertySourceApi[]
+}
+
+/**
+ * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+ * they are intentionally absent — only these reach the facade's update.
+ */
+export interface CustomPropertySourceUpdateApi {
+    /**
+     * Column in the view whose value is written to the property.
+     * @maxLength 400
+     */
+    source_column?: string
+    /**
+     * Column in the view whose value matches an account's external_id.
+     * @maxLength 400
+     */
+    key_column?: string
+    /** Whether the source syncs; re-enabling it resets the failure count. */
+    is_enabled?: boolean
+}
+
+/**
+ * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+ * they are intentionally absent — only these reach the facade's update.
+ */
+export interface PatchedCustomPropertySourceUpdateApi {
+    /**
+     * Column in the view whose value is written to the property.
+     * @maxLength 400
+     */
+    source_column?: string
+    /**
+     * Column in the view whose value matches an account's external_id.
+     * @maxLength 400
+     */
+    key_column?: string
+    /** Whether the source syncs; re-enabling it resets the failure count. */
+    is_enabled?: boolean
+}
+
 export interface CustomerJourneyApi {
     readonly id: string
     insight: number
@@ -674,6 +762,17 @@ export type AccountsNotebooksListParams = {
 }
 
 export type CustomPropertyDefinitionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
      */
