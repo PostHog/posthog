@@ -5491,6 +5491,7 @@ export namespace Schemas {
       Cohorts: 'cohorts',
       CohortsWithAll: 'cohorts_with_all',
       DataWarehouse: 'data_warehouse',
+      DataWarehouseSourceTables: 'data_warehouse_source_tables',
       DataWarehouseProperties: 'data_warehouse_properties',
       DataWarehousePersonProperties: 'data_warehouse_person_properties',
       Elements: 'elements',
@@ -34418,6 +34419,39 @@ export namespace Schemas {
     }
 
     /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type TracingViewFilters = { [key: string]: unknown };
+
+    export interface TracingView {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: TracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at: string;
+      /** User who created the view. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracingViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracingView[];
+    }
+
+    /**
      * Insight enriched with view-count and recent-viewer fields, used by the trending action.
      */
     export interface TrendingInsight {
@@ -41468,6 +41502,30 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type PatchedTracingViewFilters = { [key: string]: unknown };
+
+    export interface PatchedTracingView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: PatchedTracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at?: string;
+      /** User who created the view. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
@@ -52953,6 +53011,25 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogPattern {
+      /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+      pattern: string;
+      /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+      count: number;
+      /** Share of the sampled log volume this pattern represents (0–100). */
+      volume_share_pct: number;
+      /** Sampled occurrences at severity "error" or "fatal". */
+      error_count: number;
+      /** ISO 8601 timestamp of the earliest sampled occurrence. */
+      first_seen: string;
+      /** ISO 8601 timestamp of the latest sampled occurrence. */
+      last_seen: string;
+      /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
+      examples: string[];
+      /** Up to 4 distinct service names this pattern was observed in. */
+      services: string[];
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -53133,6 +53210,35 @@ export namespace Schemas {
     export interface _LogsFacetValuesResponse {
       /** Facet values with cross-filtered counts, ordered by count descending. */
       results: _LogFacetValue[];
+    }
+
+    export interface _LogsPatternsBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsRequest {
+      /** The patterns query to execute. */
+      query: _LogsPatternsBody;
+    }
+
+    export interface _LogsPatternsResponse {
+      /** Mined patterns ordered by `count` descending. */
+      patterns: _LogPattern[];
+      /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+      scanned_count: number;
+      /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+      total_count: number;
+      /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+      sampled: boolean;
     }
 
     export interface _LogsQueryBody {
@@ -58254,6 +58360,17 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type EnvironmentsTracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type EnvironmentsUserInterviewTopicsListParams = {
     /**
@@ -65585,6 +65702,17 @@ export namespace Schemas {
       SpanAttribute: 'span_attribute',
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
+
+    export type TracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
 
