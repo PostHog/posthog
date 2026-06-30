@@ -288,23 +288,13 @@ function InsightCardInternal(
                         readOnly
                         embedded
                         inSharedMode={placement === DashboardPlacement.Public}
-                        filtersOverride={filtersOverride}
                         variablesOverride={variablesOverride}
                         editMode={false}
                     />
                 )}
             </div>
         )
-    }, [
-        isResizing,
-        isVisible,
-        BlockingEmptyState,
-        insight,
-        insightLogicProps,
-        filtersOverride,
-        variablesOverride,
-        placement,
-    ])
+    }, [isResizing, isVisible, BlockingEmptyState, insight, insightLogicProps, variablesOverride, placement])
 
     return (
         <div
