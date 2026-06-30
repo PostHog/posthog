@@ -24,8 +24,11 @@
         align-self: flex-end;
     }
 
-    /* Inside an end-aligned message, the bubble hugs the end edge too. */
-    [data-slot='message'][data-align='end'] .quill-chat-bubble {
+    /*
+     * Inside an end-aligned message, a bubble inherits the end edge — but only when it hasn't set
+     * its own `align`. An explicit `data-align` on the bubble always wins over the message context.
+     */
+    [data-slot='message'][data-align='end'] .quill-chat-bubble:not([data-align]) {
         align-self: flex-end;
     }
 
