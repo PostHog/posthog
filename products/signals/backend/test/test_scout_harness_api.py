@@ -1048,14 +1048,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
-        assert "authoring-signals-scouts" in companion_names
+        assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
         response = self.client.post(self._sync_url())
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        # Only scouts get configs — companion skills (authoring-signals-scouts) are seeded
+        # Only scouts get configs — companion skills (authoring-scouts) are seeded
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)

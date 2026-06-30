@@ -88,7 +88,7 @@ class TestMasterFlagEnabled:
             },
             group_properties={
                 "organization": {"id": str(TEST_ORG_UUID)},
-                "project": {"id": "2"},
+                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
             },
             only_evaluate_locally=False,
             send_feature_flag_events=False,
