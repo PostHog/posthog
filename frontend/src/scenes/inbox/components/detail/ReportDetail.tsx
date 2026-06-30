@@ -1,21 +1,14 @@
 import { useValues } from 'kea'
 import { ReactNode, useState } from 'react'
 
-import {
-    IconArrowLeft,
-    IconCode,
-    IconDocument,
-    IconEllipsis,
-    IconExternal,
-    IconPullRequest,
-    IconSearch,
-} from '@posthog/icons'
-import { LemonButton, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconArrowLeft, IconDocument, IconEllipsis, IconExternal, IconPullRequest, IconSearch } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -26,7 +19,6 @@ import { SignalCard } from '../../SignalCard'
 import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus } from '../../types'
 import {
     displayConventionalCommitTitle,
-    ParsedPrUrlParts,
     parseConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
@@ -38,7 +30,7 @@ import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow 
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
 import { RightColumnSection } from './DetailSection'
-import { PullRequestDiffModal } from './PullRequestDiffModal'
+import { PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -225,9 +217,13 @@ interface InboxDetailFrameProps {
     summary: { icon: ReactNode; title: string }
     /** Extra primary action(s) rendered after the shared report actions. */
     primaryAction?: ReactNode
+    /** When present, the body splits into "Overview" / diff tabs; otherwise the overview renders bare. */
+    diffTab?: { label: string; content: ReactNode }
     /** Extra sections (Tasks, Reviewers) – defaults applied by callers. */
     children?: ReactNode
 }
+
+type DetailTabKey = 'overview' | 'diff'
 
 /**
  * Shared chrome for the Report and Pull request detail bodies. Owns the full page header
@@ -240,8 +236,10 @@ export function InboxDetailFrame({
     tab,
     summary,
     primaryAction,
+    diffTab,
     children,
 }: InboxDetailFrameProps): JSX.Element {
+    const [activeDetailTab, setActiveDetailTab] = useState<DetailTabKey>('overview')
     const { reportSignals, reportSignalsLoading, priorityExplanation, actionabilityExplanation } = useValues(
         inboxReportDetailLogic({ reportId: report.id, report })
     )
@@ -276,6 +274,56 @@ export function InboxDetailFrame({
         disabledReason: action.loading ? 'Working…' : undefined,
         onClick: action.onClick,
     }))
+
+    const overviewBody = (
+        <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
+            <div className="min-w-0">
+                <RightColumnSection icon={summary.icon} title={summary.title}>
+                    {report.summary ? (
+                        <LemonMarkdown
+                            className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
+                            disableImages
+                        >
+                            {report.summary}
+                        </LemonMarkdown>
+                    ) : (
+                        <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
+                            No summary yet – an agent is still investigating.
+                        </p>
+                    )}
+                </RightColumnSection>
+            </div>
+
+            <div className="flex flex-col min-w-0 gap-5">
+                {/* Pull request (when present) first, then reviewers, evidence, and runs. */}
+                {children}
+                <SuggestedReviewersSection report={report} />
+                {hasEvidence && (
+                    <RightColumnSection
+                        icon={<IconSearch />}
+                        title="Evidence"
+                        rightSlot={
+                            <span className="text-[0.6875rem] text-tertiary tabular-nums">
+                                {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                            </span>
+                        }
+                    >
+                        {reportSignalsLoading && reportSignals === null ? (
+                            <EvidenceSkeleton count={evidenceCount} />
+                        ) : (
+                            <div className="flex flex-col gap-3">
+                                {signals.map((signal: SignalNode) => (
+                                    <SignalCard key={signal.signal_id} signal={signal} />
+                                ))}
+                            </div>
+                        )}
+                    </RightColumnSection>
+                )}
+                <ReportTasksSection report={report} />
+                <ReportActivitySection report={report} />
+            </div>
+        </div>
+    )
 
     return (
         <div className="@container w-full max-w-[calc(160ch+5rem)] mx-auto px-6 py-5 text-sm">
@@ -348,104 +396,42 @@ export function InboxDetailFrame({
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-                <div className="min-w-0">
-                    <RightColumnSection icon={summary.icon} title={summary.title}>
-                        {report.summary ? (
-                            <LemonMarkdown
-                                className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
-                                disableImages
-                            >
-                                {report.summary}
-                            </LemonMarkdown>
-                        ) : (
-                            <p className={`text-sm text-tertiary m-0${summaryPending ? ' italic' : ''}`}>
-                                No summary yet – an agent is still investigating.
-                            </p>
-                        )}
-                    </RightColumnSection>
-                </div>
-
-                <div className="flex flex-col min-w-0 gap-5">
-                    {/* Pull request (when present) first, then reviewers, evidence, and runs. */}
-                    {children}
-                    <SuggestedReviewersSection report={report} />
-                    {hasEvidence && (
-                        <RightColumnSection
-                            icon={<IconSearch />}
-                            title="Evidence"
-                            rightSlot={
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums">
-                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-                                </span>
-                            }
-                        >
-                            {reportSignalsLoading && reportSignals === null ? (
-                                <EvidenceSkeleton count={evidenceCount} />
-                            ) : (
-                                <div className="flex flex-col gap-3">
-                                    {signals.map((signal: SignalNode) => (
-                                        <SignalCard key={signal.signal_id} signal={signal} />
-                                    ))}
-                                </div>
-                            )}
-                        </RightColumnSection>
-                    )}
-                    <ReportTasksSection report={report} />
-                    <ReportActivitySection report={report} />
-                </div>
-            </div>
+            {diffTab ? (
+                <LemonTabs
+                    activeKey={activeDetailTab}
+                    onChange={setActiveDetailTab}
+                    tabs={[
+                        { key: 'overview', label: 'Overview', content: overviewBody },
+                        { key: 'diff', label: diffTab.label, content: <>{diffTab.content}</> },
+                    ]}
+                />
+            ) : (
+                overviewBody
+            )}
         </div>
     )
 }
 
-/**
- * PR identity banner: the `repoSlug#number` ref, mono, with a PR glyph, linking out to GitHub.
- * Surfaced as the first right-column section when the report has a shipped implementation PR.
- */
-function PullRequestBanner({ prUrl, prRef }: { prUrl: string; prRef: ParsedPrUrlParts }): JSX.Element {
-    return (
-        <Link
-            to={prUrl}
-            target="_blank"
-            disableClientSideRouting
-            className="group flex items-center gap-3 rounded border border-primary bg-surface-primary px-4 py-3 no-underline text-inherit transition-colors duration-150 hover:border-primary hover:bg-surface-secondary"
-        >
-            <span className="flex items-center justify-center size-7 shrink-0 rounded-full bg-success-highlight text-success">
-                <IconPullRequest className="text-base" />
-            </span>
-            <span className="font-mono text-[13px] text-primary truncate">
-                {prRef.repoSlug}#{prRef.number}
-            </span>
-            <Tooltip title="Open in GitHub">
-                <span className="shrink-0 text-tertiary transition-colors group-hover:text-default">
-                    <IconExternal className="text-base" />
-                </span>
-            </Tooltip>
-        </Link>
-    )
-}
-
-/**
- * Unified report detail for Pull requests / Reports / Not actionable. The PR banner +
- * "Open in GitHub" action surface only when the report has a shipped implementation PR;
- * otherwise it reads as a plain report. Runs keep their own `AgentRunDetail`.
- */
 /** Point a PR URL at its diff/files tab, without double-appending if it's already there. */
 function prFilesUrl(prUrl: string): string {
     return prUrl.replace(/\/+$/, '').replace(/(\/files)?$/, '/files')
 }
 
+/**
+ * Unified report detail for Pull requests / Reports / Not actionable. The "Open in GitHub" action
+ * surfaces only when the report has a shipped implementation PR; otherwise it reads as a plain
+ * report. When the report has a "Commit pushed" artefact, a "Files changed" tab renders the branch's
+ * diff against the default branch. Runs keep their own `AgentRunDetail`.
+ */
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
     const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
-    const [diffModalOpen, setDiffModalOpen] = useState(false)
 
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
 
-    // The report's branch to diff comes from the latest "Commit pushed" artefact; only render the
-    // inline diff entry when that artefact carries the repo + branch the diff endpoint needs.
+    // The report's branch to diff comes from the latest "Commit pushed" artefact; only offer the diff
+    // tab when that artefact carries the repo + branch the diff endpoint needs.
     const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
     const canDiff = !!(commit?.repository && commit?.branch)
 
@@ -468,38 +454,21 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                     </LemonButton>
                 ) : undefined
             }
-        >
-            {hasPr || canDiff ? (
-                <RightColumnSection icon={<IconCode />} title="Diff">
-                    <div className="flex flex-col gap-2">
-                        {hasPr ? <PullRequestBanner prUrl={prFilesUrl(prUrl)} prRef={prRef} /> : null}
-                        {canDiff && commit && latestCommitArtefact ? (
-                            <>
-                                <LemonButton
-                                    type="secondary"
-                                    size="small"
-                                    icon={<IconCode />}
-                                    fullWidth
-                                    center
-                                    onClick={() => setDiffModalOpen(true)}
-                                    tooltip={`${commit.repository}@${commit.branch}`}
-                                >
-                                    View changed files
-                                </LemonButton>
-                                <PullRequestDiffModal
-                                    reportId={report.id}
-                                    artefactId={latestCommitArtefact.id}
-                                    commit={commit}
-                                    prUrl={hasPr ? prFilesUrl(prUrl) : null}
-                                    prLabel={prRef ? `${prRef.repoSlug}#${prRef.number}` : null}
-                                    isOpen={diffModalOpen}
-                                    onClose={() => setDiffModalOpen(false)}
-                                />
-                            </>
-                        ) : null}
-                    </div>
-                </RightColumnSection>
-            ) : null}
-        </InboxDetailFrame>
+            diffTab={
+                canDiff && commit && latestCommitArtefact
+                    ? {
+                          label: 'Files changed',
+                          content: (
+                              <PullRequestDiffPanel
+                                  reportId={report.id}
+                                  artefactId={latestCommitArtefact.id}
+                                  commit={commit}
+                                  prUrl={hasPr ? prFilesUrl(prUrl) : null}
+                              />
+                          ),
+                      }
+                    : undefined
+            }
+        />
     )
 }
