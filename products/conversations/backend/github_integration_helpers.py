@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from uuid import UUID
+
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -8,7 +10,7 @@ from posthog.models.user import User
 _GITHUB_REPO_LIST_LIMIT = 200
 
 
-def user_is_conversations_admin(user: User, organization_id: int) -> bool:
+def user_is_conversations_admin(user: User, organization_id: UUID) -> bool:
     try:
         membership = OrganizationMembership.objects.get(user=user, organization_id=organization_id)
     except OrganizationMembership.DoesNotExist:

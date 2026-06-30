@@ -1651,7 +1651,7 @@ class TestRecordTriageSync:
 
 
 def _diagnostic_build_context(**overrides: Any) -> BuildContextOutput:
-    base = {
+    base: dict[str, Any] = {
         "ticket_context": "exports fail with 500",
         "ticket_title": "Broken export",
         "diagnostics_allowed": True,
