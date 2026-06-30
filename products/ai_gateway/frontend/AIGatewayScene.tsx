@@ -97,7 +97,7 @@ export function AIGatewayScene(): JSX.Element {
 function GatewayIntro(): JSX.Element {
     return (
         <div className="border-2 border-dashed border-primary w-full p-6 rounded flex items-center gap-6">
-            <HedgehogRoboHog className="w-24 hidden md:block shrink-0" />
+            <HedgehogRoboHog className="w-32 hidden md:block shrink-0" />
             <div className="flex-shrink">
                 <h3 className="m-0">No gateway usage yet</h3>
                 <p className="ml-0 mt-1 mb-0 text-secondary">{AI_GATEWAY_DESCRIPTION}</p>
