@@ -30,6 +30,7 @@ import {
     resolveGroupTypeLabel,
     type TrendsSeriesMeta,
 } from '../../trends/shared/trendsSeriesMeta'
+import { TrendsTooltip } from '../../trends/shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../../trends/shared/useInsightsLegendConfig'
 import { handleStickinessChartClick } from './handleStickinessChartClick'
 import {
@@ -51,9 +52,8 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
     const theme = useMemo(() => buildTheme(), [])
     const { insightProps } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
-    const tooltipConfig = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-        ? STICKINESS_TOOLTIP_CONFIG
-        : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+    const tooltipConfig = quillTooltipEnabled ? STICKINESS_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
 
     const legendConfig = useInsightsLegendConfig({ insightProps })
     const quillLegendEnabled = !!legendConfig
@@ -160,22 +160,21 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
                       handleStickinessChartClick(seriesKey, datum.dataIndex, clickDeps)
                   }
                 : undefined
-            return (
-                <InsightSeriesTooltip
-                    context={ctx}
-                    timezone={timezone}
-                    interval={interval ?? undefined}
-                    breakdownFilter={breakdownFilter ?? undefined}
-                    trendsFilter={trendsFilter}
-                    showPercentView={true}
-                    isPercentStackView={false}
-                    baseCurrency={baseCurrency}
-                    groupTypeLabel={resolvedGroupTypeLabel}
-                    formatCompareLabel={context?.formatCompareLabel}
-                    onRowClick={onRowClick}
-                    altTitle={altTitle}
-                />
-            )
+            const sharedProps = {
+                context: ctx,
+                timezone,
+                interval: interval ?? undefined,
+                breakdownFilter: breakdownFilter ?? undefined,
+                trendsFilter,
+                showPercentView: true as const,
+                isPercentStackView: false as const,
+                baseCurrency,
+                groupTypeLabel: resolvedGroupTypeLabel,
+                formatCompareLabel: context?.formatCompareLabel,
+                onRowClick,
+                altTitle,
+            }
+            return quillTooltipEnabled ? <InsightSeriesTooltip {...sharedProps} /> : <TrendsTooltip {...sharedProps} />
         },
         [
             timezone,
@@ -189,6 +188,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             canHandleClick,
             clickDeps,
             altTitle,
+            quillTooltipEnabled,
         ]
     )
 

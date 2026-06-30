@@ -12,15 +12,12 @@ import type {
 } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import type { GraphDataset } from '~/types'
 
-import { InsightSeriesTooltip } from 'products/product_analytics/frontend/insights/shared/InsightSeriesTooltip'
 import { trendsFilterToYFormatterConfig } from 'products/product_analytics/frontend/insights/trends/shared/trendsAxisFormat'
 import type { TrendsSeriesMeta } from 'products/product_analytics/frontend/insights/trends/shared/trendsSeriesMeta'
 import { TrendsTooltip } from 'products/product_analytics/frontend/insights/trends/shared/TrendsTooltip'
@@ -72,8 +69,6 @@ export function RevenueAnalyticsChart({
     isInProgress = false,
     getColor,
 }: RevenueAnalyticsChartProps): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const { timezone, baseCurrency } = useValues(teamLogic)
     const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
@@ -98,18 +93,17 @@ export function RevenueAnalyticsChart({
     )
 
     const renderTooltip = useCallback(
-        (ctx: TooltipContext<TrendsSeriesMeta>) => {
-            const sharedProps = {
-                context: ctx,
-                timezone,
-                interval: dateFilter.interval,
-                trendsFilter,
-                baseCurrency,
-                groupTypeLabel: '' as const,
-            }
-            return quillTooltipEnabled ? <InsightSeriesTooltip {...sharedProps} /> : <TrendsTooltip {...sharedProps} />
-        },
-        [timezone, dateFilter.interval, trendsFilter, baseCurrency, quillTooltipEnabled]
+        (ctx: TooltipContext<TrendsSeriesMeta>) => (
+            <TrendsTooltip
+                context={ctx}
+                timezone={timezone}
+                interval={dateFilter.interval}
+                trendsFilter={trendsFilter}
+                baseCurrency={baseCurrency}
+                groupTypeLabel=""
+            />
+        ),
+        [timezone, dateFilter.interval, trendsFilter, baseCurrency]
     )
 
     const legendPosition = legend?.position ?? 'right'
