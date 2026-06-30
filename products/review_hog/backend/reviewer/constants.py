@@ -15,6 +15,16 @@ FAN_OUT_FAILURE_FLOOR = 0.70
 # (CONSIDER is body-only context). Shared by the body renderer and the publisher so the two never drift.
 PUBLISHED_PRIORITIES = {IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX}
 
+
+def effective_priority(base: IssuePriority, adjusted: IssuePriority | None) -> IssuePriority:
+    """The priority that gates publishing: the validator's override if it set one, else the reviewer's.
+
+    Validator-wins — its deeper per-issue investigation can raise or lower severity; an unset override
+    keeps the reviewer's call. Every publish/body gate resolves through this so display and gating agree.
+    """
+    return adjusted if adjusted is not None else base
+
+
 # CHUNKING
 # Comfortable size of one review chunk in ADDED lines (deletions don't count). Also the single-chunk
 # threshold: a PR within this many additions skips the chunking LLM and is reviewed as one chunk.

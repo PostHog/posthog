@@ -1,10 +1,15 @@
 from unittest.mock import MagicMock, patch
 
 from github import GithubException
+from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
-from products.review_hog.backend.reviewer.tools.publish_review import _post_github_review, publish_review
+from products.review_hog.backend.reviewer.tools.publish_review import (
+    _build_inline_comments,
+    _post_github_review,
+    publish_review,
+)
 
 _GITHUB = "products.review_hog.backend.reviewer.tools.publish_review.Github"
 _REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewReport"
@@ -101,8 +106,14 @@ def _finding(priority: IssuePriority = IssuePriority.SHOULD_FIX) -> ReviewIssueF
     )
 
 
-def _verdict() -> ValidationVerdict:
-    return ValidationVerdict(issue_key=_ISSUE_KEY, is_valid=True, argumentation="reason", category="bug")
+def _verdict(adjusted_priority: IssuePriority | None = None) -> ValidationVerdict:
+    return ValidationVerdict(
+        issue_key=_ISSUE_KEY,
+        is_valid=True,
+        argumentation="reason",
+        category="bug",
+        adjusted_priority=adjusted_priority,
+    )
 
 
 class TestPublishReviewGate:
@@ -165,3 +176,62 @@ class TestPublishReviewGate:
 
         assert posted is False
         mock_post.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # The validator wins: an upgraded consider crosses the publish bar; a downgraded should_fix
+            # drops below it — gating reads the effective priority, not the reviewer's frozen one.
+            ("upgrade_consider_publishes", IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, True),
+            ("downgrade_should_fix_suppresses", IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER, False),
+        ]
+    )
+    @patch(_POST)
+    @patch(_LOAD_FINDINGS)
+    @patch(_REPORT)
+    def test_validator_override_gates_publish(
+        self,
+        _name: str,
+        base: IssuePriority,
+        adjusted: IssuePriority,
+        expected_posted: bool,
+        mock_report_cls: MagicMock,
+        mock_load: MagicMock,
+        mock_post: MagicMock,
+    ) -> None:
+        self._wire_report(mock_report_cls)
+        mock_load.return_value = [(_finding(priority=base), _verdict(adjusted_priority=adjusted))]
+
+        posted = publish_review(
+            owner="o",
+            repo="r",
+            pr_number=1,
+            team_id=1,
+            report_id="rep",
+            run_index=1,
+            pr_files=[],
+            token="t",
+            head_sha="sha",
+            post_promo=False,
+        )
+
+        assert posted is expected_posted
+        assert mock_post.called is expected_posted
+
+    @parameterized.expand(
+        [
+            # On-diff finding (line 240 IS in the diff), so position always resolves — inclusion is then
+            # decided ONLY by the effective priority. Guards the inline filter against regressing to the
+            # raw priority (the publish gate test can't: it uses an off-diff finding that yields no comment).
+            ("downgrade_drops_the_inline_comment", IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER, 0),
+            ("upgrade_adds_the_inline_comment", IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, 1),
+        ]
+    )
+    def test_build_inline_comments_honors_effective_priority(
+        self, _name: str, base: IssuePriority, adjusted: IssuePriority, expected_count: int
+    ) -> None:
+        diff_lines = {"src/auth.py": {240}}
+        comments = _build_inline_comments([(_finding(priority=base), _verdict(adjusted_priority=adjusted))], diff_lines)
+
+        assert len(comments) == expected_count
+        if expected_count:
+            assert "should_fix" in comments[0]["body"]  # the emitted comment displays the effective priority

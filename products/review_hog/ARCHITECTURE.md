@@ -1957,11 +1957,12 @@ Two cost cuts, both validated on a real 1465-line multi-chunk PR (#66840). Goal:
 - **Verification.** 271 tests + ruff + ty + tach green. Adversarial 4-dimension review (validate-session / resume-consistency / analyze-removal / temporal-determinism), each finding independently verified: **0 real bugs** — every `must_fix` claim (over-count, 30-min timeout, payload size, heartbeat, wedged session) traced and dismissed; only confirmed = stale "analyze" comments (fixed) + an honest-count nit (fixed: increment only on a real persist). **e2e ✅ #66840** (1465 additions / 21 files → **4 chunks**): **0 `chunk_analysis` artefacts**, 12 `perspective_result` (3×4), **3 `validation-c{1,2,3}` warm sessions → 19 verdicts** (vs 19 sandboxes under the old design; chunk 4 had no survivor → no session), 6 valid findings (sharp: REST-send auth bypass, unvalidated Slack target, verbatim agent-draft render, silent draft revert). Published via the standalone `publish_review` command (zero recompute): 4 inline comments (2 of 6 unpositionable on the diff — pre-existing behavior) + promo + watermark set.
 - **NEXT (note only, in Deferred/future):** the **per-PERSPECTIVE warm review session** — fix the perspective, walk the chunks as turns (`P×C → P` sessions, #66840: 12 → 3), reusing the existing `(pass_number, chunk_id)`-keyed `perspective_result` resume. The mirror of this validate change. **User commits manually — not yet committed.**
 
-##### ✅ Change A BUILT 2026-06-30 / 🔜 Change B PLANNED — surface off-diff valid findings + validator priority override
+##### ✅ Change A + B BUILT 2026-06-30 — surface off-diff valid findings + validator priority override
 
 Two Tier-1 polishes to the single-turn **label → review → publish** flow (explicitly NOT loop work). Scoped with
-the maintainer 2026-06-30 — **A is built (278 tests + ruff + ty + tach green; uncommitted), B is next.** Locked
-decisions (AskUserQuestion):
+the maintainer 2026-06-30 — **both built (288 review_hog backend tests + ruff + ty + tach green; uncommitted, user
+commits manually). Each shipped behind its own 3-lens adversarial review (find → independently verify) = 0 confirmed
+production bugs; B's review surfaced one real test gap, since closed.** Locked decisions (AskUserQuestion):
 
 - **Off-diff surfacing = a review-body section only** — no nearest-changed-line inline snap (mis-anchored comments
   are noise), no per-finding general comment.
@@ -1995,24 +1996,38 @@ only keep/drop.
   publishable findings are off-diff, `comments=[]` and `_post_github_review` already falls through to a body-only post
   (`publish_review.py:331-340`), so the body (carrying its Other-findings section) still reaches the PR.
 
-**Change B — validator priority override (next).**
+**Change B — validator priority override (✅ BUILT 2026-06-30).**
 
-- Add `adjusted_priority: IssuePriority | None = None` to `IssueValidation` (`models/issue_validation.py`; regen
-  `prompts/issue_validation/schema.json`) and `ValidationVerdict` (`artefact_content.py`) — **no Django migration**,
-  the verdict is JSON in a `TextField`, old rows default `None`.
-- Prompt (`prompts/issue_validation/prompt.jinja`): the validator may raise/lower priority when its deeper
-  investigation warrants, leaving it unset to keep the reviewer's. (The keep/drop bar stays the team-owned criteria
+- `adjusted_priority: IssuePriority | None = None` added to `IssueValidation` (`models/issue_validation.py`, imports
+  `IssuePriority`; `schema.json` regenerated — now carries `$defs/IssuePriority`) and to `ValidationVerdict`
+  (`artefact_content.py`) — **no Django migration**, the verdict is JSON in a `TextField`, old rows parse with the
+  field defaulting to `None` (locked by a legacy-JSON parse test).
+- Prompt (`prompts/issue_validation/prompt.jinja`): the validator overrides severity **only on evidence** (raise when
+  impact is worse than flagged, lower when milder), leaving it null to keep the reviewer's; lowering to `consider`
+  soft-suppresses a real-but-minor finding rather than dismissing it. (The keep/drop bar stays the team-owned criteria
   skill; this is just the I/O contract.)
-- Thread `adjusted_priority` through `persist_verdict` / `persist_verdicts` into `ValidationVerdict`, and
-  `load_run_validations` reconstructs `IssueValidation(adjusted_priority=…)` lossless.
-- One `effective_priority(base, adjusted) = adjusted or base` helper used at every gate (the publish inline filter, the
-  body Other-findings filter, the body count). Validator-wins. With `consider` DB-only: upgrade `consider → should_fix`
-  surfaces an otherwise-invisible finding; downgrade soft-suppresses to DB-only with the reasoning recorded.
+- `adjusted_priority` threaded through `persist_verdict` / `persist_verdicts` into `ValidationVerdict`;
+  `load_run_validations` reconstructs `IssueValidation(adjusted_priority=…)` lossless. `_to_finding` deliberately keeps
+  the reviewer's **base** priority on the durable finding — the override lives on the verdict and is resolved at read time.
+- One `effective_priority(base, adjusted) = adjusted if adjusted is not None else base` helper (`constants.py`, beside
+  `PUBLISHED_PRIORITIES`) used at **every** gate AND every displayed priority so gating and display never disagree: the
+  publish `publishable` gate + `_build_inline_comments` filter + `_format_issue_comment` display (`publish_review.py`),
+  and the `_off_diff_publishable_findings` filter + `_render_off_diff_section` display + the per-chunk count
+  (`prepare_validation_markdown.py`). Validator-wins. With `consider` DB-only: upgrade `consider → should_fix` surfaces
+  an otherwise-invisible finding; downgrade soft-suppresses everywhere (inline, body, count, and the all-downgraded run
+  returns `False` → posts nothing) with the reasoning recorded.
+- **Body-count wrinkle (handled):** `_assemble_report` / `_render_review_body` saw only the `Issue`, not its verdict, so
+  `effective_priority` wasn't a drop-in there. Resolved by adding a required `effective_priority` field to
+  `ValidationMarkdownReportIssue` (`models/prepare_validation_markdown.py`), set in `_assemble_report` from the
+  walrus-captured validation; the per-chunk "Issues: N" count reads `vi.effective_priority`. The publish-side gates
+  already had the `(finding, verdict)` pair, so only the body path needed this plumbing.
 
-**Tests (`/writing-tests`):** an off-diff valid `should_fix` lands in the body and isn't dropped; an all-off-diff
-publishable run still posts the body (not `False`); (B) upgrade publishes / downgrade suppresses; `adjusted_priority`
-round-trips persist → `load_run_validations` / `load_valid_findings` and defaults `None` on old rows; the
-Other-findings section + the effective-priority count render.
+**Tests (`/writing-tests`):** `adjusted_priority` round-trips `persist_verdict` → `load_run_validations` and stays
+`None` when unset; a legacy verdict JSON (no key) parses to `None`; the publish gate upgrade-publishes /
+downgrade-suppresses; the off-diff section membership + the per-chunk count both honor the override; and
+`_build_inline_comments` includes/excludes an **on-diff** comment by effective priority (the gap B's adversarial review
+found — the publish-gate tests use off-diff findings that yield no comment, so they couldn't catch a regression to the
+raw priority in the inline filter).
 
 **Supersedes** the deferred "NEXT-NEXT — surface valid findings that can't be positioned on a diff line", the "let the
 validator adjust a finding's priority" note, and the publish-path OPEN QUESTION — all folded into this plan.

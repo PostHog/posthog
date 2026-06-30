@@ -83,6 +83,10 @@ class ValidationVerdict(BaseModel):
     is_valid: bool = Field(description="Whether the finding should be implemented (true) or dismissed (false).")
     category: ReviewIssueCategory | None = Field(default=None, description="Category of the finding.")
     argumentation: str = Field(description="Why the finding is valid or should be dismissed.")
+    adjusted_priority: IssuePriority | None = Field(
+        default=None,
+        description="Validator's priority override for the finding; null keeps the reviewer's priority.",
+    )
 
     @field_validator("issue_key", "argumentation")
     @classmethod

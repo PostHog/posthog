@@ -346,6 +346,34 @@ class TestLoadRunValidations(BaseTest):
         assert out["1-1-1"].category == "bug"
         assert out["1-1-1"].argumentation == "real"  # run 2's verdict, not run 1's "stale"
 
+    def test_adjusted_priority_round_trips_through_the_verdict(self) -> None:
+        # The validator's priority override must survive persist → load so the body + publish gates see
+        # the adjusted severity; an unset override stays None (the no-migration default).
+        report_id = upsert_review_report(team_id=self.team.id, repository="o/r", pr_url="u", pr_metadata=_pr_metadata())
+        raised = _issue("1-1-1", file="a.py", priority=IssuePriority.CONSIDER)
+        unchanged = _issue("1-1-2", file="b.py", start=20, priority=IssuePriority.MUST_FIX)
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=raised,
+            validation=IssueValidation(
+                is_valid=True, argumentation="actually critical", adjusted_priority=IssuePriority.MUST_FIX
+            ),
+            run_index=1,
+        )
+        persist_verdict(
+            team_id=self.team.id,
+            report_id=report_id,
+            issue=unchanged,
+            validation=IssueValidation(is_valid=True, argumentation="as flagged"),
+            run_index=1,
+        )
+
+        out = load_run_validations(team_id=self.team.id, report_id=report_id, run_index=1, issues=[raised, unchanged])
+
+        assert out["1-1-1"].adjusted_priority == IssuePriority.MUST_FIX
+        assert out["1-1-2"].adjusted_priority is None
+
 
 class TestLoadPriorFindings(BaseTest):
     def test_returns_only_earlier_turns_findings(self) -> None:

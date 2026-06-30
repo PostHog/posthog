@@ -67,22 +67,29 @@ def test_chunk_with_no_valid_issue_is_skipped() -> None:
 
 
 @pytest.mark.parametrize(
-    "priority,is_valid,line,expected_in_section",
+    "priority,adjusted_priority,is_valid,line,expected_in_section",
     [
-        (IssuePriority.SHOULD_FIX, True, 240, True),  # valid should_fix off-diff → surfaced, not dropped
-        (IssuePriority.MUST_FIX, True, 240, True),  # valid must_fix off-diff → surfaced
-        (IssuePriority.CONSIDER, True, 240, False),  # consider stays DB-only, never in the body
-        (IssuePriority.SHOULD_FIX, False, 240, False),  # invalid → not surfaced
-        (IssuePriority.SHOULD_FIX, True, 1, False),  # on-diff → goes inline, not the body section
+        (IssuePriority.SHOULD_FIX, None, True, 240, True),  # valid should_fix off-diff → surfaced, not dropped
+        (IssuePriority.MUST_FIX, None, True, 240, True),  # valid must_fix off-diff → surfaced
+        (IssuePriority.CONSIDER, None, True, 240, False),  # consider stays DB-only, never in the body
+        (IssuePriority.SHOULD_FIX, None, False, 240, False),  # invalid → not surfaced
+        (IssuePriority.SHOULD_FIX, None, True, 1, False),  # on-diff → goes inline, not the body section
+        (IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, True, 240, True),  # validator upgrade surfaces it
+        (IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER, True, 240, False),  # validator downgrade suppresses it
     ],
 )
 def test_other_findings_section_membership(
-    priority: IssuePriority, is_valid: bool, line: int, expected_in_section: bool
+    priority: IssuePriority,
+    adjusted_priority: IssuePriority | None,
+    is_valid: bool,
+    line: int,
+    expected_in_section: bool,
 ) -> None:
-    # The "Other findings" body section must contain exactly the valid must/should-fix findings with no
-    # inline anchor (off-diff) — so an off-diff valid finding isn't silently dropped at publish, while
-    # consider / invalid / on-diff findings don't leak into it. The title renders only in this section
-    # (the per-chunk summary lists no titles), so its presence is the membership signal.
+    # The "Other findings" body section must contain exactly the valid findings whose EFFECTIVE priority
+    # (validator-wins) is must/should-fix and which have no inline anchor (off-diff) — so an off-diff
+    # valid finding isn't silently dropped at publish, while consider / invalid / on-diff findings don't
+    # leak in, and a validator upgrade/downgrade moves the finding in or out. The title renders only in
+    # this section (the per-chunk summary lists no titles), so its presence is the membership signal.
     chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
     issue = Issue(
         id="1-1-1",
@@ -93,8 +100,39 @@ def test_other_findings_section_membership(
         suggestion="fix",
         priority=priority,
     )
-    validations = {"1-1-1": IssueValidation(is_valid=is_valid, argumentation="reason", category="bug")}
+    validations = {
+        "1-1-1": IssueValidation(
+            is_valid=is_valid, argumentation="reason", category="bug", adjusted_priority=adjusted_priority
+        )
+    }
 
     body = build_review_body(chunks_data=chunks_data, issues=[issue], validations=validations, pr_files=_pr_files())
 
     assert ("Membership marker finding" in body) is expected_in_section
+
+
+@pytest.mark.parametrize(
+    "base,adjusted,expected_count_line",
+    [
+        (IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, "**Issues:** 1 issue"),  # upgrade joins the count
+        (IssuePriority.SHOULD_FIX, IssuePriority.CONSIDER, None),  # downgrade drops out of the count
+    ],
+)
+def test_chunk_count_reflects_effective_priority(
+    base: IssuePriority, adjusted: IssuePriority, expected_count_line: str | None
+) -> None:
+    # The per-chunk "Issues: N" count must reflect the validator's override, not the reviewer's frozen
+    # priority — a finding downgraded to consider stops counting, an upgraded one starts. Uses an
+    # on-diff line so the off-diff section never interferes with the count signal.
+    chunks_data = ChunksList(chunks=[_chunk(1, "bugfix")])
+    issue = _issue("1-1-1", priority=base)
+    validations = {
+        "1-1-1": IssueValidation(is_valid=True, argumentation="reason", category="bug", adjusted_priority=adjusted)
+    }
+
+    body = build_review_body(chunks_data=chunks_data, issues=[issue], validations=validations, pr_files=_pr_files())
+
+    if expected_count_line is None:
+        assert "**Issues:**" not in body
+    else:
+        assert expected_count_line in body

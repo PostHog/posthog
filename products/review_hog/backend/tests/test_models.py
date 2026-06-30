@@ -73,6 +73,14 @@ class TestReviewArtefactContent:
                 attribution=ArtefactAttribution.system(),
             )
 
+    def test_verdict_parses_legacy_row_without_adjusted_priority(self):
+        # adjusted_priority was added without a migration: a verdict row written before it must parse
+        # with the field defaulting to None rather than raising.
+        legacy = '{"issue_key": "k", "is_valid": true, "argumentation": "real"}'
+        verdict = parse_artefact_content("validation_verdict", legacy)
+        assert isinstance(verdict, ValidationVerdict)
+        assert verdict.adjusted_priority is None
+
     def test_create_rejects_task_run_with_mismatched_task(self):
         # The task_run's content.task_id is the same association as the row's task FK; the guard
         # stops them diverging. Raises before any DB write.

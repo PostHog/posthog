@@ -5,7 +5,7 @@ from github.PullRequest import PullRequest, ReviewComment
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
+from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES, effective_priority
 from products.review_hog.backend.reviewer.diff_position import (
     build_diff_line_map,
     find_diff_position,
@@ -110,8 +110,13 @@ def publish_review(
 
     # Gate on whether there's anything worth posting, NOT on whether any comment positioned: a valid
     # must/should-fix finding on an off-diff line has no inline anchor but is surfaced in the body's
-    # "Other findings" section, so the body must still post rather than dropping the whole review.
-    publishable = [finding for finding, _verdict in valid_findings if finding.priority in PUBLISHED_PRIORITIES]
+    # "Other findings" section, so the body must still post rather than dropping the whole review. The
+    # validator's priority override wins over the reviewer's, so the gate reads the effective priority.
+    publishable = [
+        finding
+        for finding, verdict in valid_findings
+        if effective_priority(finding.priority, verdict.adjusted_priority) in PUBLISHED_PRIORITIES
+    ]
     if not publishable:
         logger.info("No publishable issues found, skipping review")
         return False
@@ -126,8 +131,9 @@ def publish_review(
 def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdict) -> str:
     """Format a finding + its verdict as an inline comment body."""
     formatted_lines = format_line_ranges(finding.lines)
+    priority = effective_priority(finding.priority, verdict.adjusted_priority)
 
-    meta_parts = [f"**Priority:** {finding.priority.value}"]
+    meta_parts = [f"**Priority:** {priority.value}"]
     if verdict.category:
         meta_parts.append(f"**Category:** {verdict.category}")
     meta_parts.append(f"**Lines:** {formatted_lines}")
@@ -206,7 +212,7 @@ def _build_inline_comments(
     comments: list[ReviewComment] = []
 
     for finding, verdict in valid_findings:
-        if finding.priority not in PUBLISHED_PRIORITIES:
+        if effective_priority(finding.priority, verdict.adjusted_priority) not in PUBLISHED_PRIORITIES:
             continue
 
         position = find_diff_position(finding.file, finding.lines, diff_lines)

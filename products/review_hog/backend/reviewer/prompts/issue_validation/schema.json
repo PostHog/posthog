@@ -1,4 +1,16 @@
 {
+  "$defs": {
+    "IssuePriority": {
+      "description": "Priority levels for code review issues.",
+      "enum": [
+        "must_fix",
+        "should_fix",
+        "consider"
+      ],
+      "title": "IssuePriority",
+      "type": "string"
+    }
+  },
   "properties": {
     "is_valid": {
       "description": "Whether the suggested change should be implemented (true) or dismissed (false)",
@@ -33,6 +45,18 @@
       "default": null,
       "description": "Category of the issue",
       "title": "Category"
+    },
+    "adjusted_priority": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/IssuePriority"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Set this only if your investigation shows the reviewer's priority is wrong \u2014 raise or lower it to the correct severity. Leave null to keep the reviewer's priority. Lowering to `consider` keeps the finding on record but stops it being surfaced."
     }
   },
   "required": [

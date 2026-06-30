@@ -1,11 +1,14 @@
 from pydantic import BaseModel, Field
 
-from products.review_hog.backend.reviewer.models.issues_review import Issue
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
 
 
 class ValidationMarkdownReportIssue(BaseModel):
     issue: Issue = Field(description="The issue that was validated")
+    effective_priority: IssuePriority = Field(
+        description="The issue's priority after the validator's override (validator-wins), used for the chunk count"
+    )
 
 
 class ValidationMarkdownReportChunk(BaseModel):

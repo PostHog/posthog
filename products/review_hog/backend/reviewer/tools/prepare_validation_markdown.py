@@ -8,7 +8,7 @@ durable finding/verdict rows), so the body stays a summary.
 
 import logging
 
-from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
+from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES, effective_priority
 from products.review_hog.backend.reviewer.diff_position import (
     build_diff_line_map,
     find_diff_position,
@@ -68,7 +68,9 @@ def _assemble_report(
     report_chunks: list[ValidationMarkdownReportChunk] = []
     for chunk in chunks_data.chunks:
         validated_issues = [
-            ValidationMarkdownReportIssue(issue=issue)
+            ValidationMarkdownReportIssue(
+                issue=issue, effective_priority=effective_priority(issue.priority, v.adjusted_priority)
+            )
             for issue in issues_by_chunk.get(chunk.chunk_id, [])
             if (v := validations.get(issue.id)) is not None and v.is_valid
         ]
@@ -96,7 +98,7 @@ def _off_diff_publishable_findings(
         validation = validations.get(issue.id)
         if validation is None or not validation.is_valid:
             continue
-        if issue.priority not in PUBLISHED_PRIORITIES:
+        if effective_priority(issue.priority, validation.adjusted_priority) not in PUBLISHED_PRIORITIES:
             continue
         if find_diff_position(issue.file, issue.lines, diff_lines) is not None:
             continue  # has an inline anchor → posted inline, not here
@@ -116,7 +118,7 @@ def _render_review_body(
 
     for chunk_report in report.chunks:
         chunk = chunk_report.chunk
-        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.issue.priority in PUBLISHED_PRIORITIES)
+        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.effective_priority in PUBLISHED_PRIORITIES)
 
         chunk_type = chunk.chunk_type.replace("_", " ").capitalize() if chunk.chunk_type else "Changes"
         lines.extend([f"## {chunk_type}", ""])
@@ -150,7 +152,8 @@ def _render_off_diff_section(findings: list[tuple[Issue, IssueValidation]]) -> l
         "",
     ]
     for issue, validation in findings:
-        meta = [f"**Priority:** {issue.priority.value}", f"**File:** `{issue.file}:{format_line_ranges(issue.lines)}`"]
+        priority = effective_priority(issue.priority, validation.adjusted_priority)
+        meta = [f"**Priority:** {priority.value}", f"**File:** `{issue.file}:{format_line_ranges(issue.lines)}`"]
         if validation.category:
             meta.append(f"**Category:** {validation.category}")
         lines.extend(

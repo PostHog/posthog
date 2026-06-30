@@ -281,6 +281,7 @@ def persist_verdicts(
                     is_valid=validation.is_valid,
                     category=validation.category,
                     argumentation=validation.argumentation,
+                    adjusted_priority=validation.adjusted_priority,
                 )
             )
         except ValidationError as e:
@@ -310,6 +311,7 @@ def persist_verdict(*, team_id: int, report_id: str, issue: Issue, validation: I
             is_valid=validation.is_valid,
             category=validation.category,
             argumentation=validation.argumentation,
+            adjusted_priority=validation.adjusted_priority,
         )
     except ValidationError as e:
         logger.warning("Skipping verdict for %s that failed durable validation: %s", issue.id, e)
@@ -390,7 +392,10 @@ def load_run_validations(
         verdict = verdicts.get(_issue_key(issue, run_index))
         if verdict is not None:
             out[issue.id] = IssueValidation(
-                is_valid=verdict.is_valid, argumentation=verdict.argumentation, category=verdict.category
+                is_valid=verdict.is_valid,
+                argumentation=verdict.argumentation,
+                category=verdict.category,
+                adjusted_priority=verdict.adjusted_priority,
             )
     return out
 
