@@ -7,19 +7,21 @@ from posthog.clickhouse.table_engines import Distributed, MergeTreeEngine, Repla
 # number, so inlining the label maps on every row would dwarf the data ~100x).
 #
 # - metric_series: one row per unique (metric, label-set), labels stored ONCE,
-#   keyed by a fingerprint. Deduped via ReplacingMergeTree.
-# - metric_samples: the hot table — tiny rows (fingerprint + timestamp + value),
-#   plus an inline trace_id so a spike can still pivot to its trace (empty for
-#   most points, so it compresses to ~nothing). Joined to metric_series on the
-#   fingerprint at query time.
+#   keyed by series_fingerprint. Deduped via ReplacingMergeTree.
+# - metric_samples: the hot table — tiny rows (series_fingerprint + timestamp +
+#   value), plus an inline trace_id so a spike can still pivot to its trace (empty
+#   for most points, so it compresses to ~nothing). Joined to metric_series on
+#   series_fingerprint at query time.
+#
+# series_fingerprint is assigned ONCE at ingest (rust/capture-logs computes it over
+# the canonical label set and ships it in the Avro payload); the ingest MVs store it
+# verbatim and never recompute it. This is the TSDB / Snuffle-default approach — the
+# storage engine must not compute identity, or two independent MVs diverge (and the
+# stored-map MV context corrupts the hash). See docs/internal/metrics for the history.
 #
 # Distinct from `metrics1` (pre-aggregated rollups for dashboards/alerts): this
 # keeps every raw sample, for exact quantiles, per-emission drill-down, and the
 # metric->trace pivot. Lives on the logs ClickHouse cluster next to logs/traces.
-#
-# The fingerprint must be computed identically wherever samples/series are
-# written (see the ingest MV); keep this expression and that MV in sync.
-SERIES_FINGERPRINT_SQL = "cityHash64(metric_name, service_name, mapSort(resource_attributes), mapSort(attributes))"
 
 SAMPLES_TABLE_NAME = "metric_samples1"
 SAMPLES_DISTRIBUTED_TABLE_NAME = "metric_samples"

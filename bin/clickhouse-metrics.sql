@@ -240,7 +240,8 @@ CREATE OR REPLACE TABLE kafka_metrics_avro
     `is_monotonic` Nullable(UInt8),
     `resource_attributes` Map(String, String),
     `instrumentation_scope` Nullable(String),
-    `attributes` Map(String, String)
+    `attributes` Map(String, String),
+    `series_fingerprint` Nullable(Int64)
 )
 ENGINE = Kafka('kafka:9092', 'clickhouse_metrics', 'clickhouse-metrics-avro', 'Avro')
 SETTINGS
@@ -280,19 +281,19 @@ AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
 FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
--- Two MVs on the existing kafka_metrics_avro: every clickhouse_metrics point
--- fans into metric_series (labels, deduped) and metric_samples (the tiny row),
--- alongside kafka_metrics_avro_mv -> metrics1. The series_fingerprint is computed
--- identically in both (over the JSON-decoded label maps) so the query-time join
--- matches; keep it in sync with SERIES_FINGERPRINT_SQL in metric_events.py.
+-- Two MVs on the existing kafka_metrics_avro: every clickhouse_metrics point fans
+-- into metric_series (labels, deduped) and metric_samples (the tiny row), alongside
+-- kafka_metrics_avro_mv -> metrics1. series_fingerprint is assigned ONCE at ingest
+-- (capture-logs) and shipped in the Avro payload; both MVs read it verbatim — they do
+-- NOT recompute it. ClickHouse never computes the identity (no cityHash64 over the
+-- maps), so the two tables cannot disagree and the hash cannot collapse. The Avro
+-- `long` carries the u64 bits as signed; reinterpretAsUInt64 restores them.
 drop table if exists kafka_metrics_avro_to_metric_series;
 CREATE MATERIALIZED VIEW kafka_metrics_avro_to_metric_series TO metric_series1
 AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
     ifNull(metric_name, '') as metric_name,
-    cityHash64(ifNull(metric_name, ''), ifNull(service_name, ''),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))) as series_fingerprint,
+    reinterpretAsUInt64(ifNull(series_fingerprint, 0)) as series_fingerprint,
     ifNull(metric_type, '') as metric_type,
     ifNull(unit, '') as unit,
     ifNull(service_name, '') as service_name,
@@ -306,9 +307,7 @@ CREATE MATERIALIZED VIEW kafka_metrics_avro_to_metric_samples TO metric_samples1
 AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
     ifNull(metric_name, '') as metric_name,
-    cityHash64(ifNull(metric_name, ''), ifNull(service_name, ''),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))) as series_fingerprint,
+    reinterpretAsUInt64(ifNull(series_fingerprint, 0)) as series_fingerprint,
     timestamp,
     ifNull(value, 0) as value,
     trace_id,
