@@ -159,8 +159,9 @@ def is_incomplete_response(result: Any) -> TypeIs[CacheMissResponse | QueryStatu
 
 
 class ExperimentSummaryDataService:
-    def __init__(self, team):
+    def __init__(self, team, user):
         self._team = team
+        self._user = user
 
     async def fetch_experiment_data(
         self, experiment_id: int
@@ -223,9 +224,8 @@ class ExperimentSummaryDataService:
                         team=experiment.team,
                         workload=Workload.ONLINE,
                         limit_context=LimitContext.QUERY_ASYNC,
-                        # Userless background recompute. Warehouse access is enforced when the metric is
-                        # authored, so resolve warehouse tables here instead of failing closed.
-                        bypass_warehouse_access_control=True,
+                        # Runs for the requesting Max user, so warehouse access is enforced against them.
+                        user=self._user,
                     )
                     result = query_runner.run(
                         execution_mode=execution_mode,
