@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { OriginProduct } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 describe('taskTrackerSceneLogic', () => {
@@ -43,12 +44,17 @@ describe('taskTrackerSceneLogic', () => {
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
     // null repository, not bail. Guards against re-adding a "Repository is required" gate on the send path.
     it('creates and runs a task with no repository selected', async () => {
-        logic.actions.setTaskCreateFormValues({ description: 'do the thing' })
-        logic.actions.submitTaskCreateForm()
+        logic.actions.setNewTaskData({ description: 'do the thing' })
+        logic.actions.submitNewTask()
 
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(createBody).toMatchObject({ description: 'do the thing', repository: null, github_integration: null })
+        expect(createBody).toMatchObject({
+            description: 'do the thing',
+            origin_product: OriginProduct.POSTHOG_AI,
+            repository: null,
+            github_integration: null,
+        })
         expect(runCalled).toBe(true)
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
