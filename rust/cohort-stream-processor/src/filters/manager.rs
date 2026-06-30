@@ -1,7 +1,9 @@
 //! `FilterCatalog` + atomic swap + jittered periodic refresh loop.
 
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::hash::{Hash, Hasher};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -22,18 +24,26 @@ use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_
 #[derive(Debug, Default)]
 pub struct FilterCatalog {
     teams: HashMap<TeamId, Arc<TeamFilters>>,
+    /// Content generation, stamped by [`CatalogHandle::store`]; advances only on a content change.
+    /// `0` is the empty pre-load catalog.
+    generation: u64,
 }
 
 impl FilterCatalog {
     pub fn new() -> Self {
         Self {
             teams: HashMap::new(),
+            generation: 0,
         }
     }
 
     /// The frozen filters for a team, or `None` if it has no realtime cohorts.
     pub fn team(&self, team_id: TeamId) -> Option<&Arc<TeamFilters>> {
         self.teams.get(&team_id)
+    }
+
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn team_count(&self) -> usize {
@@ -54,6 +64,7 @@ impl FilterCatalog {
                 .into_iter()
                 .map(|(team, filters)| (team, Arc::new(filters)))
                 .collect(),
+            generation: 0,
         }
     }
 }
@@ -74,6 +85,11 @@ pub struct CatalogHandle {
     /// Cohorts for teams outside this allowlist never enter the catalog.
     allowlist: TeamAllowlist,
     cascade_enabled: bool,
+    /// Last stamped generation, advanced by [`Self::store`]. Single-writer (the refresh loop),
+    /// so `Relaxed` suffices.
+    current_generation: AtomicU64,
+    /// Signature of the last stored catalog, to detect a no-op refresh.
+    current_signature: AtomicU64,
 }
 
 impl CatalogHandle {
@@ -88,6 +104,8 @@ impl CatalogHandle {
             loaded_notify: Notify::new(),
             allowlist,
             cascade_enabled,
+            current_generation: AtomicU64::new(0),
+            current_signature: AtomicU64::new(0),
         }
     }
 
@@ -122,7 +140,21 @@ impl CatalogHandle {
         handle
     }
 
-    fn store(&self, catalog: FilterCatalog) {
+    fn store(&self, mut catalog: FilterCatalog) {
+        // Advance the generation only on a content change (`prev_gen == 0` is the first store); a
+        // no-op refresh reuses it so memo entries stay valid.
+        let signature = catalog_signature(&catalog);
+        let prev_gen = self.current_generation.load(Ordering::Relaxed);
+        let prev_sig = self.current_signature.load(Ordering::Relaxed);
+        let generation = if prev_gen == 0 || signature != prev_sig {
+            prev_gen + 1
+        } else {
+            prev_gen
+        };
+        self.current_signature.store(signature, Ordering::Relaxed);
+        self.current_generation.store(generation, Ordering::Relaxed);
+        catalog.generation = generation;
+
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
         gauge!(FILTER_CATALOG_UNIQUE_CONDITIONS).set(catalog.total_unique_conditions() as f64);
         self.catalog.store(Arc::new(catalog));
@@ -156,6 +188,22 @@ impl Default for CatalogHandle {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Hashes equal iff each team carries the same condition set — the sorts make it independent of
+/// `HashMap`/`HashSet` order. `DefaultHasher` is unseeded; only intra-process consistency is needed
+/// (the memo it gates resets on restart).
+fn catalog_signature(catalog: &FilterCatalog) -> u64 {
+    let mut teams: Vec<(&TeamId, &Arc<TeamFilters>)> = catalog.teams.iter().collect();
+    teams.sort_unstable_by_key(|(team, _)| team.0);
+    let mut hasher = DefaultHasher::new();
+    for (team, filters) in teams {
+        team.0.hash(&mut hasher);
+        let mut hashes: Vec<[u8; 16]> = filters.unique_condition_hashes.iter().copied().collect();
+        hashes.sort_unstable();
+        hashes.hash(&mut hasher);
+    }
+    hasher.finish()
 }
 
 /// Periodic catalog refresh task. On failure, keeps the previous snapshot and retries next tick.
@@ -229,6 +277,27 @@ mod tests {
         builder.freeze(UTC)
     }
 
+    fn team_with_one_person() -> TeamFilters {
+        let mut builder = TeamFiltersBuilder::default();
+        let filters = json!({
+            "properties": {
+                "type": "AND",
+                "values": [{
+                    "type": "person",
+                    "key": "email",
+                    "value": "a@b.com",
+                    "operator": "exact",
+                    "conditionHash": "fedcba9876543210",
+                    "bytecode": ["_H", 1, 32, "a@b.com", 32, "email", 32, "properties", 32, "person", 1, 3, 11],
+                }],
+            }
+        });
+        builder
+            .add_cohort(CohortId(1), TeamId(7), &filters)
+            .unwrap();
+        builder.freeze(UTC)
+    }
+
     #[test]
     fn new_handle_is_unloaded_and_empty() {
         let handle = CatalogHandle::new();
@@ -269,6 +338,66 @@ mod tests {
 
         // Already loaded → immediate.
         handle.wait_until_loaded().await;
+    }
+
+    #[test]
+    fn first_store_stamps_generation_one() {
+        let handle = CatalogHandle::new();
+        assert_eq!(
+            handle.load().generation(),
+            0,
+            "the empty pre-load catalog is generation 0",
+        );
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        assert_eq!(handle.load().generation(), 1);
+    }
+
+    #[test]
+    fn no_op_refresh_keeps_the_generation_and_a_content_change_bumps_it() {
+        let handle = CatalogHandle::new();
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        let gen1 = handle.load().generation();
+
+        // Same condition set → same signature → generation unchanged (the memo survives the refresh).
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_behavioral(),
+        )]));
+        assert_eq!(
+            handle.load().generation(),
+            gen1,
+            "a no-op refresh reuses the generation",
+        );
+
+        // A different condition hash → signature changes → generation advances (memo invalidates).
+        handle.store(FilterCatalog::from_teams([(
+            TeamId(7),
+            team_with_one_person(),
+        )]));
+        assert_eq!(
+            handle.load().generation(),
+            gen1 + 1,
+            "a content change bumps the generation",
+        );
+    }
+
+    #[test]
+    fn catalog_signature_ignores_team_iteration_order() {
+        let a = FilterCatalog::from_teams([
+            (TeamId(7), team_with_one_behavioral()),
+            (TeamId(8), team_with_one_person()),
+        ]);
+        let b = FilterCatalog::from_teams([
+            (TeamId(8), team_with_one_person()),
+            (TeamId(7), team_with_one_behavioral()),
+        ]);
+        assert_eq!(catalog_signature(&a), catalog_signature(&b));
     }
 
     #[test]
