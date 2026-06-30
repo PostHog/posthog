@@ -157,6 +157,12 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
                         type: zod.enum(['HogQLAlertConfig']).default(alertsCreateBodyConfigOneTwoTypeDefault),
                     }),
                     zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
                         funnel_step: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -1442,6 +1448,12 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
                         type: zod.enum(['HogQLAlertConfig']).default(alertsPartialUpdateBodyConfigOneTwoTypeDefault),
                     }),
                     zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
                         funnel_step: zod
                             .union([zod.number(), zod.null()])
                             .optional()
@@ -3689,6 +3701,12 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod.enum(['HogQLAlertConfig']).default(alertsSimulateCreateBodyConfigOneTwoTypeDefault),
                     }),
                     zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
                         funnel_step: zod
                             .union([zod.number(), zod.null()])
                             .optional()

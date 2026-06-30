@@ -227,6 +227,8 @@ export const FunnelsAlertConfigApiType = {
 } as const
 
 export interface FunnelsAlertConfigApi {
+    /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+    check_ongoing_interval?: boolean | null
     /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
     funnel_step?: number | null
     metric: FunnelConversionMetricApi
