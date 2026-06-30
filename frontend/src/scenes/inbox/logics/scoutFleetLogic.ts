@@ -10,15 +10,10 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { OriginProduct } from 'products/posthog_ai/frontend/types/taskTypes'
-import { signalsScoutMetadataGet } from 'products/signals/frontend/generated/api'
-import type { ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
+import { signalsScoutMetadataGet, signalsScoutRunsFindingsSummary } from 'products/signals/frontend/generated/api'
+import type { FleetFindingsSummaryApi, ScoutMetadataApi } from 'products/signals/frontend/generated/api.schemas'
 
-import {
-    SignalScoutConfig,
-    SignalScoutConfigUpdate,
-    SignalScoutFleetFindingsSummary,
-    SignalScoutRunSummary,
-} from '../types'
+import { SignalScoutConfig, SignalScoutConfigUpdate, SignalScoutRunSummary } from '../types'
 import {
     computeFleetSummary,
     computeScoutRollups,
@@ -100,10 +95,14 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         // emitted runs, so the callout no longer waits on the full paginated runs-window walk (which
         // could take ~10s and was the reason the callout appeared long after the modal opened).
         fleetFindingsSummary: [
-            null as SignalScoutFleetFindingsSummary | null,
+            null as FleetFindingsSummaryApi | null,
             {
                 loadFleetFindingsSummary: async () => {
-                    return await api.signalScout.runs.findingsSummary()
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    return await signalsScoutRunsFindingsSummary(String(teamId))
                 },
             },
         ],
@@ -258,7 +257,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         emittedFindingsSummary: [
             (s) => [s.fleetFindingsSummary],
             (
-                fleetFindingsSummary: SignalScoutFleetFindingsSummary | null
+                fleetFindingsSummary: FleetFindingsSummaryApi | null
             ): { count: number; scoutCount: number; latestAt: string | null } => ({
                 count: fleetFindingsSummary?.count ?? 0,
                 scoutCount: fleetFindingsSummary?.scout_count ?? 0,

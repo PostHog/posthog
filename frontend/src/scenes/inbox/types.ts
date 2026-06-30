@@ -281,17 +281,6 @@ export interface SignalScoutEmissionReportLink {
     report: LinkedSignalReport | null
 }
 
-/** Cheap fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
- * renders from one query instead of the client walking the whole paginated runs window. */
-export interface SignalScoutFleetFindingsSummary {
-    /** Total findings emitted across the fleet in the window (sum of emitted runs' `emitted_count`). */
-    count: number
-    /** Distinct scouts (skills) that emitted at least one finding in the window. */
-    scout_count: number
-    /** ISO-8601 time of the most recently emitted finding's run, or null when none in the window. */
-    latest_at: string | null
-}
-
 // ── Report state transitions (backend `state` action: dismiss / snooze) ──────
 
 export interface SignalReportStateRequest {

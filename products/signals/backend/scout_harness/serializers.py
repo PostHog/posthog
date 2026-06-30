@@ -23,6 +23,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAGS_PER_FINDING,
 )
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -306,8 +307,11 @@ class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
     window_hours = serializers.IntegerField(
         required=False,
         min_value=1,
-        max_value=168,
-        help_text="Lookback window in hours over runs' `created_at` (default 72, hard cap 168).",
+        max_value=MAX_FINDINGS_WINDOW_HOURS,
+        help_text=(
+            f"Lookback window in hours over runs' `created_at` "
+            f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
     )
 
 
