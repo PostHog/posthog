@@ -26,8 +26,6 @@ export interface GitHubRepositoryComboboxProps {
     onChange: (value: string | null) => void
     disabled?: boolean
     placeholder?: string
-    /** When true, prepends a "No repo" item that calls onChange(null). */
-    showNoneOption?: boolean
 }
 
 /**
@@ -36,16 +34,12 @@ export interface GitHubRepositoryComboboxProps {
  * refresh control. Searching and pagination are delegated to {@link githubRepositorySearchLogic} so large
  * accounts never load the full repository list up front.
  */
-/** Sentinel item value for the "no repository" option. */
-const NO_REPO_SENTINEL = '__no_repo__'
-
 export function GitHubRepositoryCombobox({
     integrationId,
     value,
     onChange,
     disabled = false,
     placeholder = 'Select repository...',
-    showNoneOption = false,
 }: GitHubRepositoryComboboxProps): JSX.Element {
     const logic = githubRepositorySearchLogic({ id: integrationId })
     const { repositoryNames, loading, hasMore, searchQuery, error } = useValues(logic)
@@ -60,9 +54,6 @@ export function GitHubRepositoryCombobox({
     const showInlineLoadingState = open && loading
     // Distinguish "this account genuinely has no repos" from "the search/refresh just hasn't returned yet".
     const hasActiveSearchContext = open || trimmedSearchQuery.length > 0
-
-    // Prepend sentinel only when not searching (the "No repo" option doesn't match any search query).
-    const items = showNoneOption && !trimmedSearchQuery ? [NO_REPO_SENTINEL, ...repositoryNames] : repositoryNames
 
     if (loading && !showInlineLoadingState && repositoryNames.length === 0) {
         return (
@@ -84,17 +75,11 @@ export function GitHubRepositoryCombobox({
 
     return (
         <Combobox
-            items={items}
+            items={repositoryNames}
             // Server-side search already filtered the list; don't let the combobox re-filter by input value.
             filter={null}
             value={value || null}
-            onValueChange={(next: string | null) => {
-                if (!next || next === NO_REPO_SENTINEL) {
-                    onChange(null)
-                    return
-                }
-                onChange(next)
-            }}
+            onValueChange={(next: string | null) => onChange(next ? next : null)}
             open={open}
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
@@ -151,17 +136,11 @@ export function GitHubRepositoryCombobox({
                     {showInlineLoadingState ? 'Loading repositories...' : error ? error : 'No repositories found.'}
                 </ComboboxEmpty>
                 <ComboboxList>
-                    {(repo: string) =>
-                        repo === NO_REPO_SENTINEL ? (
-                            <ComboboxItem key={repo} value={repo}>
-                                No repo
-                            </ComboboxItem>
-                        ) : (
-                            <ComboboxItem key={repo} value={repo}>
-                                {repo}
-                            </ComboboxItem>
-                        )
-                    }
+                    {(repo: string) => (
+                        <ComboboxItem key={repo} value={repo}>
+                            {repo}
+                        </ComboboxItem>
+                    )}
                 </ComboboxList>
 
                 {hasMore && (
