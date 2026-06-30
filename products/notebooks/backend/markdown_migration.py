@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from typing import Any
 
 from django.db import transaction
@@ -12,6 +11,11 @@ from posthog.models.comment import Comment
 
 from products.notebooks.backend import markdown_collab
 from products.notebooks.backend.activity_logging import log_notebook_activity
+from products.notebooks.backend.facade.contracts import (
+    MarkdownNotebookMigrationPreview,
+    MarkdownNotebookMigrationResult,
+    MarkdownNotebookMigrationStats,
+)
 from products.notebooks.backend.markdown_conversion import (
     NotebookMarkdownConversionOptions,
     build_markdown_notebook_content,
@@ -20,35 +24,6 @@ from products.notebooks.backend.markdown_conversion import (
 )
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.python_analysis import annotate_python_nodes
-
-
-@dataclass(frozen=True)
-class MarkdownNotebookMigrationStats:
-    total: int
-    converted: int
-    pending: int
-    team_id: int | None = None
-
-
-@dataclass(frozen=True)
-class MarkdownNotebookMigrationPreview:
-    short_id: str
-    title: str | None
-    before_version: int
-    markdown_preview: str
-
-
-@dataclass(frozen=True)
-class MarkdownNotebookMigrationResult:
-    dry_run: bool
-    team_id: int | None
-    total: int
-    already_converted: int
-    converted: int
-    skipped: int
-    errored: int
-    previews: list[MarkdownNotebookMigrationPreview] = field(default_factory=list)
-    errors: list[str] = field(default_factory=list)
 
 
 def get_markdown_notebook_migration_stats(team_id: int | None = None) -> MarkdownNotebookMigrationStats:

@@ -142,7 +142,7 @@
     </div>
 </div>
 
-<script>
+<script nonce="{{ request.csp_nonce }}">
     (function () {
         const statsUrl = "{% url 'notebook-markdown-migration-stats' %}"
         const runUrl = "{% url 'notebook-markdown-migration-run' %}"
@@ -169,6 +169,14 @@
             message.classList.toggle("is-visible", !!text)
             message.classList.toggle("is-error", !!isError)
             message.classList.toggle("is-success", !!text && !isError)
+        }
+
+        async function readJson(response) {
+            const contentType = response.headers.get("content-type") || ""
+            if (!contentType.includes("application/json")) {
+                throw new Error("Expected a JSON response from the migration endpoint.")
+            }
+            return await response.json()
         }
 
         function renderStats(data) {
@@ -200,15 +208,23 @@
 
         async function refreshStats() {
             status.textContent = "Loading…"
-            const response = await fetch(statsUrl + teamQuery(), { headers: { "Accept": "application/json" } })
-            const data = await response.json()
-            if (!response.ok) {
+            refreshButton.disabled = true
+            try {
+                const response = await fetch(statsUrl + teamQuery(), { headers: { "Accept": "application/json" } })
+                const data = await readJson(response)
+                if (!response.ok) {
+                    status.textContent = "Could not load stats"
+                    setMessage(data.error || "Could not load migration stats.", true)
+                    return
+                }
+                renderStats(data)
+                status.textContent = "Updated"
+            } catch (error) {
                 status.textContent = "Could not load stats"
-                setMessage(data.error || "Could not load migration stats.", true)
-                return
+                setMessage(String(error), true)
+            } finally {
+                refreshButton.disabled = false
             }
-            renderStats(data)
-            status.textContent = "Updated"
         }
 
         refreshButton.addEventListener("click", refreshStats)
@@ -232,7 +248,7 @@
                         dry_run: dryRunInput.checked,
                     }),
                 })
-                const data = await response.json()
+                const data = await readJson(response)
                 if (!response.ok) {
                     setMessage(data.error || "Migration failed.", true)
                     return

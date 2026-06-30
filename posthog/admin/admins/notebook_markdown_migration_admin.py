@@ -8,10 +8,7 @@ from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import render
 from django.views.decorators.http import require_GET, require_POST
 
-from products.notebooks.backend.markdown_migration import (
-    get_markdown_notebook_migration_stats,
-    migrate_notebooks_to_markdown,
-)
+from products.notebooks.backend.facade import api as notebooks_api
 
 
 class NotebookMarkdownMigrationForm(forms.Form):
@@ -40,7 +37,7 @@ def notebook_markdown_migration_view(request: HttpRequest) -> HttpResponse:
 def notebook_markdown_migration_stats_view(request: HttpRequest) -> JsonResponse:
     try:
         team_id = _parse_team_id(request.GET.get("team_id"))
-        stats = get_markdown_notebook_migration_stats(team_id)
+        stats = notebooks_api.get_markdown_notebook_migration_stats(team_id)
     except ValueError as err:
         return JsonResponse({"error": str(err)}, status=400)
 
@@ -59,7 +56,7 @@ def notebook_markdown_migration_run_view(request: HttpRequest) -> JsonResponse:
     try:
         team_id = _parse_team_id(payload.get("team_id"))
         dry_run = bool(payload.get("dry_run", True))
-        result = migrate_notebooks_to_markdown(user=request.user, team_id=team_id, dry_run=dry_run)
+        result = notebooks_api.migrate_notebooks_to_markdown(user=request.user, team_id=team_id, dry_run=dry_run)
     except ValueError as err:
         return JsonResponse({"error": str(err)}, status=400)
 
