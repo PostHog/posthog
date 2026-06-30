@@ -20,6 +20,7 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.errors import ResolutionError
 from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 GROUPS_TABLE_FIELDS: dict[str, FieldOrTable] = {
     "index": IntegerDatabaseField(
@@ -85,6 +86,29 @@ def _is_nonneg_int_constant(expr) -> bool:
     return isinstance(expr, ast.Constant) and isinstance(expr.value, int) and expr.value >= 0
 
 
+class _WindowFunctionFinder(TraversingVisitor):
+    # A window function's own ORDER BY lives in its `over_expr`, not the query's `order_by`, and pure window
+    # functions (rank, row_number, lagInFrame) aren't aggregations -- so neither the order_by nor the
+    # has_aggregation guard catches them. A window must see every group, so it can't ride the key limit.
+    found: bool = False
+
+    def visit(self, node):
+        if not self.found:
+            super().visit(node)
+
+    def visit_select_query(self, node: ast.SelectQuery):
+        pass  # a window inside a scalar subquery doesn't change this query's rows
+
+    def visit_window_function(self, node: ast.WindowFunction):
+        self.found = True
+
+
+def _has_window_function(expr: ast.Expr) -> bool:
+    finder = _WindowFunctionFinder()
+    finder.visit(expr)
+    return finder.found
+
+
 def _bare_limit_key_count(node: SelectQuery) -> int | None:
     # Deferred: posthog.hogql.property imports database schema modules, so a top-level import here is circular.
     from posthog.hogql.property import has_aggregation  # noqa: PLC0415
@@ -107,6 +131,8 @@ def _bare_limit_key_count(node: SelectQuery) -> int | None:
         or node.limit_with_ties
         or node.limit_percent
         or any(has_aggregation(expr) for expr in node.select)
+        or node.window_exprs
+        or any(_has_window_function(expr) for expr in node.select)
         or not isinstance(_resolved_table(node.select_from.type), GroupsTable)
     ):
         return None

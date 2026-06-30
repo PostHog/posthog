@@ -120,6 +120,19 @@ class TestGroupsLimitPushdown(ClickhouseTestMixin, APIBaseTest):
         assert len(results) == 5
         assert "LIMIT 6" not in sql
 
+    def test_window_function_is_not_pushed(self):
+        team = self._team()
+        for i in range(12):
+            create_group(team_id=team.pk, group_type_index=0, group_key=f"g{i:02d}", properties={})
+
+        # A window function must see every group; a pushed key limit would compute count() OVER () over the limited
+        # set (window funcs aren't caught by the order_by or aggregate guards -- the window's ORDER BY is internal).
+        sql, results = self._run(team, "SELECT key, count() OVER () AS total FROM groups LIMIT 5")
+
+        assert results[0][1] == 12
+        assert "globalIn(tuple(" not in sql
+        assert "LIMIT 6" not in sql
+
     def test_aliased_groups_select_still_pushes_limit(self):
         team = self._team()
         for i in range(12):
