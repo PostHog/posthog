@@ -673,19 +673,33 @@ class TestTransientGrpcErrorDetection:
         assert _is_transient_grpc_error(exc) is expected
 
 
-class _FlakyService:
-    """Raises a transient error for the first ``fail_times`` calls, then serves one page."""
+class _FlakyCalls:
+    """Raises a transient error for the first ``fail_times`` calls, then serves ``_success()``."""
 
-    def __init__(self, page: SimpleNamespace, error: BaseException, fail_times: int):
-        self.page = page
+    def __init__(self, error: BaseException, fail_times: int):
         self.error = error
         self.fail_times = fail_times
         self.calls = 0
 
-    def search(self, request: dict):
+    def _serve(self):
         self.calls += 1
         if self.calls <= self.fail_times:
             raise self.error
+        return self._success()
+
+    def _success(self):
+        raise NotImplementedError
+
+
+class _FlakyService(_FlakyCalls):
+    def __init__(self, page: SimpleNamespace, error: BaseException, fail_times: int):
+        super().__init__(error, fail_times)
+        self.page = page
+
+    def search(self, request: dict):
+        return self._serve()
+
+    def _success(self):
         return SimpleNamespace(pages=iter([self.page]))
 
 
@@ -771,19 +785,15 @@ class TestSearchTransientRetry:
         assert sleep.call_count == 0
 
 
-class _FlakyFieldService:
-    """Raises a transient error for the first ``fail_times`` calls, then returns a fields pager."""
-
+class _FlakyFieldService(_FlakyCalls):
     def __init__(self, pager: object, error: BaseException, fail_times: int):
+        super().__init__(error, fail_times)
         self.pager = pager
-        self.error = error
-        self.fail_times = fail_times
-        self.calls = 0
 
     def search_google_ads_fields(self, query: str):
-        self.calls += 1
-        if self.calls <= self.fail_times:
-            raise self.error
+        return self._serve()
+
+    def _success(self):
         return self.pager
 
 

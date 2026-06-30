@@ -529,6 +529,8 @@ _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
 _TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
 
+_T = typing.TypeVar("_T")
+
 
 def _is_transient_grpc_error(exc: BaseException) -> bool:
     """Return True for a transient gRPC failure Google's guidance says to retry.
@@ -547,6 +549,23 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
 
 
+def _with_transient_grpc_retry(fn: collections.abc.Callable[[], _T], *, max_attempts: int) -> _T:
+    """Run ``fn``, retrying a transient gRPC failure (see ``_is_transient_grpc_error``) with backoff.
+
+    Each retry re-issues the same request, so there is no partial state to reconcile. Non-transient
+    errors re-raise immediately so the caller's error handling and Temporal's retry policy still apply.
+    """
+    attempt = 0
+    while True:
+        try:
+            return fn()
+        except Exception as e:
+            attempt += 1
+            if attempt >= max_attempts or not _is_transient_grpc_error(e):
+                raise
+            time.sleep(min(2 * attempt, 30))
+
+
 def _search_with_transient_retry(
     service: GoogleAdsServiceClient,
     request: dict,
@@ -560,15 +579,7 @@ def _search_with_transient_retry(
     ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
     ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
     """
-    attempt = 0
-    while True:
-        try:
-            return service.search(request=request)
-        except Exception as e:
-            attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_error(e):
-                raise
-            time.sleep(min(2 * attempt, 30))
+    return _with_transient_grpc_retry(lambda: service.search(request=request), max_attempts=max_attempts)
 
 
 def _search_fields_with_transient_retry(
@@ -585,15 +596,7 @@ def _search_fields_with_transient_retry(
     ``search`` call rides these out via ``_search_with_transient_retry``. The query is idempotent,
     so re-issuing it is safe; non-transient errors re-raise so Temporal's retry policy still applies.
     """
-    attempt = 0
-    while True:
-        try:
-            return service.search_google_ads_fields(query=query)
-        except Exception as e:
-            attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_error(e):
-                raise
-            time.sleep(min(2 * attempt, 30))
+    return _with_transient_grpc_retry(lambda: service.search_google_ads_fields(query=query), max_attempts=max_attempts)
 
 
 def _is_invalid_page_token_error(exc: GoogleAdsException) -> bool:
