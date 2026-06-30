@@ -15,7 +15,7 @@ from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
-from rest_framework import status, test
+from rest_framework import exceptions, status, test
 from temporalio.service import RPCError
 
 from posthog.api.team import (
@@ -1911,6 +1911,26 @@ def team_api_test_factory():
             }
             self.team.refresh_from_db()
             assert self.team.conversations_settings["ai_bug_fix_repo"] == "posthog/posthog"
+
+        def test_conversations_settings_bug_fix_create_requires_conversations_admin(self):
+            # On create there's no team instance, so the gate must resolve the org from the view and still
+            # block non-admins — otherwise a member who can create a project could self-enable autonomous PRs.
+            member_user = User.objects.create_user(
+                email="member-bugfix-create@posthog.com", password="password", first_name="Member"
+            )
+            OrganizationMembership.objects.create(
+                user=member_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+            serializer = TeamSerializer(
+                context={
+                    "request": MagicMock(user=member_user),
+                    "view": MagicMock(organization_id=self.organization.id),
+                }
+            )
+            with self.assertRaises(exceptions.PermissionDenied):
+                serializer.validate_conversations_settings({"ai_bug_fix_prs_enabled": True})
 
         def test_conversations_settings_merges_with_existing(self):
             self.client.patch(
