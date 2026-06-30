@@ -80,6 +80,7 @@ the row lists both.
 | bunny                   | HTTP                        | requests                                                        | ✅                          |
 | buzzsprout              | HTTP                        | requests                                                        | ✅                          |
 | calendly                | HTTP                        | requests                                                        | ✅                          |
+| callrail                | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor        | HTTP                        | requests                                                        | ✅                          |
 | campayn                 | HTTP                        | requests                                                        | ✅                          |
 | canny                   | HTTP                        | requests                                                        | ✅                          |
@@ -337,7 +338,6 @@ doesn't conflict with concurrent PRs.
 - branch
 - breezy_hr
 - cal_com
-- callrail
 - campaign_manager_360
 - capsule_crm
 - captain_data
