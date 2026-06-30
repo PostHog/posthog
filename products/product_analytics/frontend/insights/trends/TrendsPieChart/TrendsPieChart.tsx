@@ -27,8 +27,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { InsightVizNode } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { buildTrendsPieSeries } from './trendsPieTransforms'
 
 interface TrendsPieChartProps {
@@ -205,7 +205,7 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
 
     const renderTooltip = useCallback(
         (ctx: TooltipContext<TrendsSeriesMeta>) => (
-            <TrendsTooltip
+            <InsightSeriesTooltip
                 context={ctx}
                 breakdownFilter={breakdownFilter ?? undefined}
                 trendsFilter={trendsFilter}
