@@ -46,6 +46,7 @@ the row lists both.
 | ----------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | adroll                  | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                | HTTP                        | requests                                                        | ✅                          |
+| aha                     | HTTP                        | requests                                                        | ✅                          |
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
@@ -299,7 +300,6 @@ doesn't conflict with concurrent PRs.
 - adobe_commerce
 - adp_workforce_now
 - adyen
-- aha
 - ahrefs
 - airbyte
 - akeneo
