@@ -440,6 +440,11 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             } = { ok: false, error: { code: 'dry_run_unknown', message: 'no response produced' } }
             let sandbox: Awaited<ReturnType<SandboxPool['acquireForSession']>> | undefined
 
+            // TODO(dry-run-throttle): unbounded fan-out — a user with
+            // agents:write can repeatedly POST and spawn sandboxes outside
+            // the session execution queue. Gate on per-team concurrency /
+            // quota before acquireForSession, or route dry-runs through the
+            // queued execution path.
             try {
                 try {
                     sandbox = await opts.sandboxes.acquireForSession({
