@@ -1,10 +1,8 @@
 """Curated query: PR list with head-SHA CI rollup.
 
-All open PRs plus any merged or closed since ``date_from`` (the recency floor for
-finished work; open PRs are always included regardless of age). Ordered newest
-first, capped at ``_LIMIT``. The query fetches ``_LIMIT + 1`` rows so an overflow is
-detectable, and the result reports ``truncated`` rather than silently dropping the
-tail (the aggregate counts in ``ci_cards`` can then legitimately exceed the list).
+All open PRs plus any merged or closed since ``date_from`` (open PRs always included regardless of
+age). Newest first, capped at ``_LIMIT``. Fetches ``_LIMIT + 1`` rows so overflow is detectable and
+reports ``truncated`` rather than silently dropping the tail.
 """
 
 from datetime import datetime

@@ -1,13 +1,11 @@
 """HogQL assembly of all workflow runs attributed to a PR, across its commits.
 
-Unlike ``pr_lifecycle`` (which scopes to the PR's current head SHA), this returns every run attributed
-to the PR — so the detail page can show CI across all of the PR's pushes, grouped by commit. Newest run
-first. Run-level only.
+Unlike ``pr_lifecycle`` (scoped to the PR's current head SHA), this returns every run attributed to
+the PR, so the detail page can show CI across all pushes. Newest first. Run-level only.
 
-Attribution is the curated ``pr_number``, i.e. the FIRST PR in a run's ``pull_requests`` association
-(see ``views/workflow_runs.py``). A run that lists this PR only in a later slot — uncommon: one head
-commit tied to several open PRs — is credited to its first PR instead and won't appear here. That's the
-same deliberate v1 simplification the rollup uses; it's a friction signal, not billing.
+Attribution is the curated ``pr_number`` — the FIRST PR in a run's ``pull_requests`` association (see
+``views/workflow_runs.py``). A run listing this PR only in a later slot is credited to its first PR
+instead and won't appear here — the same v1 simplification the rollup uses; a friction signal, not billing.
 """
 
 from posthog.hogql import ast

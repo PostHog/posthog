@@ -1,11 +1,8 @@
 """HogQL assembly of a single PR's lifecycle over the curated query builders.
 
-Embeds the curated ``github_pull_requests`` / ``github_workflow_runs`` builders
-as subqueries (via ``_curated``) — the product runs this privately rather than
-registering a global view. The curated SELECTs already carry the derived columns
-(canonical ``state``, ``is_bot``, repo identity, ``head_sha``), so this layer only
-shapes the rows into the ``PRLifecycle`` contract; no GitHub-isms or domain rules
-live here.
+Embeds the curated ``github_pull_requests`` / ``github_workflow_runs`` builders as subqueries (via
+``_curated``). The curated SELECTs already carry the derived columns (canonical ``state``, ``is_bot``,
+repo identity, ``head_sha``), so this layer only shapes rows into the ``PRLifecycle`` contract.
 """
 
 from datetime import datetime
@@ -106,11 +103,9 @@ def query_pr_lifecycle(
     def add(
         kind: PRLifecycleEventKind, at: datetime | None, *, detail: str | None = None, run_id: int | None = None
     ) -> None:
-        # Timestamps come from parseDateTimeBestEffort, which yields NULL on a malformed/missing
-        # value, so `at` can be None. Skip those events — a timeline can't place an event with no
-        # time, and `at` is non-nullable on the contract, so building one would raise. Guarding
-        # here keeps a single bad run timestamp from failing the whole PR's lifecycle (and the
-        # sort below never sees a None key).
+        # parseDateTimeBestEffort yields NULL on a bad/missing timestamp, so `at` can be None. Skip
+        # those — `at` is non-nullable on the contract, and this keeps one bad run timestamp from
+        # failing the whole lifecycle (and the sort never sees a None key).
         if at is not None:
             events.append(PRLifecycleEvent(kind=kind, at=at, detail=detail, run_id=run_id))
 

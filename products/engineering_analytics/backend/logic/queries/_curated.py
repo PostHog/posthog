@@ -1,16 +1,13 @@
 """The curated read layer over a team's GitHub warehouse tables.
 
-``CuratedGitHubSource`` binds one team to its resolved ``pull_requests`` / ``workflow_runs``
-table names (see ``logic.sources``) and is the single object the query modules use: it hands
-out the curated ``SELECT`` subqueries and the CI rollup CTE, and runs the assembled HogQL.
-The resolved table names live inside it, so the query layer never threads or re-derives them.
-The product reads its data privately this way — nothing is registered as a global HogQL view,
-keeping it off the per-query catalog hot path.
+``CuratedGitHubSource`` binds one team to its resolved ``pull_requests`` / ``workflow_runs`` table
+names (see ``logic.sources``) and is the single object the query modules use: it hands out the curated
+``SELECT`` subqueries and the CI rollup CTE, and runs the assembled HogQL. The product reads privately
+this way — nothing is registered as a global HogQL view.
 
-Every SQL fragment is built from trusted constants and the resolved table identifiers (which
-the resolver has validated to ``[A-Za-z_][A-Za-z0-9_]*``). User-supplied values must always
-flow through ``ast.Constant`` placeholders in the calling query, never be string-substituted
-into these fragments.
+Every SQL fragment is built from trusted constants and the resolved table identifiers (validated to
+``[A-Za-z_][A-Za-z0-9_]*``). User-supplied values must always flow through ``ast.Constant``
+placeholders, never be string-substituted into these fragments.
 """
 
 from typing import TYPE_CHECKING
@@ -35,9 +32,8 @@ class CuratedGitHubSource:
     """A team's curated GitHub read layer, bound to its resolved warehouse tables.
 
     Construct once per request with ``for_team`` — it resolves the table names and raises
-    ``GitHubSourceNotConnectedError`` when the team has no connected GitHub source, so the
-    "is a source connected" decision lives in exactly one place (the resolver). The query
-    modules then ask the returned instance for the curated subqueries and run HogQL through it.
+    ``GitHubSourceNotConnectedError`` when no source is connected, so that decision lives in one place.
+    Query modules then ask the instance for the curated subqueries and run HogQL through it.
     """
 
     def __init__(
@@ -79,9 +75,8 @@ class CuratedGitHubSource:
     def runs_cte(self) -> str:
         """CTE materializing the curated workflow-runs source once.
 
-        ``ci_rollup`` and ``runs_by_pr`` both derive from the same runs source; reading them from
-        this shared CTE keeps the (JSON- and timestamp-parsing) source to a single scan per query
-        instead of inlining — and re-parsing — it once per rollup.
+        ``ci_rollup`` and ``runs_by_pr`` both derive from it; the shared CTE keeps the JSON/timestamp
+        parsing to a single scan per query instead of re-parsing it once per rollup.
         """
         return f"runs AS {self.run_source()}"
 
@@ -116,28 +111,21 @@ class CuratedGitHubSource:
         """
 
     def pr_rollup_query(self, select: str) -> str:
-        """Compose a pull-requests query that reads ``FROM __PR_SOURCE__ AS pr LEFT JOIN ci_rollup``.
-
-        Prefixes ``select`` with the CI rollup CTE and fills its ``__PR_SOURCE__`` placeholder
-        with the curated pull-requests source — the two steps the cards and PR-list queries always
-        do together.
+        """Compose a pull-requests query: prefix ``select`` with the CI rollup CTE and fill its
+        ``__PR_SOURCE__`` placeholder — the two steps the cards and PR-list queries always do together.
         """
         return self._compose_pr_query([self.runs_cte(), self.ci_rollup_cte()], select)
 
     def runs_by_pr_cte(self) -> str:
         """CTE: per-PR activity from the workflow runs attributed to each PR.
 
-        A run records the PR(s) it ran for in ``pull_requests``; the curated run source surfaces
-        the first as ``pr_number``. ``pushes`` counts the distinct head SHAs that triggered CI
-        (CI triggers), ``rerun_cycles`` the runs that were a 2nd+ attempt. Fork-PR runs have no
-        association (``pr_number = 0``) and are excluded.
+        A run records the PR(s) it ran for; the curated source surfaces the first as ``pr_number``.
+        ``pushes`` counts distinct head SHAs (CI triggers), ``rerun_cycles`` the 2nd+ attempts. Fork-PR
+        runs (``pr_number = 0``) are excluded.
 
-        Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers
-        restart per repository, so the PR-list join is qualified by repo to stay correct — as
-        repo-safe as the head-SHA join in ``ci_rollup_cte``. A resolved source is a single repo
-        today (the warehouse GitHub source syncs one ``owner/repo``), so the qualifier is a no-op
-        now; it keeps the rollup correct if a source ever spans repos, instead of silently
-        cross-attributing runs to a same-numbered PR in another repo.
+        Keyed on ``(repo_owner, repo_name, pr_number)``, not ``pr_number`` alone: PR numbers restart per
+        repo, so the join is repo-qualified to stay correct. A resolved source is one repo today, so the
+        qualifier is a no-op now; it keeps the rollup correct if a source ever spans repos.
         """
         return f"""
             runs_by_pr AS (
@@ -171,14 +159,11 @@ class CuratedGitHubSource:
         """Parse + execute a curated HogQL query for this team.
 
         Mirrors the two paths the data warehouse team intends for ``hogql-warehouse-access-control``
-        (#61686). Request-driven reads (the common case — the views thread the requesting user through)
-        forward that user so HogQL honors the per-table warehouse ACL: access is enforced twice over —
-        the resolver (``for_team``) already filtered the source to what this user may read, and now the
-        table-level ACL is honored too, so a user denied a backing ``DataWarehouseTable`` is blocked
-        rather than let through. The facade also documents a userless path (``user_access_control=None``)
-        for system / Temporal / CLI contexts; that build has no user to honor the ACL with and would fail
-        closed (strip every warehouse table), so those reads bypass it — the warehouse team's sanctioned
-        escape hatch for userless callers.
+        (#61686). Request-driven reads forward the requesting user so HogQL honors the per-table
+        warehouse ACL — access is enforced twice (the resolver already filtered the source, the
+        table-level ACL is honored too). A userless path (``user_access_control=None``) for
+        system/Temporal/CLI has no user to honor the ACL with and would fail closed (strip every
+        warehouse table), so those reads bypass it — the warehouse team's sanctioned escape hatch.
         """
         uac = self._user_access_control
         with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=self._team.pk):
@@ -186,13 +171,11 @@ class CuratedGitHubSource:
                 query=parse_select(sql, placeholders=placeholders),
                 team=self._team,
                 query_type=query_type,
-                # Forward the real user, not just the access control: a userless build drops the access
-                # control and fails closed (see _compute_system_table_access_decision), so the user is what
-                # lets HogQL honor the per-table warehouse ACL.
+                # Forward the real user, not just the access control: a userless build fails closed (see
+                # _compute_system_table_access_decision), so the user is what lets HogQL honor the ACL.
                 user=uac.user if uac is not None else None,
                 user_access_control=uac,
-                # No user means a system / Temporal / CLI caller (the facade's documented userless path).
-                # There is no principal to honor the ACL with, so bypass it rather than fail closed and
-                # strip the tables — bypass is set ONLY in this genuinely userless case.
+                # No user = system/Temporal/CLI (the documented userless path): no principal to honor the
+                # ACL, so bypass rather than fail closed and strip tables. Set ONLY in this case.
                 bypass_warehouse_access_control=uac is None,
             )
