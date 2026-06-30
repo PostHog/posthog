@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.reg
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import GoogleSheetsSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets import (
+    _integration_id,
     get_schema_incremental_fields as get_google_sheets_schema_incremental_fields,
     get_schemas as get_google_sheets_schemas,
     google_sheets_client,
@@ -124,7 +125,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
     def validate_credentials(
         self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        integration_id = config.auth_method.google_sheets_integration_id if config.auth_method else None
+        integration_id = _integration_id(config)
         if integration_id and not _oauth_enabled_for_team(team_id):
             return (
                 False,
@@ -222,8 +223,10 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig], OAuthMixin):
                         required=True,
                         placeholder="",
                         caption=f'Paste the full Google Sheet URL. For the shared service account method, first share the sheet with **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** ("Viewer" is enough).',
-                        # A sheet URL is not a credential, so it isn't redacted from API responses.
-                        secret=False,
+                        # Treated as sensitive so the URL is redacted from API responses: anyone who learns
+                        # a sheet URL shared with the shared service account could point their own source at
+                        # it and sync another team's data, so the URL itself is sensitive on that path.
+                        secret=True,
                     ),
                 ],
             ),
