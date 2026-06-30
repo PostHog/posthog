@@ -10,6 +10,7 @@ the mechanism is the generic :class:`EgressObservability`, so a new outbound API
 adapter module like this one.
 """
 
+import re
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
@@ -71,14 +72,26 @@ def _parse_github_rate_limit(response: requests.Response) -> RateLimitSnapshot:
     )
 
 
+# A git object id (full or abbreviated SHA). Templated so per-commit URLs (/statuses/{sha},
+# /commits/{sha}, git/{blobs,trees,commits}/{sha}) don't each mint a distinct endpoint label.
+_SHA_RE = re.compile(r"\A[0-9a-f]{7,40}\Z")
+
+# Path segments whose *next* segment is free-form to the end of the path (a file path or a compare
+# ref), so everything after them is collapsed to one placeholder rather than kept verbatim.
+_REST_IS_FREEFORM = {"contents": "{path}", "compare": "{refs}"}
+
+
 def _normalize_github_endpoint(url: str | None) -> str:
-    """Collapse a GitHub URL to a low-cardinality endpoint label. Owner/repo and numeric ids are
-    templated out — e.g. ``.../repos/posthog/posthog/actions/runs/42/jobs`` becomes
-    ``/repos/{owner}/{repo}/actions/runs/{id}/jobs``.
+    """Collapse a GitHub URL to a low-cardinality endpoint label. Owner/repo, numeric ids, commit
+    SHAs, and free-form tails (file paths, compare refs) are templated out — e.g.
+    ``.../repos/posthog/posthog/actions/runs/42/jobs`` becomes ``/repos/{owner}/{repo}/actions/runs/{id}/jobs``
+    and ``.../repos/o/r/statuses/<sha>`` becomes ``/repos/{owner}/{repo}/statuses/{sha}``.
 
     The leading-slash, ``{placeholder}`` style matches the curated endpoint strings the installation
     integration passes (e.g. ``/repos/{owner}/{repo}`` in github_integration_base), so the ``endpoint``
-    label reads consistently whether it's hand-written or derived from a URL."""
+    label reads consistently whether it's hand-written or derived from a URL. Without this, callers
+    that pass no explicit endpoint (Visual review, warehouse) would emit a unique label per commit
+    SHA / branch / file path and blow up Prometheus cardinality — the thing this layer prevents."""
     if not url:
         return "unknown"
     path = urlparse(url).path.strip("/")
@@ -94,7 +107,17 @@ def _normalize_github_endpoint(url: str | None) -> str:
             out.extend(["repos", "{owner}", "{repo}"])
             i += 3
             continue
-        out.append("{id}" if seg.isdigit() else seg)
+        # /contents/<file path...> and /compare/<base>...<head>: the remainder is a single free-form
+        # value (and a file path can itself contain slashes), so collapse it and stop.
+        if seg in _REST_IS_FREEFORM and i + 1 < len(parts):
+            out.extend([seg, _REST_IS_FREEFORM[seg]])
+            break
+        if seg.isdigit():
+            out.append("{id}")
+        elif _SHA_RE.match(seg):
+            out.append("{sha}")
+        else:
+            out.append(seg)
         i += 1
     return "/" + "/".join(out)
 

@@ -47,6 +47,16 @@ class TestGithubObservability(SimpleTestCase):
             ),
             ("https://api.github.com/repositories/12345", "/repositories/{id}"),
             ("https://api.github.com/search/code?q=x", "/search/code"),
+            # Visual review's high-cardinality URLs: commit SHA, compare refs, and file path.
+            (
+                "https://api.github.com/repos/o/r/statuses/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0",
+                "/repos/{owner}/{repo}/statuses/{sha}",
+            ),
+            ("https://api.github.com/repos/o/r/compare/main...feature", "/repos/{owner}/{repo}/compare/{refs}"),
+            (
+                "https://api.github.com/repos/o/r/contents/.github/visual-review.yml",
+                "/repos/{owner}/{repo}/contents/{path}",
+            ),
             (None, "unknown"),
         ]
     )
