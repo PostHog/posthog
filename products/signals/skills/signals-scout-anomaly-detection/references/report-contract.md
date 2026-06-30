@@ -27,18 +27,18 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 
 ## `emit_report` — author a full report
 
-| Field                       | Type                     | Notes                                                                                              |
-| --------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------- |
-| `title`                     | string, ≤300, non-empty  | The inbox headline. One specific, quantified line (see below).                                     |
-| `summary`                   | string                   | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).        |
-| `evidence`                  | list, 1–50               | Each `{description, source_id}`. Becomes a bound signal row backing the report.                    |
-| `actionability_explanation` | string                   | One sentence justifying the actionability call.                                                    |
-| `actionability`             | enum                     | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.           |
-| `already_addressed`         | bool, default `false`    | Set when the move is already handled and you're filing for the record.                             |
-| `suggested_reviewers`       | list of lowercase logins | Who owns the metric/dashboard — routes the report. Optional but high-leverage.                     |
-| `priority`                  | `P0`–`P4`                | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                      |
-| `priority_explanation`      | string                   | Required when `priority` is set.                                                                   |
-| `repository`                | string                   | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form. |
+| Field                       | Type                     | Notes                                                                                                                                                    |
+| --------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                     | string, ≤300, non-empty  | The inbox headline. One specific, quantified line (see below).                                                                                           |
+| `summary`                   | string                   | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                              |
+| `evidence`                  | list, 1–50               | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                          |
+| `actionability_explanation` | string                   | One sentence justifying the actionability call.                                                                                                          |
+| `actionability`             | enum                     | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                 |
+| `already_addressed`         | bool, default `false`    | Set when the move is already handled and you're filing for the record.                                                                                   |
+| `suggested_reviewers`       | list of `{github_login}` | Who owns the metric/dashboard — routes the report. Each entry is an object (`{github_login: "octocat"}`), not a bare string. Optional but high-leverage. |
+| `priority`                  | `P0`–`P4`                | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                            |
+| `priority_explanation`      | string                   | Required when `priority` is set.                                                                                                                         |
+| `repository`                | string                   | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                       |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as
@@ -274,7 +274,7 @@ priority: P1
 priority_explanation: >
   Signups are a top-of-funnel business metric; a sustained ~60% drop is active material impact.
 suggested_reviewers:
-  - octocat
+  - github_login: octocat
 repository: NO_REPO
 evidence:
   - source_id: 9aBcDeF
