@@ -87,9 +87,11 @@ def _get_external_data_job(run_id: str) -> ExternalDataJob:
 @database_sync_to_async_pool
 def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDataSchema:
     return db_read_with_retry(
-        lambda: ExternalDataSchema.objects.prefetch_related("source", "table")
-        .exclude(deleted=True)
-        .get(id=schema_id, team_id=team_id)
+        lambda: (
+            ExternalDataSchema.objects.prefetch_related("source", "table")
+            .exclude(deleted=True)
+            .get(id=schema_id, team_id=team_id)
+        )
     )
 
 
