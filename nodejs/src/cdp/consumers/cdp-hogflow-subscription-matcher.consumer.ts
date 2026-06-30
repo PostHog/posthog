@@ -119,8 +119,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     // clickhouse_person carries non-event person-property changes (the precalculated topic only
     // emits a per-condition match boolean, not the full property set the wait bytecode needs).
     private personKafkaConsumer: KafkaConsumerInterface
-    // cdp_internal_events carries CDP-generated signals (e.g. email opened/clicked) that never hit
-    // the analytics events topic.
+    // cdp_internal_events carries CDP-generated signals (e.g. $insight_alert_firing,
+    // $activity_log_entry_created) that bypass the public capture pipeline and never reach the
+    // analytics events topic. (Email engagement events, by contrast, flow through capture to
+    // clickhouse_events_json and are already covered by the events stream.)
     private internalEventsKafkaConsumer: KafkaConsumerInterface
     private cyclotronPool: Pool
 

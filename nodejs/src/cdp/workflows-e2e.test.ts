@@ -1077,13 +1077,13 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
         })
 
         it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
-            // CDP-generated signals (e.g. email opened/clicked) arrive on cdp_internal_events and never
+            // CDP-generated signals (e.g. $insight_alert_firing) arrive on cdp_internal_events and never
             // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
             // wakes parked waits whose "events to wait for" name the signal, matched by distinct_id.
             await createWaitUntilWorkflow({
                 // Property condition never matches the trigger event, so the job parks until the signal.
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
-                events: [eventNameFilter('$workflows_email_opened')],
+                events: [eventNameFilter('$insight_alert_firing')],
                 max_wait_duration: '5m',
             })
             await triggerWorkflow(createGlobals())
@@ -1096,7 +1096,7 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
                         team_id: team.id,
                         event: {
                             uuid: new UUIDT().toString(),
-                            event: '$workflows_email_opened',
+                            event: '$insight_alert_firing',
                             distinct_id: 'distinct_id',
                             properties: {},
                             timestamp: '2024-09-03T09:00:00Z',

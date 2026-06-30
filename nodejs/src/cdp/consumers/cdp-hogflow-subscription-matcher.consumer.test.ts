@@ -1266,7 +1266,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
                     team_id: overrides.team_id ?? 1,
                     event: {
                         uuid: 'evt-uuid-1',
-                        event: '$workflows_email_opened',
+                        event: '$insight_alert_firing',
                         distinct_id: 'distinct-1',
                         properties: {},
                         timestamp: '2024-01-01T00:00:00Z',
@@ -1292,7 +1292,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             expect(result).toHaveLength(1)
             const globals = result[0] as HogFunctionInvocationGlobals
-            expect(globals.event.event).toBe('$workflows_email_opened')
+            expect(globals.event.event).toBe('$insight_alert_firing')
             expect(globals.event.distinct_id).toBe('distinct-1')
         })
 
@@ -1324,7 +1324,7 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
             // The bad message is dropped; the valid one still parses.
             expect(result).toHaveLength(1)
-            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$workflows_email_opened')
+            expect((result[0] as HogFunctionInvocationGlobals).event.event).toBe('$insight_alert_firing')
         })
     })
 
