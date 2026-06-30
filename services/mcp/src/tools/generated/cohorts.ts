@@ -83,7 +83,7 @@ const CohortsListSchema = CohortsListQueryParams.extend({
     limit: z.preprocess(castStringToInt, CohortsListQueryParams.shape['limit']).optional(),
     offset: z.preprocess(castStringToInt, CohortsListQueryParams.shape['offset']).optional(),
     search: CohortsListQueryParams.shape['search'].describe(
-        'Find cohorts by name or description. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.'
+        'Find cohorts by name. Fuzzy trigram match (tolerates typos and partial words), exact matches ordered first.'
     ),
     hide_behavioral_cohorts: CohortsListQueryParams.shape['hide_behavioral_cohorts'].describe(
         'Set true to exclude behavioral (event-based) cohorts — not usable in batch workflow audiences.'

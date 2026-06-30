@@ -126,8 +126,8 @@ tools:
             List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count
             (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search'
             rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram
-            search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve'
-            with the cohort ID to get full details including filters, calculation status,
+            search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the
+            cohort ID to get full details including filters, calculation status,
 
             and query definition.
         param_overrides:

@@ -35,7 +35,7 @@ export const CohortsListQueryParams = /* @__PURE__ */ zod.object({
         .string()
         .optional()
         .describe(
-            "Optional. Match against cohort `name` and `description`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error."
+            "Optional. Match against cohort `name`. Returns case-insensitive substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) together, ordered exact-first then by relevance; each result's `search_match_type` is `exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 characters; longer queries return a 400 error."
         ),
 })
 
