@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { IconOpenSidebar, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
@@ -346,6 +347,7 @@ function IngestionWarningsWizardHint(): JSX.Element | null {
                     size="sm"
                     decoration="rainbow"
                     className="bg-surface-secondary border border-primary !m-0 hover:border-accent"
+                    onCopy={() => posthog.capture('ingestion warnings wizard hint command copied')}
                 />
             </div>
         </div>
