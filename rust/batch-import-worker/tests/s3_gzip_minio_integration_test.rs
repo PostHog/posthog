@@ -159,16 +159,21 @@ async fn test_s3_gzip_minio_integration() {
     let mut all_events: Vec<InternallyCapturedEvent> = Vec::new();
     for key in &keys {
         source.prepare_key(key).await.expect("prepare_key");
-        let size = source.size(key).await.expect("size").expect("size some");
+        // Streaming sources discover size lazily, so consume forward until the
+        // reader returns an empty chunk (end of stream) rather than reading up to
+        // a known size.
         let mut offset = 0u64;
-        while offset < size {
+        loop {
             let chunk = source
                 .get_chunk(key, offset, CHUNK_SIZE)
                 .await
                 .expect("get_chunk");
+            if chunk.is_empty() {
+                break;
+            }
             let parsed = parser(chunk).expect("parse chunk");
-            all_events.extend(parsed.data);
             offset += parsed.consumed as u64;
+            all_events.extend(parsed.data);
         }
     }
 
