@@ -20,7 +20,7 @@ const counterMessageAssetsCaptured = new Counter({
 
 const counterMessageAssetsFailed = new Counter({
     name: 'cdp_message_assets_failed',
-    help: 'Asset captures that failed at Kafka produce. Unlike logs/metrics this is load-bearing data: a failed flush throws so the consumer does not commit, the batch is redelivered, and the dedup via ReplacingMergeTree(version) absorbs the resulting duplicate produce.',
+    help: 'Asset captures that failed at Kafka produce and were dropped. Best-effort like logs/metrics — watch this counter to size the gap between sends and Assets-tab rows.',
 })
 
 const messageAssetsPendingRows = new Gauge({
@@ -63,13 +63,10 @@ const wrapPlainTextAsHtml = (text: string): string => {
  * produce at the batch boundary — one round-trip per partition for the whole
  * batch instead of one per email.
  *
- * Email assets are load-bearing for the workflow Assets tab, so unlike the
- * logs/metrics services this one rethrows on flush failure. The consumer's
- * `runBackgroundTasks` awaits the flush before the job-queue commits offsets,
- * so a broker outage stalls progress rather than silently dropping rows. On
- * crash mid-flush the batch is redelivered and re-produced with the same
- * `invocation_id` partition key — the destination ReplacingMergeTree collapses
- * the duplicate via `version`.
+ * Flush is best-effort: on broker failure the batch is dropped and the
+ * `cdp_message_assets_failed` counter is incremented. We prefer losing a
+ * handful of Assets-tab rows during a Kafka incident over stalling the
+ * whole CDP consumer (which would also re-trigger email sends on replay).
  */
 export class MessageAssetsService {
     private queuedRows: MessageAssetRow[] = []
@@ -150,15 +147,11 @@ export class MessageAssetsService {
             counterMessageAssetsCaptured.inc({ kind: 'email' }, rows.length)
         } catch (error) {
             counterMessageAssetsFailed.inc(rows.length)
-            logger.error('⚠️', `failed to flush message assets — stalling consumer to preserve durability: ${error}`, {
+            logger.error('⚠️', `failed to flush message assets — dropping batch: ${error}`, {
                 error: String(error),
-                queued: rows.length,
+                dropped: rows.length,
             })
             captureException(error)
-            // Rethrow so the consumer does not commit offsets — the redelivered
-            // batch re-produces with the same `invocation_id` + `version`, which
-            // the ReplacingMergeTree dedupes.
-            throw error
         }
     }
 }

@@ -17,9 +17,7 @@ import { WarehouseWebhooksService } from './warehouse/warehouse-webhooks.service
  * - `WarehouseWebhooksService`    — warehouse source webhook payloads
  * - `CapturedEventsService`       — PostHog events emitted via posthog.capture()
  * - `MessageAssetsService`        — rendered-email snapshots for the workflow
- *                                    Assets tab (load-bearing — flush rethrows
- *                                    on broker failure to keep the consumer
- *                                    from committing past lost rows)
+ *                                    Assets tab
  *
  * Callers interact with this one service instead of coordinating queue/flush
  * calls across the five individually. `queueInvocationResultsAndFlush` is the

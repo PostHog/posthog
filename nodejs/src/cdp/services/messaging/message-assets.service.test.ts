@@ -157,25 +157,26 @@ describe('MessageAssetsService', () => {
             expect(outputs.produce).not.toHaveBeenCalled()
         })
 
-        it('rethrows on broker failure so the consumer stalls offset commit (asset rows are load-bearing)', async () => {
-            const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams())!
-            const brokerDown = new Error('kafka down')
-            outputs.produce.mockRejectedValueOnce(brokerDown)
-
-            service.queueInvocationResults([resultWith([row])])
-
-            await expect(service.flush()).rejects.toThrow(brokerDown)
-        })
-
-        it('drops the buffer on flush failure so the next flush does not re-produce the same rows (the redelivered batch supplies them again)', async () => {
+        it('swallows broker failure so the CDP consumer keeps making progress', async () => {
             const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams())!
             outputs.produce.mockRejectedValueOnce(new Error('kafka down'))
 
             service.queueInvocationResults([resultWith([row])])
-            await expect(service.flush()).rejects.toThrow()
 
-            // Second flush with no new queuing is a no-op — the same rows arrive again
-            // via the redelivered Kafka offsets, not via this in-memory buffer.
+            // No throw — the surrounding consumer batch must not be aborted just
+            // because a few asset rows didn't make it to Kafka.
+            await expect(service.flush()).resolves.toBeUndefined()
+        })
+
+        it('drops the buffer on flush failure so the next flush does not retry the failed rows', async () => {
+            const row = service.buildRowForEmail(invocationWithAction('flow-1'), emailParams())!
+            outputs.produce.mockRejectedValueOnce(new Error('kafka down'))
+
+            service.queueInvocationResults([resultWith([row])])
+            await service.flush()
+
+            // Second flush with no new queuing is a no-op — failed rows are gone,
+            // we don't get a second produce attempt against the broker.
             await service.flush()
             expect(outputs.produce).toHaveBeenCalledTimes(1)
         })
