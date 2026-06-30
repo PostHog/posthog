@@ -338,5 +338,6 @@ class TestFreezePlanPersistence:
         # Reuse path returns plan_to_persist=None, so there's no write; the frozen plan is forwarded
         # to generation so it can skip the planner.
         mock_persist.assert_not_called()
+        assert mock_gen.await_args is not None
         assert mock_gen.await_args.kwargs["query_plan"] == frozen
         mock_ctx.assert_called_once()
