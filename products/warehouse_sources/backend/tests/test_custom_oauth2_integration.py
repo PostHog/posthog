@@ -4,12 +4,14 @@ from typing import Any, Optional
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.contrib.admin.sites import AdminSite
 from django.db import IntegrityError
 
 from posthog.models import Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.scoping.manager import TeamScopeError
 
+from products.warehouse_sources.backend.admin.custom_oauth2_integration_admin import CustomOAuth2IntegrationAdmin
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
     custom_oauth2_refresh_counter,
@@ -200,3 +202,14 @@ class TestCustomOAuth2Integration(BaseTest):
         assert get_custom_oauth2_integration(str(integration.pk), self.team.pk).pk == integration.pk
         with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
             get_custom_oauth2_integration(str(other_integration.pk), self.team.pk)
+
+    def test_admin_get_queryset_reads_outside_team_scope(self):
+        # Django admin runs outside request/team scope, so the model's fail-closed default manager would
+        # raise TeamScopeError the moment the changelist evaluates the queryset. The admin's get_queryset()
+        # reads through unscoped() instead; this guards against that escape hatch being dropped.
+        integration = self._make_integration()
+        admin_instance = CustomOAuth2IntegrationAdmin(CustomOAuth2Integration, AdminSite())
+
+        rows = list(admin_instance.get_queryset(MagicMock()))
+
+        assert integration.pk in {row.pk for row in rows}

@@ -1,4 +1,6 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.utils.html import format_html
 
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
@@ -32,6 +34,13 @@ class CustomOAuth2IntegrationAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[CustomOAuth2Integration]:
+        # `objects` is the fail-closed TeamScopedManager, which raises TeamScopeError without an ambient
+        # team scope — and admin runs outside request/team scope, so the default manager would 500 every
+        # changelist/detail render. Read cross-team through `unscoped()`, the prescribed escape hatch for
+        # framework internals (this admin is staff-only and inspection-only).
+        return CustomOAuth2Integration.objects.unscoped()
 
     # Inspection-only. The row holds OAuth2 secrets and is written solely by the sync worker
     # (refresh_and_persist) under a row lock + team scope; editing it from admin would bypass that scope.
