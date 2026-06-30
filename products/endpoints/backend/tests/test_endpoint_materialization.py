@@ -23,9 +23,9 @@ from posthog.constants import RETENTION_FIRST_EVER_OCCURRENCE, TREND_FILTER_TYPE
 from posthog.settings.temporal import DATA_MODELING_TASK_QUEUE
 from posthog.sync import database_sync_to_async
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.modeling import DataWarehouseModelPath
-from products.data_warehouse.backend.data_load.saved_query_service import get_saved_query_schedule
+from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_warehouse.backend.facade.api import get_saved_query_schedule
 from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
 from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.services.execution import EndpointExecutionService
@@ -35,7 +35,7 @@ from products.endpoints.backend.services.materialization import (
     prepare_executable_query,
 )
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 pytestmark = [pytest.mark.django_db]
 
@@ -53,14 +53,14 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         }
         # Mock Temporal-related functions to avoid connection errors
         self.sync_workflow_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.sync_saved_query_workflow"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.sync_saved_query_workflow"
         )
         self.workflow_exists_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.saved_query_workflow_exists",
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.saved_query_workflow_exists",
             return_value=False,
         )
         self.delete_schedule_patcher = mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.delete_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.delete_saved_query_schedule"
         )
         self.mock_sync_workflow = self.sync_workflow_patcher.start()
         self.mock_workflow_exists = self.workflow_exists_patcher.start()
@@ -1363,7 +1363,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         version = endpoint.versions.first()
         version.refresh_from_db()
@@ -1392,7 +1392,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
         saved_query_id = version.saved_query.id
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
@@ -1425,7 +1425,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         assert version.saved_query is not None
         saved_query_id = version.saved_query.id
 
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.facade.models import Node
 
         self.assertTrue(Node.objects.filter(team=self.team, saved_query_id=saved_query_id).exists())
 
@@ -1479,7 +1479,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn(BREAKDOWN_OTHER_STRING_LABEL, hogql_text)
 
     def test_materialization_failure_after_query_change_returns_success_with_error(self):
-        from products.warehouse_sources.backend.models.table import DataWarehouseTable
+        from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
         initial_query = {"kind": "HogQLQuery", "query": "SELECT * FROM events LIMIT 10"}
         endpoint = create_endpoint_with_version(

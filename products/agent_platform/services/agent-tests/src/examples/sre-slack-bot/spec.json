@@ -1,5 +1,5 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
     "triggers": [
         {
             "auth": {
@@ -184,6 +184,5 @@
         "max_wall_seconds": 600
     },
     "reasoning": "high",
-    "mcps": [],
-    "entrypoint": "agent.md"
+    "mcps": []
 }

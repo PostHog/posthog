@@ -187,6 +187,7 @@ class StagedArtifactPreparedDTO:
     storage_path: str
     expires_in: int
     presigned_post: dict
+    metadata: dict | None = None
 
 
 @dataclass(frozen=True)

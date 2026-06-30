@@ -1,24 +1,24 @@
 import { Message } from 'node-rdkafka'
 
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
 import { APP_METRICS_OUTPUT, DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { SingleIngestionOutput } from '~/common/outputs/single-ingestion-output'
+import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PromiseScheduler } from '~/common/utils/promise-scheduler'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
 import { createOkContext } from '~/ingestion/framework/helpers'
 import { drop, ok } from '~/ingestion/framework/results'
-import { KafkaProducerWrapper } from '~/kafka/producer'
 import { createTestTeam } from '~/tests/helpers/team'
-import { EventIngestionRestrictionManager } from '~/utils/event-ingestion-restrictions'
-import { parseJSON } from '~/utils/json-parse'
-import { PromiseScheduler } from '~/utils/promise-scheduler'
-import { TeamManager } from '~/utils/team-manager'
-import { UUIDT } from '~/utils/utils'
 
 import { HEATMAPS_OUTPUT } from './outputs'
 import { HeatmapsPipelineConfig, createHeatmapsPipeline } from './pipeline'
 
-jest.mock('~/utils/logger', () => ({
+jest.mock('~/common/utils/logger', () => ({
     logger: { debug: jest.fn(), info: jest.fn(), warn: jest.fn(), error: jest.fn() },
 }))
 

@@ -111,7 +111,7 @@ describe('createRateLimitToOverflowStep', () => {
 
             await step(events)
 
-            expect(service.handleEventBatch).toHaveBeenCalledWith('events', [
+            expect(service.handleEventBatch).toHaveBeenCalledWith([
                 { key: { token: 'token1', distinctId: 'user1' }, eventCount: 2, firstTimestamp: baseTime.getTime() },
                 { key: { token: 'token2', distinctId: 'user2' }, eventCount: 1, firstTimestamp: baseTime.getTime() },
             ])
@@ -146,7 +146,7 @@ describe('createRateLimitToOverflowStep', () => {
 
             // Service should be called with 3 unique keys
             expect(service.handleEventBatch).toHaveBeenCalledTimes(1)
-            const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][1]
+            const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
             expect(batches).toHaveLength(3)
         })
 
@@ -359,13 +359,12 @@ describe('createSkipCookielessRateLimitToOverflowStep', () => {
         await step(events)
 
         expect(service.handleEventBatch).toHaveBeenCalledWith(
-            'events',
             expect.arrayContaining([
                 expect.objectContaining({ key: { token: 'token1', distinctId: 'user1' }, eventCount: 1 }),
                 expect.objectContaining({ key: { token: 'token1', distinctId: 'user2' }, eventCount: 1 }),
             ])
         )
-        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][1]
+        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
         expect(batches).toHaveLength(2)
     })
 
@@ -412,7 +411,7 @@ describe('createOnlyCookielessRateLimitToOverflowStep', () => {
 
         await step(events)
 
-        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][1]
+        const batches = (service.handleEventBatch as jest.Mock).mock.calls[0][0]
         expect(batches).toHaveLength(2)
         expect(batches).toEqual(
             expect.arrayContaining([

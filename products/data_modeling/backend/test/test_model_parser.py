@@ -2,7 +2,7 @@ from textwrap import dedent
 
 import pytest
 
-from products.data_modeling.backend.services.gitsync.model_parser import (
+from products.data_modeling.backend.logic.gitsync.model_parser import (
     model_name_from_path,
     parse_model_file,
     serialize_model_file,

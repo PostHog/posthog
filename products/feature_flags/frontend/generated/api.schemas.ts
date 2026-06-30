@@ -34,6 +34,10 @@ export interface CopyFlagsSuccessItemApi {
     active: boolean
     /** Team ID the flag was copied to */
     team_id: number
+    /** Warnings for flag dependencies that were dropped because no matching active flag exists in the target project */
+    flag_dependency_warnings?: string[]
+    /** Warning emitted when the flag was copied but its scheduled changes failed to copy */
+    schedule_copy_warning?: string
 }
 
 export interface CopyFlagsResultApi {

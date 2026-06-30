@@ -186,6 +186,18 @@
                                     "type": "null"
                                 }
                             ]
+                        },
+                        "multiple_variant_handling": {
+                            "anyOf": [
+                                {
+                                    "enum": ["exclude", "first_seen"],
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "How to handle entities exposed to multiple variants. 'exclude' (default) drops them from the analysis; 'first_seen' assigns them to the variant from their earliest exposure."
                         }
                     },
                     "type": "object"
@@ -220,20 +232,6 @@
             "anyOf": [
                 {
                     "properties": {
-                        "excluded_variants": {
-                            "anyOf": [
-                                {
-                                    "items": {
-                                        "type": "string"
-                                    },
-                                    "type": "array"
-                                },
-                                {
-                                    "type": "null"
-                                }
-                            ],
-                            "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis."
-                        },
                         "feature_flag_variants": {
                             "anyOf": [
                                 {

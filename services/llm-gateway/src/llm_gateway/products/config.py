@@ -53,6 +53,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
         "gpt-5.3-codex",
         "gpt-5.2",
         "gpt-5-mini",
+        "@cf/zai-org/glm-5.2",
     }
 )
 
@@ -163,6 +164,14 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
     "warehouse_semantic_enrichment": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
+        allow_api_keys=True,
+        billable=False,
+    ),
+    # Drafts a Custom REST source manifest from API docs. Low volume, high stakes, long context —
+    # pinned to Opus rather than the cheap per-row model the enrichment context layer uses.
+    "warehouse_custom_source_builder": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-opus-4-8"}),
         allow_api_keys=True,
         billable=False,
     ),

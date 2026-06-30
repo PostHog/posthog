@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
@@ -88,7 +88,7 @@ describe('RecordingsUniversalFilterAddFilterPopover (pill category dropdown)', (
         // Type a query so we can prove the surrounding popover is not dismissed by the pick:
         // the bug routed the menu click through the parent popover's outside-press handler,
         // which cleared the query and collapsed the filter.
-        await userEvent.type(input, 'email')
+        fireEvent.change(input, { target: { value: 'email' } })
         expect(input).toHaveValue('email')
 
         // Open the pill menu and select a visible option. Re-query the trigger — typing

@@ -1,9 +1,9 @@
-import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/api/middleware/internal-api-auth'
-import { internalFetch } from '~/utils/request'
+import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/common/api/middleware/internal-api-auth'
+import { internalFetch } from '~/common/utils/request'
 
 import { InternalFetchService } from './internal-fetch'
 
-jest.mock('~/utils/request', () => ({
+jest.mock('~/common/utils/request', () => ({
     internalFetch: jest.fn(),
 }))
 

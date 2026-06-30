@@ -327,3 +327,40 @@ class CreateAccountNotebookInput:
     content: Any
     text_content: str | None
     synthesized_content: Any = None
+
+
+@dataclass(frozen=True)
+class CustomPropertyValue:
+    """An account's value for a custom property."""
+
+    id: UUID
+    account_id: UUID
+    definition_id: UUID
+    value: float | bool | str | datetime | None
+    created_at: datetime
+    created_by_id: int | None
+
+
+class ExternalAccountCustomPropertiesError(Enum):
+    """Failure modes of the external custom-property write, each mapping to a distinct
+    HTTP response in the view."""
+
+    ACCOUNT_NOT_FOUND = "account_not_found"
+    DEFINITION_NOT_FOUND = "definition_not_found"
+    INVALID_VALUE = "invalid_value"
+    CONFLICT = "conflict"
+    UPDATE_FAILED = "update_failed"
+
+
+@dataclass(frozen=True)
+class ExternalAccountCustomPropertiesResult:
+    """Outcome of the external custom-property write, modeled so the view can map each
+    case to its exact HTTP status and error string without holding write logic.
+
+    Exactly one of ``values`` / ``error`` is set. ``error_field`` carries the offending
+    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` failures; it is None otherwise.
+    """
+
+    values: list[CustomPropertyValue] | None = None
+    error: ExternalAccountCustomPropertiesError | None = None
+    error_field: str | None = None

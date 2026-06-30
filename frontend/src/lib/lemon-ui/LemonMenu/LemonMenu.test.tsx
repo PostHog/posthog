@@ -49,7 +49,7 @@ describe('LemonMenu', () => {
 
         expect(screen.queryByText('First')).not.toBeInTheDocument()
 
-        // Triggering a click through the forwarded ref (as AppShortcut does) must open the menu.
+        // Triggering a click through the forwarded ref (as <Shortcut /> does) must open the menu.
         await userEvent.click(screen.getByRole('button', { name: 'Trigger via ref' }))
 
         expect(screen.getByText('First')).toBeInTheDocument()

@@ -478,6 +478,21 @@ export interface InAppNotification {
     created_at: string
 }
 
+/**
+ * Transient realtime event signalling that a resource was edited through some channel
+ * (UI, MCP, or API). Rides the same notifications SSE transport as InAppNotification but is
+ * never persisted or shown in the inbox — an open editor uses it to refresh instead of
+ * clobbering edits made elsewhere. Discriminated by `notification_type === 'resource_edited'`.
+ */
+export interface ResourceEditedEvent {
+    notification_type: 'resource_edited'
+    team_id: number
+    resource_type: string
+    resource_id: string
+    updated_at: string
+    actor_user_id: number | null
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -753,6 +768,8 @@ export interface ConversationsSettings {
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
     ai_diagnostics_enabled?: boolean
+    ai_resolution_channels?: string[] | null
+    ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
 }
 
 export interface LogsSettings {
@@ -785,6 +802,10 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
+    /** Plan-derived events data retention window in months (synced from billing). */
+    event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -1403,7 +1424,14 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
+    key:
+        | DurationType
+        | 'snapshot_source'
+        | 'visited_page'
+        | 'comment_text'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
     operator: PropertyOperator
 }
 
@@ -3383,6 +3411,7 @@ export interface FunnelStep {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number | null
+    median_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
@@ -3399,7 +3428,8 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
 }
 
 export interface FunnelTimeConversionMetrics {
-    averageTime: number
+    /** Null when the result predates the median field (old cache) — the header hides the figure in that case. */
+    medianTime: number | null
     stepRate: number
     totalRate: number
 }
@@ -4774,7 +4804,6 @@ export interface Experiment {
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
         rollout_percentage?: number
-        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4931,7 +4960,6 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
-    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5337,6 +5365,8 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'postgresql',
+    'aws-s3',
+    's3-compatible',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5578,7 +5608,6 @@ export type APIScopeObject =
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
@@ -5618,7 +5647,6 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'persisted_folder'
     | 'plugin'
     | 'product_tour'
     | 'project'
@@ -6045,7 +6073,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
 }
 
 export interface ExternalDataSource {
@@ -6828,7 +6856,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.ERROR_TRACKING
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
-    | ProductKey.LOGS,
+    | ProductKey.LOGS
+    | ProductKey.MCP_ANALYTICS,
     OnboardingProduct
 >
 

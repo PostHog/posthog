@@ -10,7 +10,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from asgiref.sync import sync_to_async
@@ -205,8 +205,26 @@ def _account_notebook_queryset(account_id: str | UUID) -> Any:
     ).select_related("created_by", "last_modified_by")
 
 
-def list_account_notebooks(account_id: str | UUID) -> list[Notebook]:
-    return list(_account_notebook_queryset(account_id).order_by("-last_modified_at"))
+# Author sorting fans out to the user's name columns so the order matches what the UI shows.
+_ACCOUNT_NOTEBOOK_ORDERING: dict[str, tuple[str, ...]] = {
+    "created_at": ("created_at",),
+    "-created_at": ("-created_at",),
+    "created_by": ("created_by__first_name", "created_by__last_name"),
+    "-created_by": ("-created_by__first_name", "-created_by__last_name"),
+}
+_DEFAULT_ACCOUNT_NOTEBOOK_ORDERING = ("-created_at",)
+
+
+def list_account_notebooks(
+    account_id: str | UUID, *, search: str | None = None, order: str | None = None
+) -> list[Notebook]:
+    queryset = _account_notebook_queryset(account_id)
+    if search:
+        # Mirror the main notebooks list: full-text over title and content (some notebooks
+        # have no text_content until their next save, so title is matched too).
+        queryset = queryset.filter(Q(title__search=search) | Q(text_content__search=search))
+    ordering = _ACCOUNT_NOTEBOOK_ORDERING.get(order or "", _DEFAULT_ACCOUNT_NOTEBOOK_ORDERING)
+    return list(queryset.order_by(*ordering))
 
 
 def get_account_notebook(account_id: str | UUID, short_id: str) -> Notebook | None:

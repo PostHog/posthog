@@ -432,6 +432,43 @@ describe('dashboardLogic', () => {
             )
         })
 
+        it('confirms a real save with a success toast', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const firstTile = logic.values.dashboard!.tiles[0]
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).toHaveBeenCalledWith('Dashboard saved')
+        })
+
+        it('does not show a success toast when exiting edit mode with no changes', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const successToast = jest.spyOn(lemonToast, 'success')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveEditModeChanges()
+            }).toFinishAllListeners()
+
+            expect(successToast).not.toHaveBeenCalled()
+        })
+
         it('discarding edit mode restores original layouts', async () => {
             await expectLogic(logic).toFinishAllListeners()
 
