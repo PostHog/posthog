@@ -1,16 +1,13 @@
 #!/usr/bin/env python3
 """Snapshot a bounded subset of a GitHub repo into the engineering analytics fixture.
 
-Fetches recent pull requests and workflow runs via the `gh` CLI (uses your
-existing `gh auth` token) and writes them, trimmed to the fields the curated
-warehouse views read, to JSON files next to this script:
+Fetches recent pull requests and workflow runs via the `gh` CLI (uses your existing `gh auth` token),
+trimmed to the fields the curated warehouse views read, into JSON files next to this script:
 
 - github_pull_requests.json
 - github_workflow_runs.json
 
-Load the result into a local PostHog stack with:
-
-    python manage.py seed_engineering_analytics --team-id <id>
+Load into a local PostHog stack with ``python manage.py seed_engineering_analytics --team-id <id>``.
 
 Usage:
     python products/engineering_analytics/fixtures/fetch.py
@@ -103,8 +100,8 @@ def fetch_window_runs(repo: str, cutoff: datetime, max_runs: int) -> list[dict[s
 
 
 def fetch_head_sha_runs(repo: str, prs: list[dict[str, Any]], max_lookups: int) -> list[dict[str, Any]]:
-    # The PR list joins CI status by head SHA, so open PRs need their head runs
-    # even when those fall outside the windowed fetch.
+    # The PR list joins CI status by head SHA, so open PRs need their head runs even when those fall
+    # outside the windowed fetch.
     runs: list[dict[str, Any]] = []
     open_shas = [pr["head"]["sha"] for pr in prs if pr["state"] == "open"][:max_lookups]
     for index, sha in enumerate(open_shas, start=1):

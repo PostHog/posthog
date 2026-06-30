@@ -1,24 +1,13 @@
 """Contract types for engineering_analytics.
 
-Framework-free frozen dataclasses that define the canonical data model this
-product exposes — Author, RepoRef, PullRequest, WorkflowRun — plus the
-``pr_lifecycle`` deep-tool return types. No Django imports.
+Framework-free frozen dataclasses defining the canonical data model this product exposes (Author,
+RepoRef, PullRequest, WorkflowRun) plus the ``pr_lifecycle`` deep-tool types. Every surface (MCP tools,
+DRF endpoints, UI) returns these; the curated HogQL runs privately behind them. Deep-tool caveats ride
+as a ``metric_quality`` field; aggregate endpoints carry theirs in honest field names.
 
-Every surface — the named MCP tools, the DRF read endpoints, and the UI — returns
-these typed contracts. The product runs its curated HogQL privately behind them;
-nothing is registered as a global view. Where a caveat is load-bearing on a deep
-tool it rides as a ``metric_quality`` field (``pr_lifecycle``); the aggregate
-endpoints carry their caveats in honest field names (``open_to_merge_seconds``)
-and serializer/tool docs.
-
-These use ``pydantic.dataclasses.dataclass`` rather than the stdlib variant: same
-``is_dataclass()`` compatibility (so ``DataclassSerializer`` keeps working) but
-with runtime validation on construction, so a mapper that hands back the wrong
-shape fails at the facade boundary instead of producing malformed JSON later.
-
-Provider-specific shapes (GitHub column names, nesting) never reach here — the
-read layer maps them into these types. Reviewers, deploys, and file paths are
-intentionally absent until the warehouse data that backs them lands.
+Uses ``pydantic.dataclasses.dataclass`` (not stdlib) for runtime validation on construction, so a
+mapper handing back the wrong shape fails at the facade boundary instead of emitting malformed JSON.
+Provider-specific shapes never reach here — the read layer maps them in.
 """
 
 from datetime import date, datetime
@@ -28,11 +17,9 @@ from pydantic.dataclasses import dataclass
 
 
 class GitHubSourceNotConnectedError(Exception):
-    """Raised when a team has no GitHub warehouse source — the curated queries
-    reference ``github_*`` tables that aren't in the catalog. Surfaces as a clear
-    4xx so the UI prompts to connect a source and an agent gets an actionable
-    error instead of a misleading empty result. Framework-free; the presentation
-    layer translates it to an HTTP response.
+    """Raised when a team has no GitHub warehouse source. Surfaces as a 4xx so the UI prompts to
+    connect a source rather than returning a misleading empty result. Framework-free; the presentation
+    layer maps it to an HTTP response.
     """
 
     DEFAULT_MESSAGE = "Connect a GitHub data warehouse source to use engineering analytics."
@@ -68,15 +55,14 @@ class WorkflowConclusion(StrEnum):
 
 
 class MetricQuality(StrEnum):
-    """How much to trust a metric, surfaced on a deep-tool return so an
-    autonomous caller can act on the result without paraphrasing a caveat.
+    """How much to trust a metric, surfaced on a deep-tool return so an autonomous caller can act
+    without paraphrasing a caveat.
 
-    - ``precise``: computed directly from the data, no known approximation.
-    - ``coarse``: a usable approximation with a known systematic gap (e.g. the
-      read layer's ``open_to_merge_seconds`` combines draft and ready-for-review
-      time).
-    - ``partial``: real but incomplete, because backing data hasn't landed yet
-      (e.g. ``pr_lifecycle`` has no review/comment events).
+    - ``precise``: computed directly, no known approximation.
+    - ``coarse``: usable approximation with a known systematic gap (e.g. ``open_to_merge_seconds``
+      fuses draft and ready-for-review time).
+    - ``partial``: real but incomplete because backing data hasn't landed (e.g. ``pr_lifecycle`` has
+      no review/comment events).
     """
 
     PRECISE = "precise"
@@ -131,9 +117,8 @@ class QuarantineRequestAction(StrEnum):
 
 @dataclass(frozen=True)
 class GitHubSource:
-    """A connected GitHub warehouse source the team can analyze. ``id`` is what a
-    caller passes back as ``source_id`` to select this source; ``repo`` and
-    ``prefix`` are display labels so a picker can tell two sources apart.
+    """A connected GitHub warehouse source. ``id`` is passed back as ``source_id`` to select it;
+    ``repo`` and ``prefix`` are display labels so a picker can tell two sources apart.
     """
 
     id: str
@@ -177,12 +162,11 @@ class WorkflowRun:
     id: int
     workflow_name: str
     head_sha: str
-    # None while a run is still in progress — it has no conclusion yet.
+    # None while a run is still in progress.
     conclusion: WorkflowConclusion | None
     run_started_at: datetime
     updated_at: datetime
-    # None until the run completes — the curated builder only computes a duration
-    # for completed runs (see workflow_runs.build_query).
+    # None until the run completes (duration is only computed for completed runs).
     duration_seconds: int | None
 
 
@@ -200,12 +184,11 @@ class WorkflowRunDetail:
     head_branch: str
     # Raw run status: 'queued', 'in_progress', 'completed', ... (passthrough).
     status: str
-    # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / 'cancelled' / 'skipped' /
-    # 'action_required' / ...), or None while still in progress. Kept as a str (not WorkflowConclusion)
-    # because the data carries conclusions outside that enum.
+    # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / ...), or None while in progress.
+    # A str not WorkflowConclusion because the data carries conclusions outside that enum.
     conclusion: str | None
-    # None for a queued/barely-started run whose timestamp the warehouse hasn't landed yet — the curated
-    # builder parses these with the OrNull variant, so a sparse row maps to None rather than failing.
+    # None for a queued/barely-started run whose timestamp hasn't landed; the OrNull parse maps a sparse
+    # row to None rather than failing.
     run_started_at: datetime | None
     updated_at: datetime | None
     # None until the run completes — duration is only computed for completed runs.
@@ -287,13 +270,11 @@ class RunCost:
 class PRCostSummary:
     """Estimated CI spend for one PR, summed over the jobs of all its workflow runs.
 
-    Billable runners only: provider-hosted runners (free GitHub-hosted minutes) and non-Linux tiers
-    carry no honest figure and are counted in ``excluded_jobs`` rather than mis-costed. The dollar
-    figure comes from the (currently Depot-shaped) cost model in ``logic.cost``; the contract stays
-    provider-neutral so other CI providers can slot in. ``jobs_available`` is False when the optional
-    job-level source (``github_workflow_jobs``) isn't synced — every figure is then zero/None and the
-    UI hides the cost cards. ``estimated_cost_usd`` is None when nothing was costable, so a PR with
-    only unsettled jobs reads as "no figure yet", not ``$0.00``.
+    Billable runners only: provider-hosted (free GitHub-hosted) and non-Linux tiers carry no honest
+    figure and land in ``excluded_jobs`` rather than mis-costed. ``jobs_available`` is False when the
+    optional job-level source isn't synced (every figure then zero/None, UI hides the cost cards).
+    ``estimated_cost_usd`` is None when nothing was costable, so a PR with only unsettled jobs reads as
+    "no figure yet", not ``$0.00``.
     """
 
     jobs_available: bool
@@ -333,9 +314,8 @@ class PRLifecycle:
 
 @dataclass(frozen=True)
 class CIStatusRollup:
-    """A PR's CI, collapsed from the latest workflow run per workflow on its head
-    SHA. Counts can lag until the ``workflow_run`` webhook settles a run that
-    completes after newer runs land (SPEC §9) — treat ``pending`` as unsettled.
+    """A PR's CI, collapsed from the latest run per workflow on its head SHA. Counts can lag until the
+    ``workflow_run`` webhook settles a late-completing run (SPEC §9) — treat ``pending`` as unsettled.
     """
 
     runs: int
@@ -376,11 +356,9 @@ class PullRequestListItem:
 
 @dataclass(frozen=True)
 class PullRequestList:
-    """A page of the PR list plus an explicit truncation signal. ``items`` is capped
-    at ``limit`` (newest first); ``truncated`` is True when more pull requests match
-    than the cap. Surfaced so a consumer never mistakes a capped page for the whole
-    set — the aggregate counts in ``CICardSummary`` can legitimately exceed
-    ``len(items)`` when ``truncated`` is True.
+    """A page of the PR list plus a truncation signal. ``items`` is capped at ``limit`` (newest first);
+    ``truncated`` is True when more match than the cap, so a consumer never mistakes a capped page for
+    the whole set — ``CICardSummary`` counts can legitimately exceed ``len(items)``.
     """
 
     items: list[PullRequestListItem]
@@ -404,11 +382,9 @@ class CICardSummary:
 
 @dataclass(frozen=True)
 class WorkflowHealthBucket:
-    """One time bucket of a workflow's run history; empty buckets are zero-filled. The
-    bucket width (hour / day / week) is set per item in ``WorkflowHealthItem.granularity``
-    to fit the window. ``failures`` is decisive failures only (failure / timed_out),
-    matching the CI rollup — skipped, cancelled, and action_required runs are neither
-    successes nor failures, so they must not be treated as non-passing.
+    """One time bucket of a workflow's run history; empty buckets are zero-filled. Bucket width
+    (hour / day / week) is set per item in ``WorkflowHealthItem.granularity``. ``failures`` is decisive
+    failures only (failure / timed_out) — skipped/cancelled/action_required are neither pass nor fail.
     """
 
     # Bucket start, aligned to the granularity (top of hour / midnight / Monday).
@@ -503,14 +479,12 @@ class WorkflowHealthItem:
     p50_seconds: float | None
     p95_seconds: float | None
     last_failure_at: datetime | None
-    # Whether the most recent completed run was a decisive failure (failure / timed_out).
-    # None when nothing has completed in the window. Drives the OK/RED status badge — a
-    # bool, not the raw conclusion, because the data carries conclusions outside
-    # WorkflowConclusion (e.g. action_required) that would fail validation here.
+    # Whether the most recent completed run was a decisive failure (failure / timed_out); None when
+    # nothing completed. Drives the OK/RED badge. A bool not the raw conclusion because the data carries
+    # conclusions outside WorkflowConclusion (e.g. action_required) that would fail validation.
     latest_run_failed: bool | None
-    # Raw conclusion of that most recent completed run ('success' / 'cancelled' / 'skipped' / ...), so the
-    # UI can tell a real pass from a cancelled/skipped run (both have latest_run_failed false). None when
-    # nothing has completed. A str, not WorkflowConclusion, because the data carries values outside the enum.
+    # Raw conclusion of that run ('success' / 'cancelled' / 'skipped' / ...), so the UI can tell a real
+    # pass from a cancelled/skipped run (both have latest_run_failed false). None when nothing completed.
     latest_run_conclusion: str | None
     # Bucket width of the history series, chosen to fit the window: 'hour', 'day', or 'week'.
     granularity: str
