@@ -51,7 +51,9 @@ class TestNotebookMarkdownConversion(BaseTest):
                         "query": '{"kind":"HogQLQuery","query":"select 1"}',
                         "view": True,
                         "edit": False,
-                        "chartSettings": {"yAxis": [{"settings": {"formatting": {"decimalPlaces": 1.0}}}]},
+                        "chartSettings": {
+                            "yAxis": [{"settings": {"formatting": {"decimalPlaces": 1.0, "threshold": 1.5}}}]
+                        },
                     },
                 },
                 {
@@ -82,6 +84,7 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert 'query={{"kind":"DataVisualizationNode","source":{"kind":"HogQLQuery","query":"select 1"}}}' in markdown
         assert '"decimalPlaces":1' in markdown
         assert '"decimalPlaces":1.0' not in markdown
+        assert '"threshold":1.5' in markdown
         assert "invalid link" in markdown
         assert "juheapi" not in markdown
         assert "hideFilters" in markdown
