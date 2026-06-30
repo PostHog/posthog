@@ -61,6 +61,13 @@ export const getSurveysListUrl = (projectId: string, params?: SurveysListParams)
         : `/api/projects/${projectId}/surveys/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysList = async (
     projectId: string,
     params?: SurveysListParams,
@@ -76,6 +83,13 @@ export const getSurveysCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysCreate = async (
     projectId: string,
     surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
@@ -93,6 +107,13 @@ export const getSurveysRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<SurveyApi> => {
     return apiMutator<SurveyApi>(getSurveysRetrieveUrl(projectId, id), {
         ...options,
@@ -104,6 +125,13 @@ export const getSurveysUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysUpdate = async (
     projectId: string,
     id: string,
@@ -122,6 +150,13 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
@@ -140,6 +175,13 @@ export const getSurveysDestroyUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/surveys/${id}/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysDestroy = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysDestroyUrl(projectId, id), {
         ...options,
@@ -151,6 +193,13 @@ export const getSurveysActivityRetrieveUrl = (projectId: string, id: string) => 
     return `/api/projects/${projectId}/surveys/${id}/activity/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysActivityRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysActivityRetrieveUrl(projectId, id), {
         ...options,
@@ -207,6 +256,13 @@ export const getSurveysGenerateTranslationsCreateUrl = (projectId: string, id: s
     return `/api/projects/${projectId}/surveys/${id}/generate_translations/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysGenerateTranslationsCreate = async (
     projectId: string,
     id: string,
@@ -406,6 +462,13 @@ export const getSurveysSummaryHeadlineCreateUrl = (projectId: string, id: string
     return `/api/projects/${projectId}/surveys/${id}/summary_headline/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysSummaryHeadlineCreate = async (
     projectId: string,
     id: string,
@@ -424,6 +487,13 @@ export const getSurveysAllActivityRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/surveys/activity/`
 }
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const surveysAllActivityRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
     return apiMutator<void>(getSurveysAllActivityRetrieveUrl(projectId), {
         ...options,

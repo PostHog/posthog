@@ -8,6 +8,13 @@
  */
 import * as zod from 'zod'
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const SurveysListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -33,6 +40,13 @@ export const SurveysListQueryParams = /* @__PURE__ */ zod.object({
         .describe('* `popover` - popover\n* `widget` - widget\n* `external_survey` - external survey\n* `api` - api'),
 })
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const SurveysCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
@@ -859,6 +873,13 @@ export const SurveysCreateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -868,6 +889,13 @@ export const SurveysRetrieveParams = /* @__PURE__ */ zod.object({
         ),
 })
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const SurveysPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
@@ -1696,6 +1724,13 @@ export const SurveysPartialUpdateBody = /* @__PURE__ */ zod.object({
     form_content: zod.unknown().optional(),
 })
 
+/**
+ * Mixin for ViewSets to handle ApprovalRequired exceptions from decorated serializers.
+ *
+ * This mixin intercepts ApprovalRequired exceptions raised by the @approval_gate decorator
+ * on serializer methods and converts them into proper HTTP 409 Conflict responses with
+ * change request details.
+ */
 export const SurveysDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this survey.'),
     project_id: zod
