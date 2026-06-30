@@ -200,9 +200,23 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             with connection.cursor() as cursor:
                 cursor.execute("SELECT pg_advisory_unlock(hashtext(%s)::bigint)", [lock_key])
 
+        # Resolve which views are already on a v2 schedule ONCE for the whole viewset. Doing it
+        # per-view inside schedule_materialization fans out a Postgres + Temporal lookup for every
+        # view, and that interleaving is a top contributor to pool starvation during a sync. If the
+        # batch lookup itself fails, fall back to per-view lookups (None) so behavior is unchanged.
+        # Imported lazily: schedule imports the models package, so a module-level import here cycles.
+        from products.data_modeling.backend.schedule import get_v2_saved_query_ids  # noqa: PLC0415
+
+        try:
+            v2_saved_query_ids = get_v2_saved_query_ids([sq.id for sq in saved_queries_to_schedule])
+        except Exception as e:
+            capture_exception(e, {"managed_viewset_id": self.id})
+            logger.warning("failed_to_resolve_v2_saved_query_ids", team_id=self.team_id, error=str(e))
+            v2_saved_query_ids = None
+
         for saved_query in saved_queries_to_schedule:
             try:
-                saved_query.schedule_materialization()
+                saved_query.schedule_materialization(v2_saved_query_ids=v2_saved_query_ids)
             except Exception as e:
                 capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
                 logger.warning(

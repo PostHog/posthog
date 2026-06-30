@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.exceptions import ValidationError
-from django.db import models, transaction
+from django.db import close_old_connections, models, transaction
 
 import structlog
 
@@ -159,13 +159,17 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
         else:
             DataWarehouseModelPath.objects.update_from_saved_query(self)
 
-    def schedule_materialization(self, unpause: bool = False):
+    def schedule_materialization(self, unpause: bool = False, v2_saved_query_ids: Optional[set[uuid.UUID]] = None):
         """
         It will schedule the saved query workflow to run at the configured frequency.
         If unpause is True, it will unpause the saved query workflow if it already exists.
 
         If the workflow fails to schedule, it will disable materialization for this view.
         This also guarantees model paths are properly created or updated.
+
+        v2_saved_query_ids lets a batch caller (e.g. managed-viewset sync) precompute the set of
+        saved queries already on a v2 schedule once, so each view in the loop skips the per-query
+        Postgres+Temporal lookup below — that fan-out is what starves the connection pool.
         """
         from products.data_modeling.backend.schedule import get_v2_saved_query_ids
         from products.data_warehouse.backend.facade.api import (
@@ -180,7 +184,8 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # cause one to be recreated. This Temporal lookup stays inside the try so that, if it
             # fails, we honor the failure contract below rather than leaving is_materialized=True
             # with no schedule backing it.
-            if self.id in get_v2_saved_query_ids([self.id]):
+            on_v2 = v2_saved_query_ids if v2_saved_query_ids is not None else get_v2_saved_query_ids([self.id])
+            if self.id in on_v2:
                 if self.sync_frequency_interval is not None:
                     self.sync_frequency_interval = None
                     self.save(update_fields=["sync_frequency_interval"])
@@ -204,7 +209,32 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             # Disable materialization for this view if we failed to schedule the workflow
             # We can re-enable schedules via the resume_schedule API endpoint
             self.is_materialized = False
+            self._save_disabled_materialization()
+
+    def _save_disabled_materialization(self) -> None:
+        """Persist is_materialized=False after a scheduling failure.
+
+        The scheduling failure may itself have closed the DB connection — e.g. PgBouncer killing
+        the query on query_wait_timeout under pool starvation — so a plain save() here would raise
+        "OperationalError: the connection is closed" and turn a recoverable timeout into a hard
+        crash, leaving is_materialized in an inconsistent state. Reset any dead/errored connection
+        first so the recovery write runs on a fresh connection, and never let this write's own
+        failure propagate.
+        """
+        try:
+            # close_old_connections() health-checks live connections, which trips pytest's
+            # DB-access guard in unit tests that patch the ORM; skip it under TEST.
+            if not settings.TEST:
+                close_old_connections()
             self.save(update_fields=["is_materialized"])
+        except Exception as save_error:
+            capture_exception(save_error, {"saved_query_id": self.id, "saved_query_name": self.name})
+            logger.exception(
+                "failed_to_disable_materialization_after_schedule_failure",
+                team_id=self.team_id,
+                saved_query_id=str(self.id),
+                error=str(save_error),
+            )
 
     def revert_materialization(self):
         from products.data_modeling.backend.models.modeling import DataWarehouseModelPath

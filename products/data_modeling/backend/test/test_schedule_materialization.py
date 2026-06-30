@@ -3,6 +3,8 @@ from datetime import timedelta
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import OperationalError
+
 from products.data_modeling.backend.models import DAG, Node
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.node import NodeType
@@ -61,3 +63,25 @@ class TestScheduleMaterializationV2Guard(BaseTest):
         sync_wf.assert_not_called()
         self.sq.refresh_from_db()
         assert self.sq.is_materialized is False
+
+    def test_recovery_save_on_closed_connection_does_not_propagate(self):
+        # Mirrors the production failure: pool starvation makes scheduling fail with a connection
+        # the server already closed, so the recovery save() itself raises "the connection is
+        # closed". That must not turn a recoverable timeout into a hard crash out of
+        # schedule_materialization.
+        with (
+            mock.patch(GET_V2_DAG_IDS, return_value=set()),
+            mock.patch(f"{SERVICE}.saved_query_workflow_exists", return_value=False),
+            mock.patch.object(DataWarehouseSavedQuery, "setup_model_paths"),
+            mock.patch(
+                f"{SERVICE}.sync_saved_query_workflow",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            mock.patch.object(
+                DataWarehouseSavedQuery,
+                "save",
+                side_effect=OperationalError("the connection is closed"),
+            ),
+        ):
+            # Must not raise even though both the scheduling and the recovery save fail.
+            self.sq.schedule_materialization()
