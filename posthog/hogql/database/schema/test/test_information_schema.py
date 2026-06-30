@@ -131,7 +131,7 @@ class TestWarehouseMetadata(APIBaseTest):
         # rather than being clobbered by a dead row's stale value (which is what `.objects` returned).
         self._table("orders", 100)
         self._table("orders", 5, deleted=True)
-        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        _descriptions, row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["orders"] == 100
 
     def test_view_row_count_comes_from_the_backing_table(self):
@@ -139,7 +139,7 @@ class TestWarehouseMetadata(APIBaseTest):
         DataWarehouseSavedQuery.objects.create(
             team=self.team, name="orders_view", query={"query": "SELECT 1"}, columns={}, table=backing
         )
-        _descriptions, _row_counts, view_row_counts = _warehouse_metadata(self.team.id)
+        _descriptions, _row_counts, view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert view_row_counts["orders_view"] == 42
 
     def test_metadata_does_not_leak_other_teams_row_counts(self):
@@ -148,7 +148,7 @@ class TestWarehouseMetadata(APIBaseTest):
         other_team = Team.objects.create(organization=self.organization, name="other")
         self._table("shared", 999, team=other_team)
         self._table("shared", 7)
-        _descriptions, row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        _descriptions, row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert row_counts["shared"] == 7
 
     def test_descriptions_are_keyed_by_table_id_not_name(self):
@@ -170,7 +170,7 @@ class TestWarehouseMetadata(APIBaseTest):
                 description="Unique order identifier.",
                 description_source=WarehouseColumnAnnotation.DescriptionSource.USER_EDITED,
             )
-        descriptions, _row_counts, _view_row_counts = _warehouse_metadata(self.team.id)
+        descriptions, _row_counts, _view_row_counts, _column_stats = _warehouse_metadata(self.team.id)
         assert descriptions[(str(table.id), "")] == "All orders placed by customers."
         assert descriptions[(str(table.id), "id")] == "Unique order identifier."
         assert ("orders", "") not in descriptions
