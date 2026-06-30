@@ -58,8 +58,13 @@ const counterHogflowMatcherConversionsCounted = new Counter({
 const histogramHogflowMatcherFindParkedJobs = new Histogram({
     name: 'cdp_hogflow_matcher_find_parked_jobs_seconds',
     help: 'Duration of the findParkedJobs cyclotron query.',
+    labelNames: ['stream'],
     buckets: [0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5],
 })
+
+// Which Kafka stream a batch came from. Labels the find_parked_jobs metric so the person and
+// internal-event query load is distinguishable from the events firehose on the shared cyclotron DB.
+type WakeSource = 'events' | 'person' | 'internal_events'
 
 const counterHogflowMatcherEventSkipped = new Counter({
     name: 'cdp_hogflow_matcher_event_skipped',
@@ -155,12 +160,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         })
     }
 
-    public async processBatch(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    public async processBatch(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: WakeSource = 'events'
+    ): Promise<void> {
         if (!invocationGlobals.length) {
             return
         }
         try {
-            await this.wakeMatchingWorkflows(invocationGlobals)
+            await this.wakeMatchingWorkflows(invocationGlobals, source)
         } finally {
             // Flush any `conversion` metrics and `$workflows_conversion` events queued during matching.
             // Best-effort: a flush failure must not crash the batch (which would replay the event
@@ -180,7 +188,10 @@ export class CdpHogflowSubscriptionMatcherConsumer<
     }
 
     @instrumented('cdpHogflowSubscriptionMatcher.wakeMatchingWorkflows')
-    private async wakeMatchingWorkflows(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
+    private async wakeMatchingWorkflows(
+        invocationGlobals: HogFunctionInvocationGlobals[],
+        source: WakeSource = 'events'
+    ): Promise<void> {
         const { teamIds, distinctTeamIds, distinctIds, personTeamIds, personIds, byDistinctId, byPersonId } =
             indexBatch(invocationGlobals)
         if (byDistinctId.size === 0 && byPersonId.size === 0) {
@@ -210,7 +221,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
             distinctIds,
             personTeamIds,
             personIds,
-            Object.keys(hogflows)
+            Object.keys(hogflows),
+            source
         )
         if (candidates.length === 0) {
             return
@@ -358,7 +370,8 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         distinctIds: string[],
         personTeamIds: number[],
         personIds: string[],
-        functionIds: string[]
+        functionIds: string[],
+        source: WakeSource
     ): Promise<ParkedCandidate[]> {
         // Two index-friendly branches with UNION (dedupes rows that match both keys).
         // A single OR across distinct_id and person_id often forces Postgres into a
@@ -375,7 +388,7 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // dedicated queue, the following wait parks on that queue, so a queue_name='hogflow'
         // filter would silently miss it. function_id already scopes to hogflow jobs, and
         // waking the job (scheduled = NOW()) lets whichever worker owns that queue resume it.
-        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer()
+        const stopTimer = histogramHogflowMatcherFindParkedJobs.startTimer({ stream: source })
         let result
         try {
             result = await this.cyclotronPool.query(
@@ -653,17 +666,22 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         await Promise.all([
             this.kafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handleEachBatch', async () => {
-                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages)) }
+                    return { backgroundTask: this.processBatch(await this._parseKafkaBatch(messages), 'events') }
                 })
             }),
             this.personKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handlePersonBatch', async () => {
-                    return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages)) }
+                    return { backgroundTask: this.processBatch(await this._parsePersonBatch(messages), 'person') }
                 })
             }),
             this.internalEventsKafkaConsumer.connect(async (messages) => {
                 return await instrumentFn('cdpHogflowSubscriptionMatcher.handleInternalEventsBatch', async () => {
-                    return { backgroundTask: this.processBatch(await this._parseInternalEventsBatch(messages)) }
+                    return {
+                        backgroundTask: this.processBatch(
+                            await this._parseInternalEventsBatch(messages),
+                            'internal_events'
+                        ),
+                    }
                 })
             }),
         ])
