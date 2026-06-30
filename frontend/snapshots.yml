@@ -5620,18 +5620,14 @@ snapshots:
         hash: v1.k794b7964.2c0cfa02b7c9abf92fc69e984158c85d95d60dfd8f28a1bf848cafd939454eea.cuvfv9WFi6TvUSaq3b0yVD8_9nM1M8AE7WdVc5zgGIg
     scenes-app-inbox-tabs--reports-empty--light:
         hash: v1.k794b7964.d550598f1d02e5892b8f9ebf9e0d90eac6440ab1ccd5670db561ba31dbd4ccce.eeGeADdZ1xItGIG3A4hNiK2qsFy3xvNWT0Y2K4P42Wo
+    scenes-app-inbox-tabs--runs--dark:
+        hash: v1.k794b7964.114a9ba52efb43d3a09bb3122e375174d244336c3b6b96b51363c8f0dd96b69c.5nTevBLNmqT7459OleGhvLhlZ_H6nt9sgZeeb_SQ0k4
+    scenes-app-inbox-tabs--runs--light:
+        hash: v1.k794b7964.00bda3b3d13fb725c8e015652e7dca5b1cb238475688b383f22ed84b3183e281.gTXMTHXLQ1q0osWzdF7gGnsHdck3hC1GNmyMVkWqbZQ
     scenes-app-inbox-tabs--runs-empty--dark:
-        hash: v1.k794b7964.4d9d8f081534a1d495b60435f0074dc19527f811d235b9627c605e91db1b5beb.8eFwrG5Hl906n9bTGTp56vy2OiMGtSXrmKGy1OpcfkQ
+        hash: v1.k794b7964.5a4db93c363eca8e53f40c88fa054860846a305d3d1bf422985b899b40c99a52.yFFjgruM_mfEZu3CySp-vzhK7h4NhTOrbQoSkowlVso
     scenes-app-inbox-tabs--runs-empty--light:
-        hash: v1.k794b7964.b5ad42de26512ee604d2f82d267a8b7e16a5c78895e1342ae4e3f622bc941e4f.-A5S3-acRXG7neE_qqLlT5rMA6x-sLGUCDkGJlZGHhw
-    scenes-app-inbox-tabs--runs-few-agents--dark:
-        hash: v1.k794b7964.27c143c92ee236a0307c8a7876c3ea8cd95d40a162f0a64b3423a5325272c03d.yh6WyVyXIwPCAefIFXTn6an_m-T1oO8rplU9Ab0WNpQ
-    scenes-app-inbox-tabs--runs-few-agents--light:
-        hash: v1.k794b7964.f177cf82929d595046edcfa81a193e6cc13ec70ac0df1156b7aba75fd384a390.dtXjjAcR5IyCU2PvaSjz6_1fsEtTN02jxLuXmGbEjJM
-    scenes-app-inbox-tabs--runs-many-agents--dark:
-        hash: v1.k794b7964.dd76b59536653a95f1d064c9bc2ad8aea9da9cb6595b487ce86bace171887a46.jvndkfnDbc-t_ydLYTUnT2psRi3WoFtNmFlZGaVUER0
-    scenes-app-inbox-tabs--runs-many-agents--light:
-        hash: v1.k794b7964.90b19fdceb30d6d27868420db1123615fe3ae01b3a8b1ec4b6d016bd4885d12d.sk9bQDwr1fH7njWhbM40oMj7px6aZ9NmA2Fz1V78VT0
+        hash: v1.k794b7964.634fac3fd436c2325e9e81020862924c9bd0101aa1f3825e6b783768caca61fe.KAshFT0OvbkCflVMhmR9OoSMDoAuyxCrBpi_ZSkQLWE
     scenes-app-insights-boldnumber--compare-null-previous--dark:
         hash: v1.k794b7964.ccab3f6785db86e659c4186e305b97ba81c7bda8c51e7fd5c05e179be4393fde.C-X-Y3nG_88O1MxV0YKV52bqS_DKlvdLVHa5HDj0GRI
     scenes-app-insights-boldnumber--compare-null-previous--light:
