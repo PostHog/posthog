@@ -255,13 +255,11 @@ async fn ai_handler_inner(
         }));
     }
 
-    // AI-gateway provenance: a fresh, valid signature on the headers marks the event
-    // trusted. Verify here while distinct_id is known (it's in the signed tuple), so a
-    // verified event can bypass the quota limiter below and get $ai_gateway_verified
-    // stamped before Kafka; anything unverified has the $ai_gateway* namespace stripped
-    // so a forged marker can't reach billing. sig + signed_at + request_id ride in headers.
-    // TODO: gateway_provenance lives under v1/ but is transport-agnostic — relocate to a
-    // shared module now the v0 AI path uses it too.
+    // AI-gateway provenance: a fresh, valid signature marks the event trusted.
+    // Verify here, before the quota limiter, while distinct_id (in the signed tuple)
+    // is known; the outcome gates the limiter below and the stamp/strip before Kafka.
+    // sig + signed_at + request_id ride in headers.
+    // TODO: relocate gateway_provenance out of v1/ now the v0 path uses it too.
     let gw_sig = gp::parse_signature(&headers);
     let gw_outcome = match (state.ai_gateway_signing_secret.as_deref(), gw_sig.as_ref()) {
         (Some(secret), Some(sig)) => gp::verify(
