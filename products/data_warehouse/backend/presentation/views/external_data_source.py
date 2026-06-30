@@ -399,7 +399,13 @@ def get_direct_connection_metadata(
     try:
         metadata = metadata_fetcher(source_config, team_id, require_ssl=require_ssl)
     except Exception as error:
-        capture_exception(error)
+        # Connection metadata is best-effort — we fall back below regardless. An expected
+        # user/upstream connection failure (unreachable or misconfigured host, refused connection,
+        # bad credentials) is the customer's to fix and is already surfaced by credential
+        # validation, so don't capture it as error-tracking noise. Mirrors `refresh_schemas`.
+        _, is_expected_source_error = _classify_refresh_schemas_error(source_impl, error)
+        if not is_expected_source_error:
+            capture_exception(error)
         return fallback or {}
 
     return metadata if isinstance(metadata, dict) else (fallback or {})
@@ -1945,6 +1951,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 # Mirror the schema-update path's IntegerField(min_value=0, max_value=5_184_000) so both
                 # creation paths reject the same inputs instead of silently dropping null/float values.
                 lookback_seconds = schema.get("incremental_field_lookback_seconds")
+                # When the caller didn't set a lookback, fall back to the source-defined default
+                # (e.g. Google Ads stats tables, whose recent rows Google keeps revising for days).
+                # This loop is the single creation choke point, so the default reaches both the
+                # wizard and one-shot flows; it's then validated by the bounds check just below.
+                if lookback_seconds is None and source_schema is not None:
+                    lookback_seconds = source_schema.default_incremental_lookback_seconds
                 if lookback_seconds is not None:
                     # Coerce whole-number floats (e.g. 90.0) the way DRF's IntegerField does.
                     if isinstance(lookback_seconds, float) and lookback_seconds.is_integer():
@@ -2530,12 +2542,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": str(e)},
+                data={"message": error_message},
             )
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
@@ -2646,8 +2658,10 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
+            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            if not is_expected_source_error:
+                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
 
         if not source_schemas:
             return Response(

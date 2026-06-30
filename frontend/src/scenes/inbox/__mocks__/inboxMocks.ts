@@ -355,6 +355,29 @@ export function mockArtefacts(reportId: string): { results: any[]; count: number
             created_at: BASE_DATE,
             task_id: `${reportId}-task-impl`,
         },
+        // Human edits to the report's title / summary are logged as their own artefacts.
+        {
+            id: `${reportId}-title`,
+            type: 'title_change',
+            content: {
+                old_title: 'Invite flow error',
+                new_title: 'Empty recipient rows crash team invites',
+            },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
+        {
+            id: `${reportId}-summary`,
+            type: 'summary_change',
+            content: {
+                old_summary: 'Users hit an error when inviting their team.',
+                new_summary:
+                    'Submitting the invite form with an empty recipient row returns a `500` from `/api/invites`. ' +
+                    'The gap is missing client-side validation before submit.',
+            },
+            created_at: BASE_DATE,
+            created_by: { id: 1, uuid: 'u-1', email: 'octo@example.com', first_name: 'Octo', last_name: 'Cat' },
+        },
     ]
     return { results, count: results.length }
 }
@@ -401,7 +424,7 @@ export function mockTask(taskId: string, runStatus?: string): any {
     }
 }
 
-/** The run-status payload (`/runs/:runId`) the `RunViewer` reads before replaying its log. */
+/** The run-status payload (`/runs/:runId`) the `ReadonlyRunSurface` reads before replaying its log. */
 export function mockTaskRun(taskId: string, runId: string): any {
     return makeTaskRun(taskId, runId, 'completed')
 }

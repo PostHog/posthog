@@ -5491,6 +5491,7 @@ export namespace Schemas {
       Cohorts: 'cohorts',
       CohortsWithAll: 'cohorts_with_all',
       DataWarehouse: 'data_warehouse',
+      DataWarehouseSourceTables: 'data_warehouse_source_tables',
       DataWarehouseProperties: 'data_warehouse_properties',
       DataWarehousePersonProperties: 'data_warehouse_person_properties',
       Elements: 'elements',
@@ -8239,363 +8240,6 @@ export namespace Schemas {
     }
 
     /**
-     * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
-     */
-    export type AgentRevisionSpecModels = {
-      mode: 'auto';
-      /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
-      level?: 'low' | 'medium' | 'high';
-      /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-      /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
-      optimize_for?: 'cost' | 'availability';
-    } | {
-      mode: 'manual';
-      /**
-         * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
-         * @minItems 1
-         */
-      models: ({
-      /**
-         * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
-         * @minLength 1
-         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-         */
-      model: string;
-      /** Per-model reasoning effort override (else the spec default). */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    })[];
-      /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
-      optimize_for?: 'cost' | 'availability';
-    };
-
-    export type AgentRevisionSpecTriggersItem = {
-      type: 'slack';
-      config: {
-      channel_id?: string;
-      mention_only: boolean;
-      auto_resume_threads: boolean;
-      allow_workspace_participants: boolean;
-      ack_reaction?: string;
-      allow_direct_messages: boolean;
-      trusted_workspaces: string[] | '*';
-    };
-    } | {
-      type: 'webhook';
-      config: {
-      path: string;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'cron';
-      config: {
-      /** @minLength 1 */
-      name: string;
-      /** @minLength 1 */
-      schedule: string;
-      timezone?: string;
-      /**
-         * @minLength 1
-         * @maxLength 4096
-         */
-      prompt: string;
-      external_key?: string;
-      catch_up?: 'all' | 'most_recent' | 'skip';
-      /**
-         * @minimum 1
-         * @maximum 604800
-         */
-      max_catch_up_age_seconds?: number;
-    };
-    } | {
-      type: 'chat';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'mcp';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    };
-
-    export type AgentRevisionSpecToolsItem = {
-      kind: 'native';
-      id: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    } | {
-      kind: 'custom';
-      id: string;
-      path: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-      requires_identity?: string;
-    } | {
-      kind: 'custom_template';
-      from_template: string;
-      alias: string;
-      /** @minimum 1 */
-      version?: number;
-    } | {
-      kind: 'client';
-      /** @minLength 1 */
-      id: string;
-      /** @minLength 1 */
-      description: string;
-      args_schema?: { [key: string]: unknown };
-      required?: boolean;
-      /**
-         * @minimum 1
-         * @maximum 600000
-         */
-      timeout_ms?: number;
-      interactive?: boolean;
-    };
-
-    export type AgentRevisionSpecMcpsItemAuth = {
-      provider?: string;
-    };
-
-    export type AgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
-
-    export type AgentRevisionSpecMcpsItemToolsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    };
-
-    export type AgentRevisionSpecMcpsItem = {
-      /** @minLength 1 */
-      id: string;
-      url: string;
-      auth?: AgentRevisionSpecMcpsItemAuth;
-      secrets?: string[];
-      headers?: AgentRevisionSpecMcpsItemHeaders;
-      tools?: AgentRevisionSpecMcpsItemToolsItem[];
-    };
-
-    export type AgentRevisionSpecSkillsItem = {
-      id: string;
-      path: string;
-      description?: string;
-      from_template?: string;
-      alias?: string;
-      /** @minimum 1 */
-      version?: number;
-      source_version_id?: string;
-    };
-
-    export type AgentRevisionSpecIdentityProvidersItem = {
-      kind: 'posthog';
-      /** @minLength 1 */
-      id?: string;
-      binding?: 'principal';
-      scopes?: string[];
-      client_id?: string;
-    } | {
-      kind: 'oauth2';
-      /** @minLength 1 */
-      id: string;
-      binding?: 'principal';
-      authorize_url: string;
-      token_url: string;
-      /** @minLength 1 */
-      client_id: string;
-      client_secret_ref?: string;
-      scopes?: string[];
-      userinfo_url?: string;
-    };
-
-    export type AgentRevisionSpecSecretsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      /**
-         * @minItems 1
-         * @items.minLength 1
-         */
-      allowed_hosts: string[];
-    };
-
-    export type AgentRevisionSpecLimits = {
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_turns: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_tool_calls: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_wall_seconds: number;
-      /**
-         * @maximum 200000
-         * @exclusiveMinimum 0
-         */
-      max_output_tokens?: number;
-      /**
-         * @maximum 16384
-         * @exclusiveMinimum 0
-         */
-      max_memory_mb: number;
-      /**
-         * @maximum 8
-         * @exclusiveMinimum 0
-         */
-      max_cpu_cores: number;
-    };
-
-    export type AgentRevisionSpecReasoning = typeof AgentRevisionSpecReasoning[keyof typeof AgentRevisionSpecReasoning];
-
-
-    export const AgentRevisionSpecReasoning = {
-      Minimal: 'minimal',
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Xhigh: 'xhigh',
-    } as const;
-
-    export type AgentRevisionSpecFrameworkPromptOmitItem = typeof AgentRevisionSpecFrameworkPromptOmitItem[keyof typeof AgentRevisionSpecFrameworkPromptOmitItem];
-
-
-    export const AgentRevisionSpecFrameworkPromptOmitItem = {
-      MetaToolGuidance: 'meta_tool_guidance',
-      StateContract: 'state_contract',
-      ToolFailureGuidance: 'tool_failure_guidance',
-      ApprovalGuidance: 'approval_guidance',
-      ReasoningHint: 'reasoning_hint',
-    } as const;
-
-    export type AgentRevisionSpecFrameworkPrompt = {
-      omit: AgentRevisionSpecFrameworkPromptOmitItem[];
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      version_pin?: number;
-    };
-
-    export type AgentRevisionSpecResume = {
-      enabled: boolean;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_completed_age_ms: number;
-    };
-
-    export type AgentRevisionSpec = {
-      /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
-      models: AgentRevisionSpecModels;
-      triggers: AgentRevisionSpecTriggersItem[];
-      tools: AgentRevisionSpecToolsItem[];
-      mcps: AgentRevisionSpecMcpsItem[];
-      skills: AgentRevisionSpecSkillsItem[];
-      identity_providers?: AgentRevisionSpecIdentityProvidersItem[];
-      secrets: AgentRevisionSpecSecretsItem[];
-      limits: AgentRevisionSpecLimits;
-      reasoning?: AgentRevisionSpecReasoning;
-      framework_prompt?: AgentRevisionSpecFrameworkPrompt;
-      resume?: AgentRevisionSpecResume;
-    };
-
-    /**
      * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
      * @nullable
      */
@@ -8654,7 +8298,7 @@ export namespace Schemas {
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256: string | null;
-      spec?: AgentRevisionSpec;
+      spec?: unknown;
       /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
       readonly skill_refs: readonly SkillRef[];
       /** @nullable */
@@ -18216,6 +17860,24 @@ export namespace Schemas {
     }
 
     /**
+     * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+     *
+     * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+     * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+     * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+     * reviewer is never silently dropped.
+     */
+    export interface SuggestedReviewer {
+      /**
+         * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `org-member-get-github-login` / git history when you only have a name.
+         * @maxLength 200
+         */
+      github_login?: string;
+      /** PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here. */
+      user_uuid?: string;
+    }
+
+    /**
      * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
      */
     export interface EditReportRequest {
@@ -18237,6 +17899,11 @@ export namespace Schemas {
          * @nullable
          */
       append_note?: string | null;
+      /**
+         * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+         * @maxItems 10
+         */
+      suggested_reviewers?: SuggestedReviewer[];
     }
 
     export interface EditReportResponse {
@@ -18246,6 +17913,8 @@ export namespace Schemas {
       updated_fields: string[];
       /** Whether a note artefact was appended. */
       note_appended: boolean;
+      /** Whether the report's suggested reviewers were replaced. */
+      reviewers_set: boolean;
     }
 
     export type EffectiveMembershipLevelEnum = typeof EffectiveMembershipLevelEnum[keyof typeof EffectiveMembershipLevelEnum];
@@ -18525,8 +18194,11 @@ export namespace Schemas {
          * @nullable
          */
       priority_explanation?: string | null;
-      /** Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path. */
-      suggested_reviewers?: string[];
+      /**
+         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+         * @maxItems 10
+         */
+      suggested_reviewers?: SuggestedReviewer[];
     }
 
     export interface EmitReportResponse {
@@ -20470,6 +20142,7 @@ export namespace Schemas {
      * * `fireworks` - Fireworks
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
+     * * `minimax` - MiniMax
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -20482,6 +20155,7 @@ export namespace Schemas {
       Fireworks: 'fireworks',
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
+      Minimax: 'minimax',
     } as const;
 
     /**
@@ -25618,6 +25292,74 @@ export namespace Schemas {
       readonly execution_order: number | null;
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match only). Results are ordered exact-first. Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
+    }
+
+    /**
+     * * `running` - running
+     * * `succeeded` - succeeded
+     * * `failed` - failed
+     */
+    export type HogInvocationRerunFilterStatusEnum = typeof HogInvocationRerunFilterStatusEnum[keyof typeof HogInvocationRerunFilterStatusEnum];
+
+
+    export const HogInvocationRerunFilterStatusEnum = {
+      Running: 'running',
+      Succeeded: 'succeeded',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * Filter shape for the rerun endpoint. `window_start`/`window_end` are required.
+     */
+    export interface HogInvocationRerunFilter {
+      /** Inclusive lower bound on `scheduled_at` (UTC). */
+      window_start: string;
+      /** Exclusive upper bound on `scheduled_at` (UTC). */
+      window_end: string;
+      /** Restrict to invocations whose latest status is one of these. Defaults to ['failed']. */
+      status?: HogInvocationRerunFilterStatusEnum[];
+      /** Restrict to invocations whose error_kind matches one of these (e.g. 'http_5xx', 'timeout'). */
+      error_kind?: string[];
+      /**
+         * Skip invocations that have already been attempted this many times or more.
+         * @minimum 1
+         * @maximum 255
+         */
+      max_attempts?: number;
+      /**
+         * Maximum number of invocations to rerun in this request. Server-side cap is 10000.
+         * @minimum 1
+         * @maximum 10000
+         */
+      max_count?: number;
+      /**
+         * Optional restriction to specific invocation IDs within the window. Capped at 10000 per request. Always combined with `window_start`/`window_end` so the ClickHouse query can be partition-pruned.
+         * @maxItems 10000
+         */
+      invocation_ids?: string[];
+    }
+
+    /**
+     * Rerun invocations of a hog function or hog flow from their stored payloads.
+     */
+    export interface HogInvocationRerunRequest {
+      /** Required. `window_start` / `window_end` pin the query to a small set of date partitions on the `hog_invocation_results` table. Optional `invocation_ids` restricts to specific invocations within that window. */
+      filter: HogInvocationRerunFilter;
+    }
+
+    /**
+     * Response from the rerun endpoint. The endpoint only enqueues a wrapper
+     * job onto the cyclotron `rerun` queue — the actual ClickHouse paging and
+     * re-enqueue work happens asynchronously in the `cdp-rerun-worker` service.
+     * Use `rerun_job_id` to look up progress on the wrapper job later.
+     */
+    export interface HogInvocationRerunResponse {
+      /** ID of the cyclotron wrapper job that will run the rerun. Use this to poll status. */
+      rerun_job_id: string;
+      /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+      queued_count: number;
+      /** Always 0 — rerun runs asynchronously. Kept for response shape stability. */
+      skipped_count: number;
     }
 
     export interface HogInvocationResult {
@@ -33062,6 +32804,8 @@ export namespace Schemas {
      * * `commit` - Commit
      * * `task_run` - Task Run
      * * `note` - Note
+     * * `title_change` - Title Change
+     * * `summary_change` - Summary Change
      */
     export type SignalReportArtefactTypeEnum = typeof SignalReportArtefactTypeEnum[keyof typeof SignalReportArtefactTypeEnum];
 
@@ -33079,6 +32823,8 @@ export namespace Schemas {
       Commit: 'commit',
       TaskRun: 'task_run',
       Note: 'note',
+      TitleChange: 'title_change',
+      SummaryChange: 'summary_change',
     } as const;
 
     export interface _User {
@@ -34063,7 +33809,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -34704,6 +34451,39 @@ export namespace Schemas {
     }
 
     /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type TracingViewFilters = { [key: string]: unknown };
+
+    export interface TracingView {
+      readonly id: string;
+      readonly short_id: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: TracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at: string;
+      /** User who created the view. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedTracingViewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TracingView[];
+    }
+
+    /**
      * Insight enriched with view-count and recent-viewer fields, used by the trending action.
      */
     export interface TrendingInsight {
@@ -35236,6 +35016,61 @@ export namespace Schemas {
       results: VisionAction[];
     }
 
+    /**
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed
+     * * `skipped` - Skipped
+     */
+    export type VisionActionRunStatusEnum = typeof VisionActionRunStatusEnum[keyof typeof VisionActionRunStatusEnum];
+
+
+    export const VisionActionRunStatusEnum = {
+      Running: 'running',
+      Completed: 'completed',
+      Failed: 'failed',
+      Skipped: 'skipped',
+    } as const;
+
+    /**
+     * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+     */
+    export interface VisionActionRun {
+      readonly id: string;
+      /** Run outcome: running, completed, failed, or skipped.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      readonly status: VisionActionRunStatusEnum;
+      /**
+         * The scheduled fire time this run was claimed for.
+         * @nullable
+         */
+      readonly scheduled_at: string | null;
+      /** Number of observations that fed this run's summary. */
+      readonly observation_count: number;
+      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+      readonly synthesized_markdown: string;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+    }
+
+    export interface PaginatedVisionActionRunList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: VisionActionRun[];
+    }
+
     export interface WarehouseColumnAnnotation {
       readonly id: string;
       /** ID of the data warehouse table this annotation describes. */
@@ -35631,363 +35466,6 @@ export namespace Schemas {
     }
 
     /**
-     * How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns.
-     */
-    export type PatchedAgentRevisionSpecModels = {
-      mode: 'auto';
-      /** Quality/cost tier (auto). low = cheapest, for short, formulaic, no-reasoning jobs (lookups, FAQ bots); medium = balanced default, for multi-step but bounded work; high = top-tier, for long, branching, reasoning-heavy work. Resolved to a priority-ordered cross-provider list at session start. */
-      level?: 'low' | 'medium' | 'high';
-      /** Reasoning/thinking effort budget. minimal = no deliberation (fastest, cheapest) … xhigh = maximal (research-grade, ~5-10x the per-turn cost). Omit for the provider/spec default. */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-      /** Session model stability vs. resilience. `cost` (default): the first turn picks a working model and PINS it for the whole session — keeps the provider's prompt cache warm (cache reads are ~0.1-0.5x of full input) and never fails over mid-session; if the pinned model is down the turn fails rather than re-reading the whole context cold on another provider. `availability`: fail over to the next model when the session's model fails — survives an outage at the cost of a one-time cold re-read. Prefer `cost` for long/expensive sessions, `availability` where uptime matters more than spend. */
-      optimize_for?: 'cost' | 'availability';
-    } | {
-      mode: 'manual';
-      /**
-         * Explicit priority-ordered fallback list — the runner tries entries in order (primary first).
-         * @minItems 1
-         */
-      models: ({
-      /**
-         * Canonical model id, e.g. `anthropic/claude-sonnet-4-6` (see the agent-applications-models tool for served ids).
-         * @minLength 1
-         * @pattern ^[a-z0-9_-]+/[a-zA-Z0-9._:-]+$
-         */
-      model: string;
-      /** Per-model reasoning effort override (else the spec default). */
-      reasoning?: 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-    })[];
-      /** Session model stability vs. resilience. `cost` (default): pin the first working model for the whole session (warm prompt cache, no mid-session failover). `availability`: fail over down this list when the session's model fails (survives outages, re-reads context cold). */
-      optimize_for?: 'cost' | 'availability';
-    };
-
-    export type PatchedAgentRevisionSpecTriggersItem = {
-      type: 'slack';
-      config: {
-      channel_id?: string;
-      mention_only: boolean;
-      auto_resume_threads: boolean;
-      allow_workspace_participants: boolean;
-      ack_reaction?: string;
-      allow_direct_messages: boolean;
-      trusted_workspaces: string[] | '*';
-    };
-    } | {
-      type: 'webhook';
-      config: {
-      path: string;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'cron';
-      config: {
-      /** @minLength 1 */
-      name: string;
-      /** @minLength 1 */
-      schedule: string;
-      timezone?: string;
-      /**
-         * @minLength 1
-         * @maxLength 4096
-         */
-      prompt: string;
-      external_key?: string;
-      catch_up?: 'all' | 'most_recent' | 'skip';
-      /**
-         * @minimum 1
-         * @maximum 604800
-         */
-      max_catch_up_age_seconds?: number;
-    };
-    } | {
-      type: 'chat';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    } | {
-      type: 'mcp';
-      config?: {
-      allow_restart?: boolean;
-    };
-      auth: {
-      modes?: ({
-      type: 'public';
-      acknowledge_public_exposure: true;
-    } | {
-      type: 'posthog';
-      scopes?: string[];
-      audience?: 'project' | 'organization';
-    } | {
-      type: 'jwt';
-      /** @minLength 1 */
-      issuer_secret_ref: string;
-    } | {
-      type: 'shared_secret';
-      /** @minLength 1 */
-      header: string;
-      /** @minLength 1 */
-      secret_ref: string;
-    } | {
-      type: 'posthog_internal';
-    })[];
-    };
-    };
-
-    export type PatchedAgentRevisionSpecToolsItem = {
-      kind: 'native';
-      id: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    } | {
-      kind: 'custom';
-      id: string;
-      path: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-      requires_identity?: string;
-    } | {
-      kind: 'custom_template';
-      from_template: string;
-      alias: string;
-      /** @minimum 1 */
-      version?: number;
-    } | {
-      kind: 'client';
-      /** @minLength 1 */
-      id: string;
-      /** @minLength 1 */
-      description: string;
-      args_schema?: { [key: string]: unknown };
-      required?: boolean;
-      /**
-         * @minimum 1
-         * @maximum 600000
-         */
-      timeout_ms?: number;
-      interactive?: boolean;
-    };
-
-    export type PatchedAgentRevisionSpecMcpsItemAuth = {
-      provider?: string;
-    };
-
-    export type PatchedAgentRevisionSpecMcpsItemHeaders = {[key: string]: string};
-
-    export type PatchedAgentRevisionSpecMcpsItemToolsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      requires_approval?: boolean;
-      approval_policy?: {
-      type?: 'principal' | 'agent';
-      allow_edit?: boolean;
-      /**
-         * @minimum 60000
-         * @maximum 604800000
-         */
-      ttl_ms?: number;
-    };
-    };
-
-    export type PatchedAgentRevisionSpecMcpsItem = {
-      /** @minLength 1 */
-      id: string;
-      url: string;
-      auth?: PatchedAgentRevisionSpecMcpsItemAuth;
-      secrets?: string[];
-      headers?: PatchedAgentRevisionSpecMcpsItemHeaders;
-      tools?: PatchedAgentRevisionSpecMcpsItemToolsItem[];
-    };
-
-    export type PatchedAgentRevisionSpecSkillsItem = {
-      id: string;
-      path: string;
-      description?: string;
-      from_template?: string;
-      alias?: string;
-      /** @minimum 1 */
-      version?: number;
-      source_version_id?: string;
-    };
-
-    export type PatchedAgentRevisionSpecIdentityProvidersItem = {
-      kind: 'posthog';
-      /** @minLength 1 */
-      id?: string;
-      binding?: 'principal';
-      scopes?: string[];
-      client_id?: string;
-    } | {
-      kind: 'oauth2';
-      /** @minLength 1 */
-      id: string;
-      binding?: 'principal';
-      authorize_url: string;
-      token_url: string;
-      /** @minLength 1 */
-      client_id: string;
-      client_secret_ref?: string;
-      scopes?: string[];
-      userinfo_url?: string;
-    };
-
-    export type PatchedAgentRevisionSpecSecretsItem = string | {
-      /** @minLength 1 */
-      name: string;
-      /**
-         * @minItems 1
-         * @items.minLength 1
-         */
-      allowed_hosts: string[];
-    };
-
-    export type PatchedAgentRevisionSpecLimits = {
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_turns: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_tool_calls: number;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_wall_seconds: number;
-      /**
-         * @maximum 200000
-         * @exclusiveMinimum 0
-         */
-      max_output_tokens?: number;
-      /**
-         * @maximum 16384
-         * @exclusiveMinimum 0
-         */
-      max_memory_mb: number;
-      /**
-         * @maximum 8
-         * @exclusiveMinimum 0
-         */
-      max_cpu_cores: number;
-    };
-
-    export type PatchedAgentRevisionSpecReasoning = typeof PatchedAgentRevisionSpecReasoning[keyof typeof PatchedAgentRevisionSpecReasoning];
-
-
-    export const PatchedAgentRevisionSpecReasoning = {
-      Minimal: 'minimal',
-      Low: 'low',
-      Medium: 'medium',
-      High: 'high',
-      Xhigh: 'xhigh',
-    } as const;
-
-    export type PatchedAgentRevisionSpecFrameworkPromptOmitItem = typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem[keyof typeof PatchedAgentRevisionSpecFrameworkPromptOmitItem];
-
-
-    export const PatchedAgentRevisionSpecFrameworkPromptOmitItem = {
-      MetaToolGuidance: 'meta_tool_guidance',
-      StateContract: 'state_contract',
-      ToolFailureGuidance: 'tool_failure_guidance',
-      ApprovalGuidance: 'approval_guidance',
-      ReasoningHint: 'reasoning_hint',
-    } as const;
-
-    export type PatchedAgentRevisionSpecFrameworkPrompt = {
-      omit: PatchedAgentRevisionSpecFrameworkPromptOmitItem[];
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      version_pin?: number;
-    };
-
-    export type PatchedAgentRevisionSpecResume = {
-      enabled: boolean;
-      /**
-         * @maximum 2147483647
-         * @exclusiveMinimum 0
-         */
-      max_completed_age_ms: number;
-    };
-
-    export type PatchedAgentRevisionSpec = {
-      /** How this agent selects its model. `auto`: pick a quality/cost `level` and the platform resolves it to a maintained, priority-ordered, cross-provider list at runtime. `manual`: give an explicit priority-ordered `models` list (primary first). `optimize_for` governs how the chosen model is treated across the session's turns. */
-      models: PatchedAgentRevisionSpecModels;
-      triggers: PatchedAgentRevisionSpecTriggersItem[];
-      tools: PatchedAgentRevisionSpecToolsItem[];
-      mcps: PatchedAgentRevisionSpecMcpsItem[];
-      skills: PatchedAgentRevisionSpecSkillsItem[];
-      identity_providers?: PatchedAgentRevisionSpecIdentityProvidersItem[];
-      secrets: PatchedAgentRevisionSpecSecretsItem[];
-      limits: PatchedAgentRevisionSpecLimits;
-      reasoning?: PatchedAgentRevisionSpecReasoning;
-      framework_prompt?: PatchedAgentRevisionSpecFrameworkPrompt;
-      resume?: PatchedAgentRevisionSpecResume;
-    };
-
-    /**
      * Resolved creator (id, first_name, email) from `created_by_id`, or null if unset or the user was deleted.
      * @nullable
      */
@@ -36007,7 +35485,7 @@ export namespace Schemas {
       bundle_uri?: string;
       /** @nullable */
       readonly bundle_sha256?: string | null;
-      spec?: PatchedAgentRevisionSpec;
+      spec?: unknown;
       /** Store-skill references for this draft, set via the `skill_refs` action and resolved into the bundle at freeze. Preserved as the authoring record on the frozen revision (and carried forward when forking a new draft); resolved provenance is stamped onto `spec.skills[].source_version_id`. */
       readonly skill_refs?: readonly SkillRef[];
       /** @nullable */
@@ -40596,6 +40074,28 @@ export namespace Schemas {
       content?: unknown;
     }
 
+    /**
+     * Editable human-facing fields on a signal report (PATCH).
+     *
+     * Both fields are optional so a caller can change either independently, but at least one
+     * must be supplied. Every other report field — status, weights, judgments — is owned by the
+     * signals pipeline and is deliberately not writable here.
+     */
+    export interface PatchedSignalReportContentUpdate {
+      /**
+         * New human-facing title for the report. Omit to leave the title unchanged.
+         * @minLength 1
+         * @maxLength 300
+         */
+      title?: string;
+      /**
+         * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+         * @minLength 1
+         * @maxLength 10000
+         */
+      summary?: string;
+    }
+
     export type ScoutOriginEnum = typeof ScoutOriginEnum[keyof typeof ScoutOriginEnum];
 
 
@@ -41454,7 +40954,8 @@ export namespace Schemas {
        * * `openrouter` - Openrouter
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
-       * * `together_ai` - Together AI */
+       * * `together_ai` - Together AI
+       * * `minimax` - MiniMax */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -42034,6 +41535,30 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    /**
+     * Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode.
+     */
+    export type PatchedTracingViewFilters = { [key: string]: unknown };
+
+    export interface PatchedTracingView {
+      readonly id?: string;
+      readonly short_id?: string;
+      /**
+         * Human-readable name shown in the saved views list.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Saved tracing filters — a subset of the frontend TracingFilters shape. May contain dateRange, serviceNames, filterGroup, orderBy, orderDirection, and viewMode. */
+      filters?: PatchedTracingViewFilters;
+      /** Whether the view is pinned for quick access. */
+      pinned?: boolean;
+      readonly created_at?: string;
+      /** User who created the view. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     export type SessionReplayListWidgetUpdateRequestOpenApiWidgetType = typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiWidgetType];
@@ -47618,6 +47143,19 @@ export namespace Schemas {
       banner_message: string | null;
       /** The team's enforced scout run caps and current usage. */
       limits: ScoutLimits;
+    }
+
+    /**
+     * Request body for the batched emissions / emission-reports lookups: the set of run UUIDs to
+     * resolve in one call. Collapses the findings UI's old per-run fan-out (one request — and for the
+     * reports lookup, one ClickHouse round-trip — per emitted run) into a single request.
+     */
+    export interface ScoutRunIdsBatchRequest {
+      /**
+         * UUIDs of the `SignalScoutRun` rows to resolve in one batch. Run ids belonging to another team are silently ignored (they contribute no rows) rather than failing the whole request. Capped at 200 ids per call.
+         * @maxItems 200
+         */
+      run_ids: string[];
     }
 
     /**
@@ -53506,6 +53044,25 @@ export namespace Schemas {
       count: number;
     }
 
+    export interface _LogPattern {
+      /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+      pattern: string;
+      /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — scale by `total_count / scanned_count` to estimate. */
+      count: number;
+      /** Share of the sampled log volume this pattern represents (0–100). */
+      volume_share_pct: number;
+      /** Sampled occurrences at severity "error" or "fatal". */
+      error_count: number;
+      /** ISO 8601 timestamp of the earliest sampled occurrence. */
+      first_seen: string;
+      /** ISO 8601 timestamp of the latest sampled occurrence. */
+      last_seen: string;
+      /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
+      examples: string[];
+      /** Up to 4 distinct service names this pattern was observed in. */
+      services: string[];
+    }
+
     /**
      * * `log` - log
      * * `log_attribute` - log_attribute
@@ -53686,6 +53243,35 @@ export namespace Schemas {
     export interface _LogsFacetValuesResponse {
       /** Facet values with cross-filtered counts, ordered by count descending. */
       results: _LogFacetValue[];
+    }
+
+    export interface _LogsPatternsBody {
+      /** Date range to mine patterns from. Defaults to last hour. */
+      dateRange?: _DateRange;
+      /** Filter by log severity levels before mining. */
+      severityLevels?: SeverityLevelsEnum[];
+      /** Restrict mining to these service names. */
+      serviceNames?: string[];
+      /** Full-text search term to filter log bodies before mining. */
+      searchTerm?: string;
+      /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+      filterGroup?: _LogPropertyFilter[];
+    }
+
+    export interface _LogsPatternsRequest {
+      /** The patterns query to execute. */
+      query: _LogsPatternsBody;
+    }
+
+    export interface _LogsPatternsResponse {
+      /** Mined patterns ordered by `count` descending. */
+      patterns: _LogPattern[];
+      /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+      scanned_count: number;
+      /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+      total_count: number;
+      /** True when the window held more rows than the sample cap, so patterns were mined from an evenly-distributed random sample rather than every matching row. */
+      sampled: boolean;
     }
 
     export interface _LogsQueryBody {
@@ -54059,6 +53645,39 @@ export namespace Schemas {
       groupBy?: _MetricGroupBy[];
     }
 
+    /**
+     * Per-emission attributes (high-cardinality labels on the data point).
+     */
+    export type _MetricEventSampleAttributes = {[key: string]: string};
+
+    /**
+     * Attributes of the resource (host, pod, service version) that emitted the metric.
+     */
+    export type _MetricEventSampleResourceAttributes = {[key: string]: string};
+
+    export interface _MetricEventSample {
+      /** When the metric was emitted, ISO 8601. */
+      timestamp: string;
+      /** Metric this emission belongs to. */
+      metric_name: string;
+      /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
+      metric_type: string;
+      /** The emitted value. */
+      value: number;
+      /** Unit of the value, if any. */
+      unit: string;
+      /** Service that emitted the metric. */
+      service_name: string;
+      /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
+      trace_id: string;
+      /** Span this emission belongs to; empty if none. */
+      span_id: string;
+      /** Per-emission attributes (high-cardinality labels on the data point). */
+      attributes: _MetricEventSampleAttributes;
+      /** Attributes of the resource (host, pod, service version) that emitted the metric. */
+      resource_attributes: _MetricEventSampleResourceAttributes;
+    }
+
     export interface _MetricName {
       /** Metric name as it appears in the team's data. */
       name: string;
@@ -54131,6 +53750,39 @@ export namespace Schemas {
     export interface _MetricQueryResponse {
       /** One series per (clause, label-set). A single ungrouped query returns exactly one series with empty labels. */
       results: _MetricSeries[];
+    }
+
+    export interface _MetricSamplesBody {
+      /**
+         * Exact metric name to list raw emissions for (e.g. 'http.server.duration').
+         * @maxLength 255
+         */
+      metricName: string;
+      /** Lower bound (inclusive) for the sample window. ISO 8601. */
+      dateFrom: string;
+      /** Upper bound (exclusive) for the sample window. Defaults to now if omitted. */
+      dateTo?: string;
+      /**
+         * Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.
+         * @maxLength 255
+         */
+      traceId?: string;
+      /**
+         * Max emissions to return, newest first. Defaults to 100, capped at 1000.
+         * @minimum 1
+         * @maximum 1000
+         */
+      limit?: number;
+    }
+
+    export interface _MetricSamplesRequest {
+      /** The raw-emissions query to execute. */
+      query: _MetricSamplesBody;
+    }
+
+    export interface _MetricSamplesResponse {
+      /** Raw emissions ordered by timestamp descending. */
+      results: _MetricEventSample[];
     }
 
     /**
@@ -54489,6 +54141,24 @@ export namespace Schemas {
     export interface _TracingQueryRequest {
       /** The tracing spans query to execute. */
       query: _TracingQueryBody;
+    }
+
+    export interface _TracingSparklineQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
+      rootSpans?: boolean;
+    }
+
+    export interface _TracingSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _TracingSparklineQueryBody;
     }
 
     export interface _TracingTimeseriesQueryBody {
@@ -57276,6 +56946,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
@@ -58723,6 +58394,17 @@ export namespace Schemas {
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
+    export type EnvironmentsTracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type EnvironmentsUserInterviewTopicsListParams = {
     /**
      * Number of results to return per page.
@@ -60094,6 +59776,13 @@ export namespace Schemas {
      * ISO datetime — counts spend + session totals from this point forward. Defaults to 24h ago.
      */
     since?: string;
+    };
+
+    export type AgentApplicationsSpecSchemaParams = {
+    /**
+     * Return only this top-level slice of the spec schema to save tokens — one of `models`, `triggers`, `tools`, `mcps`, `skills`, `identity_providers`, `secrets`, `limits`, `reasoning`, `framework_prompt`, `resume`. Omit for the whole spec schema.
+     */
+    section?: string;
     };
 
     export type AgentFleetApprovalsListParams = {
@@ -63804,6 +63493,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       Fireworks: 'fireworks',
       Gemini: 'gemini',
+      Minimax: 'minimax',
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
@@ -65410,6 +65100,28 @@ export namespace Schemas {
     text?: string;
     };
 
+    export type SignalsScoutRunsRecentEmissionsParams = {
+    /**
+     * ISO-8601 inclusive lower bound on `emitted_at`. Omit to skip the lower bound.
+     */
+    date_from?: string;
+    /**
+     * ISO-8601 exclusive upper bound on `emitted_at`. Pass to walk back past the result cap on subsequent calls (cursor-style: set to the `emitted_at` of the oldest emission from the prior page).
+     */
+    date_to?: string;
+    /**
+     * Max rows to return (default 50, hard cap 200).
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number;
+    /**
+     * Exact-match filter on the emitting scout's skill (e.g. `signals-scout-errors`). Narrows to findings one specialist surfaced; omit to span every scout on the team.
+     * @minLength 1
+     */
+    skill_name?: string;
+    };
+
     export type SignalsScoutScratchpadSearchParams = {
     /**
      * Truncate each entry's `content` to the first N characters (a preview). Omit for the full body. Ignored when `keys_only=true`.
@@ -66024,6 +65736,17 @@ export namespace Schemas {
       SpanResourceAttribute: 'span_resource_attribute',
     } as const;
 
+    export type TracingViewsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type UploadedMediaCreate201 = { [key: string]: unknown };
 
     export type UserInterviewTopicsListParams = {
@@ -66092,6 +65815,17 @@ export namespace Schemas {
      * Filter to the actions belonging to one scanner.
      */
     scanner?: string;
+    };
+
+    export type VisionActionsRunsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
     };
 
     export type VisionObservationsListParams = {

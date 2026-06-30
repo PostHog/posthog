@@ -229,6 +229,14 @@ pub struct Config {
     #[envconfig(default = "5000")]
     pub offset_commit_interval_ms: u64,
 
+    /// Tokio runtime worker threads. `0` (default) lets Tokio size the pool from
+    /// `available_parallelism()`, which accounts for a CFS CPU *limit* (`cpu.max`) but not CPU
+    /// *requests*/shares — so on a requests-only pod (no `limits.cpu`), or when the cgroup fs isn't
+    /// readable, it returns the *node's* core count and over-subscribes the runtime. Set this to the
+    /// pod's CPU budget to cap the pool regardless of how the limit is expressed.
+    #[envconfig(default = "0")]
+    pub tokio_worker_threads: usize,
+
     /// How often the sweep fires to evict state whose eviction deadline has passed.
     #[envconfig(default = "30000")]
     pub sweep_interval_ms: u64,
@@ -687,6 +695,7 @@ mod tests {
             recv_batch_size: 1000,
             recv_batch_timeout_ms: 500,
             offset_commit_interval_ms: 5000,
+            tokio_worker_threads: 0,
             sweep_interval_ms: 30000,
             sweep_safety_margin_ms: 300000,
             store_path: "cohort-store".to_string(),

@@ -1,6 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-from snowflake.connector.errors import DatabaseError, ForbiddenError, ProgrammingError
+from snowflake.connector.errors import DatabaseError, ForbiddenError, HttpError, ProgrammingError
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -49,6 +49,11 @@ SnowflakeErrors = {
     "This session does not have a current database": "Database specified not found",
     "Verify the account name is correct": "Can't find an account with the specified account ID",
     "Multi-factor authentication is required for this account": "This Snowflake account requires multi-factor authentication enrollment. Connect with a service user that uses key-pair authentication or is exempt from MFA.",
+    # Snowflake error 290404: the login-request endpoint 404s because the account identifier doesn't
+    # resolve to a real deployment (wrong/incomplete account id, missing region/cloud segment). The
+    # connector raises HttpError rather than the "Verify the account name is correct" OperationalError,
+    # so it needs its own entry. The host and port in the message are volatile, so we match "404 Not Found".
+    "404 Not Found": "Can't find a Snowflake account with the specified account ID. Please check your account identifier and try again.",
 }
 
 
@@ -291,7 +296,7 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
 
         try:
             self.get_schemas(config, team_id)
-        except (ProgrammingError, DatabaseError, ForbiddenError) as e:
+        except (ProgrammingError, DatabaseError, ForbiddenError, HttpError) as e:
             error_msg = e.msg or e.raw_msg or ""
             for key, value in SnowflakeErrors.items():
                 if key in error_msg:

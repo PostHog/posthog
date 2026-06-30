@@ -24,6 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal
 from posthog.temporal.common.schedule import describe_schedule
 
+from products.data_modeling.backend.models import Edge, Node
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
 from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
@@ -2001,6 +2002,11 @@ class TestUpdateExternalDataSchema:
 
         yield team
 
+        # Creating a source syncs managed Revenue Analytics views into a DAG, leaving Node rows whose
+        # saved_query FK is PROTECT. Team cascades to DataWarehouseSavedQuery, so the nodes/edges must
+        # go first — same ordering production relies on in delete_bulky_postgres_data.
+        Edge.objects.filter(team=team).delete()
+        Node.objects.filter(team=team).delete()
         team.delete()
 
     @pytest.fixture

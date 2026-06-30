@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from snowflake.connector.errors import DatabaseError
+from snowflake.connector.errors import DatabaseError, HttpError
 
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
@@ -866,3 +866,48 @@ class TestSnowflakeValidateCredentials:
 
         assert ok is False
         mock_capture.assert_called_once()
+
+    @pytest.mark.parametrize(
+        "http_error, expect_capture, message_fragment",
+        [
+            # HttpError is a sibling of DatabaseError/ProgrammingError, so a 404 on the login-request
+            # endpoint (a wrong/incomplete account id) must be recognised as a user config error and
+            # surface a friendly message without capture.
+            (
+                HttpError(
+                    msg="404 Not Found: post acme.snowflakecomputing.com:443/session/v1/login-request",
+                    errno=290404,
+                    sqlstate="08001",
+                    send_telemetry=False,
+                ),
+                False,
+                "account ID",
+            ),
+            # An unknown HttpError falls through the known-error matching and must still be captured.
+            (
+                HttpError(
+                    msg="503 Service Unavailable: post acme.snowflakecomputing.com:443/session/v1/login-request",
+                    errno=290503,
+                    sqlstate="08001",
+                    send_telemetry=False,
+                ),
+                True,
+                None,
+            ),
+        ],
+    )
+    def test_http_error_routing(self, source, http_error, expect_capture, message_fragment):
+        with (
+            patch.object(source, "get_schemas", side_effect=http_error),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.capture_exception"
+            ) as mock_capture,
+        ):
+            ok, message = source.validate_credentials(_make_config("password"), team_id=1)
+
+        assert ok is False
+        if expect_capture:
+            mock_capture.assert_called_once()
+        else:
+            assert message is not None and message_fragment in message
+            mock_capture.assert_not_called()
