@@ -5,6 +5,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import (
     OpenApiExample,
@@ -84,6 +85,8 @@ from products.workflows.backend.api.message_assets import (
     PersonMessageAssetsRequestSerializer,
     fetch_message_assets_for_person,
 )
+
+_WORKFLOW_EMAIL_ASSETS_UI_FLAG = "workflow-email-assets-ui"
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -1465,6 +1468,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @action(methods=["GET"], detail=True, required_scopes=["person:read"])
     def emails(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         person = self.get_object()
+        if not posthoganalytics.feature_enabled(
+            _WORKFLOW_EMAIL_ASSETS_UI_FLAG,
+            str(request.user.distinct_id),
+            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
+            group_properties={"organization": {"id": str(self.team.organization_id)}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        ):
+            raise NotFound()
         param_serializer = PersonMessageAssetsRequestSerializer(data=request.query_params)
         param_serializer.is_valid(raise_exception=True)
         params = param_serializer.validated_data

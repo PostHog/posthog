@@ -240,6 +240,9 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         super().setUp()
         self.person = create_person(team=self.team, distinct_ids=["distinct-1"], properties={"email": "p@example.com"})
         self.hog_flow = HogFlow.objects.create(team=self.team, name="Welcome flow")
+        ff_patcher = patch("posthog.api.person.posthoganalytics.feature_enabled", return_value=True)
+        self.feature_enabled_mock = ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
 
     def _emails(self, params=None):
         return self.client.get(f"/api/projects/{self.team.id}/persons/{self.person.uuid}/emails/", params)
@@ -332,3 +335,8 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         )
         assert res.status_code == 403, res.json()
         assert "person:read" in res.json().get("detail", "")
+
+    def test_404_when_ui_flag_disabled(self):
+        self._seed("inv-1")
+        self.feature_enabled_mock.return_value = False
+        assert self._emails().status_code == status.HTTP_404_NOT_FOUND
