@@ -124,8 +124,13 @@ class TestGetRows:
         item = {"client_id": "c1", "oauth": {"callback_url": "https://x/cb", "secret": "sk_live_super_secret"}}
         pages = {1: _page_body("api_apps", [item], page=1, num_pages=1)}
         rows, _ = self._collect("api_apps", _FakeResumableManager(), monkeypatch, pages)
-        assert rows == [{"client_id": "c1", "oauth": {"callback_url": "https://x/cb"}}]
+        # The pipeline JSON-serializes nested objects into a string column, so assert on the
+        # serialized payload rather than a nested dict: the secret (key and value) must be gone,
+        # while the rest of the record survives.
+        assert rows[0]["client_id"] == "c1"
         assert "secret" not in rows[0]["oauth"]
+        assert "sk_live_super_secret" not in rows[0]["oauth"]
+        assert "callback_url" in rows[0]["oauth"]
 
     def test_single_object_endpoint_yields_one_row_without_pagination(self, monkeypatch: Any) -> None:
         captured: list[dict[str, Any]] = []
