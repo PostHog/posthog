@@ -80,7 +80,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     const taskData: TaskUpsertProps = {
                         title: '',
                         description,
-                        origin_product: OriginProduct.USER_CREATED,
+                        origin_product: OriginProduct.POSTHOG_AI,
                         repository: repositoryConfig.repository ?? null,
                         github_integration: repositoryConfig.integrationId ?? null,
                     }
@@ -101,7 +101,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
                     actions.resetTaskCreateForm()
                     actions.loadTasks()
-                    actions.loadRepositories()
                 } catch {
                     lemonToast.error('Failed to create task')
                 }
@@ -148,8 +147,8 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
 
     events(({ actions }) => ({
         afterMount: () => {
-            actions.loadTasks()
-            actions.loadRepositories()
+            tasksLogic.actions.loadTasks()
+            tasksLogic.actions.loadRepositories()
             // integrationsLogic loads on its own mount (triggered by the connect above), so we don't call
             // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
             // integrations already cached by an earlier mount.

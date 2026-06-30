@@ -4,6 +4,7 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { OriginProduct } from '../../types/taskTypes'
 import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 
 describe('taskTrackerSceneLogic', () => {
@@ -51,5 +52,14 @@ describe('taskTrackerSceneLogic', () => {
         expect(createBody).toMatchObject({ description: 'do the thing', repository: null, github_integration: null })
         expect(runCalled).toBe(true)
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    it('sends origin_product posthog_ai when creating a task from the composer', async () => {
+        logic.actions.setTaskCreateFormValues({ description: 'Fix the bug' })
+        logic.actions.submitTaskCreateForm()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(createBody).toMatchObject({ origin_product: OriginProduct.POSTHOG_AI })
     })
 })
