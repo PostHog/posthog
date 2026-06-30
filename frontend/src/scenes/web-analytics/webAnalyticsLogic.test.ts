@@ -298,11 +298,12 @@ describe('webAnalyticsLogic precompute payload', () => {
         jest.restoreAllMocks()
     })
 
-    // `null`/`false` ignore the flag; only an explicit `true` is gated on it. With the flag off
-    // an opt-in falls back to `undefined` (team default) rather than flipping to `false`, which
-    // would wrongly opt an unrestricted team out.
+    // Explicit `false` always opts out. Otherwise (untouched `null` or explicit `true`) the
+    // payload defaults to `true` while the flag is on, so enrolled teams read precompute without
+    // a per-user toggle; with the flag off it falls back to `undefined` (team default) rather than
+    // flipping to `false`, which would wrongly opt an unrestricted team out.
     it.each([
-        [null, true, undefined],
+        [null, true, true],
         [null, false, undefined],
         [true, true, true],
         [true, false, undefined],
