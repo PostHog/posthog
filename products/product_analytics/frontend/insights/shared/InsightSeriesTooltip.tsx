@@ -145,7 +145,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     // Multiple distinct events in the tooltip — prefix breakdown rows with the event name
     // so the user knows which series each breakdown value belongs to.
     const hasMultipleEvents = useMemo(() => {
-        const events = new Set([...datumByKey.values()].map((d) => d.action?.event ?? d.action?.name))
+        const events = new Set([...datumByKey.values()].map((d) => d.action?.id ?? d.action?.name))
         return events.size > 1
     }, [datumByKey])
 
