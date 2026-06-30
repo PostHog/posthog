@@ -3910,6 +3910,36 @@ class TestExternalDataSource(APIBaseTest):
         )
         mock_capture_exception.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("database_schema", "database_schema/", {"source_type": "Stripe"}),
+            ("setup", "setup/", {"source_type": "Stripe", "payload": {}}),
+        ]
+    )
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
+    def test_schema_discovery_returns_generic_message_for_unexpected_error(
+        self, _name, endpoint, body, mock_get_source, mock_capture_exception
+    ):
+        source = mock_get_source.return_value
+        source.validate_config.return_value = (True, [])
+        source.parse_config.return_value = Mock()
+        source.validate_credentials.return_value = (True, None)
+        source.get_non_retryable_errors.return_value = {}
+        raw_error = "psql: host=internal-db.prod user=admin password=hunter2 failed"
+        source.get_schemas.side_effect = Exception(raw_error)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{endpoint}",
+            data=body,
+        )
+
+        self.assertEqual(response.status_code, 400)
+        # Unrecognized errors must not leak the raw exception text (e.g. credentials) to the client.
+        self.assertEqual(response.json().get("message"), "Could not fetch schemas from source.")
+        self.assertNotIn("password", response.json().get("message", ""))
+        mock_capture_exception.assert_called_once()
+
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,
