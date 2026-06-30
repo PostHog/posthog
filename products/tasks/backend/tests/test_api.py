@@ -3287,6 +3287,11 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    def test_list_runs_with_malformed_task_id_returns_404(self):
+        # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
+        response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_publishes_stream_state_event(self, mock_signal, mock_publish_stream_state_event):

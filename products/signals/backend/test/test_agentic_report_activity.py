@@ -216,7 +216,9 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     # was wired up, this combination raised `RuntimeError("No GitHub integration found ...")` and
     # killed the activity. Now it must resolve a user_id and reach `select_repository_for_report`.
     user = await sync_to_async(User.objects.create)(email=f"posthog-code-{random.randint(1, 99999)}@example.com")
-    await sync_to_async(OrganizationMembership.objects.create)(user=user, organization_id=ateam.organization_id)
+    await sync_to_async(OrganizationMembership.objects.create)(
+        user=user, organization_id=ateam.organization_id, level=OrganizationMembership.Level.OWNER
+    )
     await sync_to_async(UserIntegration.objects.create)(
         user=user,
         kind=UserIntegration.IntegrationKind.GITHUB,
