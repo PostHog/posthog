@@ -550,6 +550,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
         assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
 
+    @freeze_time("2025-01-01T00:00:00Z")
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_reuses_cached_token_without_minting(self, mock_session):
         # A still-valid cached token means no mint at all — the manifest is seeded straight from the row.
@@ -567,6 +568,7 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         # token this in-memory auth can't persist.
         assert auth["access_token_expiry"] == future
 
+    @freeze_time("2025-01-01T00:00:00Z")
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_post_injection_manifest_builds_oauth2_auth_that_reuses_token_without_minting(self, mock_session):
         # End-to-end seam: feed the injected client.auth through the engine's own auth construction
