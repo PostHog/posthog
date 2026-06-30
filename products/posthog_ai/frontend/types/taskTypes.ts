@@ -19,7 +19,6 @@ export enum OriginProduct {
     SIGNAL_REPORT = 'signal_report',
     // Runs created by a Signals scout (automated agent) — no interactive context budget to surface.
     SIGNALS_SCOUT = 'signals_scout',
-    POSTHOG_AI = 'posthog_ai',
 }
 
 export enum TaskRunStatus {

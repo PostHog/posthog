@@ -5,7 +5,6 @@ members = [
   "property-defs-rs",
   "batch-import-worker",
   "capture",
-  "capture-load-gen",
   "capture-logs",
   "cohort-event-shuffler",
   "cohort-stream-processor",
@@ -119,9 +118,7 @@ futures = { version = "0.3.29" }
 futures-timer = "3.0"
 futures-util = { version = "0.3.31" }
 governor = { version = "0.5.1", features = ["dashmap"] }
-hdrhistogram = "7.5"
 http = { version = "1.1.0" }
-humantime = "2.1"
 http-body = "1.0"
 http-body-util = "0.1"
 httpmock = "0.7.0"

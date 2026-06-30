@@ -352,57 +352,6 @@ def update_external_account(
     return contracts.ExternalAccountUpdateResult(account=_to_external_account(account))
 
 
-def set_external_account_custom_properties(
-    team_id: int,
-    external_id: str,
-    *,
-    properties: dict[str, Any],
-    created_by_id: int | None = None,
-) -> contracts.ExternalAccountCustomPropertiesResult:
-    """Set custom property values on an account by definition id, for the external API.
-
-    Resolves the account by external id, then applies every ``{definition_id: value}`` pair
-    transactionally — a bad value or unknown definition rolls the whole batch back. Returns a result
-    the view maps to the exact HTTP status/body: account not found, unknown definition, invalid
-    value, a concurrent-write conflict, a generic write failure, or success carrying the set values.
-    """
-    account = _get_external_account_by_external_id(team_id, external_id)
-    if account is None:
-        return contracts.ExternalAccountCustomPropertiesResult(
-            error=contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND
-        )
-
-    try:
-        with transaction.atomic():
-            rows = _custom_property_values_logic.set_account_custom_properties_by_id(
-                team_id=team_id,
-                account_id=account.id,
-                properties=properties,
-                created_by_id=created_by_id,
-            )
-    except _custom_property_values_logic.CustomPropertyDefinitionNotFound as exc:
-        return contracts.ExternalAccountCustomPropertiesResult(
-            error=contracts.ExternalAccountCustomPropertiesError.DEFINITION_NOT_FOUND,
-            error_field=str(exc.identifier),
-        )
-    except _custom_property_values_logic.InvalidCustomPropertyValue as exc:
-        return contracts.ExternalAccountCustomPropertiesResult(
-            error=contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE,
-            error_field=exc.field,
-        )
-    except _custom_property_values_logic.CustomPropertyValueConflict:
-        return contracts.ExternalAccountCustomPropertiesResult(
-            error=contracts.ExternalAccountCustomPropertiesError.CONFLICT
-        )
-    except Exception as e:
-        capture_exception(e, {"external_id": external_id})
-        return contracts.ExternalAccountCustomPropertiesResult(
-            error=contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED
-        )
-
-    return contracts.ExternalAccountCustomPropertiesResult(values=[_to_custom_property_value(row) for row in rows])
-
-
 # ---------------------------------------------------------------------------
 # Presentation wave: account / customer-journey / profile-config CRUD.
 #
@@ -679,9 +628,7 @@ def list_custom_property_definitions(
 
 def get_custom_property_definition(team_id: int, definition_id: str) -> contracts.CustomPropertyDefinitionView | None:
     definition = _get_team_scoped(CustomPropertyDefinition, team_id, definition_id)
-    if definition is None:
-        return None
-    return _to_custom_property_definition_view(definition)
+    return _to_custom_property_definition_view(definition) if definition is not None else None
 
 
 def create_custom_property_definition(

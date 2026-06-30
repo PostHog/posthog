@@ -2222,8 +2222,6 @@ class IntegrationKind(StrEnum):
     CUSTOMERIO_WEBHOOK = "customerio-webhook"
     CUSTOMERIO_TRACK = "customerio-track"
     POSTGRESQL = "postgresql"
-    AWS_S3 = "aws-s3"
-    S3_COMPATIBLE = "s3-compatible"
 
 
 class IntervalType(StrEnum):

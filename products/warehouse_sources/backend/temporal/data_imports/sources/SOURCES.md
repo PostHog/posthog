@@ -74,7 +74,6 @@ the row lists both.
 | bugsnag                 | HTTP                        | requests                                                        | ✅                          |
 | buildbetter             | HTTP                        | requests                                                        | ✅                          |
 | buildkite               | HTTP                        | requests                                                        | ✅                          |
-| bunny                   | HTTP                        | requests                                                        | ✅                          |
 | buzzsprout              | HTTP                        | requests                                                        | ✅                          |
 | calendly                | HTTP                        | requests                                                        | ✅                          |
 | campaign_monitor        | HTTP                        | requests                                                        | ✅                          |
@@ -333,6 +332,7 @@ doesn't conflict with concurrent PRs.
 - braintrust
 - branch
 - breezy_hr
+- bunny
 - cal_com
 - callrail
 - campaign_manager_360

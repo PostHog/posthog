@@ -122,7 +122,6 @@ jobs:
                       "assignment-coordination": 11,
                       "batch-import-worker": 124,
                       "capture": 169,
-                      "capture-load-gen": 25,
                       "capture-logs": 108,
                       "common-alloc": 13,
                       "common-compression": 6,

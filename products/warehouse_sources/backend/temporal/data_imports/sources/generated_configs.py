@@ -520,7 +520,7 @@ class BuildkiteSourceConfig(config.Config):
 
 @config.config
 class BunnySourceConfig(config.Config):
-    access_key: str
+    pass
 
 
 @config.config

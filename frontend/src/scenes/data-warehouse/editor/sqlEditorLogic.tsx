@@ -1373,21 +1373,11 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                                                 dataModelingLogic.values.dags.map((d) => d.name)
                                                             ),
                                                             onSubmit: async (dagData) => {
-                                                                try {
-                                                                    const newDag =
-                                                                        await api.dataModelingDags.create(dagData)
-                                                                    await dataModelingLogic.asyncActions.loadDags()
-                                                                    onSelect(newDag.id)
-                                                                    lemonToast.success('DAG created')
-                                                                } catch (error) {
-                                                                    lemonToast.error(
-                                                                        error instanceof ApiError
-                                                                            ? (error.detail ?? 'Failed to create DAG')
-                                                                            : 'Failed to create DAG'
-                                                                    )
-                                                                    // Re-throw so the dialog stays open for the user to retry.
-                                                                    throw error
-                                                                }
+                                                                const newDag =
+                                                                    await api.dataModelingDags.create(dagData)
+                                                                await dataModelingLogic.asyncActions.loadDags()
+                                                                onSelect(newDag.id)
+                                                                lemonToast.success('DAG created')
                                                             },
                                                         })
                                                     }}

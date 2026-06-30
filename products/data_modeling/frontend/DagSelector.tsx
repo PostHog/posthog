@@ -25,15 +25,10 @@ export function openCreateDagDialog({
     onSubmit,
 }: {
     existingNames: Set<string>
-    onSubmit: (dag: {
-        name: string
-        description: string
-        sync_frequency: DataModelingSyncInterval
-    }) => void | Promise<void>
+    onSubmit: (dag: { name: string; description: string; sync_frequency: DataModelingSyncInterval }) => void
 }): void {
     LemonDialog.openForm({
         title: 'New DAG',
-        shouldAwaitSubmit: true,
         initialValues: {
             dagName: '',
             dagDescription: '',
@@ -66,7 +61,7 @@ export function openCreateDagDialog({
             },
         },
         onSubmit: ({ dagName, dagDescription, syncFrequency }) => {
-            return onSubmit({
+            onSubmit({
                 name: dagName.trim(),
                 description: dagDescription?.trim() ?? '',
                 sync_frequency: syncFrequency,
