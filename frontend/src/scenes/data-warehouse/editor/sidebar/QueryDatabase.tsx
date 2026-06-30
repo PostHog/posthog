@@ -110,6 +110,7 @@ export const QueryDatabase = ({
         createDataWarehouseSavedQueryFolder,
         deleteDataWarehouseSavedQueryFolder,
         updateDataWarehouseSavedQueryFolder,
+        deleteDataWarehouseSavedQuery,
     } = useActions(dataWarehouseViewsLogic)
     const { deleteJoin } = useActions(sourceManagementLogic)
     const { deleteDraft } = useActions(draftsLogic)
@@ -846,6 +847,44 @@ export const QueryDatabase = ({
                                     }}
                                 >
                                     <ButtonPrimitive menuItem>Access control</ButtonPrimitive>
+                                </DropdownMenuItem>
+                            ) : null}
+                            {item.record.type === 'view' && item.record.isSavedQuery ? (
+                                <DropdownMenuItem
+                                    asChild
+                                    onClick={(e) => {
+                                        e.stopPropagation()
+                                        if (editViewAccessDisabledReason) {
+                                            return
+                                        }
+                                        LemonDialog.open({
+                                            title: `Delete view "${item.name}"?`,
+                                            description:
+                                                'Are you sure you want to delete this view? This action cannot be undone.',
+                                            primaryButton: {
+                                                status: 'danger',
+                                                children: 'Delete view',
+                                                onClick: () => {
+                                                    if (item.record?.view?.id) {
+                                                        deleteDataWarehouseSavedQuery(item.record.view.id)
+                                                    }
+                                                },
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }}
+                                >
+                                    <ButtonPrimitive
+                                        menuItem
+                                        className="text-danger"
+                                        disabledReasons={
+                                            editViewAccessDisabledReason ? { [editViewAccessDisabledReason]: true } : {}
+                                        }
+                                    >
+                                        Delete view
+                                    </ButtonPrimitive>
                                 </DropdownMenuItem>
                             ) : null}
                         </DropdownMenuGroup>
