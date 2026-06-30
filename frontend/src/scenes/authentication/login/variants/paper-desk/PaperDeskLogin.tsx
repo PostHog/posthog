@@ -18,6 +18,7 @@ import { CardTitle } from 'scenes/authentication/shared/paperDesk/CardTitle'
 import { PaperDeskCard, PaperDeskScene } from 'scenes/authentication/shared/paperDesk/PaperDeskScene'
 import { RegionField } from 'scenes/authentication/shared/paperDesk/RegionField'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
+import { VercelLoginHint } from 'scenes/authentication/shared/VercelLoginHint'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -103,8 +104,9 @@ function Login(): JSX.Element {
                     </div>
                 )}
                 {generalError?.code === 'invalid_credentials' && (
-                    <div className="mb-4">
+                    <div className="mb-4 flex flex-col gap-2">
                         <OtherRegionHint />
+                        <VercelLoginHint email={login.email} />
                     </div>
                 )}
                 {isEmailVerificationSent ? (

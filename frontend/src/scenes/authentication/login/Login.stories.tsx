@@ -67,6 +67,30 @@ export const CloudEU: Story = {
     },
 }
 
+export const CloudInvalidCredentials: Story = {
+    render: () => {
+        useStorybookMocks({
+            get: {
+                '/_preflight': {
+                    ...preflightJson,
+                    cloud: true,
+                    realm: 'cloud',
+                    can_create_org: true,
+                    available_social_auth_providers: { github: true, gitlab: true, 'google-oauth2': true, saml: false },
+                },
+            },
+        })
+
+        // Surfaces the failed-login recovery hints, including the Vercel marketplace "set a password" path
+        useDelayedOnMountEffect(() => {
+            loginLogic.actions.setLoginValue('email', 'test@posthog.com')
+            loginLogic.actions.setGeneralError('invalid_credentials', 'Invalid email or password.')
+        })
+
+        return <Login />
+    },
+}
+
 export const CloudWithGoogleLoginEnforcement: Story = {
     render: () => {
         useStorybookMocks({

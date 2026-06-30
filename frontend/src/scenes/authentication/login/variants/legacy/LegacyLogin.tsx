@@ -23,6 +23,7 @@ import { OtherRegionHint } from 'scenes/authentication/shared/OtherRegionHint'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
 import RegionSelect from 'scenes/authentication/shared/RegionSelect'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
+import { VercelLoginHint } from 'scenes/authentication/shared/VercelLoginHint'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -134,7 +135,12 @@ function Login(): JSX.Element {
                         </>
                     </LemonBanner>
                 )}
-                {generalError?.code === 'invalid_credentials' && <OtherRegionHint />}
+                {generalError?.code === 'invalid_credentials' && (
+                    <>
+                        <OtherRegionHint />
+                        <VercelLoginHint email={login.email} />
+                    </>
+                )}
                 {isEmailVerificationSent ? (
                     <div className="deprecated-space-y-4">
                         <div className="flex justify-center">
