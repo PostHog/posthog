@@ -324,6 +324,35 @@ class TestVerifyAndFixBatch(BaseTest):
         # When db_batch_data is None (no batch_load_fn), it falls back to update_fn
         mock_config.update_fn.assert_called_once_with(self.team)
 
+    def test_grace_period_never_skips_a_cache_miss(self):
+        """A genuine miss must be repaired even during the grace period: there is nothing
+        in-flight to clobber, and no-DB-fallback readers (Rust /flags/definitions) 503
+        until it is written. Guards against re-introducing the grace-period skip on miss."""
+        mock_config = MagicMock()
+        mock_config.hypercache.batch_load_fn = None
+        mock_config.hypercache.batch_get_from_cache.return_value = {}
+        mock_config.update_fn.return_value = True
+        # Team IS inside the grace period (recently updated) — but it's a full miss.
+        mock_config.get_team_ids_to_skip_fix_fn.return_value = {self.team.id}
+
+        result = VerificationResult()
+
+        def verify_fn(team, db_batch_data, cache_batch_data):
+            return {"status": "miss", "issue": "CACHE_MISS"}
+
+        with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
+            _verify_and_fix_batch(
+                teams=[self.team],
+                config=mock_config,
+                verify_team_fn=verify_fn,
+                cache_type="test_cache",
+                result=result,
+            )
+
+        assert result.cache_miss_fixed == 1
+        assert result.skipped_for_grace_period == 0
+        mock_config.update_fn.assert_called_once_with(self.team)
+
     def test_expiry_missing_triggers_fix_for_match_status(self):
         """Test that missing expiry tracking triggers fix even when cache matches."""
         mock_config = MagicMock()
@@ -564,8 +593,9 @@ class TestVerifyAndFixBatch(BaseTest):
         assert result.total == 1
         assert result.errors == 0  # Should not count as error, just fallback
 
-    def test_get_team_ids_to_skip_fix_fn_skips_fix_for_full_verification(self):
-        """Test that get_team_ids_to_skip_fix_fn can skip fixes for teams with recent updates."""
+    def test_get_team_ids_to_skip_fix_fn_skips_mismatch_fix(self):
+        """A mismatch on a skip-listed (recently updated) team is left for the in-flight
+        async rebuild. (A miss is the exception — see test_grace_period_never_skips_a_cache_miss.)"""
         mock_config = MagicMock()
         mock_config.hypercache.batch_load_fn = None
         mock_config.hypercache.batch_get_from_cache.return_value = {}
@@ -575,7 +605,7 @@ class TestVerifyAndFixBatch(BaseTest):
         result = VerificationResult()
 
         def verify_fn(team, db_batch_data, cache_batch_data):
-            return {"status": "miss", "issue": "CACHE_MISS"}
+            return {"status": "mismatch", "issue": "DATA_MISMATCH"}
 
         with patch("posthog.storage.hypercache_verifier.batch_check_expiry_tracking", return_value={}):
             _verify_and_fix_batch(
