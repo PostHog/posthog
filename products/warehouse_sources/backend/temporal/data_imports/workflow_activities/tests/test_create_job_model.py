@@ -104,6 +104,17 @@ class TestEnrichmentPending:
         self._annotate(team, table, "amount")
         assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
 
+    def test_not_pending_when_only_hidden_columns_unannotated(self) -> None:
+        # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they must not
+        # count as pending work — otherwise enrichment re-fires on every steady-state sync.
+        team = _team()
+        table = _table(
+            team,
+            columns={"amount": {}, "_dlt_id": {}, "_dlt_load_id": {}, "_ph_debug": {}, "_ph_partition_key": {}},
+        )
+        self._annotate(team, table, "amount")
+        assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
+
     def test_pending_when_table_description_missing(self) -> None:
         # Columns all annotated, but neither a schema description nor a table-level ("") annotation exists.
         team = _team()

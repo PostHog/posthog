@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.models.column_statistics import Warehous
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import emit_signals_enabled_for
 
 WAREHOUSE_PIPELINES_V3_FLAG = "warehouse-pipelines-v3"
@@ -86,7 +86,9 @@ def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: 
     if table is None:
         # First-ever sync — nothing is annotated yet, so there is work to do.
         return True
-    columns = set((table.columns or {}).keys())
+    # Hidden plumbing columns (_dlt_id, partition key, …) are never enriched, so they'd otherwise
+    # show up perpetually in `columns - annotated` and keep this returning True on every sync.
+    columns = set((table.columns or {}).keys()) - HIDDEN_COLUMNS
     annotated = set(
         WarehouseColumnAnnotation.objects.for_team(team_id)
         .filter(table_id=table.id)
