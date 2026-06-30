@@ -499,7 +499,14 @@ export function buildStackedBottomValue(
     }
     return (s, dataIndex) => {
         const bottom = stackedData.get(s.key)?.bottom[dataIndex]
-        return Number.isFinite(bottom) ? (bottom as number) : 0
+        if (Number.isFinite(bottom)) {
+            return bottom as number
+        }
+        // Non-stacked series (e.g. overlay trend lines) aren't in the stack map.
+        // Fall back to the series value so the midpoint collapses to the series's
+        // own pixel position — matching buildStackedPositionValue's fallback.
+        const raw = s.data[dataIndex]
+        return typeof raw === 'number' && Number.isFinite(raw) ? raw : 0
     }
 }
 

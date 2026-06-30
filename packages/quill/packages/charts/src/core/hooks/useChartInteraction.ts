@@ -84,11 +84,12 @@ export function useChartInteraction<Meta = unknown>({
     // value (i.e. non-stacked charts, where the two are identical).
     const effectivePositionResolve = resolvePositionValue ?? resolveValue
 
-    // resolveValue / effectivePositionResolve are read live in the pinned-rebuild path so an
-    // unmemoized closure on either doesn't trigger a rebuild every render — see the contract
-    // on `ChartProps.resolveValue`.
+    // resolveValue / effectivePositionResolve / resolveBottomValue are read live in the
+    // pinned-rebuild path so an unmemoized closure on any of them doesn't trigger a rebuild
+    // every render — see the contract on `ChartProps.resolveValue`.
     const resolveValueRef = useLatest(resolveValue)
     const effectivePositionResolveRef = useLatest(effectivePositionResolve)
+    const resolveBottomValueRef = useLatest(resolveBottomValue)
 
     const rebuildPinnedCtx = useCallback(
         (prev: TooltipContext<Meta>): TooltipContext<Meta> | null => {
@@ -111,12 +112,12 @@ export function useChartInteraction<Meta = unknown>({
                 interactionAxis,
                 prev.hoverPosition,
                 effectivePositionResolveRef.current,
-                resolveBottomValue,
+                resolveBottomValueRef.current,
                 scales.extent?.(labels[prev.dataIndex]),
                 prev.hoverPosition ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition) : undefined
             )
         },
-        // resolveValueRef / effectivePositionResolveRef are stable
+        // resolveValueRef / effectivePositionResolveRef / resolveBottomValueRef are stable refs
         [
             scales,
             dimensions,
@@ -127,6 +128,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             resolveValueRef,
             effectivePositionResolveRef,
+            resolveBottomValueRef,
         ]
     )
 
