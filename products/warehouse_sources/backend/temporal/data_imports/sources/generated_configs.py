@@ -290,7 +290,7 @@ class AppcuesSourceConfig(config.Config):
 
 @config.config
 class AppfiguresSourceConfig(config.Config):
-    pass
+    personal_access_token: str
 
 
 @config.config

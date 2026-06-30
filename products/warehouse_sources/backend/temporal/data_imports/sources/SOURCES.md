@@ -54,6 +54,7 @@ the row lists both.
 | amplitude               | HTTP                        | requests                                                        | ✅                          |
 | apify_dataset           | HTTP                        | requests                                                        | ✅                          |
 | apollo                  | HTTP                        | requests                                                        | ✅                          |
+| appfigures              | HTTP                        | requests                                                        | ✅                          |
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
@@ -318,7 +319,6 @@ doesn't conflict with concurrent PRs.
 - amazon_sns
 - amazon_sqs
 - appcues
-- appfigures
 - appfollow
 - apple_search_ads
 - appstack
