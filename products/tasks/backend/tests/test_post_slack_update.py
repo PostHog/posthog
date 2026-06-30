@@ -262,6 +262,82 @@ class TestPostSlackUpdate(TestCase):
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
         )
 
+    @patch.object(SlackThreadHandler, "post_completion")
+    @patch.object(SlackThreadHandler, "delete_progress")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_completed_run_skips_post_completion_when_pr_already_announced(
+        self,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_delete_progress,
+        mock_post_completion,
+    ):
+        # Regression: when the agent announced the PR mid-run (e.g. via the
+        # API-PATCH-driven `_post_pr_opened_notification_once` path), the
+        # subsequent COMPLETED-state Slack update must not fire a second card
+        # for the same PR. Without this guard, a CI-follow-up loop that keeps
+        # the orchestrator alive for hours surfaces a "Pull Request Created"
+        # card long after the user's conversation ended, reading as a stale
+        # duplicate of the original "Pull request opened" card.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/1"},
+            state={
+                "slack_pr_opened_notified": True,
+                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
+            },
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_update_reaction.assert_called_once_with("hedgehog")
+        mock_delete_progress.assert_called_once()
+        mock_post_completion.assert_not_called()
+
+    @patch.object(SlackThreadHandler, "post_completion")
+    @patch.object(SlackThreadHandler, "update_reaction")
+    @patch.object(SlackThreadHandler, "__init__", return_value=None)
+    @patch("products.tasks.backend.models.TaskRun")
+    def test_completed_run_with_new_pr_url_posts_completion_even_if_old_url_notified(
+        self,
+        mock_task_run_class,
+        mock_handler_init,
+        mock_update_reaction,
+        mock_post_completion,
+    ):
+        # An older URL having been announced doesn't suppress the completion
+        # card for a different URL — mirrors the per-URL dedupe the
+        # ``sandbox_cleaned`` branch already does. Also marks the new URL so
+        # the post-cleanup ``post_pr_opened_sandbox_cleaned`` call that
+        # follows in the workflow's ``finally`` block is suppressed for it.
+        mock_run = self._make_mock_run(
+            mock_task_run_class.Status.COMPLETED,
+            output={"pr_url": "https://github.com/org/repo/pull/2"},
+            state={
+                "slack_pr_opened_notified": True,
+                "slack_notified_pr_url": "https://github.com/org/repo/pull/1",
+            },
+        )
+        mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
+
+        post_slack_update(PostSlackUpdateInput(run_id="run-1", slack_thread_context=self.slack_thread_context))
+
+        mock_post_completion.assert_called_once_with(
+            "https://github.com/org/repo/pull/2",
+            "http://localhost:8000/project/1/tasks/10?runId=run-1",
+        )
+        mock_task_run_class.update_state_atomic.assert_called_once_with(
+            "run-1",
+            updates={
+                "slack_pr_opened_notified": True,
+                "slack_notified_pr_url": "https://github.com/org/repo/pull/2",
+            },
+        )
+
     @patch.object(SlackThreadHandler, "post_pr_opened_sandbox_cleaned")
     @patch.object(SlackThreadHandler, "delete_progress")
     @patch.object(SlackThreadHandler, "update_reaction")

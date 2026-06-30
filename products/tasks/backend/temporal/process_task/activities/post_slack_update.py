@@ -85,7 +85,18 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
             if task_run.error_message and "timed out" in task_run.error_message:
                 handler.delete_progress()
                 return
+            # Skip the completion card when the PR was already announced for this
+            # run. The CI follow-up loop can keep the workflow alive long after
+            # the user's conversation ended; firing a "Pull Request Created"
+            # card hours later then reads as a duplicate rather than a useful
+            # confirmation. The same dedupe shape the ``sandbox_cleaned``
+            # branch already uses for ``post_pr_opened_sandbox_cleaned``.
+            if pr_url and _is_pr_opened_notified(task_run, pr_url):
+                handler.delete_progress()
+                return
             handler.post_completion(pr_url, task_url)
+            if pr_url:
+                _mark_pr_opened_notified(task_run, pr_url)
         elif task_run.status == TaskRun.Status.CANCELLED:
             handler.update_reaction("hedgehog")
             handler.post_cancelled(task_url)
