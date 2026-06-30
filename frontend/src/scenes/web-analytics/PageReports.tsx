@@ -3,7 +3,6 @@ import { useActions, useValues } from 'kea'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FilterBar } from 'lib/components/FilterBar'
 import { XRayHog2 } from 'lib/components/hedgehogs'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 
 import { pageReportsLogic } from './pageReportsLogic'
@@ -28,23 +27,21 @@ function NoUrlSelectedMessage(): JSX.Element {
 }
 
 export function PageReportsFilters({ tabs }: { tabs: JSX.Element }): JSX.Element {
-    const { pagesUrls, pageUrl, isLoading, dateFilter, pageUrlSearchTerm, featureFlags } = useValues(pageReportsLogic)
+    const { pagesUrls, pageUrl, isLoading, dateFilter, pageUrlSearchTerm } = useValues(pageReportsLogic)
     const { setPageUrl, setPageUrlSearchTerm, loadPages, setDates } = useActions(pageReportsLogic)
-
-    const rankedSearchEnabled = !!featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]
 
     const options = pagesUrls.map((option: { url: string }) => ({
         key: option.url,
         label: option.url,
     }))
 
-    const emptyStateComponent = rankedSearchEnabled ? (
+    const emptyStateComponent = (
         <div className="text-muted-alt px-3 py-2 text-xs">
             {pageUrlSearchTerm
                 ? `No pages match "${pageUrlSearchTerm}". Press Enter to analyze it as a custom URL.`
                 : 'No pageviews in the selected date range. Paste a URL to analyze it anyway.'}
         </div>
-    ) : undefined
+    )
 
     return (
         <FilterBar

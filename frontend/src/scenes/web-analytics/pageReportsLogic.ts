@@ -12,7 +12,6 @@ import {
     QuerySchema,
     TrendsQuery,
     WebAnalyticsPropertyFilters,
-    WebPageURLSearchQuery,
     WebStatsBreakdown,
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
@@ -217,46 +216,31 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
                         date_to: values.dateFilter.dateTo,
                     }
 
-                    if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
-                        const response = await api.query<WebStatsTableQuery>(
-                            setLatestVersionsOnQuery({
-                                kind: NodeKind.WebStatsTableQuery,
-                                breakdownBy: WebStatsBreakdown.Page,
-                                includeHost: true,
-                                dateRange,
-                                properties: searchTerm
-                                    ? [
-                                          {
-                                              type: PropertyFilterType.Event,
-                                              key: PROPERTY_PATHNAME,
-                                              operator: PropertyOperator.IContains,
-                                              value: searchTerm,
-                                          },
-                                      ]
-                                    : [],
-                                limit: 100,
-                                tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
-                            })
-                        )
-                        breakpoint()
-                        return (response.results ?? []).flatMap((row): PageURLSearchResult[] => {
-                            const url = Array.isArray(row) ? row[0] : null
-                            return typeof url === 'string' && url ? [{ url }] : []
-                        })
-                    }
-
-                    const response = await api.query<WebPageURLSearchQuery>(
+                    const response = await api.query<WebStatsTableQuery>(
                         setLatestVersionsOnQuery({
-                            kind: NodeKind.WebPageURLSearchQuery,
-                            searchTerm: searchTerm,
-                            stripQueryParams: true,
+                            kind: NodeKind.WebStatsTableQuery,
+                            breakdownBy: WebStatsBreakdown.Page,
+                            includeHost: true,
                             dateRange,
-                            properties: [],
+                            properties: searchTerm
+                                ? [
+                                      {
+                                          type: PropertyFilterType.Event,
+                                          key: PROPERTY_PATHNAME,
+                                          operator: PropertyOperator.IContains,
+                                          value: searchTerm,
+                                      },
+                                  ]
+                                : [],
+                            limit: 100,
                             tags: WEB_ANALYTICS_DEFAULT_QUERY_TAGS,
                         })
                     )
                     breakpoint() // ensure that if more typing has happened since we sent the request, we don't update the state
-                    return response.results
+                    return (response.results ?? []).flatMap((row): PageURLSearchResult[] => {
+                        const url = Array.isArray(row) ? row[0] : null
+                        return typeof url === 'string' && url ? [{ url }] : []
+                    })
                 },
             },
         ],
@@ -776,9 +760,7 @@ export const pageReportsLogic = kea<pageReportsLogicType>({
             actions.loadPagesUrls({ searchTerm })
         },
         setDates: () => {
-            if (values.featureFlags[FEATURE_FLAGS.PAGE_REPORTS_RANKED_URL_SEARCH]) {
-                actions.loadPages(values.pageUrlSearchTerm)
-            }
+            actions.loadPages(values.pageUrlSearchTerm)
         },
     }),
 
