@@ -2,23 +2,23 @@
 
 Each detector is a pure function of a ``CuratedGitHubSource`` plus thresholds and returns
 ``CISignalFinding`` objects — no emission, no Temporal, no Django here, so they're unit-testable
-against a seeded warehouse. ``ci_broken_master`` and ``ci_duration_regression`` reuse
-``query_workflow_health`` (the same aggregate the MCP ``workflow_health`` tool returns) rather than
-re-deriving success-rate / percentiles, so detection and the read surface can never disagree.
-``ci_flaky_check`` needs a per-commit re-run shape the health aggregate doesn't expose, so it runs
-its own curated query.
+against a seeded warehouse. All three compose ``logic/queries/`` read modules rather than authoring
+SQL inline: ``ci_broken_master`` / ``ci_duration_regression`` reuse ``query_workflow_health`` (the
+same aggregate the MCP ``workflow_health`` tool returns) and ``ci_flaky_check`` reuses
+``query_workflow_flakiness`` — so detection and the read surface can never disagree (SPEC §7).
 
 Thresholds are conservative defaults — tuned to surface real, actionable conditions, not noise — and
-are arguments so a team-level config can override them later without touching the SQL.
+are arguments so a team-level config can override them later without touching the queries.
 """
 
 from datetime import UTC, datetime, timedelta
 
 import structlog
 
-from posthog.hogql import ast
+from posthog.schema import SignalRemediation
 
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries.workflow_flakiness import query_workflow_flakiness
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.signals.contracts import (
     SOURCE_TYPE_BROKEN_MASTER,
@@ -49,33 +49,6 @@ DURATION_MIN_RUNS = 20
 DURATION_MIN_PCT_INCREASE = 0.5
 DURATION_MIN_ABS_INCREASE_SECONDS = 60.0
 
-# Per-commit re-run shape: did this (commit, workflow) fail at least once and pass on a later attempt?
-_FLAKY_SELECT = """
-    WITH per_commit AS (
-        SELECT
-            repo_owner,
-            repo_name,
-            workflow_name,
-            head_sha,
-            countIf(conclusion IN ('failure', 'timed_out')) AS fails,
-            countIf(conclusion = 'success' AND run_attempt > 1) AS rerun_passes
-        FROM __RUNS_SOURCE__ AS r
-        WHERE run_started_at >= {date_from} AND head_sha != ''
-        GROUP BY repo_owner, repo_name, workflow_name, head_sha
-    )
-    SELECT
-        repo_owner,
-        repo_name,
-        workflow_name,
-        countIf(fails > 0 AND rerun_passes > 0) AS flaky_count,
-        count() AS total_commits,
-        arraySlice(groupArrayIf(head_sha, fails > 0 AND rerun_passes > 0), 1, 5) AS sample_head_shas
-    FROM per_commit
-    GROUP BY repo_owner, repo_name, workflow_name
-    ORDER BY flaky_count DESC
-    LIMIT 100
-"""
-
 
 def detect_flaky_checks(
     curated: CuratedGitHubSource,
@@ -84,50 +57,46 @@ def detect_flaky_checks(
     min_flaky_commits: int = FLAKY_MIN_COMMITS,
 ) -> list[CISignalFinding]:
     date_from = datetime.now(UTC) - timedelta(days=window_days)
-    sql = _FLAKY_SELECT.replace("__RUNS_SOURCE__", curated.run_source())
-    response = curated.run(
-        sql,
-        query_type="engineering_analytics.signals.flaky_checks",
-        placeholders={"date_from": ast.Constant(value=date_from)},
-    )
     findings: list[CISignalFinding] = []
-    for repo_owner, repo_name, workflow_name, flaky_count, total_commits, sample_head_shas in response.results or []:
-        if flaky_count < min_flaky_commits:
+    for row in query_workflow_flakiness(curated=curated, date_from=date_from):
+        if row.flaky_count < min_flaky_commits:
             continue
-        repo = f"{repo_owner}/{repo_name}"
-        shas = list(sample_head_shas or [])
+        repo = f"{row.repo_owner}/{row.repo_name}"
+        shas = row.sample_head_shas
         findings.append(
             CISignalFinding(
                 source_type=SOURCE_TYPE_FLAKY_CHECK,
-                source_id=f"{repo}:{workflow_name}:flaky",
+                source_id=f"{repo}:{row.workflow_name}:flaky",
                 description=(
-                    f"CI workflow '{workflow_name}' is flaky on {repo}: {flaky_count} commit(s) in the last "
-                    f"{window_days}d failed and then passed on a re-run of the same commit "
-                    f"(out of {total_commits} commits the workflow ran on). Flaky required checks erode trust "
-                    f"in CI and burn re-run minutes."
+                    f"CI workflow '{row.workflow_name}' is flaky on {repo}: {row.flaky_count} commit(s) in the "
+                    f"last {window_days}d failed and then passed on a re-run of the same commit "
+                    f"(out of {row.total_commits} commits the workflow ran on). Flaky required checks erode "
+                    f"trust in CI and burn re-run minutes."
                 ),
                 weight=0.7,
                 extra={
-                    "repo_owner": repo_owner,
-                    "repo_name": repo_name,
-                    "workflow_name": workflow_name,
-                    "flaky_count": int(flaky_count),
-                    "total_commits": int(total_commits),
+                    "repo_owner": row.repo_owner,
+                    "repo_name": row.repo_name,
+                    "workflow_name": row.workflow_name,
+                    "flaky_count": row.flaky_count,
+                    "total_commits": row.total_commits,
                     "window_days": window_days,
                     "sample_head_shas": shas,
                 },
-                remediation_human=(
-                    f"Identify the non-deterministic test(s) in the '{workflow_name}' workflow and quarantine "
-                    f"or fix them so the check stops failing on unrelated commits."
+                remediation=SignalRemediation(
+                    human=(
+                        f"Identify the non-deterministic test(s) in the '{row.workflow_name}' workflow and "
+                        f"quarantine or fix them so the check stops failing on unrelated commits."
+                    ),
+                    agent=(
+                        f"Investigate the '{row.workflow_name}' workflow on {repo}. Pull the failing-then-passing "
+                        f"logs for the sample commits ({', '.join(shas) or 'recent flaky runs'}), isolate the "
+                        f"non-deterministic test(s), and open a PR that quarantines them via the repo's "
+                        f".test_quarantine.json (see the hogli quarantine tooling) or fixes the root-cause flake. "
+                        f"Do not mask it with a blanket retry."
+                    ),
+                    priority="P2",
                 ),
-                remediation_agent=(
-                    f"Investigate the '{workflow_name}' workflow on {repo}. Pull the failing-then-passing logs "
-                    f"for the sample commits ({', '.join(shas) or 'recent flaky runs'}), isolate the "
-                    f"non-deterministic test(s), and open a PR that quarantines them via the repo's "
-                    f".test_quarantine.json (see the hogli quarantine tooling) or fixes the root-cause flake. "
-                    f"Do not mask it with a blanket retry."
-                ),
-                priority="P2",
             )
         )
     return findings
@@ -174,15 +143,18 @@ def detect_broken_master(
                         "latest_conclusion": latest_conclusion,
                         "window_hours": window_hours,
                     },
-                    remediation_human=(
-                        f"Find the change that broke '{item.workflow_name}' on {branch} and revert it or land a fix."
+                    remediation=SignalRemediation(
+                        human=(
+                            f"Find the change that broke '{item.workflow_name}' on {branch} and revert it or land "
+                            f"a fix."
+                        ),
+                        agent=(
+                            f"The '{item.workflow_name}' workflow is failing on {branch} of {repo}. Pull the latest "
+                            f"failing run's logs, bisect the recent merges to {branch} to find the breaking change, "
+                            f"and open a revert or a targeted fix PR. Prioritize unblocking the branch."
+                        ),
+                        priority="P1",
                     ),
-                    remediation_agent=(
-                        f"The '{item.workflow_name}' workflow is failing on {branch} of {repo}. Pull the latest "
-                        f"failing run's logs, bisect the recent merges to {branch} to find the breaking change, "
-                        f"and open a revert or a targeted fix PR. Prioritize unblocking the branch."
-                    ),
-                    priority="P1",
                 )
             )
     return findings
@@ -240,17 +212,19 @@ def detect_ci_duration_regressions(
                     "baseline_p50_seconds": float(base.p50_seconds) if base.p50_seconds is not None else 0.0,
                     "window_days": window_days,
                 },
-                remediation_human=(
-                    f"Profile the '{workflow_name}' workflow and bring its p95 back toward the "
-                    f"{base.p95_seconds:.0f}s baseline."
+                remediation=SignalRemediation(
+                    human=(
+                        f"Profile the '{workflow_name}' workflow and bring its p95 back toward the "
+                        f"{base.p95_seconds:.0f}s baseline."
+                    ),
+                    agent=(
+                        f"The '{workflow_name}' workflow's p95 duration regressed from {base.p95_seconds:.0f}s to "
+                        f"{cur.p95_seconds:.0f}s over the last {window_days}d on {repo}. Compare a recent slow run "
+                        f"against a baseline-window run, find what got slower (a new/slow test, a heavier job, lost "
+                        f"caching), and propose the optimization."
+                    ),
+                    priority="P3",
                 ),
-                remediation_agent=(
-                    f"The '{workflow_name}' workflow's p95 duration regressed from {base.p95_seconds:.0f}s to "
-                    f"{cur.p95_seconds:.0f}s over the last {window_days}d on {repo}. Compare a recent slow run "
-                    f"against a baseline-window run, find what got slower (a new/slow test, a heavier job, lost "
-                    f"caching), and propose the optimization."
-                ),
-                priority="P3",
             )
         )
     return findings

@@ -15,21 +15,15 @@ import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.schema import SignalRemediation
-
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.logic.signals.contracts import SOURCE_PRODUCT, CISignalFinding
-from products.engineering_analytics.backend.logic.signals.emit import detect_for_team
+from products.engineering_analytics.backend.logic.signals.detect import detect_for_team
 from products.signals.backend.facade.api import emit_signal, team_ids_with_source_product_enabled
 
 logger = structlog.get_logger(__name__)
-
-
-def _enrolled_team_ids() -> list[int]:
-    return team_ids_with_source_product_enabled(SOURCE_PRODUCT)
 
 
 def _detect_for_team_id(team_id: int) -> tuple[list[CISignalFinding], Team | None]:
@@ -42,7 +36,7 @@ def _detect_for_team_id(team_id: int) -> tuple[list[CISignalFinding], Team | Non
 @activity.defn
 async def discover_ci_signal_teams_activity() -> list[int]:
     """Team ids that have enabled the engineering_analytics signal source."""
-    return await database_sync_to_async(_enrolled_team_ids, thread_sensitive=False)()
+    return await database_sync_to_async(team_ids_with_source_product_enabled, thread_sensitive=False)(SOURCE_PRODUCT)
 
 
 @activity.defn
@@ -63,11 +57,7 @@ async def detect_and_emit_ci_signals_activity(team_id: int) -> dict[str, Any]:
                 description=finding.description,
                 weight=finding.weight,
                 extra=finding.extra,
-                remediation=SignalRemediation(
-                    human=finding.remediation_human,
-                    agent=finding.remediation_agent,
-                    priority=finding.priority,
-                ),
+                remediation=finding.remediation,
             )
             emitted += 1
         except Exception:
