@@ -72,6 +72,7 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 ### Pushing to remote
 
 Don't open GitHub issues or pull requests without human instruction.
+When you do open a PR (with human instruction), open it in Draft by default (`gh pr create --draft`). Draft PRs run only a narrow subset of CI, which saves a large amount of runner credits. Fix CI failures and run affected tests locally before marking the PR ready for review.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
@@ -79,7 +80,7 @@ Pushes still trigger CI, which burns runner credits, so batch related commits an
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
 
-- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Never mention internal-only systems, private incidents, customer data, Slack thread contents, unreleased roadmap details, or security-sensitive implementation details. Slack thread links and channel references are fine to include — they sit behind PostHog auth and are useful as origin context — but do not quote or paraphrase what was said in the thread.
 - Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
 - If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
 - Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
@@ -87,8 +88,10 @@ This repository is public and all commit messages, pull request titles, and pull
 Examples:
 
 - ✅ `fix(insights): handle missing series color in trend export`
+- ✅ A PR description that links to the originating Slack thread for context
 - ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
 - ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
+- ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
 
 ## CI / GitHub Actions
 
@@ -162,7 +165,7 @@ ALWAYS invoke the matching skill **before** writing or reviewing code in these a
 **Always invoke:**
 
 - `/improving-drf-endpoints` — any DRF viewset or serializer change
-- `/django-migrations` — any Django migration
+- `/django-migrations` — any Django migration, including deleting a model, table, column, or whole product/app (even when no migration file is written, e.g. removing a product folder)
 - `/clickhouse-migrations` — any ClickHouse migration
 - `/adopting-generated-api-types` — any frontend file using `lib/api`, `api.get<`, `api.create<`, or handwritten API types
 - `/writing-tests` — adding or substantially changing any test (pytest, Jest, or Playwright)

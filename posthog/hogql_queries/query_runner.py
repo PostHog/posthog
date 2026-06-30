@@ -47,6 +47,8 @@ from posthog.schema import (
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
     MCPToolFailuresQuery,
+    MCPToolNeighborsQuery,
+    MCPToolSampleIntentsQuery,
     MCPToolStatsQuery,
     MCPToolTopUsersQuery,
     NodeKind,
@@ -322,6 +324,8 @@ RunnableQueryNode = Union[
     MCPToolStatsQuery,
     MCPToolDailyStatsQuery,
     MCPToolDescriptionsQuery,
+    MCPToolSampleIntentsQuery,
+    MCPToolNeighborsQuery,
 ]
 
 
@@ -1011,6 +1015,28 @@ def get_query_runner(
 
         return MCPToolDescriptionsQueryRunner(
             query=cast(MCPToolDescriptionsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolSampleIntentsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolSampleIntentsQueryRunner
+
+        return MCPToolSampleIntentsQueryRunner(
+            query=cast(MCPToolSampleIntentsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "MCPToolNeighborsQuery":
+        from products.mcp_analytics.backend.facade.queries import MCPToolNeighborsQueryRunner
+
+        return MCPToolNeighborsQueryRunner(
+            query=cast(MCPToolNeighborsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

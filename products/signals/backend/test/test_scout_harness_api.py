@@ -9,9 +9,12 @@ from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
 from posthog.models import OAuthApplication
+from posthog.models.organization import Organization
 from posthog.models.team.team import Team
+from posthog.models.user import User
 from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_DEV,
     ARRAY_APP_CLIENT_ID_EU,
@@ -145,12 +148,23 @@ class TestScoutHarnessRunsAPI(APIBaseTest):
         assert ids == [str(keep.id)]
 
     def test_list_surfaces_emit_tally(self) -> None:
-        _make_run(self.team, emitted_count=2, emitted_finding_ids=["f-a", "f-b"])
+        _make_run(
+            self.team,
+            emitted_count=2,
+            emitted_finding_ids=["f-a", "f-b"],
+            emitted_report_ids=["r-1"],
+            edited_report_ids=["r-2"],
+        )
         response = self.client.get(self._list_url())
         assert response.status_code == status.HTTP_200_OK
         row = response.json()[0]
         assert row["emitted_count"] == 2
         assert row["emitted_finding_ids"] == ["f-a", "f-b"]
+        # Both report-id channels must surface through the serializer. Guards a real gap: these are
+        # carried on the run DTO but were not declared on the serializer, so they were silently dropped
+        # from the API/MCP response.
+        assert row["emitted_report_ids"] == ["r-1"]
+        assert row["edited_report_ids"] == ["r-2"]
 
     @parameterized.expand([("emitted_true", "true"), ("emitted_false", "false")])
     def test_list_emitted_filter_keeps_only_the_matching_runs(self, _name: str, emitted_param: str) -> None:
@@ -371,6 +385,146 @@ class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
         _make_emission(other, run, finding_id="f-a")
         response = self.client.get(self._url(str(run.id)))
         assert response.status_code == status.HTTP_404_NOT_FOUND
+
+
+class TestScoutHarnessEmissionsBatchAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/batch/"
+
+    def test_batches_emissions_across_runs_newest_first(self) -> None:
+        # The findings page opens one batched request instead of one per run; the response flattens
+        # every run's findings newest-first, each row tagged with its own run_id so the UI can regroup.
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        _make_emission(self.team, run_a, finding_id="a-old")
+        _make_emission(self.team, run_b, finding_id="b-mid")
+        _make_emission(self.team, run_a, finding_id="a-new")
+        response = self.client.post(self._url(), data={"run_ids": [str(run_a.id), str(run_b.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [row["finding_id"] for row in body] == ["a-new", "b-mid", "a-old"]
+        run_by_finding = {row["finding_id"]: row["run_id"] for row in body}
+        assert run_by_finding["a-new"] == str(run_a.id)
+        assert run_by_finding["b-mid"] == str(run_b.id)
+
+    def test_foreign_team_run_ids_contribute_no_rows(self) -> None:
+        # A stale or cross-team run id must not 404 the whole batch (one bad id would blank the page) —
+        # team scoping just drops its rows.
+        run = _make_run(self.team)
+        _make_emission(self.team, run, finding_id="mine")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        _make_emission(other, other_run, finding_id="theirs")
+        response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+    def test_empty_run_ids_rejected(self) -> None:
+        response = self.client.post(self._url(), data={"run_ids": []}, format="json")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
+class TestScoutHarnessEmissionReportsBatchAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/reports/batch/"
+
+    def test_resolves_every_runs_links_in_one_clickhouse_call(self) -> None:
+        # The whole point of the batch endpoint: the per-run page fired one ClickHouse query per run,
+        # which made Findings slow to open. The batched form resolves every run's findings in a single
+        # `fetch_report_ids_for_source_ids` round-trip — assert it's called exactly once with the source
+        # ids from both runs, and that links map back correctly across runs.
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        linked_a = _make_emission(self.team, run_a, finding_id="f-a")
+        linked_b = _make_emission(self.team, run_b, finding_id="f-b")
+        report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
+        with patch(
+            _FETCH_REPORT_IDS,
+            return_value={linked_a.source_id: str(report.id), linked_b.source_id: str(report.id)},
+        ) as mock_fetch:
+            response = self.client.post(self._url(), data={"run_ids": [str(run_a.id), str(run_b.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        mock_fetch.assert_called_once()
+        assert sorted(mock_fetch.call_args.args[1]) == sorted([linked_a.source_id, linked_b.source_id])
+        body = {row["finding_id"]: row for row in response.json()}
+        assert body["f-a"]["report"]["id"] == str(report.id)
+        assert body["f-b"]["report"]["id"] == str(report.id)
+
+    def test_foreign_team_run_ids_contribute_no_rows(self) -> None:
+        run = _make_run(self.team)
+        _make_emission(self.team, run, finding_id="mine")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        _make_emission(other, other_run, finding_id="theirs")
+        with patch(_FETCH_REPORT_IDS, return_value={}):
+            response = self.client.post(self._url(), data={"run_ids": [str(run.id), str(other_run.id)]}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+
+class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/emissions/recent/"
+
+    def test_flattens_emissions_across_runs_newest_first_without_run_ids(self) -> None:
+        # The cross-run reader: unlike the per-run `emissions` action (one run) and the batch action
+        # (caller supplies run_ids), this returns the team's recent findings across every run in one
+        # call, each row tagged with its own run_id. Guards that an agent can ask "what has the fleet
+        # surfaced lately?" without first listing runs and fanning out.
+        run_a = _make_run(self.team)
+        run_b = _make_run(self.team)
+        _make_emission(self.team, run_a, finding_id="a-old")
+        _make_emission(self.team, run_b, finding_id="b-mid")
+        _make_emission(self.team, run_a, finding_id="a-new")
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        body = response.json()
+        assert [row["finding_id"] for row in body] == ["a-new", "b-mid", "a-old"]
+        run_by_finding = {row["finding_id"]: row["run_id"] for row in body}
+        assert run_by_finding["a-new"] == str(run_a.id)
+        assert run_by_finding["b-mid"] == str(run_b.id)
+
+    def test_does_not_leak_emissions_from_another_team(self) -> None:
+        own_run = _make_run(self.team)
+        _make_emission(self.team, own_run, finding_id="mine")
+        other = Team.objects.create(organization=self.organization, name="Other")
+        other_run = _make_run(other)
+        _make_emission(other, other_run, finding_id="theirs")
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["mine"]
+
+    def test_skill_name_filter_scopes_to_the_emitting_scout(self) -> None:
+        # The filter walks the FK to the emitting run's skill (`scout_run__skill_name`) — a distinct
+        # join path from the run-list's own-column filter, easy to break independently.
+        errors_run = _make_run(self.team, skill_name="signals-scout-errors")
+        llm_run = _make_run(self.team, skill_name="signals-scout-llm")
+        _make_emission(self.team, errors_run, finding_id="err")
+        _make_emission(self.team, llm_run, finding_id="llm")
+        response = self.client.get(self._url(), data={"skill_name": "signals-scout-errors"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["err"]
+
+    def test_limit_caps_the_page(self) -> None:
+        run = _make_run(self.team)
+        for i in range(3):
+            _make_emission(self.team, run, finding_id=f"f-{i}")
+        response = self.client.get(self._url(), data={"limit": 2})
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == 2
+
+    def test_date_to_excludes_emissions_at_or_after_the_bound(self) -> None:
+        # `date_to` is the exclusive upper bound that backs cursor pagination; guard the half-open
+        # window so a caller can walk back without re-seeing the boundary row.
+        run = _make_run(self.team)
+        older = _make_emission(self.team, run, finding_id="older")
+        newer = _make_emission(self.team, run, finding_id="newer")
+        # emitted_at is auto_now_add, so pin distinct timestamps after the fact.
+        SignalScoutEmission.objects.filter(id=older.id).update(emitted_at="2026-01-01T00:00:00Z")
+        SignalScoutEmission.objects.filter(id=newer.id).update(emitted_at="2026-01-02T00:00:00Z")
+        response = self.client.get(self._url(), data={"date_to": "2026-01-02T00:00:00Z"})
+        assert response.status_code == status.HTTP_200_OK
+        assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
@@ -897,14 +1051,14 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         scout_names = {n for n in canonical_names if n.startswith("signals-scout-")}
         companion_names = canonical_names - scout_names
         assert scout_names, "expected canonical signals-scout-* skills on disk"
-        assert "authoring-signals-scouts" in companion_names
+        assert "authoring-scouts" in companion_names
         assert SignalScoutConfig.objects.filter(team=self.team).count() == 0
 
         response = self.client.post(self._sync_url())
 
         assert response.status_code == status.HTTP_200_OK
         body = response.json()
-        # Only scouts get configs — companion skills (authoring-signals-scouts) are seeded
+        # Only scouts get configs — companion skills (authoring-scouts) are seeded
         # into the team's LLMSkill namespace below but never materialize a scout config.
         assert {c["skill_name"] for c in body} == scout_names
         assert [c["skill_name"] for c in body] == sorted(scout_names)
@@ -1272,3 +1426,66 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
         _make_run(self.team)
         body = self._get({"guaranteed_team_ids": [self.team.id], "default_team_config": {"max_runs_per_day": 5}}).json()
         assert body["limits"]["runs_today"] == 1
+
+
+class TestScoutHarnessMembersAPI(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _authenticate_as_scout(self)
+
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/members/"
+
+    def test_lists_project_members_with_resolved_github_login(self) -> None:
+        # self.user has a GitHub identity (login lowercased on resolution); a second member has
+        # none, so their `github_login` is null rather than dropping out of the roster.
+        UserSocialAuth.objects.create(user=self.user, provider="github", uid="gh-self", extra_data={"login": "OctoCat"})
+        User.objects.create_and_join(self.organization, "second@posthog.com", None, first_name="Sec")
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        by_email = {row["email"]: row for row in response.json()}
+        assert by_email[self.user.email]["github_login"] == "octocat"
+        assert by_email[self.user.email]["user_uuid"] == str(self.user.uuid)
+        assert by_email["second@posthog.com"]["github_login"] is None
+
+    @parameterized.expand(
+        [
+            # a single token matches an email / one name part …
+            ("single_token", "alice", {"alice@posthog.com"}),
+            # … and a full display name matches the concatenated first+last, not just one field —
+            # the case a naive per-field filter misses (regression guard for the search predicate).
+            ("full_display_name", "jane doe", {"jane@posthog.com"}),
+        ]
+    )
+    def test_search_narrows_the_roster(self, _name: str, query: str, expected_emails: set[str]) -> None:
+        # `search` is the bound on a large roster — it must filter to matching email/name so a scout
+        # can pull just the owner instead of the whole directory. Case-insensitive substring.
+        User.objects.create_and_join(self.organization, "alice@posthog.com", None, first_name="Alice")
+        User.objects.create_and_join(self.organization, "jane@posthog.com", None, first_name="Jane", last_name="Doe")
+        response = self.client.get(self._url(), data={"search": query})
+        assert response.status_code == status.HTTP_200_OK
+        emails = {row["email"] for row in response.json()}
+        assert emails == expected_emails
+
+    def test_does_not_leak_members_from_another_org(self) -> None:
+        other_org = Organization.objects.create(name="Other Org")
+        User.objects.create_and_join(other_org, "outsider@example.com", None)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_200_OK
+        emails = {row["email"] for row in response.json()}
+        assert self.user.email in emails
+        assert "outsider@example.com" not in emails
+
+    @parameterized.expand([("session", None), ("public_read_token", "read_only")])
+    def test_non_scout_auth_cannot_list_members(self, _name: str, scopes: PosthogMcpScopes | None) -> None:
+        # The roster (member PII) is gated on the internal `signal_scout_internal` scope object, so neither
+        # a logged-in session (the CSRF / PAK class) nor a public `read_only` MCP token — which carries no
+        # internal scope — can reach it; only a sandbox scout token can. Guards the internal-vs-external
+        # boundary: keeps member emails / logins off every user-grantable credential and the public catalog.
+        if scopes is None:
+            self.client.credentials()
+            self.client.force_login(self.user)
+        else:
+            _authenticate_as_scout(self, scopes=scopes)
+        response = self.client.get(self._url())
+        assert response.status_code == status.HTTP_403_FORBIDDEN
