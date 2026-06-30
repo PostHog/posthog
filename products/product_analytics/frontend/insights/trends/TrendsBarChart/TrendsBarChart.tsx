@@ -31,6 +31,8 @@ import { QueryContext } from '~/queries/types'
 import { getStackBreakdownValues } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
+import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { AnnotationsLayer } from '../shared/AnnotationsLayer'
 import { makeChartErrorHandler } from '../shared/chartErrorHandler'
 import { getTrendsSeriesDisplayLabel } from '../shared/getTrendsSeriesDisplayLabel'
@@ -39,7 +41,6 @@ import { handleTrendsChartClick, type TrendsChartClickDeps } from '../shared/han
 import { TrendsAlertOverlays } from '../shared/TrendsAlertOverlays'
 import { trendsFilterToYFormatterConfig } from '../shared/trendsAxisFormat'
 import { buildTrendsSeriesMeta, type TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
-import { TrendsTooltip } from '../shared/TrendsTooltip'
 import { useInsightsLegendConfig } from '../shared/useInsightsLegendConfig'
 import { getAggregatedDisplayLabel as getAggregatedDisplayLabelFn } from './getAggregatedDisplayLabel'
 import { handleTrendsBarAggregatedChartClick } from './handleTrendsBarAggregatedChartClick'
@@ -57,7 +58,7 @@ interface TrendsBarChartProps {
 }
 
 const EMPTY_LABELS: string[] = []
-const TIME_SERIES_TOOLTIP_CONFIG = { pinnable: true, placement: 'top' as const }
+const TIME_SERIES_TOOLTIP_CONFIG = INSIGHT_TOOLTIP_CONFIG
 const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
@@ -375,14 +376,13 @@ export function TrendsBarChart({
                   }
                 : undefined
             return (
-                <TrendsTooltip
+                <InsightSeriesTooltip
                     context={tooltipCtx}
                     timezone={timezone}
                     interval={interval ?? undefined}
                     breakdownFilter={breakdownFilter ?? undefined}
                     dateRange={insightData?.resolved_date_range ?? undefined}
                     trendsFilter={trendsFilter}
-                    formula={formula}
                     showPercentView={isStickiness}
                     isPercentStackView={isPercentStackView}
                     baseCurrency={baseCurrency}
