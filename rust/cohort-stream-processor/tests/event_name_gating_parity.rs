@@ -26,6 +26,7 @@ const PAGEVIEW_HASH: [u8; 16] = *b"pageviewhash0001";
 const PURCHASE_HASH: [u8; 16] = *b"purchasehash0002";
 const ZERO_HASH: [u8; 16] = *b"zerohash00000003";
 const ZERODOT_HASH: [u8; 16] = *b"zerodothash00004";
+const PAGEVIEW_MULTIPLE_HASH: [u8; 16] = *b"pageviewmult0006";
 
 /// A `performed_event` leaf whose bytecode roots at `event == <event_name>`.
 fn behavioral_leaf(event_name: &str, hash: &str) -> Value {
@@ -35,6 +36,23 @@ fn behavioral_leaf(event_name: &str, hash: &str) -> Value {
         "key": event_name,
         "time_value": 7,
         "time_interval": "day",
+        "conditionHash": hash,
+        "bytecode": ["_H", 1, 32, event_name, 32, "event", 1, 1, 11],
+    })
+}
+
+/// A `performed_event_multiple` leaf on `event_name`: the same `event == <name>` matcher bytecode,
+/// but a count window that drives the `BehavioralDailyBuckets` write path rather than
+/// `BehavioralSingle`. `gte 1` makes a single matching event flip it to member.
+fn behavioral_multiple_leaf(event_name: &str, hash: &str) -> Value {
+    json!({
+        "type": "behavioral",
+        "value": "performed_event_multiple",
+        "key": event_name,
+        "time_value": 7,
+        "time_interval": "day",
+        "operator": "gte",
+        "operator_value": 1,
         "conditionHash": hash,
         "bytecode": ["_H", 1, 32, event_name, 32, "event", 1, 1, 11],
     })
@@ -68,6 +86,29 @@ fn catalog() -> TeamFilters {
                         behavioral_leaf("0", "zerohash00000003"),
                         behavioral_leaf("0.0", "zerodothash00004"),
                         person_leaf(),
+                    ],
+                }
+            }),
+        )
+        .unwrap();
+    builder.freeze(UTC)
+}
+
+/// A `$pageview` bucket holding two distinct behavioral leaves — a `performed_event`
+/// (`BehavioralSingle`) and a `performed_event_multiple` (`BehavioralDailyBuckets`) — so one event
+/// name maps to 2 conditionHashes across 2 write paths.
+fn multi_condition_catalog() -> TeamFilters {
+    let mut builder = TeamFiltersBuilder::default();
+    builder
+        .add_cohort(
+            CohortId(1),
+            TeamId(TEAM),
+            &json!({
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        behavioral_leaf("$pageview", "pageviewhash0001"),
+                        behavioral_multiple_leaf("$pageview", "pageviewmult0006"),
                     ],
                 }
             }),
@@ -260,5 +301,43 @@ fn gating_matches_full_sweep_across_matching_missing_and_numeric_names() {
     assert!(
         s5.transitions.is_empty(),
         "s5: an unmatched event name flips nothing",
+    );
+}
+
+#[test]
+fn gating_matches_full_sweep_on_a_multi_condition_event_name_bucket() {
+    // A hot event like `$pageview` is referenced by many cohorts, so its real bucket holds several
+    // conditionHashes. The single-leaf-per-name catalog above never exercises a 2+ condition bucket,
+    // so a gate that dropped or double-counted a hash within one bucket would diverge from the full
+    // sweep silently. Feed a `$pageview` into a bucket holding both a `BehavioralSingle` and a
+    // `BehavioralDailyBuckets` leaf: `feed` asserts byte-identical `cf_stage1` (covering the
+    // daily-bucket write path), and both leaves must flip.
+    let filters = multi_condition_catalog();
+    assert_eq!(
+        filters.behavioral_by_event_name["$pageview"].len(),
+        2,
+        "the $pageview bucket holds both conditionHashes",
+    );
+
+    let mut p = GatingParity::new();
+    let alice = Uuid::from_u128(1);
+    let outcome = p.feed(
+        &filters,
+        &event(alice, "$pageview", 0, "2026-05-26 10:00:00.000000"),
+        "multi-condition $pageview",
+    );
+
+    let mut got: Vec<[u8; 16]> = outcome
+        .transitions
+        .iter()
+        .map(|t| t.condition_hash)
+        .collect();
+    got.sort_unstable();
+    let mut expected = [PAGEVIEW_HASH, PAGEVIEW_MULTIPLE_HASH];
+    expected.sort_unstable();
+    assert_eq!(
+        got,
+        expected.to_vec(),
+        "both leaves in the bucket flip — the single and the daily-bucket write paths",
     );
 }

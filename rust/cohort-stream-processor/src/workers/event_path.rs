@@ -40,7 +40,7 @@ use crate::workers::person_memo::{ConditionBitset, Lookup, PersonKey, PersonMemo
 /// drops no `Apply`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EventNameGating {
-    /// Evaluate only the event's name bucket, plus `behavioral_always_eval`.
+    /// Evaluate only the event's name bucket.
     Enabled,
     /// Evaluate every behavioral condition.
     Disabled,
@@ -412,8 +412,7 @@ fn resolve_person(
 }
 
 /// Evaluate this event's behavioral conditions against the set globals, pushing an `Apply::Behavioral`
-/// per matching leaf. Under [`EventNameGating::Enabled`] only the event's name bucket and
-/// `behavioral_always_eval` are evaluated.
+/// per matching leaf. Under [`EventNameGating::Enabled`] only the event's name bucket is evaluated.
 fn collect_behavioral_applies(
     filters: &TeamFilters,
     event_name: &str,
@@ -432,27 +431,15 @@ fn collect_behavioral_applies(
                 .behavioral_by_event_name
                 .get(event_name)
                 .map_or(&[][..], Vec::as_slice);
-            // The event's name bucket and `behavioral_always_eval` must stay disjoint: a shared hash
-            // would be evaluated twice (duplicate `Apply`, double state write) and would inflate the
-            // subtrahend below, silently under-reporting the skip count. `behavioral_always_eval` is
-            // empty today so this short-circuits to O(1); it trips in tests the moment a future change
-            // routes a hash into both.
-            debug_assert!(
-                filters
-                    .behavioral_always_eval
-                    .iter()
-                    .all(|hash| !matched.contains(hash)),
-                "behavioral_always_eval overlaps the event-name bucket for {event_name:?}",
-            );
             let skipped = filters
                 .behavioral_conditions
                 .len()
-                .saturating_sub(matched.len() + filters.behavioral_always_eval.len());
+                .saturating_sub(matched.len());
             if skipped > 0 {
                 counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "event_name_gate")
                     .increment(skipped as u64);
             }
-            for &hash in matched.iter().chain(&filters.behavioral_always_eval) {
+            for &hash in matched {
                 eval_behavioral_condition(filters, hash, evaluator, applies);
             }
         }

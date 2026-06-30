@@ -50,9 +50,6 @@ pub struct TeamFilters {
     /// Event name → the behavioral conditionHashes whose bytecode roots at `event == <name>`; the
     /// fan-out gate evaluates only the incoming event's bucket.
     pub behavioral_by_event_name: HashMap<String, Vec<[u8; 16]>>,
-    /// Behavioral conditions with no determinable event name, evaluated for every event. Currently
-    /// empty: every behavioral leaf has an event name.
-    pub behavioral_always_eval: Vec<[u8; 16]>,
     pub person_property_conditions: HashSet<[u8; 16]>,
     /// `person_property_conditions` sorted — the stable bit positions the person memo indexes by, so
     /// an entry's bits stay aligned across no-op refreshes.
@@ -83,7 +80,6 @@ impl Default for TeamFilters {
             by_lsk: HashMap::new(),
             behavioral_conditions: HashSet::new(),
             behavioral_by_event_name: HashMap::new(),
-            behavioral_always_eval: Vec::new(),
             person_property_conditions: HashSet::new(),
             person_conditions_ordered: Vec::new(),
             by_lsk_to_single_leaf_cohorts: HashMap::new(),
@@ -282,7 +278,6 @@ impl TeamFiltersBuilder {
             by_lsk,
             behavioral_conditions,
             behavioral_by_event_name,
-            behavioral_always_eval: Vec::new(),
             person_property_conditions,
             person_conditions_ordered,
             by_lsk_to_single_leaf_cohorts,
@@ -857,10 +852,6 @@ mod tests {
         assert!(
             !frozen.behavioral_by_event_name.contains_key("email"),
             "a person leaf is not bucketed by event name",
-        );
-        assert!(
-            frozen.behavioral_always_eval.is_empty(),
-            "every behavioral leaf carries an event name, so nothing is always-eval",
         );
 
         let union: HashSet<[u8; 16]> = frozen
