@@ -423,7 +423,7 @@ jobs:
             # The eager graph check runs in --report-only mode inside build:with-report
             # (compressed-size-action runs that for the PR AND base builds — a failing
             # base build must not abort the action for every open PR). These steps post
-            # the sticky PR comment and enforce the budgets from the PR build's report,
+            # the sticky PR comment and warn on budget breaches from the PR build's report,
             # which carries the checkout sha in its filename because the base build
             # overwrites the plain one. After compressed-size-action the tree is on the
             # BASE branch, so guard for the scripts' absence (also covers branches
@@ -439,11 +439,11 @@ jobs:
                       echo "Skipping eager graph comment — script not present on this checkout"
                   fi
 
-            - name: Enforce eager graph budgets
+            - name: Check eager graph budgets (warn only)
               if: always() && github.event_name == 'pull_request'
               run: |
                   if [ ! -f frontend/bin/check-eager-graph.mjs ]; then
-                      echo "Skipping eager graph enforcement — script not present on this checkout"
+                      echo "Skipping eager graph check — script not present on this checkout"
                       exit 0
                   fi
                   REPORT="frontend/eager-graph-report-${GITHUB_SHA}.json"
@@ -451,7 +451,7 @@ jobs:
                       REPORT="frontend/eager-graph-report.json"
                   fi
                   if [ ! -f "$REPORT" ]; then
-                      echo "Skipping eager graph enforcement — no report found (branch may predate the check)"
+                      echo "Skipping eager graph check — no report found (branch may predate the check)"
                       exit 0
                   fi
                   node frontend/bin/check-eager-graph.mjs --assert-report "$REPORT"

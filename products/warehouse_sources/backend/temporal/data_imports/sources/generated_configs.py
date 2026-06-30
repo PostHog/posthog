@@ -163,7 +163,9 @@ class AdyenSourceConfig(config.Config):
 
 @config.config
 class AgileCRMSourceConfig(config.Config):
-    pass
+    domain: str
+    email: str
+    api_key: str
 
 
 @config.config
@@ -523,7 +525,8 @@ class BunnySourceConfig(config.Config):
 
 @config.config
 class BuzzsproutSourceConfig(config.Config):
-    pass
+    api_token: str
+    podcast_id: str
 
 
 @config.config
@@ -575,7 +578,8 @@ class CaptainDataSourceConfig(config.Config):
 
 @config.config
 class CareQualityCommissionSourceConfig(config.Config):
-    pass
+    api_key: str
+    partner_code: str | None = None
 
 
 @config.config
@@ -2459,6 +2463,11 @@ class PlausibleSourceConfig(config.Config):
 
 
 @config.config
+class PlunkSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PocketSourceConfig(config.Config):
     pass
 
@@ -4039,6 +4048,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLANETSCALE: PlanetScaleSourceConfig,
         ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
+        ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POLYGON: PolygonSourceConfig,

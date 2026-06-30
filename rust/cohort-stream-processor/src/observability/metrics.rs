@@ -157,6 +157,11 @@ pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
+/// Condition evaluations skipped because the result was already known, labelled by `reason`
+/// (`person_memo_hit`) (counter).
+pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
+/// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
+pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";
 /// Leaf membership flips emitted, labelled by `kind` (counter).
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
 /// `cf_stage1` records written, labelled by `variant` (counter).
