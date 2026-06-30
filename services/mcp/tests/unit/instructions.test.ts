@@ -235,6 +235,7 @@ describe('buildActiveEnvironmentContextPrompt', () => {
         id: 1,
         name: 'My App',
         timezone: 'America/New_York',
+        api_token: 'token_1',
         person_on_events_querying_enabled: false,
     } as unknown as CachedProject
     const org = { id: 'org_1', name: 'Acme' } as unknown as CachedOrg
