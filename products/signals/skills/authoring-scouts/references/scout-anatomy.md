@@ -27,10 +27,11 @@ runs as a scout.
 ---
 name: signals-scout-<scope>
 description: >
-  One paragraph, third person. State the surface it watches, the specific shapes it
-  looks for (bursts, regressions, clusters, drops), that it emits only above the
-  confidence bar and otherwise writes memory and closes out empty, and that it's a
-  self-contained peer in the signals-scout-* fleet.
+  One or two sentences, third person: the surface it watches and the specific shapes it
+  looks for (bursts, regressions, clusters, drops). Keep it tight. Don't restate the
+  fleet-wide boilerplate every scout shares (emits above the confidence bar, writes
+  memory, closes out empty, self-contained peer) — that's assumed, and repeating it
+  across the fleet burns the caller's token budget and gets truncated in AI plugins.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit).
@@ -51,7 +52,10 @@ scout assumes; `metadata.scope` gives downstream tooling a short label.
 The `description` does double duty: beyond skill discovery, it is surfaced verbatim as the
 scout's `description` on the config API (`signals-scout-config-list` / `-create` / `-update`
 responses) — it's how the fleet roster reads to agents and the UI without opening each
-scout's body. Write it to stand alone in that listing.
+scout's body. Write it to stand alone in that listing, and keep it short: it's also loaded
+alongside every other scout's into a caller's AI plugin, where a wordy description wastes
+token budget and gets truncated. A sentence or two that names the surface and the shapes is
+the whole job.
 
 ## Body structure
 
@@ -139,10 +143,8 @@ files to a per-team scout with `posthog:skill-file-create`; in the repo, drop th
 ---
 name: signals-scout-<scope>
 description: >
-  Focused Signals scout for PostHog projects using <surface>. Watches <event/metric> for
-  <the shapes: bursts / regressions / clusters / drops>. Emits findings only when they
-  clear the confidence bar; otherwise writes durable memory and closes out empty.
-  Self-contained peer in the signals-scout-* fleet.
+  Signals scout for PostHog <surface>. Watches <event/metric> for <the shapes: bursts /
+  regressions / clusters / drops>.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write). Assumes the signals-scout MCP

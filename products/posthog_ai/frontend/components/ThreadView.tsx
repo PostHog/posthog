@@ -55,13 +55,16 @@ export function ThreadView({
         threadItems,
         toolInvocations,
         isThinking,
-        showThinkingIndicator,
+        streamPhase,
         runArtifacts,
         turnComplete,
         currentRunStatus,
         contextUsage,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
+    const hasActiveProgressItem = threadItems.some(
+        (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
+    )
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
     // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
@@ -77,6 +80,10 @@ export function ThreadView({
         [branch, baseBranch, repo]
     )
 
+    // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
+    // gated by !hasActiveProgressItem so real `_posthog/progress` boot steps take precedence.
+    const showThinking = (streamPhase === 'thinking' || streamPhase === 'provisioning') && !hasActiveProgressItem
+    const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
     // Context usage rides the thread footer, but only between turns (idle) — never while the agent is
@@ -84,17 +91,18 @@ export function ThreadView({
     const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinkingIndicator || pullRequestUrl || showContextUsageFooter ? (
+            showThinking || pullRequestUrl || showContextUsageFooter ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
-                        showThinking={showThinkingIndicator}
+                        showThinking={showThinking}
+                        thinkingPhase={thinkingPhase}
                         pullRequestUrl={pullRequestUrl}
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [showThinkingIndicator, pullRequestUrl, branch, showContextUsageFooter]
+        [showThinking, thinkingPhase, pullRequestUrl, branch, showContextUsageFooter]
     )
 
     const renderItem = useCallback(
@@ -150,11 +158,13 @@ const ThreadHeader = memo(function ThreadHeader({
  */
 const ThreadFooter = memo(function ThreadFooter({
     showThinking,
+    thinkingPhase,
     pullRequestUrl,
     prBranch,
     showContextUsage,
 }: {
     showThinking: boolean
+    thinkingPhase: 'thinking' | 'provisioning'
     pullRequestUrl?: string
     prBranch?: string
     showContextUsage?: boolean
@@ -164,7 +174,7 @@ const ThreadFooter = memo(function ThreadFooter({
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
-            {showThinking && <ThinkingIndicator progress={currentProgress} />}
+            {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}
         </div>
@@ -173,12 +183,19 @@ const ThreadFooter = memo(function ThreadFooter({
 
 /**
  * Bottom-of-thread "what's it doing right now" line for sandbox conversations. Reflects the latest
- * `_posthog/progress` message when present, otherwise the canned thinking rotation.
+ * `_posthog/progress` message when present; during `provisioning` (the conversations/open POST / cold
+ * boot before `run_started`) it shows a fixed "spinning up" message, otherwise the canned thinking rotation.
  */
-function ThinkingIndicator({ progress }: { progress: string | null }): JSX.Element {
+function ThinkingIndicator({
+    progress,
+    phase,
+}: {
+    progress: string | null
+    phase: 'thinking' | 'provisioning'
+}): JSX.Element {
     // One roll per mount — re-rolling on every progress transition would visibly swap the verb.
     const fallbackMessage = useMemo(() => getRandomThinkingMessage(), [])
-    const message = progress?.trim() ? progress : fallbackMessage
+    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Spinning up sandbox…' : fallbackMessage
     // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text),
     // static (no shimmer), via the shared Activity primitive — not a MessageTemplate bubble.
     return <ReasoningAnswer content={message} id="sandbox-thinking" completed={false} showCompletionIcon={false} />

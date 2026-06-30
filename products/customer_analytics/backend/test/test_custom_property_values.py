@@ -21,6 +21,7 @@ from products.customer_analytics.backend.logic.custom_property_values import (
     CustomPropertyValueConflict,
     InvalidCustomPropertyValue,
     list_active_custom_property_values,
+    set_account_custom_properties_by_id,
     set_custom_property_value,
 )
 from products.customer_analytics.backend.models import (
@@ -194,6 +195,43 @@ class TestSetCustomPropertyValue(BaseTest):
             self._set(definition=definition, value="enterprise")
 
 
+class TestSetAccountCustomPropertiesById(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+
+    def test_sets_multiple_values_resolving_each_definition_by_id(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+
+        rows = set_account_custom_properties_by_id(
+            team_id=self.team.id,
+            account_id=self.account.id,
+            properties={str(plan.id): "enterprise", str(seats.id): "42"},
+        )
+
+        assert {(r.definition_id, r.value_str, r.value_num) for r in rows} == {
+            (plan.id, "enterprise", None),
+            (seats.id, None, 42.0),
+        }
+
+    def test_unknown_id_raises_carrying_the_id(self):
+        missing = uuid4()
+        with pytest.raises(CustomPropertyDefinitionNotFound) as exc_info:
+            set_account_custom_properties_by_id(
+                team_id=self.team.id, account_id=self.account.id, properties={str(missing): "x"}
+            )
+        assert exc_info.value.identifier == str(missing)
+
+    def test_invalid_value_raises_carrying_the_id(self):
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        with pytest.raises(InvalidCustomPropertyValue) as exc_info:
+            set_account_custom_properties_by_id(
+                team_id=self.team.id, account_id=self.account.id, properties={str(seats.id): "not a number"}
+            )
+        assert exc_info.value.field == str(seats.id)
+
+
 class TestCustomPropertyValueFacade(BaseTest):
     def setUp(self):
         super().setUp()
@@ -237,3 +275,54 @@ class TestCustomPropertyValueFacade(BaseTest):
         assert isinstance(result[0], contracts.CustomPropertyValue)
         assert result[0].value == "enterprise"
         assert result[0].definition_id == plan.id
+
+
+class TestSetExternalAccountCustomProperties(BaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id, external_id="acme-1")
+
+    def test_sets_values_by_id_and_returns_contracts(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): "enterprise", str(seats.id): 42}
+        )
+
+        assert result.error is None
+        assert result.values is not None
+        assert {(v.value) for v in result.values} == {"enterprise", 42.0}
+
+    def test_unknown_external_id_returns_account_not_found(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        result = facade.set_external_account_custom_properties(self.team.id, "missing", properties={str(plan.id): "x"})
+        assert result.error == contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND
+
+    def test_maps_unknown_definition_to_error_with_offending_id(self):
+        missing = uuid4()
+        result = facade.set_external_account_custom_properties(self.team.id, "acme-1", properties={str(missing): "x"})
+        assert result.values is None
+        assert result.error == contracts.ExternalAccountCustomPropertiesError.DEFINITION_NOT_FOUND
+        assert result.error_field == str(missing)
+
+    def test_maps_invalid_value_to_error_with_offending_id(self):
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(seats.id): "abc"}
+        )
+        assert result.values is None
+        assert result.error == contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE
+        assert result.error_field == str(seats.id)
+
+    def test_batch_is_all_or_nothing(self):
+        plan = create_custom_property_definition(team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT)
+        seats = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER)
+
+        result = facade.set_external_account_custom_properties(
+            self.team.id, "acme-1", properties={str(plan.id): "enterprise", str(seats.id): "not a number"}
+        )
+
+        assert result.error == contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE
+        # The good "Plan" write must roll back with the failed "Seats" write — nothing persists.
+        assert not CustomPropertyValue.objects.for_team(self.team.id).filter(account=self.account).exists()

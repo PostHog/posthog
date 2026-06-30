@@ -1,11 +1,8 @@
 ---
 name: signals-scout-logs
 description: >
-  Focused Signals scout for PostHog projects using logs. Watches for volume bursts,
-  severity-distribution shifts, service silence, fresh message patterns, and
-  trace-correlated bursts via the logs ingestion pipeline. Authors reports directly into
-  the Signals inbox when a shift clears the bar; otherwise writes durable memory and closes
-  out empty. Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for PostHog logs. Watches for volume bursts, severity-distribution shifts,
+  service silence, fresh message patterns, and trace-correlated bursts.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes:
   read-only analytics plus signal_scout_internal:write (for scratchpad) +

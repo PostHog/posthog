@@ -8,7 +8,8 @@
         "kea": "catalog:",
         "kea-forms": "catalog:",
         "kea-loaders": "catalog:",
-        "kea-router": "catalog:"
+        "kea-router": "catalog:",
+        "lodash.uniqby": "^4.7.0"
     },
     "devDependencies": {
         "kea-test-utils": "catalog:"
