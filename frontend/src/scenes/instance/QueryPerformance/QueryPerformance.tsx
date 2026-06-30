@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonTabs } from '@posthog/lemon-ui'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LinkMetabaseQuery } from 'lib/components/MetabaseQueryLink'
+import { dayjs } from 'lib/dayjs'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
@@ -99,6 +100,19 @@ function outcome(item: SlowestQuery): { label: string; type: LemonTagType } {
         return { label: `Read ${codeLabel(item.exception_code)}`, type: 'danger' }
     }
     return { label: 'Build failed', type: 'warning' }
+}
+
+// Compact day-span of a scan window, exact dates on hover. Renders nothing for pre-tag (empty) rows.
+function ScanWindow({ from, to }: { from: string; to: string }): JSX.Element | null {
+    if (!from || !to) {
+        return null
+    }
+    const days = Math.max(1, dayjs(to).diff(dayjs(from), 'day'))
+    return (
+        <Tooltip title={`${from} → ${to}`}>
+            <span className="font-mono text-xs">{days}d</span>
+        </Tooltip>
+    )
 }
 
 function QueryStats({
@@ -267,6 +281,13 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
+            title: 'Scan window',
+            width: 110,
+            render: function ScanWindowCol(_, item): JSX.Element | null {
+                return <ScanWindow from={item.experiment_scan_date_from} to={item.experiment_scan_date_to} />
+            },
+        },
+        {
             title: 'Organization',
             render: function OrgCell(_, item) {
                 return (
@@ -406,6 +427,20 @@ export function QueryPerformance(): JSX.Element {
             width: 120,
             render: function SubQueryDuration(_, item) {
                 return <span className="font-mono">{Math.round(item.execution_time)}</span>
+            },
+        },
+        {
+            title: 'Scan window',
+            width: 110,
+            render: function SubQueryWindow(_, item): JSX.Element | null {
+                return <ScanWindow from={item.precompute_window_start} to={item.precompute_window_end} />
+            },
+        },
+        {
+            title: 'Read',
+            width: 110,
+            render: function SubQueryRead(_, item): JSX.Element {
+                return <span className="font-mono">{humanizeBytes(item.read_bytes)}</span>
             },
         },
         {

@@ -217,9 +217,12 @@ class TestPromptBuilder(BaseTest):
         assert "inbox-reports-list" in prompt
         assert "Suggested reviewers route the report" in prompt
         assert "suggested_reviewers" in prompt
-        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login) so the prompt
-        # steers the scout toward that route rather than guessing a handle.
+        # Reviewer routing accepts a `user_uuid` (server-resolved to a GitHub login), and when the
+        # owner isn't already in the evidence the prompt points the scout at the in-run
+        # `signals-scout-members-list` tool — so it must name both rather than letting it guess a
+        # handle or reach for the org-scoped resolver that's stripped from a scout run.
         assert "user_uuid" in prompt
+        assert "signals-scout-members-list" in prompt
         # The report channel teaches that the `report:` scratchpad entry is a pointer
         # into the inbox, not a copy of the report — the inbox stays the source of
         # truth, so the scout retrieves the live report before editing. Dropping this
@@ -267,6 +270,9 @@ class TestPromptBuilder(BaseTest):
         assert "Suggested reviewers route the report" not in prompt
         assert "Writing the report" not in prompt
         assert "suggested_reviewers" in prompt
+        # An edit-only scout can still rescue an unrouted report's reviewers, so the editing guidance
+        # carries the in-run member lookup too — even though the standalone author-time deep-dive drops.
+        assert "signals-scout-members-list" in prompt
 
 
 # Orchestration tests run as plain pytest functions because the async runner uses
