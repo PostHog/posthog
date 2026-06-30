@@ -1,13 +1,9 @@
 ---
 name: signals-scout-experiments
 description: >
-  Focused Signals scout for PostHog projects running A/B experiments. Watches running
-  experiments for validity threats (sample ratio mismatch, multi-variant contamination,
-  exposure stalls, mid-run flag mutations) and lifecycle drift (zombie experiments running
-  long past their useful life, decided-but-still-running experiments, ended experiments
-  whose flags still serve multiple variants). Emits findings only when they clear the
-  confidence bar; otherwise writes durable memory and closes out empty. Self-contained
-  peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for PostHog A/B experiments. Watches running experiments for validity threats
+  (sample ratio mismatch, contamination, exposure stalls, mid-run flag mutations) and
+  lifecycle drift (zombies, decided-but-running).
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
