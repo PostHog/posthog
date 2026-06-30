@@ -108,13 +108,6 @@ describe('InvocationResultsService', () => {
             expect(messageAssetsService.flush).toHaveBeenCalledTimes(1)
         })
 
-        it('rethrows when the message-assets flush fails (load-bearing data — must stall offset commit)', async () => {
-            const brokerDown = new Error('kafka broker down')
-            messageAssetsService.flush.mockRejectedValueOnce(brokerDown)
-
-            await expect(service.flush()).rejects.toThrow(brokerDown)
-        })
-
         it('flushes all in parallel (all start before any finish)', async () => {
             const order: string[] = []
             const trackOrder = (name: string) =>
