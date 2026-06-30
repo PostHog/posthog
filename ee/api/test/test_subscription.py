@@ -248,6 +248,7 @@ class TestSubscriptionTemporal(APILicensedTest):
         self.mock_temporal_client.start_workflow.assert_not_called()
         after = Subscription.objects.get(id=sub_id).next_delivery_date
         # Daily cadence brings the next delivery strictly earlier than the weekly one.
+        assert before is not None
         assert after is not None
         assert after < before
 
