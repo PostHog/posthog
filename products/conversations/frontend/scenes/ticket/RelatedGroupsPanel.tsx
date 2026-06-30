@@ -1,16 +1,16 @@
 import { useValues } from 'kea'
 
-import { LemonCollapse, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCollapse } from '@posthog/lemon-ui'
 
 import { RelatedGroups } from 'scenes/groups/RelatedGroups'
 import { relatedGroupsLogic } from 'scenes/groups/relatedGroupsLogic'
-import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
-import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { ActorType } from '~/types'
+import { ActorType, GroupActorType } from '~/types'
 
-const HIGHLIGHT_LABEL = 'Active at creation'
+import { creationGroupLogic } from './creationGroupLogic'
+
+const HIGHLIGHT_LABEL = 'Ticket origin'
 
 interface RelatedGroupsPanelProps {
     personUuid: string
@@ -18,9 +18,9 @@ interface RelatedGroupsPanelProps {
     organizationId?: string | null
 }
 
-// Show the standalone "active at creation" line only when the snapshot group exists but isn't already
-// in the person's live related groups (e.g. it aged out of the related-groups window) — so we never
-// duplicate a row that the table already highlights, and never hide the snapshot when it's missing.
+// Append the creation group as its own row only when it exists but isn't already in the person's live
+// related groups (e.g. it aged out of the related-groups window) — so we never duplicate a highlighted
+// row and never hide the snapshot when it's missing from the live list.
 export function shouldShowCreationFallback(
     organizationId: string | null | undefined,
     relatedActors: ActorType[],
@@ -44,12 +44,32 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
     const orgGroupTypeIndex =
         Array.from(groupTypes.values()).find((gt) => gt.group_type === 'organization')?.group_type_index ?? null
 
+    const { group: creationGroup } = useValues(
+        creationGroupLogic({ groupTypeIndex: orgGroupTypeIndex, groupKey: organizationId ?? null })
+    )
+
     const showFallback = shouldShowCreationFallback(
         organizationId,
         relatedActors,
         relatedActorsLoading,
         orgGroupTypeIndex
     )
+
+    // When the snapshot group isn't in the live related list, fetch it and append it as a real row
+    // (type + name + link) rather than a bare key, tagged via highlightGroupKey below.
+    const extraActors: ActorType[] =
+        showFallback && creationGroup
+            ? [
+                  {
+                      type: 'group',
+                      id: creationGroup.group_key,
+                      group_key: creationGroup.group_key,
+                      group_type_index: creationGroup.group_type_index,
+                      properties: creationGroup.group_properties,
+                      created_at: creationGroup.created_at,
+                  } as GroupActorType,
+              ]
+            : []
 
     return (
         <LemonCollapse
@@ -60,25 +80,14 @@ export function RelatedGroupsPanel({ personUuid, organizationId }: RelatedGroups
                     key: 'related-groups',
                     header: 'Related groups',
                     content: (
-                        <div className="space-y-2">
-                            <RelatedGroups
-                                id={personUuid}
-                                groupTypeIndex={null}
-                                embedded
-                                highlightGroupKey={organizationId}
-                                highlightLabel={HIGHLIGHT_LABEL}
-                            />
-                            {showFallback && organizationId && orgGroupTypeIndex !== null && (
-                                <div className="flex items-center gap-2 px-2 text-sm">
-                                    <LemonTag type="highlight" size="small">
-                                        {HIGHLIGHT_LABEL}
-                                    </LemonTag>
-                                    <Link to={urls.group(orgGroupTypeIndex.toString(), organizationId)}>
-                                        <span className="ph-no-capture">{groupDisplayId(organizationId, {})}</span>
-                                    </Link>
-                                </div>
-                            )}
-                        </div>
+                        <RelatedGroups
+                            id={personUuid}
+                            groupTypeIndex={null}
+                            embedded
+                            highlightGroupKey={organizationId}
+                            highlightLabel={HIGHLIGHT_LABEL}
+                            extraActors={extraActors}
+                        />
                     ),
                 },
             ]}

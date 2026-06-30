@@ -21,6 +21,8 @@ export interface RelatedGroupsProps {
     /** Tag the group row whose key matches this value (e.g. the group a ticket was created with). */
     highlightGroupKey?: string | null
     highlightLabel?: string
+    /** Extra group rows to append (deduped by id), e.g. a group not in the live related list. */
+    extraActors?: ActorType[]
 }
 
 export function RelatedGroups({
@@ -30,11 +32,14 @@ export function RelatedGroups({
     pageSize,
     embedded = false,
     highlightGroupKey,
-    highlightLabel = 'Active at creation',
+    highlightLabel = 'Ticket origin',
+    extraActors,
 }: RelatedGroupsProps): JSX.Element {
     const { relatedActors, relatedPeople, relatedActorsLoading } = useValues(relatedGroupsLogic({ groupTypeIndex, id }))
-    const dataSource = type === 'person' ? relatedPeople : relatedActors
     const { aggregationLabel } = useValues(groupsModel)
+
+    const extraGroups = (extraActors ?? []).filter((extra) => !relatedActors.some((actor) => actor.id === extra.id))
+    const dataSource = type === 'person' ? relatedPeople : [...relatedActors, ...extraGroups]
 
     const columns: LemonTableColumns<ActorType> = [
         {
