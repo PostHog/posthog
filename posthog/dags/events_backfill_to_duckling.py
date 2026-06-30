@@ -1637,7 +1637,8 @@ def _acquire_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> N
         with conn.cursor() as cur:
             cur.execute("SELECT pg_try_advisory_lock(hashtext('millpond-ducklake-maintenance')::bigint)")
             row = cur.fetchone()
-        assert row is not None, "pg_try_advisory_lock must return a row"
+        if row is None:
+            raise RuntimeError("pg_try_advisory_lock returned no row — Postgres protocol invariant violated")
         if row[0]:
             return
         backoff = min(
@@ -1662,7 +1663,9 @@ def _release_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> N
     try:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_unlock(hashtext('millpond-ducklake-maintenance')::bigint)")
-    except Exception as exc:
+    except (psycopg.Error, OSError) as exc:
+        # Narrowed to the catalog/transport error classes that the unlock SELECT
+        # can actually raise. Anything else (programming bug, etc.) propagates.
         logger.warning(
             "duckling_ducklake_file_partition_value_fixup_release_failed",
             error=str(exc),
@@ -1852,7 +1855,10 @@ def _fixup_partition_values_for_added_files(
                     (list(file_paths), expected_index_set),
                 )
                 post_condition_row = cur.fetchone()
-                assert post_condition_row is not None, "post-condition aggregate must return one row"
+                if post_condition_row is None:
+                    raise RuntimeError(
+                        "post-condition aggregate returned no row — Postgres protocol invariant violated"
+                    )
                 wrong_indexes, null_values, total = post_condition_row
 
                 if wrong_indexes != 0 or null_values != 0 or total != len(file_paths):
@@ -1876,12 +1882,14 @@ def _fixup_partition_values_for_added_files(
                         f"total={total}, expected_total={len(file_paths)}"
                     )
         finally:
-            # Release the session-scoped lock. Switch back to autocommit so the
-            # unlock SELECT doesn't implicitly open a new txn on this conn. The
-            # `with conn:` above has already committed or rolled back, so
-            # toggling autocommit here is safe.
-            catalog_conn.autocommit = True
-            _release_ducklake_file_partition_value_session_advisory_lock(catalog_conn)
+            # Release the session-scoped lock. Skip if the conn has been closed
+            # mid-flight (e.g., transport drop during DML) — toggling autocommit
+            # on a closed conn raises InterfaceError, which would mask the
+            # original exception. PG releases session locks on disconnect
+            # anyway, so there's nothing to do.
+            if not catalog_conn.closed:
+                catalog_conn.autocommit = True
+                _release_ducklake_file_partition_value_session_advisory_lock(catalog_conn)
 
     context.log.info(
         f"ducklake_file_partition_value fix-up: rebuilt partition values for {len(file_paths)} {table_name} file(s)"

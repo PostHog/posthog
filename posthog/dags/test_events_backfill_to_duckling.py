@@ -1629,6 +1629,9 @@ def _make_catalog_conn_mock(
     conn.cursor.return_value = cur
     conn.__enter__.return_value = conn
     conn.__exit__.return_value = None
+    # `closed` defaults to a truthy MagicMock; explicitly False so the finally
+    # block's `if not conn.closed` guard runs the unlock path.
+    conn.closed = False
     return conn, cur
 
 
