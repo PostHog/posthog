@@ -14,6 +14,7 @@ from django.test import RequestFactory
 from parameterized import parameterized
 
 from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.admin.inlines.team_inline import TeamInline
 from posthog.llm.gateway_internal_client import (
     AIGatewayInternalError,
     AIGatewayNotConfigured,
@@ -21,6 +22,7 @@ from posthog.llm.gateway_internal_client import (
     LedgerEntry,
     Wallet,
 )
+from posthog.models import Organization
 from posthog.models.team.team import Team
 
 
@@ -511,3 +513,18 @@ class TestTeamAdminFormOverspendAllowance(BaseTest):
         child = Team.objects.create(organization=self.organization, name="child env", parent_team=self.team)
         with self.assertRaises(ValidationError):
             self._form(Decimal("5"), instance=child).clean_llm_gateway_overspend_allowance_usd()
+
+
+class TestTeamInlineForm(BaseTest):
+    def _inline_form(self):
+        request = RequestFactory().get("/")
+        request.user = self.user
+        formset_class = TeamInline(Organization, AdminSite()).get_formset(request)
+        return formset_class.form()
+
+    def test_test_account_filters_is_not_required(self) -> None:
+        # Disabling an org saves the Organization admin form, which validates the
+        # TeamInline formset for every team. An empty `[]` is in Django's form
+        # empty_values, so a required field rejects it as "This field is required",
+        # blocking the org save for any team whose filters were cleared.
+        assert self._inline_form().fields["test_account_filters"].required is False

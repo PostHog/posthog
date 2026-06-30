@@ -2,13 +2,17 @@ from django.utils.html import format_html
 
 from django_admin_inline_paginator.admin import TabularInlinePaginated
 
-from posthog.admin.admins.team_admin import TeamAdmin
+from posthog.admin.admins.team_admin import TeamAdmin, TeamAdminForm
 from posthog.models import Team
 
 
 class TeamInline(TabularInlinePaginated):
     extra = 0
     model = Team
+    # Reuse TeamAdminForm so test_account_filters isn't required here either: an empty
+    # `[]` is in Django's form empty_values, so the default ModelForm rejects it and
+    # blocks saving the parent Organization (e.g. when disabling it).
+    form = TeamAdminForm
     per_page = 20
     pagination_key = "page-team"
     show_change_link = True
