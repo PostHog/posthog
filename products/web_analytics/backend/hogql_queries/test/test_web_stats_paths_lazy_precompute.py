@@ -416,11 +416,6 @@ class TestWebStatsPathsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert expected_metric in repr(expr)
 
     @freeze_time("2024-01-15T12:00:00Z")
-    @unittest.skip(
-        "Capped insert temporarily disabled (see ensure_web_stats_paths_precomputed) — the cap "
-        "metric no longer enters the insert AST, so sort keys share one uncapped job. Re-enable "
-        "with the single-pass cap rewrite."
-    )
     def test_sort_key_gets_distinct_cache_entry(self):
         # The cap metric is in the insert AST, so different sort keys map to distinct
         # capped jobs. This also exercises that the capped insert template parses/builds.
