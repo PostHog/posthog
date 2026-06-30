@@ -44,11 +44,9 @@ test.describe('Batch export configuration', () => {
         )
 
         // Mock the batch export creation endpoint (requires Temporal in real env)
-        let postedBody: { destination?: { integration?: number } } | null = null
         await page.route('**/api/environments/*/batch_exports/', async (route) => {
             if (route.request().method() === 'POST') {
                 const body = route.request().postDataJSON()
-                postedBody = body
                 await route.fulfill({
                     status: 201,
                     contentType: 'application/json',
@@ -106,11 +104,14 @@ test.describe('Batch export configuration', () => {
 
         await page.locator('input[name="prefix"]').fill('events/')
 
-        await page.locator('form').getByRole('button', { name: 'Create' }).click()
+        // Capture the create request to assert the selected integration is sent (instead of inline credentials)
+        const [createRequest] = await Promise.all([
+            page.waitForRequest((req) => req.url().includes('/batch_exports/') && req.method() === 'POST'),
+            page.locator('form').getByRole('button', { name: 'Create' }).click(),
+        ])
         await expect(page.locator('[data-attr="success-toast"]')).toContainText('Batch export created successfully')
 
-        // The selected integration is sent instead of inline credentials
-        expect(postedBody?.destination?.integration).toBe(integrationId)
+        expect(createRequest.postDataJSON().destination.integration).toBe(integrationId)
     })
 
     test('Validate required fields prevent save', async ({ page }) => {
