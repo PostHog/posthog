@@ -87,7 +87,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
     )
     # Target-specific settings, keyed off `target` (parallel to evaluation_config/output_config).
     # Trace targets carry {window_seconds}; generation targets carry nothing.
-    target_config = models.JSONField(default=dict)
+    target_config = models.JSONField(default=dict, db_default=models.Value("{}"))
 
     # Model configuration for the LLM judge
     model_configuration = models.ForeignKey(
