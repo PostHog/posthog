@@ -43,8 +43,8 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQuer
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
 from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 TEST_BUCKET = "test_storage_bucket-posthog.hogql.datawarehouse.trendquery"
 

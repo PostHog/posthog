@@ -127,7 +127,7 @@ export function CLIAuthorize(): JSX.Element {
                             />
                         </div>
                         <p className="text-muted text-sm mb-2">
-                            Permissions granted to the CLI. Pick a preset or fine-tune individual scopes — only grant
+                            Permissions granted to the CLI. Pick a preset or fine-tune individual scopes. Only grant
                             what you need.
                         </p>
 
