@@ -4053,7 +4053,7 @@
   (
       team_id Int64,
       condition String,
-      last_write_at DateTime64(6)
+      last_write_at DateTime
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_precalc_condition_watermark', sipHash64(condition))
   
   '''
@@ -4065,8 +4065,9 @@
   AS SELECT
       team_id,
       condition,
-      _timestamp AS last_write_at
+      max(_timestamp) AS last_write_at
   FROM kafka_precalc_condition_watermark
+  GROUP BY team_id, condition
       
   '''
 # ---
@@ -6264,7 +6265,7 @@
   (
       team_id Int64,
       condition String,
-      last_write_at DateTime64(6)
+      last_write_at DateTime
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalc_condition_watermark', '{replica}', last_write_at)
   ORDER BY (team_id, condition)
   
@@ -8178,7 +8179,7 @@
   (
       team_id Int64,
       condition String,
-      last_write_at DateTime64(6)
+      last_write_at DateTime
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_precalc_condition_watermark', sipHash64(condition))
   
   '''
@@ -10585,7 +10586,7 @@
   (
       team_id Int64,
       condition String,
-      last_write_at DateTime64(6)
+      last_write_at DateTime
   ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.sharded_precalc_condition_watermark', '{replica}', last_write_at)
   ORDER BY (team_id, condition)
   
