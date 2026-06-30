@@ -776,6 +776,9 @@ _INTEGRATION_GET_PATH = (
 _CLOSE_CONNECTIONS_PATH = (
     "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
 )
+_RANDOM_UNIFORM_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.random.uniform"
+)
 
 
 class TestGetIntegrationDbResilience:
@@ -783,7 +786,11 @@ class TestGetIntegrationDbResilience:
         integration = object()
         get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH),
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
@@ -791,36 +798,77 @@ class TestGetIntegrationDbResilience:
         # Evicted up front, then again after the failed query marked the connection unusable.
         assert close.call_count == 2
 
-    def test_reraises_when_retry_also_fails(self):
+    def test_backs_off_between_attempts_with_growing_jitter_ceiling(self):
+        # A PgBouncer query_wait_timeout (a ProtocolViolation, which subclasses OperationalError)
+        # does not clear on an instant reconnect, so each retry waits a jittered backoff whose
+        # ceiling grows exponentially — giving the saturated pool a chance to drain.
+        get = mock.Mock(
+            side_effect=[
+                OperationalError("query_wait_timeout"),
+                OperationalError("query_wait_timeout"),
+                object(),
+            ]
+        )
+
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_RANDOM_UNIFORM_PATH, side_effect=lambda _low, high: high) as uniform,
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
+            _get_integration(integration_id=1, team_id=2)
+
+        assert get.call_count == 3
+        # Full jitter over an exponential ceiling: 0.5s after the 1st failure, 1.0s after the 2nd.
+        assert uniform.call_args_list == [mock.call(0, 0.5), mock.call(0, 1.0)]
+        assert sleep.call_args_list == [mock.call(0.5), mock.call(1.0)]
+
+    def test_reraises_after_exhausting_attempts(self):
         get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             with pytest.raises(OperationalError):
                 _get_integration(integration_id=1, team_id=2)
 
-        # One retry only — the second failure propagates so Temporal still retries the activity.
-        assert get.call_count == 2
+        # Tried the configured number of attempts, then the final failure propagates so Temporal
+        # still retries the activity. One sleep fewer than attempts — no backoff after the last try.
+        assert get.call_count == 3
+        assert sleep.call_count == 2
 
     def test_missing_integration_is_not_retried(self):
         get = mock.Mock(side_effect=Integration.DoesNotExist())
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH),
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             with pytest.raises(Integration.DoesNotExist):
                 _get_integration(integration_id=1, team_id=2)
 
         # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
         assert get.call_count == 1
+        assert sleep.call_count == 0
 
     def test_no_retry_on_success(self):
         integration = object()
         get = mock.Mock(return_value=integration)
 
-        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+        with (
+            mock.patch(_INTEGRATION_GET_PATH, get),
+            mock.patch(_CLOSE_CONNECTIONS_PATH) as close,
+            mock.patch(_SLEEP_PATH) as sleep,
+        ):
             result = _get_integration(integration_id=1, team_id=2)
 
         assert result is integration
         assert get.call_count == 1
         assert close.call_count == 1
+        assert sleep.call_count == 0
 
 
 class TestOverviewStatsSchemas:

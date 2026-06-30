@@ -1,4 +1,5 @@
 import time
+import random
 import typing
 import datetime as dt
 import collections.abc
@@ -125,23 +126,52 @@ def _load_client_with_transient_retry(
             time.sleep(min(2 * attempt, 30))
 
 
+# A dropped/stale connection clears the instant we reconnect, but the same ``OperationalError``
+# also arrives as a PgBouncer ``query_wait_timeout`` (surfaced by psycopg as a ``ProtocolViolation``,
+# an ``OperationalError`` subclass) raised while the server-side pool is saturated. That shape does
+# *not* clear on an immediate reconnect — the pool is still full — so retrying instantly on the same
+# saturated pool just re-hits the timeout. We give the retry a short exponential backoff with full
+# jitter so a momentary pool-wait timeout has a chance to drain before the next attempt, and so the
+# many import activities that saturate the pool at once don't all back off in lockstep and
+# re-saturate it. A read that keeps failing past these attempts falls through to Temporal's
+# activity-level retry.
+_MAX_INTEGRATION_FETCH_ATTEMPTS = 3
+_INTEGRATION_FETCH_BASE_BACKOFF_SECONDS = 0.5
+_INTEGRATION_FETCH_MAX_BACKOFF_SECONDS = 8.0
+
+
+def _integration_fetch_backoff_seconds(attempt: int) -> float:
+    """Full-jitter exponential backoff (in seconds) to wait before retrying the 1-based ``attempt``."""
+    ceiling = min(
+        _INTEGRATION_FETCH_BASE_BACKOFF_SECONDS * 2 ** (attempt - 1),
+        _INTEGRATION_FETCH_MAX_BACKOFF_SECONDS,
+    )
+    return random.uniform(0, ceiling)
+
+
 def _get_integration(integration_id: int, team_id: int) -> Integration:
-    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+    """Fetch the OAuth ``Integration`` row, retrying a transient DB ``OperationalError`` with backoff.
 
     Temporal activities run in a long-lived worker that never goes through Django's request
     cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
-    ``close_old_connections()`` evicts connections already known to be stale, but one can still
-    die in the window before the query runs and surface as a transient ``OperationalError``
-    ("server closed the connection unexpectedly"). The failed query marks the connection
-    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
-    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+    ``close_old_connections()`` evicts connections already known to be stale, but a read can still
+    fail with a transient ``OperationalError`` — either a connection dropped in the window before
+    the query runs ("server closed the connection unexpectedly"), or a PgBouncer
+    ``query_wait_timeout`` under pool saturation. Each failed query marks the connection unusable,
+    so we evict again (``close_old_connections``) and retry on a fresh connection after a short
+    backoff (see ``_integration_fetch_backoff_seconds``). This read is idempotent, so it is safe to
+    repeat. ``Integration.DoesNotExist`` is left to propagate.
     """
-    close_old_connections()
-    try:
-        return Integration.objects.get(id=integration_id, team_id=team_id)
-    except OperationalError:
+    attempt = 0
+    while True:
         close_old_connections()
-        return Integration.objects.get(id=integration_id, team_id=team_id)
+        try:
+            return Integration.objects.get(id=integration_id, team_id=team_id)
+        except OperationalError:
+            attempt += 1
+            if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
+                raise
+            time.sleep(_integration_fetch_backoff_seconds(attempt))
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
