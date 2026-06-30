@@ -136,8 +136,6 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     search_scratchpad,
 )
 from products.signals.backend.scout_report import InvalidScoutReportError
-from products.signals.backend.temporal.agentic.scout_scheduler import start_manual_signals_scout_run
-from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -331,6 +329,13 @@ def _resolve_emission_report_links(
     source_id_to_report_id: dict[str, str] = {}
     if source_ids:
         try:
+            # Deferred: keeps the heavy Signals Temporal workflow/activity graph (dragged in by the
+            # `products.signals.backend.temporal` package aggregator) off the route-load path — this
+            # viewset is imported by routes.py just to register routes.
+            from products.signals.backend.temporal.signal_queries import (
+                fetch_report_ids_for_source_ids,  # noqa: PLC0415
+            )
+
             source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
         except Exception:
             logger.exception("scout_emission_reports_lookup_failed", team_id=team_id, **log_context)
@@ -1576,6 +1581,14 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
         if _scout_run_in_flight(team_id, skill_name):
             raise Conflict()
+
+        # Deferred: keeps the heavy Signals Temporal workflow/activity graph (dragged in by the
+        # `products.signals.backend.temporal` package aggregator) off the route-load path — this viewset
+        # is imported by routes.py just to register routes, so a module-level import would make every
+        # API/schema route load pay the full graph.
+        from products.signals.backend.temporal.agentic.scout_scheduler import (
+            start_manual_signals_scout_run,  # noqa: PLC0415
+        )
 
         try:
             workflow_id = start_manual_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)

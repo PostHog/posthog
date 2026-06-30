@@ -297,7 +297,7 @@ class TestScoutHarnessRunEmissionsAPI(APIBaseTest):
 
 
 # Patch target: the helper is hot-imported into the view module, so patch it there, not at source.
-_FETCH_REPORT_IDS = "products.signals.backend.scout_harness.views.fetch_report_ids_for_source_ids"
+_FETCH_REPORT_IDS = "products.signals.backend.temporal.signal_queries.fetch_report_ids_for_source_ids"
 
 
 class TestScoutHarnessEmissionReportsAPI(APIBaseTest):
@@ -1466,7 +1466,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 
 _QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
-_START = "products.signals.backend.scout_harness.views.start_manual_signals_scout_run"
+_START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
 _FLAG = "products.signals.backend.scout_harness.views._read_flag_payload"
