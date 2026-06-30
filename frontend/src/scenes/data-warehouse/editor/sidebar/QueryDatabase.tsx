@@ -893,20 +893,18 @@ export const QueryDatabase = ({
                 ) {
                     const sourceType = item.record?.sourceType
                     const sources: { id: string; label: string }[] = item.record?.sources ?? []
-                    const editSource = (sourceId: string): void => {
-                        newInternalTab(urls.dataWarehouseSource(`managed-${sourceId}`, 'configuration'))
-                    }
                     return (
                         <DropdownMenuGroup>
                             {sources.length === 1 ? (
-                                <DropdownMenuItem
-                                    asChild
-                                    onClick={(e) => {
-                                        e.stopPropagation()
-                                        editSource(sources[0].id)
-                                    }}
-                                >
-                                    <ButtonPrimitive menuItem>Edit source</ButtonPrimitive>
+                                <DropdownMenuItem asChild>
+                                    <Link
+                                        to={urls.dataWarehouseSource(`managed-${sources[0].id}`, 'configuration')}
+                                        target="_blank"
+                                        buttonProps={{ menuItem: true }}
+                                        onClick={(e) => e.stopPropagation()}
+                                    >
+                                        Edit source
+                                    </Link>
                                 </DropdownMenuItem>
                             ) : sources.length > 1 ? (
                                 <DropdownMenuSub>
@@ -918,15 +916,18 @@ export const QueryDatabase = ({
                                     </DropdownMenuSubTrigger>
                                     <DropdownMenuSubContent>
                                         {sources.map((source) => (
-                                            <DropdownMenuItem
-                                                key={source.id}
-                                                asChild
-                                                onClick={(e) => {
-                                                    e.stopPropagation()
-                                                    editSource(source.id)
-                                                }}
-                                            >
-                                                <ButtonPrimitive menuItem>{source.label}</ButtonPrimitive>
+                                            <DropdownMenuItem key={source.id} asChild>
+                                                <Link
+                                                    to={urls.dataWarehouseSource(
+                                                        `managed-${source.id}`,
+                                                        'configuration'
+                                                    )}
+                                                    target="_blank"
+                                                    buttonProps={{ menuItem: true }}
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    {source.label}
+                                                </Link>
                                             </DropdownMenuItem>
                                         ))}
                                     </DropdownMenuSubContent>

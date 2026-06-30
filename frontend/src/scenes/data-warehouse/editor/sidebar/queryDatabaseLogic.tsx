@@ -1020,7 +1020,21 @@ const createSourceFolderNode = (
         const source = (table as DatabaseSchemaDataWarehouseTable).source
         if (source?.id && !seenSourceIds.has(source.id)) {
             seenSourceIds.add(source.id)
-            sources.push({ id: source.id, label: source.prefix?.trim() || source.source_type })
+            // Prefixes are stored with a trailing underscore (e.g. "stripe_"); strip it for display.
+            const label = source.prefix?.trim().replace(/_+$/, '') || source.source_type
+            sources.push({ id: source.id, label })
+        }
+    })
+    // Number labels that collide (e.g. two prefixless Postgres connections both fall back to "Postgres")
+    // so each source stays distinguishable in the menu.
+    const labelCounts = new Map<string, number>()
+    sources.forEach((s) => labelCounts.set(s.label, (labelCounts.get(s.label) ?? 0) + 1))
+    const labelSeen = new Map<string, number>()
+    sources.forEach((s) => {
+        if ((labelCounts.get(s.label) ?? 0) > 1) {
+            const n = (labelSeen.get(s.label) ?? 0) + 1
+            labelSeen.set(s.label, n)
+            s.label = `${s.label} ${n}`
         }
     })
 
