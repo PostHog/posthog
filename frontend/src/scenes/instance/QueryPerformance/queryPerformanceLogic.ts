@@ -39,6 +39,10 @@ export interface SlowestQuery {
     experiment_funnel_order_type: string | null
     experiment_id: number | null
     total_duration_ms: number
+    read_bytes: number
+    read_rows: number
+    exception_code: number
+    memory_usage: number
     sub_queries: SlowestQuery[]
 }
 

@@ -552,7 +552,9 @@ class KernelRuntimeService:
         else:
             try:
                 placeholders = self._parse_hogql_placeholders_payload(placeholders_payload)
-                response = execute_hogql_query(query=query, team=team, placeholders=placeholders)
+                response = execute_hogql_query(
+                    query=query, team=team, placeholders=placeholders, user=handle.runtime.user
+                )
                 if hasattr(response, "model_dump"):
                     response_payload = response.model_dump(exclude_none=True)
                 else:

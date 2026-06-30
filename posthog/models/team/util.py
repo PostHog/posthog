@@ -48,7 +48,7 @@ def _delete_misc_small_tables_for_teams(team_ids: list[int]) -> None:
     """
     from posthog.models.file_system.file_system_view_log import FileSystemViewLog
 
-    from products.data_modeling.backend.models import Edge, Node
+    from products.data_modeling.backend.facade.models import Edge, Node
     from products.early_access_features.backend.models import EarlyAccessFeature
     from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
     from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
@@ -287,7 +287,7 @@ def delete_data_modeling_schedules(team_ids: list[int]) -> None:
 
     from posthog.temporal.common.schedule import delete_schedule
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
     saved_queries = list(
         DataWarehouseSavedQuery.objects.filter(

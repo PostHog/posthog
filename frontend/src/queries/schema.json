@@ -20621,13 +20621,6 @@
         "ExperimentParameters": {
             "additionalProperties": false,
             "properties": {
-                "excluded_variants": {
-                    "description": "Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis.",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
                 "feature_flag_variants": {
                     "description": "Experiment variants. If specified, must include a variant with key 'control' (lowercase). Defaults to a 50/50 control/test split when omitted. Minimum 2, maximum 20.",
                     "items": {
@@ -39509,6 +39502,18 @@
                         {
                             "const": "comment_text",
                             "type": "string"
+                        },
+                        {
+                            "const": "click_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "keypress_count",
+                            "type": "string"
+                        },
+                        {
+                            "const": "mouse_activity_count",
+                            "type": "string"
                         }
                     ]
                 },
@@ -44604,6 +44609,7 @@
                 "cohorts",
                 "cohorts_with_all",
                 "data_warehouse",
+                "data_warehouse_source_tables",
                 "data_warehouse_properties",
                 "data_warehouse_person_properties",
                 "elements",

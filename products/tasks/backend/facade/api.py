@@ -148,7 +148,6 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "read_task_run_session_log_content",
     "redeem_code_invite",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -1446,8 +1445,9 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
-) -> dict[str, str | int]:
-    return {
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
         "id": artifact_id,
         "name": name,
         "type": artifact_type,
@@ -1457,6 +1457,9 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
 
 
 def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storage_path: str) -> dict | None:
@@ -1507,6 +1510,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                metadata=artifact.get("metadata"),
             )
         )
         logger.info(
@@ -1563,19 +1567,20 @@ def prepare_task_run_artifact_uploads(
         if not presigned_post:
             return None, False
 
-        prepared.append(
-            {
-                "id": artifact_id,
-                "name": safe_name,
-                "type": artifact["type"],
-                "source": artifact.get("source") or "",
-                "size": artifact["size"],
-                "content_type": content_type,
-                "storage_path": storage_path,
-                "expires_in": upload_expiration_seconds,
-                "presigned_post": presigned_post,
-            }
-        )
+        prepared_artifact = {
+            "id": artifact_id,
+            "name": safe_name,
+            "type": artifact["type"],
+            "source": artifact.get("source") or "",
+            "size": artifact["size"],
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "expires_in": upload_expiration_seconds,
+            "presigned_post": presigned_post,
+        }
+        if metadata := artifact.get("metadata"):
+            prepared_artifact["metadata"] = metadata
+        prepared.append(prepared_artifact)
     return prepared, True
 
 
@@ -1641,6 +1646,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
         finalized_entries.append(entry)
@@ -1726,16 +1732,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
-
-
-def read_task_run_session_log_content(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Raw session-log JSONL for a run. ``None`` if the run isn't found."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return object_storage.read(run.log_url, missing_ok=True) or ""
 
 
 def create_task_run_connection_token(
@@ -2821,6 +2817,7 @@ def prepare_task_staged_artifacts(
                 storage_path=storage_path,
                 expires_in=upload_expiration_seconds,
                 presigned_post=presigned_post,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -2888,6 +2885,7 @@ def finalize_task_staged_artifacts(
                 size=content_length,
                 content_type=content_type,
                 storage_path=storage_path,
+                metadata=artifact.get("metadata"),
             )
         )
 

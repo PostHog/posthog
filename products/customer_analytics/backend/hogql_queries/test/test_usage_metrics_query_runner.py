@@ -27,7 +27,7 @@ from posthog.models.group_usage_metric import GroupUsageMetric
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.customer_analytics.backend.hogql_queries.usage_metrics_query_runner import UsageMetricsQueryRunner
-from products.data_warehouse.backend.test.utils import create_data_warehouse_table_from_csv
+from products.warehouse_sources.backend.test.utils import create_data_warehouse_table_from_csv
 
 DW_TEST_BUCKET = "test_storage_bucket-customer_analytics.usage_metrics"
 DW_DATA_PATH = Path(__file__).parent / "data" / "usage_metrics_dw_data.csv"
