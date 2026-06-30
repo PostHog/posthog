@@ -299,10 +299,10 @@ Direct calls (read-only):
   before authoring so you edit instead of duplicating (`ordering=-updated_at`).
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
-- `signals-scout-members-list` — resolve a service's owner to a bare GitHub login for
+- `signals-scout-members-list` — resolve a service's owner to a `{"github_login": "..."}` entry for
   `suggested_reviewers` (each row carries a resolved `github_login`, null when unlinked → try the next
-  owner). The org-scoped `org-members-list` / `org-member-get-github-login` tools are not available in
-  a scout run.
+  owner; entries are objects, never bare strings). The org-scoped `org-members-list` /
+  `org-member-get-github-login` tools are not available in a scout run.
 - `query-error-tracking-issues-list` — cross-check whether a log error already has an issue;
   error tracking owns those findings.
 
