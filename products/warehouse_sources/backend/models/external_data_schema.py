@@ -281,6 +281,27 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         return None
 
     @property
+    def partition_mode_override(self) -> PartitionMode | None:
+        # Operator-pinned partition_mode set via the admin "change partition mode" action.
+        # Like `partition_count_override`, it survives `update_sync_type_config_for_reset_pipeline`
+        # (which wipes the auto-detected `partition_mode`) so the operator's choice wins the reset
+        # resync that the mode change triggers, then is consumed by `set_partitioning_enabled`.
+        if self.sync_type_config:
+            return self.sync_type_config.get("partition_mode_override", None)
+
+        return None
+
+    @property
+    def partitioning_keys_override(self) -> list[str] | None:
+        # Operator-pinned partitioning_keys paired with `partition_mode_override` — e.g. the
+        # date/timestamp column to bucket on when switching a table to datetime mode. Same
+        # one-shot, reset-surviving semantics as `partition_mode_override`.
+        if self.sync_type_config:
+            return self.sync_type_config.get("partitioning_keys_override", None)
+
+        return None
+
+    @property
     def partition_mode(self) -> PartitionMode | None:
         if self.sync_type_config:
             return self.sync_type_config.get("partition_mode", None)
@@ -363,6 +384,8 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # repartition action if needed).
         self.sync_type_config.pop("partition_count_override", None)
         self.sync_type_config.pop("partition_size_override", None)
+        self.sync_type_config.pop("partition_mode_override", None)
+        self.sync_type_config.pop("partitioning_keys_override", None)
         self.save()
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
@@ -434,9 +457,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("xmin_num_wraparound", None)
         # We don't reset partition_format
         # We don't reset chunk_size_override
-        # We intentionally don't reset partition_count_override / partition_size_override:
-        # an operator pins those via the admin repartition action precisely so they survive
-        # this reset and win the resync it triggers. They're consumed in set_partitioning_enabled.
+        # We intentionally don't reset partition_count_override / partition_size_override /
+        # partition_mode_override / partitioning_keys_override: an operator pins those via the admin
+        # repartition / change-partition-mode actions precisely so they survive this reset and win
+        # the resync it triggers. They're consumed in set_partitioning_enabled.
 
         self.initial_sync_complete = False
 
@@ -508,7 +532,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     def delete_table(self):
         # s3fs/boto3 at module scope would load at app population — only this method needs them
-        from products.data_warehouse.backend.s3 import get_s3_client  # noqa: PLC0415
+        from products.data_warehouse.backend.facade.api import get_s3_client  # noqa: PLC0415
 
         if self.table is not None:
             try:
@@ -601,7 +625,7 @@ def aget_schema_by_id(schema_id: str, team_id: int) -> ExternalDataSchema | None
 def update_should_sync(schema_id: str, team_id: int, should_sync: bool) -> ExternalDataSchema | None:
     # data_load.service imports temporalio at module scope; this is a models module, so a
     # top-level import would put the Temporal client on the django.setup() path
-    from products.data_warehouse.backend.data_load.service import (  # noqa: PLC0415
+    from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
         external_data_workflow_exists,
         pause_external_data_schedule,
         sync_external_data_job_workflow,

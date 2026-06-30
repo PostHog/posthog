@@ -3,6 +3,8 @@ from types import SimpleNamespace
 import pytest
 from unittest import mock
 
+from django.db import OperationalError
+
 import grpc
 from google.ads.googleads.errors import GoogleAdsException
 from google.ads.googleads.v23.enums import types as ga_enums
@@ -21,12 +23,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
     GoogleAdsColumn,
     GoogleAdsTable,
+    _get_integration,
     _is_invalid_page_token_error,
-    _is_transient_grpc_unavailable,
+    _is_transient_client_init_error,
+    _is_transient_grpc_error,
     _load_client_with_transient_retry,
     _search_as_arrow_tables,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.schemas import RESOURCE_SCHEMAS
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import GoogleAdsSource
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 _CUSTOMER_ID_ERROR = "valid Google Ads customer ID"
 _MANAGER_ID_ERROR = "valid Google Ads manager customer ID"
@@ -252,6 +258,37 @@ class TestGoogleAdsNonRetryableErrors:
         friendly = self.non_retryable["access_not_configured"]
         assert friendly is not None
         assert "admin" in friendly.lower()
+
+
+class TestGoogleAdsLookbackDefault:
+    _SCHEMAS_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.get_schemas"
+
+    def test_incremental_stats_schemas_get_default_lookback_dimensions_do_not(self):
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.source import (
+            GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS,
+        )
+
+        config = GoogleAdsSourceConfig(customer_id="1234567890", google_ads_integration_id=1)
+        # get_schemas() queries the Google Ads API for selectable fields; the static incremental-field
+        # map (real, not mocked) is what marks a table incremental, so stub the network call with one
+        # stats table (has a segments.date filter) and one dimension table (does not).
+        fake_tables = {
+            "campaign_stats": SimpleNamespace(description=None, should_sync_default=True),
+            "campaign": SimpleNamespace(description=None, should_sync_default=True),
+        }
+        with mock.patch(self._SCHEMAS_PATH, return_value=fake_tables):
+            schemas = {s.name: s for s in GoogleAdsSource().get_schemas(config, team_id=1)}
+
+        assert schemas["campaign_stats"].supports_incremental is True
+        assert (
+            schemas["campaign_stats"].default_incremental_lookback_seconds
+            == GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS
+        )
+        assert schemas["campaign"].supports_incremental is False
+        assert schemas["campaign"].default_incremental_lookback_seconds is None
+        # The default must satisfy the 60-day cap the creation/update endpoints enforce, or creation
+        # would reject it.
+        assert 0 < GOOGLE_ADS_STATS_INCREMENTAL_LOOKBACK_SECONDS <= 5_184_000
 
 
 class TestGrpcReceiveLimit:
@@ -482,6 +519,13 @@ class TestSearchPageTokenResumption:
 _CLIENT_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.GoogleAdsClient"
 _SLEEP_PATH = "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.time.sleep"
 
+# The HTML body Google's frontend returns for a transient 502 on the OAuth token endpoint, as it
+# reaches `str()` on the resulting RefreshError. google-auth does not flag this status retryable.
+_BAD_GATEWAY_TOKEN_ENDPOINT_BODY = (
+    "<!DOCTYPE html>\n<html lang=en>\n  <title>Error 502 (Server Error)!!1</title>\n"
+    "  <p>The server encountered a temporary error and could not complete your request."
+)
+
 
 class TestLoadClientTransientRetry:
     def test_retries_transport_error_then_succeeds(self):
@@ -502,6 +546,26 @@ class TestLoadClientTransientRetry:
         assert load.call_count == 3
         # Backoff grows per attempt per `min(2 * attempt, 30)`: 2s after the 1st failure, 4s after the 2nd.
         assert sleep.call_args_list == [mock.call(2), mock.call(4)]
+
+    def test_retries_transient_refresh_error_then_succeeds(self):
+        # A 502 from Google's token endpoint surfaces as a RefreshError (not TransportError) and
+        # google-auth does not flag it retryable, but it's a transient server-side blip — ride it
+        # out in-process rather than failing the whole import activity before a row is fetched.
+        client = object()
+        load = mock.Mock(
+            side_effect=[
+                google_auth_exceptions.RefreshError(_BAD_GATEWAY_TOKEN_ENDPOINT_BODY),
+                client,
+            ]
+        )
+
+        with mock.patch(_CLIENT_PATH) as ga_client, mock.patch(_SLEEP_PATH) as sleep:
+            ga_client.load_from_dict = load
+            result = _load_client_with_transient_retry({"refresh_token": "x"})
+
+        assert result is client
+        assert load.call_count == 2
+        assert sleep.call_args_list == [mock.call(2)]
 
     def test_reraises_after_exhausting_attempts(self):
         load = mock.Mock(side_effect=google_auth_exceptions.TransportError("timed out"))
@@ -536,15 +600,40 @@ class TestLoadClientTransientRetry:
         assert sleep.call_args_list == []
 
 
-class _UnavailableRpcError(grpc.RpcError):
-    """A raw gRPC error whose ``code()`` reports ``UNAVAILABLE`` (502:Bad Gateway shape)."""
+class TestTransientClientInitErrorDetection:
+    @pytest.mark.parametrize(
+        "exc, expected",
+        [
+            (google_auth_exceptions.TransportError("connection reset by peer"), True),
+            # 502 Bad Gateway from the token endpoint: a RefreshError google-auth does not flag
+            # retryable, but a transient server-side blip we ride out via its message signature.
+            (google_auth_exceptions.RefreshError(_BAD_GATEWAY_TOKEN_ENDPOINT_BODY), True),
+            # 500/503/504/408/429 token-endpoint responses arrive as a RefreshError google-auth
+            # already flags retryable.
+            (google_auth_exceptions.RefreshError("server_error", retryable=True), True),
+            # Auth rejections also surface as RefreshError but are not transient — they must not be
+            # ridden out in-process (they route through the non-retryable handling elsewhere).
+            (google_auth_exceptions.RefreshError("invalid_grant: Token has been expired or revoked."), False),
+            (google_auth_exceptions.RefreshError("access_not_configured"), False),
+            (ValueError("boom"), False),
+        ],
+    )
+    def test_is_transient_client_init_error(self, exc, expected):
+        assert _is_transient_client_init_error(exc) is expected
+
+
+class _StatusCodeRpcError(grpc.RpcError):
+    """A raw gRPC error whose ``code()`` reports a given ``StatusCode`` (``_InactiveRpcError`` shape)."""
+
+    def __init__(self, status_code: grpc.StatusCode):
+        self._status_code = status_code
 
     def code(self) -> grpc.StatusCode:
-        return grpc.StatusCode.UNAVAILABLE
+        return self._status_code
 
 
 def _grpc_unavailable_error() -> grpc.RpcError:
-    return _UnavailableRpcError()
+    return _StatusCodeRpcError(grpc.StatusCode.UNAVAILABLE)
 
 
 def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsException:
@@ -554,25 +643,33 @@ def _google_ads_exception_wrapping(grpc_error: grpc.RpcError) -> GoogleAdsExcept
     return GoogleAdsException(error=grpc_error, call=None, failure=None, request_id="req-1")
 
 
-class TestTransientGrpcUnavailableDetection:
+def _grpc_internal_error() -> grpc.RpcError:
+    return _StatusCodeRpcError(grpc.StatusCode.INTERNAL)
+
+
+class TestTransientGrpcErrorDetection:
     @pytest.mark.parametrize(
         "exc, expected",
         [
             (google_api_exceptions.ServiceUnavailable("502:Bad Gateway"), True),
             (_grpc_unavailable_error(), True),
-            # The SDK wraps the transport UNAVAILABLE in a GoogleAdsException when an ads failure
-            # rides along (e.g. a backend DEADLINE_EXCEEDED) — still transient, so we unwrap it.
+            # The SDK wraps the transport status in a GoogleAdsException when an ads failure rides
+            # along (e.g. a backend DEADLINE_EXCEEDED) — still transient, so we unwrap it.
             (_google_ads_exception_wrapping(_grpc_unavailable_error()), True),
-            # A different gapic error must not be treated as transient-unavailable.
+            # gRPC INTERNAL ("Internal error encountered.") is a transient Google-side blip — the
+            # gapic wrapper and the raw _InactiveRpcError must both be ridden out in-process.
+            (google_api_exceptions.InternalServerError("500 Internal error encountered."), True),
+            (_grpc_internal_error(), True),
+            # A different gapic error must not be treated as transient.
             (google_api_exceptions.PermissionDenied("PERMISSION_DENIED"), False),
-            # An ads-API GoogleAdsException carries no UNAVAILABLE gRPC status — it routes through
-            # the existing INVALID_PAGE_TOKEN handling, not the transient retry.
+            # Google Ads API errors carry no transient gRPC status — they route through the existing
+            # INVALID_PAGE_TOKEN / GoogleAdsException handling, not the transient retry.
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), False),
             (ValueError("boom"), False),
         ],
     )
-    def test_is_transient_grpc_unavailable(self, exc, expected):
-        assert _is_transient_grpc_unavailable(exc) is expected
+    def test_is_transient_grpc_error(self, exc, expected):
+        assert _is_transient_grpc_error(exc) is expected
 
 
 class _FlakyService:
@@ -598,9 +695,11 @@ class TestSearchTransientRetry:
             google_api_exceptions.ServiceUnavailable("502:Bad Gateway"),
             _grpc_unavailable_error(),
             _google_ads_exception_wrapping(_grpc_unavailable_error()),
+            google_api_exceptions.InternalServerError("500 Internal error encountered."),
+            _grpc_internal_error(),
         ],
     )
-    def test_rides_out_transient_unavailable(self, error):
+    def test_rides_out_transient_error(self, error):
         service = _FlakyService(_single_page(), error=error, fail_times=2)
         manager = _FakeResumableManager(saved_token=None)
 
@@ -669,3 +768,80 @@ class TestSearchTransientRetry:
         # First call raises and propagates immediately — no retry, no backoff.
         assert service.calls == 1
         assert sleep.call_count == 0
+
+
+_INTEGRATION_GET_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.Integration.objects.get"
+)
+_CLOSE_CONNECTIONS_PATH = (
+    "products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads.close_old_connections"
+)
+
+
+class TestGetIntegrationDbResilience:
+    def test_retries_once_on_dropped_connection_then_succeeds(self):
+        integration = object()
+        get = mock.Mock(side_effect=[OperationalError("server closed the connection unexpectedly"), integration])
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 2
+        # Evicted up front, then again after the failed query marked the connection unusable.
+        assert close.call_count == 2
+
+    def test_reraises_when_retry_also_fails(self):
+        get = mock.Mock(side_effect=OperationalError("server closed the connection unexpectedly"))
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(OperationalError):
+                _get_integration(integration_id=1, team_id=2)
+
+        # One retry only — the second failure propagates so Temporal still retries the activity.
+        assert get.call_count == 2
+
+    def test_missing_integration_is_not_retried(self):
+        get = mock.Mock(side_effect=Integration.DoesNotExist())
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH):
+            with pytest.raises(Integration.DoesNotExist):
+                _get_integration(integration_id=1, team_id=2)
+
+        # A deleted connection row is non-retryable elsewhere — don't mask it as a transient drop.
+        assert get.call_count == 1
+
+    def test_no_retry_on_success(self):
+        integration = object()
+        get = mock.Mock(return_value=integration)
+
+        with mock.patch(_INTEGRATION_GET_PATH, get), mock.patch(_CLOSE_CONNECTIONS_PATH) as close:
+            result = _get_integration(integration_id=1, team_id=2)
+
+        assert result is integration
+        assert get.call_count == 1
+        assert close.call_count == 1
+
+
+class TestOverviewStatsSchemas:
+    # Overview stats tables exist to recover cost that click-type segmentation drops: requesting
+    # segments.click_type makes Google omit cost not yet attributed to a click type, so summed cost
+    # reads low for recent days. Each overview must equal its *_stats counterpart minus that one
+    # segment, while staying incremental on segments.date.
+    @pytest.mark.parametrize(
+        "overview_alias, stats_alias",
+        [
+            ("ad_overview_stats", "ad_stats"),
+            ("ad_group_overview_stats", "ad_group_stats"),
+        ],
+    )
+    def test_overview_equals_stats_table_without_click_type(self, overview_alias, stats_alias):
+        overview = RESOURCE_SCHEMAS[overview_alias]
+        stats = RESOURCE_SCHEMAS[stats_alias]
+
+        assert "segments.click_type" not in overview["field_names"]
+        assert "segments.click_type" not in overview["primary_key"]
+        assert overview["resource_name"] == stats["resource_name"]
+        assert overview["field_names"] == [f for f in stats["field_names"] if f != "segments.click_type"]
+        assert overview["primary_key"] == [k for k in stats["primary_key"] if k != "segments.click_type"]
+        assert overview["filter_field_names"] == [("segments.date", IncrementalFieldType.Date)]

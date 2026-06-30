@@ -17,10 +17,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.models import Team
 from posthog.models.scoping import team_scope
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
 
 
 def _field(name: str) -> ast.Field:

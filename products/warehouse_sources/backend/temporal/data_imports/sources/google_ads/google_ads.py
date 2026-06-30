@@ -4,7 +4,7 @@ import datetime as dt
 import collections.abc
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import OperationalError, close_old_connections
 
 import grpc
 import pyarrow as pa
@@ -72,13 +72,35 @@ def _ensure_grpc_receive_limit() -> None:
 
 
 # ``GoogleAdsClient`` performs an OAuth token refresh at construction, reaching Google's token
-# endpoint over the network. A transient hiccup on that hop (e.g. a proxy connection timeout)
-# surfaces as ``google.auth.exceptions.TransportError`` — the stored credential is fine, only the
-# request failed, so a short backoff usually clears it. Riding it out here avoids failing (and
-# re-capturing) the whole import activity before a single row is fetched. Auth rejections surface
-# as ``RefreshError`` (handled as non-retryable elsewhere), not ``TransportError``, so retrying
-# here never masks bad credentials.
+# endpoint over the network. Two failure shapes on that hop are transient and usually clear on a
+# short backoff: a connection-level hiccup (e.g. a proxy timeout) surfaces as
+# ``google.auth.exceptions.TransportError``, while a server-side blip surfaces as a ``RefreshError``
+# carrying a 5xx token-endpoint response. Riding both out here avoids failing (and re-capturing) the
+# whole import activity before a single row is fetched. Auth rejections (revoked/expired refresh
+# token, restricted API access) also surface as ``RefreshError`` but carry an OAuth error body, not
+# a 5xx — they are not retried here and still hit the non-retryable handling elsewhere.
 _MAX_CLIENT_INIT_ATTEMPTS = 4
+
+# google-auth flags token-endpoint responses with status 500/503/504/408/429 as retryable
+# (``RefreshError.retryable``), but its retryable set omits 502 Bad Gateway. Google's frontend
+# returns 502 as a transient HTML "Error 502 (Server Error)" page while a backend is briefly
+# unreachable — as recoverable as the codes it does retry — so we recognise it explicitly.
+_BAD_GATEWAY_REFRESH_ERROR_SIGNATURE = "502 (Server Error)"
+
+
+def _is_transient_client_init_error(exc: BaseException) -> bool:
+    """Return True for a client-construction failure worth riding out in-process.
+
+    Covers a connection-level ``TransportError`` and a ``RefreshError`` carrying a transient 5xx
+    token-endpoint response. An auth-rejection ``RefreshError`` (revoked/expired credential,
+    restricted API access) is not transient — it carries ``retryable=False`` and an OAuth error
+    body, never a 5xx — so it returns False and the caller's non-retryable handling still applies.
+    """
+    if isinstance(exc, google_auth_exceptions.TransportError):
+        return True
+    if isinstance(exc, google_auth_exceptions.RefreshError):
+        return getattr(exc, "retryable", False) or _BAD_GATEWAY_REFRESH_ERROR_SIGNATURE in str(exc)
+    return False
 
 
 def _load_client_with_transient_retry(
@@ -86,20 +108,40 @@ def _load_client_with_transient_retry(
     *,
     max_attempts: int = _MAX_CLIENT_INIT_ATTEMPTS,
 ) -> GoogleAdsClient:
-    """Build a ``GoogleAdsClient`` from a config dict, retrying a transient transport failure.
+    """Build a ``GoogleAdsClient`` from a config dict, retrying a transient token-refresh failure.
 
-    Only the token-refresh network hop is retried; a ``RefreshError`` (revoked/expired credential)
-    or any other error re-raises immediately so the caller's non-retryable handling still applies.
+    Only transient failures on the token-refresh hop are retried (see
+    ``_is_transient_client_init_error``); any other error — including an auth-rejection
+    ``RefreshError`` — re-raises immediately so the caller's non-retryable handling still applies.
     """
     attempt = 0
     while True:
         try:
             return GoogleAdsClient.load_from_dict(config_dict)
-        except google_auth_exceptions.TransportError:
+        except Exception as e:
             attempt += 1
-            if attempt >= max_attempts:
+            if attempt >= max_attempts or not _is_transient_client_init_error(e):
                 raise
             time.sleep(min(2 * attempt, 30))
+
+
+def _get_integration(integration_id: int, team_id: int) -> Integration:
+    """Fetch the OAuth ``Integration`` row, retrying once if the DB connection was dropped.
+
+    Temporal activities run in a long-lived worker that never goes through Django's request
+    cycle, so a pooled Postgres connection can be closed server-side while it sits idle.
+    ``close_old_connections()`` evicts connections already known to be stale, but one can still
+    die in the window before the query runs and surface as a transient ``OperationalError``
+    ("server closed the connection unexpectedly"). The failed query marks the connection
+    unusable, so a second eviction drops it and the retry runs on a fresh connection. This read
+    is idempotent, so it is safe to repeat. ``Integration.DoesNotExist`` is left to propagate.
+    """
+    close_old_connections()
+    try:
+        return Integration.objects.get(id=integration_id, team_id=team_id)
+    except OperationalError:
+        close_old_connections()
+        return Integration.objects.get(id=integration_id, team_id=team_id)
 
 
 def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> GoogleAdsClient:
@@ -107,12 +149,7 @@ def google_ads_client(config: GoogleAdsSourceConfigUnion, team_id: int) -> Googl
     _ensure_grpc_receive_limit()
 
     if isinstance(config, GoogleAdsSourceConfig):
-        # Temporal activities run in a thread pool where Django DB connections can go
-        # stale between uses (Postgres closes the connection server-side). This
-        # function is invoked lazily from inside `get_rows` after the schema fetch,
-        # so the connection has often been idle for minutes by the time we reach it.
-        close_old_connections()
-        integration = Integration.objects.get(id=config.google_ads_integration_id, team_id=team_id)
+        integration = _get_integration(config.google_ads_integration_id, team_id)
 
         login_customer_id: str | None = None
         if config.is_mcc_account and config.is_mcc_account.enabled:
@@ -478,29 +515,32 @@ def google_ads_source(
     )
 
 
-# A transient gRPC ``UNAVAILABLE`` (e.g. Google's frontend returning ``502:Bad Gateway``) is the
-# canonical retry-me status: the request never reached a healthy backend, so a fresh attempt after
-# a short backoff usually succeeds. Riding the blip out in-process keeps the whole import activity
-# from failing — which would otherwise re-fetch schemas, rebuild the gRPC client, and restart
-# pagination from the last checkpoint — and avoids the captured error-tracking noise.
+# Google flags both ``UNAVAILABLE`` (e.g. its frontend returning ``502:Bad Gateway`` — the request
+# never reached a healthy backend) and ``INTERNAL`` ("Internal error encountered." from the
+# backend) as transient, retry-with-backoff statuses: a fresh attempt after a short backoff usually
+# succeeds. Riding the blip out in-process keeps the whole import activity from failing — which
+# would otherwise re-fetch schemas, rebuild the gRPC client, and restart pagination from the last
+# checkpoint — and avoids the captured error-tracking noise.
 _MAX_TRANSIENT_SEARCH_ATTEMPTS = 4
 
+_TRANSIENT_GRPC_STATUS_CODES = frozenset({grpc.StatusCode.UNAVAILABLE, grpc.StatusCode.INTERNAL})
 
-def _is_transient_grpc_unavailable(exc: BaseException) -> bool:
-    """Return True for a transient gRPC ``UNAVAILABLE`` failure.
 
-    The gapic transport usually surfaces it as ``google.api_core.exceptions.ServiceUnavailable``,
-    but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns ``StatusCode.UNAVAILABLE``)
-    can also propagate. The Google Ads SDK additionally re-wraps the transport error in a
-    ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata (e.g. a
-    backend ``DEADLINE_EXCEEDED`` returned alongside an ``UNAVAILABLE`` status); the gRPC status
-    then lives on the wrapped ``error``, so we unwrap and inspect it too.
+def _is_transient_grpc_error(exc: BaseException) -> bool:
+    """Return True for a transient gRPC failure Google's guidance says to retry.
+
+    The gapic transport usually surfaces these as ``google.api_core.exceptions.ServiceUnavailable``
+    / ``InternalServerError``, but the raw ``grpc`` ``_InactiveRpcError`` (whose ``code()`` returns
+    the ``StatusCode``) can also propagate. The Google Ads SDK additionally re-wraps the transport
+    error in a ``GoogleAdsException`` when it can pull an ads ``failure`` from the trailing metadata
+    (e.g. a backend ``DEADLINE_EXCEEDED`` returned alongside the status); the gRPC status then lives
+    on the wrapped ``error``, so we unwrap and inspect it too.
     """
-    if isinstance(exc, google_api_exceptions.ServiceUnavailable):
+    if isinstance(exc, google_api_exceptions.ServiceUnavailable | google_api_exceptions.InternalServerError):
         return True
     candidate: typing.Any = exc.error if isinstance(exc, GoogleAdsException) else exc
     code = getattr(candidate, "code", None)
-    return callable(code) and code() == grpc.StatusCode.UNAVAILABLE
+    return callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES
 
 
 def _search_with_transient_retry(
@@ -509,12 +549,12 @@ def _search_with_transient_retry(
     *,
     max_attempts: int = _MAX_TRANSIENT_SEARCH_ATTEMPTS,
 ) -> pagers.SearchPager:
-    """Call ``GoogleAdsService.search``, retrying a transient gRPC ``UNAVAILABLE`` with backoff.
+    """Call ``GoogleAdsService.search``, retrying a transient gRPC failure with backoff.
 
-    Only retries before any page is yielded or checkpointed, so there is no partial state to
-    reconcile. The transient ``UNAVAILABLE`` may itself arrive wrapped in a ``GoogleAdsException``
-    (see ``_is_transient_grpc_unavailable``). Non-transient errors re-raise immediately so the
-    caller's ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
+    Each retry re-requests the same ``page_token``, so there is no partial state to reconcile. The
+    transient status may itself arrive wrapped in a ``GoogleAdsException`` (see
+    ``_is_transient_grpc_error``). Non-transient errors re-raise immediately so the caller's
+    ``INVALID_PAGE_TOKEN`` handling and Temporal's retry policy still apply.
     """
     attempt = 0
     while True:
@@ -522,7 +562,7 @@ def _search_with_transient_retry(
             return service.search(request=request)
         except Exception as e:
             attempt += 1
-            if attempt >= max_attempts or not _is_transient_grpc_unavailable(e):
+            if attempt >= max_attempts or not _is_transient_grpc_error(e):
                 raise
             time.sleep(min(2 * attempt, 30))
 

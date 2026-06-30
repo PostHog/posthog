@@ -1,16 +1,16 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionFeatureBlock,
     SessionFeatureStore,
 } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -78,7 +78,7 @@ export class SessionBatchRecorder {
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
-        private readonly metadataStore: SessionMetadataStore,
+        private readonly metadataStore: SessionMetadataSink,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly featureStore: SessionFeatureStore,
         private readonly sessionTracker: SessionTracker,

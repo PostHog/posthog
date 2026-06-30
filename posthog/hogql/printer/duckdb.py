@@ -41,6 +41,7 @@ class DuckDBPrinter(PostgresPrinter):
             for k, v in parent_handlers.items()
             if k not in DUCKDB_FUNCTION_RENAMES_LOWER
         }
+        self._jsonpath_placeholders: dict[str, str] = {}
 
     def _print_identifier(self, name: str) -> str:
         # DuckDB has no practical identifier length limit, so skip the Postgres
@@ -70,7 +71,13 @@ class DuckDBPrinter(PostgresPrinter):
             return f'."{escaped}"'
 
         path = "$" + "".join(member(k) for k in chain)
-        return [self.context.add_value(path)]
+        # DuckDB rejects `GROUP BY <expr>` when the SELECT and GROUP BY bind the same path to
+        # different placeholders, so reuse one placeholder per distinct path within a query.
+        placeholder = self._jsonpath_placeholders.get(path)
+        if placeholder is None:
+            placeholder = self.context.add_value(path)
+            self._jsonpath_placeholders[path] = placeholder
+        return [placeholder]
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if not unsafe_args:

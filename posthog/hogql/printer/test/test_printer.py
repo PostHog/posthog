@@ -63,8 +63,7 @@ from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.property_definition import PropertyType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 from ee.clickhouse.materialized_columns.columns import (
     get_bloom_filter_index_name,
@@ -167,6 +166,40 @@ class TestPrinter(BaseTest):
             settings=settings,
         )
         return printed
+
+    @parameterized.expand([(12,), (84,)])
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_applied(self, months: int):
+        self.team.event_retention_months = months
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql = self._select("select count() from events", context=context)
+        assert f"toIntervalMonth({months})" in sql
+        assert "greater(events.timestamp, minus(now" in sql
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
+    def test_events_retention_floor_not_applied_when_disabled(self):
+        self.team.event_retention_months = 12
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql = self._select("select count() from events", context=context)
+        assert "toIntervalMonth" not in sql
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_only_on_events_table(self):
+        # The floor is keyed to the events table only — a persons query must not get an events.timestamp floor.
+        self.team.event_retention_months = 12
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        sql = self._select("select count() from persons", context=context)
+        assert "greater(events.timestamp, minus(now" not in sql
+        assert "toIntervalMonth(12)" not in sql
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_loads_team_when_not_in_context(self):
+        # Prod path: the context carries only team_id (see query.py), so the window is loaded from the DB by id.
+        self.team.event_retention_months = 24
+        self.team.save()
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        sql = self._select("select count() from events", context=context)
+        assert "toIntervalMonth(24)" in sql
 
     def test_to_printed_hogql(self):
         expr = parse_select("select 1 + 2, 3 from events")
@@ -462,6 +495,11 @@ class TestPrinter(BaseTest):
         self.assertEqual(self._expr("1.0 % 2.66"), "modulo(1.0, 2.66)")
         self.assertEqual(self._expr("'string'"), "%(hogql_val_0)s")
 
+    def test_case_insensitive_function_name(self):
+        # rand is registered case-insensitively, so uppercase RAND() resolves to rand()
+        self.assertEqual(self._expr("rand()"), "rand()")
+        self.assertEqual(self._expr("RAND()"), "rand()")
+
     def test_arrays(self):
         self.assertEqual(self._expr("[]"), "[]")
         self.assertEqual(self._expr("[1,2]"), "[1, 2]")
@@ -605,7 +643,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser with a \\` tick`",
+            "properties.`$browser with a `` tick`",
         )
         self.assertEqual(
             self._expr(
@@ -613,7 +651,7 @@ class TestPrinter(BaseTest):
                 HogQLContext(team_id=self.team.pk),
                 "hogql",
             ),
-            "properties.`$browser \\\\with a \\n\\` tick`",
+            "properties.`$browser \\\\with a \\n`` tick`",
         )
         # "dot NUMBER" means "tuple access" in clickhouse. To access strings properties, wrap them in `backquotes`
         self.assertEqual(
@@ -6882,6 +6920,20 @@ class TestDuckDBPrinter(BaseTest):
         context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
         self._expr("properties['a\"b']", context=context)
         self.assertEqual(list(context.values.values()), ['$."a\\"b"'])
+
+    def test_repeated_property_access_reuses_one_placeholder(self):
+        # DuckDB rejects `GROUP BY <expr>` when the same JSON path is bound to a different placeholder
+        # in the SELECT than in the GROUP BY — it can't prove the two parameterized expressions are
+        # equal. Repeated identical reads must collapse to a single bound value so the printed
+        # expressions match textually.
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        printed = self._select(
+            "SELECT properties.$ai_session_id AS s, count() AS n FROM events GROUP BY properties.$ai_session_id",
+            context=context,
+        )
+        self.assertEqual(list(context.values.values()).count('$."$ai_session_id"'), 1)
+        # the SELECT and GROUP BY reference the very same placeholder token
+        self.assertEqual(printed.count("(events.properties) ->> %(hogql_val_0)s"), 2)
 
 
 class TestMySQLPrinter(BaseTest):

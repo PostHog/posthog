@@ -1,5 +1,6 @@
+import { parseJSON } from '~/common/utils/json-parse'
+
 import { Team } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import {
     SELF_LOOP_DEPTH_PROPERTY,
     extractRequestApiKey,

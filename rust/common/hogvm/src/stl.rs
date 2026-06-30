@@ -1,7 +1,9 @@
 use core::str;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use chrono::{DateTime, Datelike, LocalResult, NaiveDate, NaiveDateTime, TimeZone};
+use once_cell::sync::Lazy;
 use rand::Rng;
 use serde_json::{json, Value as JsonValue};
 
@@ -20,16 +22,23 @@ pub const TO_STRING_RECURSION_LIMIT: usize = 32;
 
 // A "native function" is a function that can be called from within the VM. It takes a list
 // of arguments, and returns either a value, or null. It's pure (cannot modify the VM state).
-pub type NativeFunction = Box<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError>>;
+// `Arc` (not `Box`) so the static registry below can be cloned cheaply per execution context.
+pub type NativeFunction =
+    Arc<dyn Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + Send + Sync>;
+
+// The native and hog STL registries are process-constant: build them once and hand out cheap clones
+// instead of reconstructing (and, for the hog STL, re-parsing its bytecode) on every context.
+static STL_NATIVE_FNS: Lazy<HashMap<String, NativeFunction>> =
+    Lazy::new(|| stl().into_iter().collect());
+static HOG_STL_MODULES: Lazy<HashMap<String, Module>> =
+    Lazy::new(|| HashMap::from([("stl".to_string(), hog_stl())]));
 
 pub fn stl_map() -> HashMap<String, NativeFunction> {
-    stl().into_iter().collect()
+    STL_NATIVE_FNS.clone()
 }
 
 pub fn hog_stl_map() -> HashMap<String, Module> {
-    let mut res = HashMap::new();
-    res.insert("stl".to_string(), hog_stl());
-    res
+    HOG_STL_MODULES.clone()
 }
 
 // NOTE - if you make changes to this, be sure to re-run `bin/dump_hogvmrs_stl`
@@ -187,22 +196,8 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 match array {
                     HogLiteral::Array(arr) => {
-                        let (vals, errs): (Vec<_>, Vec<_>) = arr
-                            .iter()
-                            .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
-                            .partition(Result::is_ok);
-                        if errs.is_empty() {
-                            let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                            vals.sort_unstable_by(|a, b| a.compare(b));
-                            Ok(
-                                HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect())
-                                    .into(),
-                            )
-                        } else {
-                            Err(VmError::NativeCallFailed(
-                                "arraySort() only supports arrays of numbers".to_string(),
-                            ))
-                        }
+                        let nums = collect_sorted_nums(&vm.heap, arr, "arraySort")?;
+                        Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
                     _ => Err(VmError::NativeCallFailed(
                         "arraySort() only supports arrays".to_string(),
@@ -234,23 +229,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let array = args[0].deref(&vm.heap)?;
                 match array {
                     HogLiteral::Array(arr) => {
-                        let (vals, errs): (Vec<_>, Vec<_>) = arr
-                            .iter()
-                            .map(|v| v.deref(&vm.heap).and_then(|v| v.try_as::<Num>()).cloned())
-                            .partition(Result::is_ok);
-                        if errs.is_empty() {
-                            let mut vals = vals.into_iter().map(|v| v.unwrap()).collect::<Vec<_>>();
-                            vals.sort_unstable_by(|a, b| a.compare(b));
-                            vals.reverse();
-                            Ok(
-                                HogLiteral::Array(vals.into_iter().map(|v| v.into()).collect())
-                                    .into(),
-                            )
-                        } else {
-                            Err(VmError::NativeCallFailed(
-                                "arrayReverseSort() only supports arrays of numbers".to_string(),
-                            ))
-                        }
+                        let mut nums = collect_sorted_nums(&vm.heap, arr, "arrayReverseSort")?;
+                        nums.reverse();
+                        Ok(HogLiteral::Array(nums.into_iter().map(|n| n.into()).collect()).into())
                     }
                     _ => Err(VmError::NativeCallFailed(
                         "arrayReverseSort() only supports arrays".to_string(),
@@ -372,7 +353,9 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 let Some(res) = res else {
                     return Ok(HogLiteral::Null.into());
                 };
-                construct_free_standing(res, 0)
+                // `res` borrows into the local `json`; clone the extracted subtree for the owned
+                // value `construct_free_standing` needs.
+                construct_free_standing(res.clone(), 0)
             })),
         ),
         // Wrapped in `err_to_null` so an unparseable input becomes `Null`, letting a leaf's
@@ -590,6 +573,21 @@ fn datetime_to_seconds<Tz: TimeZone>(dt: DateTime<Tz>) -> f64 {
     dt.timestamp() as f64 + f64::from(dt.timestamp_subsec_nanos()) / 1_000_000_000.0
 }
 
+// Extract every element as a Num and return them sorted ascending. Single allocation + early error,
+// rather than partitioning into (oks, errs) Vecs and unwrapping — the old path allocated several
+// intermediate Vecs per call, which showed up under profiling for sort-heavy workloads.
+fn collect_sorted_nums(heap: &VmHeap, arr: &[HogValue], name: &str) -> Result<Vec<Num>, VmError> {
+    let mut nums = Vec::with_capacity(arr.len());
+    for v in arr {
+        let n = v.deref(heap)?.try_as::<Num>().map_err(|_| {
+            VmError::NativeCallFailed(format!("{name}() only supports arrays of numbers"))
+        })?;
+        nums.push(n.clone());
+    }
+    nums.sort_unstable_by(|a, b| a.compare(b));
+    Ok(nums)
+}
+
 fn assert(test: bool, msg: impl AsRef<str>) -> Result<(), VmError> {
     if test {
         Ok(())
@@ -617,7 +615,7 @@ fn err_to_null(
 /// Helper to construct a HogVM native function from a closure.
 pub fn native_func<F>(func: F) -> NativeFunction
 where
-    F: Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + 'static,
+    F: Fn(&HogVM, Vec<HogValue>) -> Result<HogValue, VmError> + Send + Sync + 'static,
 {
-    Box::new(func)
+    Arc::new(func)
 }

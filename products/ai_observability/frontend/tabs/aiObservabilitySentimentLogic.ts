@@ -5,32 +5,21 @@ import posthog from 'posthog-js'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
-import { getCurrentTeamId } from '~/lib/utils/getAppContext'
 import { groupsModel } from '~/models/groupsModel'
 
 import { aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
-import { llmAnalyticsSentimentGenerationsCreate as aiObservabilitySentimentGenerationsCreate } from '../generated/api'
-import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
-import type { GenerationSentiment, MessageSentiment } from '../llmSentimentLazyLoaderLogic'
+import { sentimentEvaluationAvailabilityLogic } from '../sentimentEvaluationAvailabilityLogic'
+import { fetchSentimentGenerationsPage, GENERATIONS_PAGE_SIZE, type SentimentGeneration } from '../sentimentQueries'
+import type { MessageSentiment } from '../sentimentResults'
 import { extractContentText } from '../sentimentUtils'
 import type { aiObservabilitySentimentLogicType } from './aiObservabilitySentimentLogicType'
 
+export type { SentimentGeneration } from '../sentimentQueries'
+
 export type SentimentCategory = 'positive' | 'negative' | 'neutral'
-export type SentimentFeedbackLabel = SentimentCategory
 
 /** @deprecated Use SentimentCategory with activeFilters set instead */
 export type SentimentFilterLabel = SentimentCategory | 'both'
-
-export interface SentimentGeneration {
-    uuid: string
-    traceId: string
-    aiInput: unknown
-    model: string | null
-    distinctId: string
-    timestamp: string
-    /** Earliest event in the trace — used for trace deep-links (matches trace createdAt) */
-    createdAt: string
-}
 
 /** A generation paired with the index of the best matching message for display */
 export interface SentimentCard {
@@ -50,7 +39,6 @@ export interface GroupedSentimentCard {
 
 export type AIObservabilitySentimentLogicProps = Record<string, never>
 
-const GENERATIONS_PAGE_SIZE = 200
 /** Stop auto-loading once we have at least this many visible cards */
 const MIN_VISIBLE_CARDS = 50
 /** Cap how many extra pages we fetch automatically to avoid runaway API calls */
@@ -154,44 +142,10 @@ function captureEngagementEvents(
     }
 }
 
-interface GenerationsQueryValues {
-    dateFilter: { dateFrom: string | null; dateTo: string | null }
-    shouldFilterTestAccounts: boolean
-    propertyFilters: unknown[]
-}
-
 // Tracks the raw (pre-dedup) count from the last loadMoreGenerations fetch,
 // so the listener can determine hasMore accurately despite deduplication.
 let lastRawFetchCount = 0
-
-async function fetchGenerations(values: GenerationsQueryValues, cursor: string | null): Promise<SentimentGeneration[]> {
-    // Routed through `AIObservabilitySentimentViewSet.generations`, which wraps
-    // `query_ai_events` for consistent `ai_query_source` attribution and the
-    // retention-window fallback. Response shape is tuple-positional ([uuid, trace_id, ai_input,
-    // model, distinct_id, timestamp, created_at]) — the generated wrapper
-    // types `results` as `unknown[][]` so the position casts here are
-    // unavoidable until the response serializer declares per-element types.
-    const response = await aiObservabilitySentimentGenerationsCreate(String(getCurrentTeamId()), {
-        filters: {
-            dateRange: {
-                date_from: values.dateFilter.dateFrom || null,
-                date_to: cursor || values.dateFilter.dateTo || null,
-            },
-            filterTestAccounts: values.shouldFilterTestAccounts,
-            properties: values.propertyFilters,
-        },
-    })
-
-    return (response.results || []).map((row: unknown[]) => ({
-        uuid: row[0] as string,
-        traceId: row[1] as string,
-        aiInput: row[2],
-        model: row[3] as string | null,
-        distinctId: row[4] as string,
-        timestamp: row[5] as string,
-        createdAt: row[6] as string,
-    }))
-}
+let nextGenerationsOffset = 0
 
 export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicType>([
     path(['products', 'ai_observability', 'frontend', 'tabs', 'aiObservabilitySentimentLogic']),
@@ -202,10 +156,9 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters', 'activeTab'],
             groupsModel,
             ['groupsTaxonomicTypes'],
-            llmGenerationSentimentLazyLoaderLogic,
-            ['sentimentByGenerationId'],
+            sentimentEvaluationAvailabilityLogic,
+            ['hasLoadedSentimentEvaluations', 'hasSentimentEvaluations', 'sentimentEvaluationsLoading'],
         ],
-        actions: [llmGenerationSentimentLazyLoaderLogic, ['ensureGenerationSentimentLoaded']],
     })),
 
     actions({
@@ -218,11 +171,6 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
         loadMoreGenerations: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
         trackTraceClicked: (card: SentimentCard) => ({ card }),
-        submitSentimentFeedback: (cardKey: string, feedbackLabel: SentimentFeedbackLabel, card: SentimentCard) => ({
-            cardKey,
-            feedbackLabel,
-            card,
-        }),
     }),
 
     reducers({
@@ -277,16 +225,6 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 loadGenerations: () => true,
             },
         ],
-        feedbackByCardKey: [
-            {} as Record<string, SentimentFeedbackLabel>,
-            {
-                submitSentimentFeedback: (state, { cardKey, feedbackLabel }) => ({
-                    ...state,
-                    [cardKey]: feedbackLabel,
-                }),
-                loadGenerations: () => ({}),
-            },
-        ],
         autoLoadRounds: [
             0 as number,
             {
@@ -315,16 +253,18 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             [] as SentimentGeneration[],
             {
                 loadGenerations: async () => {
-                    return await fetchGenerations(values, null)
+                    const page = await fetchSentimentGenerationsPage(values, 0)
+                    lastRawFetchCount = page.rawCount
+                    nextGenerationsOffset = page.rawCount
+                    return page.generations
                 },
                 loadMoreGenerations: async () => {
                     const existing = values.generations
-                    const cursor = existing.length > 0 ? existing[existing.length - 1].timestamp : null
-                    const newGenerations = await fetchGenerations(values, cursor)
-                    lastRawFetchCount = newGenerations.length
-                    // Dedupe by traceId in case of timestamp boundary overlap
-                    const existingTraceIds = new Set(existing.map((g) => g.traceId))
-                    const unique = newGenerations.filter((g) => !existingTraceIds.has(g.traceId))
+                    const page = await fetchSentimentGenerationsPage(values, nextGenerationsOffset)
+                    lastRawFetchCount = page.rawCount
+                    nextGenerationsOffset += page.rawCount
+                    const existingGenerationIds = new Set(existing.map((g) => g.uuid))
+                    const unique = page.generations.filter((g) => !existingGenerationIds.has(g.uuid))
                     return [...existing, ...unique]
                 },
             },
@@ -343,16 +283,15 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             ],
         ],
         sentimentCards: [
-            (s) => [s.generations, s.sentimentByGenerationId, s.activeFilters, s.intensityThreshold],
+            (s) => [s.generations, s.activeFilters, s.intensityThreshold],
             (
                 generations: SentimentGeneration[],
-                sentimentByGenerationId: Record<string, GenerationSentiment | null>,
                 activeFilters: Set<SentimentCategory>,
                 intensityThreshold: number
             ): SentimentCard[] => {
                 const cards: SentimentCard[] = []
                 for (const gen of generations) {
-                    const sentimentData = sentimentByGenerationId[gen.uuid]
+                    const sentimentData = gen.sentiment
                     if (!sentimentData?.messages) {
                         continue
                     }
@@ -384,15 +323,11 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
         ],
         /** Counts of displayable cards per sentiment category (best-per-generation, matching sentimentCards logic) */
         sentimentSummary: [
-            (s) => [s.generations, s.sentimentByGenerationId, s.intensityThreshold],
-            (
-                generations: SentimentGeneration[],
-                sentimentByGenerationId: Record<string, GenerationSentiment | null>,
-                intensityThreshold: number
-            ): Record<SentimentCategory, number> => {
+            (s) => [s.generations, s.intensityThreshold],
+            (generations: SentimentGeneration[], intensityThreshold: number): Record<SentimentCategory, number> => {
                 const counts: Record<SentimentCategory, number> = { positive: 0, negative: 0, neutral: 0 }
                 for (const gen of generations) {
-                    const sentimentData = sentimentByGenerationId[gen.uuid]
+                    const sentimentData = gen.sentiment
                     if (!sentimentData?.messages) {
                         continue
                     }
@@ -445,12 +380,35 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                 return result
             },
         ],
-        stillAnalyzing: [
-            (s) => [s.generations, s.sentimentByGenerationId],
+        stillAnalyzing: [(s) => [s.generationsLoading], (generationsLoading: boolean): boolean => generationsLoading],
+        showSentimentEvaluationOnboarding: [
+            (s) => [
+                s.hasLoadedSentimentEvaluations,
+                s.hasSentimentEvaluations,
+                s.hasLoadedOnce,
+                s.generations,
+                s.generationsLoading,
+                s.generationsError,
+                s.hasMore,
+                s.autoLoadRounds,
+            ],
             (
+                hasLoadedSentimentEvaluations: boolean,
+                hasSentimentEvaluations: boolean,
+                hasLoadedOnce: boolean,
                 generations: SentimentGeneration[],
-                sentimentByGenerationId: Record<string, GenerationSentiment | null>
-            ): boolean => generations.some((gen) => sentimentByGenerationId[gen.uuid] === undefined),
+                generationsLoading: boolean,
+                generationsError: boolean,
+                hasMore: boolean,
+                autoLoadRounds: number
+            ): boolean =>
+                hasLoadedSentimentEvaluations &&
+                hasLoadedOnce &&
+                !hasSentimentEvaluations &&
+                !generationsLoading &&
+                !generationsError &&
+                generations.length === 0 &&
+                (!hasMore || autoLoadRounds >= MAX_AUTO_LOAD_ROUNDS),
         ],
     }),
 
@@ -461,21 +419,11 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                     actions.loadGenerations()
                 }
             },
-            loadGenerationsSuccess: ({ generations }) => {
-                actions.setHasMore(generations.length >= GENERATIONS_PAGE_SIZE)
-                for (const gen of generations) {
-                    if (values.sentimentByGenerationId[gen.uuid] === undefined) {
-                        actions.ensureGenerationSentimentLoaded(gen.uuid, values.dateFilter)
-                    }
-                }
+            loadGenerationsSuccess: () => {
+                actions.setHasMore(lastRawFetchCount >= GENERATIONS_PAGE_SIZE)
             },
             loadMoreGenerationsSuccess: () => {
                 actions.setHasMore(lastRawFetchCount >= GENERATIONS_PAGE_SIZE)
-                for (const gen of values.generations) {
-                    if (values.sentimentByGenerationId[gen.uuid] === undefined) {
-                        actions.ensureGenerationSentimentLoaded(gen.uuid, values.dateFilter)
-                    }
-                }
             },
             toggleCardExpanded: ({ cardKey: key }) => {
                 // Only track when expanding (key is now in the set), not collapsing
@@ -502,18 +450,6 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
                     values.activeFilters,
                     values.intensityThreshold
                 )
-            },
-            submitSentimentFeedback: ({ card, feedbackLabel }) => {
-                posthog.capture('llma sentiment feedback', {
-                    generation_uuid: card.generation.uuid,
-                    trace_id: card.generation.traceId,
-                    message_index: card.messageIndex,
-                    message_text_snippet: getSnippetFromCard(card),
-                    model_prediction_label: card.sentiment.label,
-                    model_prediction_score: card.sentiment.score,
-                    user_label: feedbackLabel,
-                    ai_model: card.generation.model,
-                })
             },
         }
     }),
@@ -545,9 +481,6 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
             stillAnalyzing: (stillAnalyzing: boolean) => {
                 if (wasAnalyzing && !stillAnalyzing && values.activeTab === 'sentiment') {
                     const totalGenerations = values.generations.length
-                    const failedCount = values.generations.filter(
-                        (gen) => values.sentimentByGenerationId[gen.uuid] === null
-                    ).length
                     const cardCount = values.sentimentCards.length
                     const visibleCards = values.groupedSentimentCards.length
 
@@ -559,14 +492,8 @@ export const aiObservabilitySentimentLogic = kea<aiObservabilitySentimentLogicTy
 
                     if ((totalGenerations === 0 || cardCount === 0) && !shouldAutoLoad) {
                         posthog.capture('llma sentiment empty state', {
-                            reason:
-                                totalGenerations === 0
-                                    ? 'no_generations'
-                                    : failedCount === totalGenerations
-                                      ? 'all_classification_failed'
-                                      : 'no_matching_cards',
+                            reason: totalGenerations === 0 ? 'no_generations' : 'no_sentiment_results',
                             total_generations: totalGenerations,
-                            failed_classifications: failedCount,
                             sentiment_filter: Array.from(values.activeFilters).sort().join(','),
                             intensity_threshold: values.intensityThreshold,
                         })

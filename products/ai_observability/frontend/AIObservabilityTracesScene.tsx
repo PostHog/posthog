@@ -114,7 +114,7 @@ function TracesOptionsMenu(): JSX.Element | null {
                         onChange={setShowSentimentColumn}
                         label="Show sentiment"
                         fullWidth
-                        tooltip="Show the sentiment column. Turn off to skip computing sentiment for traces in the table."
+                        tooltip="Show the sentiment column from stored sentiment evaluation results."
                         data-attr="llm-traces-show-sentiment-toggle"
                     />
                 </div>

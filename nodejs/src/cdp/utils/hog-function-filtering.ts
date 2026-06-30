@@ -4,12 +4,12 @@ import { Counter, Histogram } from 'prom-client'
 import { ExecResult } from '@posthog/hogvm'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { createTrackedRE2 } from '~/common/utils/tracked-re2'
+import { UUIDT, clickHouseTimestampToISO } from '~/common/utils/utils'
 
 import { RawClickHouseEvent } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { createTrackedRE2 } from '../../utils/tracked-re2'
-import { UUIDT, clickHouseTimestampToISO } from '../../utils/utils'
 import {
     HogFunctionFilterGlobals,
     HogFunctionInvocationGlobals,

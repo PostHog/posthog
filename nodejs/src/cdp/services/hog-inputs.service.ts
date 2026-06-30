@@ -1,7 +1,7 @@
 import { convertHogToJS } from '@posthog/hogvm'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 
 import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
 import { execHog } from '../utils/hog-exec'

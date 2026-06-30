@@ -62,16 +62,22 @@ from products.signals.backend.scout_harness.lazy_seed import (
 )
 from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM
 from products.signals.backend.scout_harness.serializers import (
+    EditReportRequestSerializer,
+    EditReportResponseSerializer,
     EmitFindingRequestSerializer,
     EmitFindingResponseSerializer,
+    EmitReportRequestSerializer,
+    EmitReportResponseSerializer,
     EvidenceEntrySerializer,
     ForgetRequestSerializer,
     ForgetResponseSerializer,
     ProjectProfileQuerySerializer,
     ProjectProfileSerializer,
+    RecentEmissionsQuerySerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
     ScoutMetadataSerializer,
+    ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
     SearchRecentRunsQuerySerializer,
@@ -81,6 +87,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
+from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import (
     resolve_sync_seed_inputs,
     resolve_team_metadata,
@@ -88,6 +95,7 @@ from products.signals.backend.scout_harness.team_limits import (
 )
 from products.signals.backend.scout_harness.tools.emit import EvidenceEntry, InvalidEmitError, emit_finding_sync
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
+from products.signals.backend.scout_harness.tools.report import ReportEvidence, edit_report_sync, emit_report_sync
 from products.signals.backend.scout_harness.tools.runs import get_run, search_recent_runs
 from products.signals.backend.scout_harness.tools.scratchpad import (
     InvalidScratchpadError,
@@ -95,6 +103,7 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     remember,
     search_scratchpad,
 )
+from products.signals.backend.scout_report import InvalidScoutReportError
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
 
@@ -104,6 +113,17 @@ logger = structlog.get_logger(__name__)
 # handful of findings), so it never truncates in practice — it just bounds a pathological
 # retry-heavy run rather than leaving the payload unbounded.
 MAX_EMISSIONS_PER_RUN = 1000
+
+# Upper bound on rows returned by the batched emissions endpoints. A scout emits a handful of findings
+# per run, so even the 120-run findings window stays in the low hundreds; this only bounds a pathological
+# payload, mirroring `MAX_EMISSIONS_PER_RUN` for the single-run path.
+MAX_EMISSIONS_PER_BATCH = 5000
+
+# Page size for the cross-run `recent-emissions` action: the default when the caller omits `limit`,
+# and the hard ceiling it's clamped to. Bounded so an agent asking "what has the fleet surfaced
+# lately?" gets a useful window in one call without an unbounded scan; walk back via `date_to`.
+DEFAULT_RECENT_EMISSIONS_LIMIT = 50
+MAX_RECENT_EMISSIONS_LIMIT = 200
 
 # `SignalScoutRunViewSet.lookup_field` is `run_id`, but the model's PK field is `id`, so
 # drf-spectacular can't derive the path-param type from the model and warns (fatal under
@@ -173,6 +193,53 @@ def _canonical_team_id(view: TeamAndOrgViewSetMixin) -> int:
     free. Mirrors the canonicalization in `TeamAndOrgViewSetMixin.initial`.
     """
     return view.team.parent_team_id or view.team_id
+
+
+def _resolve_emission_report_links(
+    team_id: int, canonical_team: Team, emissions: list[SignalScoutEmission], *, log_context: dict
+) -> list[dict]:
+    """Map each emitted finding to the inbox report (if any) its signal grouped into.
+
+    One ClickHouse round-trip for the whole set: resolve every finding's `source_id` to the
+    `report_id` its signal grouped into (best effort — unmatched/deleted findings drop out). Query
+    with the canonical team so the injected `document_embeddings.team_id` guard matches where signals
+    persist (child-environment requests would otherwise find none). CH/HogQL failures degrade to "no
+    links" rather than 500-ing the whole page.
+
+    Hydrate the resolved report ids into minimal projections. Exclude DELETED and SUPPRESSED reports —
+    ClickHouse soft-delete and Postgres status can drift, and `SignalReportViewSet` hides both from its
+    default retrieve/list flow, so a chip linking to either would deep-link to a page that can't load
+    it. Treat that as "no link" rather than a dangling chip.
+
+    Shared by the per-run and batched report endpoints so the link shape stays identical.
+    """
+    source_ids = [e.source_id for e in emissions if e.source_id]
+    source_id_to_report_id: dict[str, str] = {}
+    if source_ids:
+        try:
+            source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
+        except Exception:
+            logger.exception("scout_emission_reports_lookup_failed", team_id=team_id, **log_context)
+
+    report_ids = {rid for rid in source_id_to_report_id.values() if rid}
+    reports_by_id = {
+        str(row["id"]): row
+        for row in SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
+        .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
+        .values("id", "title", "status")
+    }
+
+    links = []
+    for emission in emissions:
+        report_id = source_id_to_report_id.get(emission.source_id)
+        links.append(
+            {
+                "finding_id": emission.finding_id,
+                "source_id": emission.source_id,
+                "report": reports_by_id.get(report_id) if report_id else None,
+            }
+        )
+    return links
 
 
 class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
@@ -300,6 +367,49 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )[:MAX_EMISSIONS_PER_RUN]
         return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
+    @validated_request(
+        query_serializer=RecentEmissionsQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutEmissionSerializer(many=True),
+                description="Recent emitted findings across every run on the team, newest first.",
+            ),
+        },
+        summary="List recent emitted findings across all runs",
+        description=(
+            "Return the team's recently emitted scout findings across *every* run, newest first — the "
+            "cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so "
+            "you can regroup by run without first listing runs and fanning out one `emissions` call each. "
+            "Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window "
+            "on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to "
+            "walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at "
+            f"{MAX_RECENT_EMISSIONS_LIMIT} rows (default {DEFAULT_RECENT_EMISSIONS_LIMIT})."
+        ),
+        operation_id="signals_scout_runs_recent_emissions",
+    )
+    @action(
+        detail=False,
+        methods=["get"],
+        url_path="emissions/recent",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def recent_emissions(self, request: Request, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        team_id = _canonical_team_id(self)
+        limit = validated.get("limit") or DEFAULT_RECENT_EMISSIONS_LIMIT
+
+        qs = SignalScoutEmission.objects.filter(team_id=team_id)
+        if validated.get("date_from"):
+            qs = qs.filter(emitted_at__gte=validated["date_from"])
+        if validated.get("date_to"):
+            qs = qs.filter(emitted_at__lt=validated["date_to"])
+        if validated.get("skill_name"):
+            qs = qs.filter(scout_run__skill_name=validated["skill_name"])
+
+        emissions = qs.order_by("-emitted_at", "-id")[:limit]
+        return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
+
     @extend_schema(
         parameters=[_RUN_ID_PATH_PARAMETER],
         responses={
@@ -342,42 +452,86 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 :MAX_EMISSIONS_PER_RUN
             ]
         )
-        # One ClickHouse round-trip for the whole run: map every finding's source_id to the
-        # report_id its signal grouped into (best effort — unmatched/deleted findings drop out).
-        # Query with the canonical team so the injected `document_embeddings.team_id` guard
-        # matches where signals persist (child-environment requests would otherwise find none).
-        # CH/HogQL failures degrade to "no links" rather than 500-ing the whole page.
         canonical_team = self.team.parent_team or self.team
-        source_ids = [e.source_id for e in emissions if e.source_id]
-        source_id_to_report_id: dict[str, str] = {}
-        if source_ids:
-            try:
-                source_id_to_report_id = fetch_report_ids_for_source_ids(canonical_team, source_ids)
-            except Exception:
-                logger.exception("scout_emission_reports_lookup_failed", run_id=str(run_id), team_id=team_id)
+        links = _resolve_emission_report_links(team_id, canonical_team, emissions, log_context={"run_id": str(run_id)})
+        return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
-        # Hydrate the resolved report ids into minimal projections. Exclude DELETED and SUPPRESSED
-        # reports — ClickHouse soft-delete and Postgres status can drift, and `SignalReportViewSet`
-        # hides both from its default retrieve/list flow, so a chip linking to either would deep-link
-        # to a page that can't load it. Treat that as "no link" rather than a dangling chip.
-        report_ids = {rid for rid in source_id_to_report_id.values() if rid}
-        reports_by_id = {
-            str(row["id"]): row
-            for row in SignalReport.objects.filter(team_id=team_id, id__in=report_ids)
-            .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
-            .values("id", "title", "status")
-        }
+    @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=SignalScoutEmissionSerializer(many=True),
+                description="Findings emitted across all requested runs, newest first.",
+            ),
+        },
+        summary="List emitted findings for many runs at once",
+        description=(
+            "Batched form of the per-run emissions endpoint: return the findings every requested "
+            "`SignalScoutRun` emitted, flattened newest-first, in a single request. Each row carries its "
+            "`run_id`, so the caller can regroup by run. The findings UI uses this to load the whole "
+            "recent window in one round-trip instead of one request per run. Strictly team-scoped — run "
+            "ids belonging to another team contribute no rows (no per-run 404; one stale id never fails "
+            "the batch)."
+        ),
+        operation_id="signals_scout_runs_emissions_batch",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="emissions/batch",
+        required_scopes=["signal_scout:read"],
+        pagination_class=None,
+    )
+    def emissions_batch(self, request: Request, **kwargs) -> Response:
+        run_ids = request.validated_data["run_ids"]
+        team_id = _canonical_team_id(self)
+        # `team_id` is the tenant guard, so a foreign run id simply matches no rows — no per-run
+        # existence check. One global cap bounds the payload (realistic fleets stay well under it).
+        emissions = SignalScoutEmission.objects.filter(scout_run_id__in=run_ids, team_id=team_id).order_by(
+            "-emitted_at", "-id"
+        )[:MAX_EMISSIONS_PER_BATCH]
+        return Response(SignalScoutEmissionSerializer(emissions, many=True).data)
 
-        links = []
-        for emission in emissions:
-            report_id = source_id_to_report_id.get(emission.source_id)
-            links.append(
-                {
-                    "finding_id": emission.finding_id,
-                    "source_id": emission.source_id,
-                    "report": reports_by_id.get(report_id) if report_id else None,
-                }
-            )
+    @validated_request(
+        request_serializer=ScoutRunIdsBatchRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutEmissionReportLinkSerializer(many=True),
+                description="Per-finding inbox report links across all requested runs, newest finding first.",
+            ),
+        },
+        summary="List the inbox reports many runs' findings linked to",
+        description=(
+            "Batched form of the per-run emission-reports endpoint. For every finding the requested runs "
+            "emitted, resolve the inbox `SignalReport` (if any) its signal grouped into — all in a single "
+            "ClickHouse round-trip rather than one query per run, which is what made the findings page "
+            "slow to open. `report` is null when a finding hasn't grouped yet, was de-duplicated, or its "
+            "signal was deleted. Strictly team-scoped — run ids belonging to another team contribute no "
+            "rows."
+        ),
+        operation_id="signals_scout_runs_emission_reports_batch",
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="emissions/reports/batch",
+        # Returns report titles, so it requires `task:read` on top of `signal_scout:read` — same as the
+        # per-run `emission_reports` action; a scout-only token must not read titles it can't reach.
+        required_scopes=["signal_scout:read", "task:read"],
+        pagination_class=None,
+    )
+    def emission_reports_batch(self, request: Request, **kwargs) -> Response:
+        run_ids = request.validated_data["run_ids"]
+        team_id = _canonical_team_id(self)
+        emissions = list(
+            SignalScoutEmission.objects.filter(scout_run_id__in=run_ids, team_id=team_id).order_by(
+                "-emitted_at", "-id"
+            )[:MAX_EMISSIONS_PER_BATCH]
+        )
+        canonical_team = self.team.parent_team or self.team
+        links = _resolve_emission_report_links(
+            team_id, canonical_team, emissions, log_context={"run_count": len(run_ids)}
+        )
         return Response(ScoutEmissionReportLinkSerializer(links, many=True).data)
 
     @validated_request(
@@ -462,6 +616,173 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "finding_id": result.finding_id,
                     "emitted": result.emitted,
                     "skipped_reason": result.skipped_reason,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    def _resolve_in_progress_run(self, kwargs: dict, *, required_tool: str) -> SignalScoutRun:
+        """Resolve the run for a report-channel write action: team-scoped lookup + the same in-progress
+        guard `emit_signal` uses, plus the `allowed_tools` opt-in gate. A report is authored *during* a
+        run, so a finished run can't author one.
+
+        The report channel is opt-in by `allowed_tools`. Tool *exposure* is already gated at the scope
+        layer — the runner grants the `signals_scout_reports` posture (which carries
+        `signal_scout_report:write`, the scope these actions require) only when the skill opted in, so a
+        non-opted scout never sees the tools and its token can't satisfy `required_scopes`. This server-side
+        check is the matching fail-closed gate on the write itself: reject unless the run's skill lists
+        `required_tool` in its `allowed_tools`, so the two enforcement layers can't drift."""
+        run_id = _parse_run_id_or_404(kwargs)
+        from products.tasks.backend.facade import api as tasks_facade
+
+        run = (
+            SignalScoutRun.objects.select_related("scout_config", "task_run", "team")
+            .filter(team_id=_canonical_team_id(self), id=run_id)
+            .first()
+        )
+        if run is None:
+            raise exceptions.NotFound()
+        if run.task_run.status != tasks_facade.TaskRunStatus.IN_PROGRESS:
+            raise exceptions.ValidationError(
+                {"status": f"Reports can only be authored on in-progress runs (current: {run.task_run.status})."}
+            )
+        self._assert_report_tool_opted_in(run, required_tool)
+        return run
+
+    def _assert_report_tool_opted_in(self, run: SignalScoutRun, required_tool: str) -> None:
+        """Fail closed unless the run's skill opted into `required_tool` via `allowed_tools`. Loads the
+        exact skill version the run snapshotted so the gate matches what actually ran; a missing/unloadable
+        skill is treated as not-opted-in (deny)."""
+        # `run.team` is the canonical team the run was resolved on (the query above filters on
+        # `_canonical_team_id`), and is where the scout's `LLMSkill` rows are seeded.
+        try:
+            skill = load_skill_for_run(run.team, run.skill_name, version=run.skill_version)
+        except SkillNotFoundError:
+            raise exceptions.PermissionDenied(
+                f"Report channel is opt-in; skill '{run.skill_name}' (v{run.skill_version}) could not be "
+                "resolved to verify its allowed_tools."
+            )
+        if required_tool not in skill.allowed_tools:
+            raise exceptions.PermissionDenied(
+                f"Report channel is opt-in: skill '{run.skill_name}' must list '{required_tool}' in its "
+                "allowed_tools to use this tool."
+            )
+
+    @validated_request(
+        request_serializer=EmitReportRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=EmitReportResponseSerializer,
+                description="Report authored (READY/PENDING_INPUT/suppressed), or skipped by a preflight gate.",
+            ),
+            400: OpenApiResponse(description="Invalid report shape (empty title/summary/evidence, bad actionability)."),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Author a full report for a run",
+        description=(
+            "The second emit channel: author a complete `SignalReport` directly instead of emitting a weak "
+            "signal. The report passes the safety judge, then surfaces at the status the scout's `actionability` "
+            "call implies (or is suppressed). Backing `evidence` is written as bound signals so the report "
+            "behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `reports` to "
+            "find a prior report and `edit-report` to update it instead."
+        ),
+        operation_id="signals_scout_emit_report",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="emit-report",
+        required_scopes=["signal_scout_report:write"],
+        pagination_class=None,
+    )
+    def emit_report(self, request: Request, **kwargs) -> Response:
+        run = self._resolve_in_progress_run(kwargs, required_tool="emit_report")
+        data = request.validated_data
+        evidence = [
+            ReportEvidence(
+                description=entry["description"],
+                source_id=entry["source_id"],
+                **({"weight": entry["weight"]} if entry.get("weight") is not None else {}),
+            )
+            for entry in data["evidence"]
+        ]
+        try:
+            result = emit_report_sync(
+                # `run.team` is the canonical (parent) team the run was resolved on; a child-environment
+                # request's `self.team` would mismatch the run's owner and trip `_assert_team_owns_run`.
+                team=run.team,
+                run=run,
+                title=data["title"],
+                summary=data["summary"],
+                evidence=evidence,
+                actionability_explanation=data["actionability_explanation"],
+                actionability=data["actionability"],
+                already_addressed=data.get("already_addressed", False),
+                repository=data.get("repository"),
+                priority=data.get("priority"),
+                priority_explanation=data.get("priority_explanation"),
+                suggested_reviewers=data.get("suggested_reviewers"),
+            )
+        except InvalidScoutReportError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            EmitReportResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "report_status": result.status,
+                    "emitted": result.emitted,
+                    "skipped_reason": result.skipped_reason,
+                    "safety_explanation": result.safety_explanation,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=EditReportRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(response=EditReportResponseSerializer, description="Report edited."),
+            400: OpenApiResponse(description="Nothing to edit, empty note, or report not found for this project."),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Edit an existing report for a run",
+        description=(
+            "Rewrite a report's title/summary and/or append a note. Can target ANY of the project's inbox "
+            "reports, not just scout-authored ones — so the edit is attributed to this scout. Title/summary "
+            "edits are best-effort: the pipeline may later re-research and overwrite them."
+        ),
+        operation_id="signals_scout_edit_report",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="edit-report",
+        required_scopes=["signal_scout_report:write"],
+        pagination_class=None,
+    )
+    def edit_report(self, request: Request, **kwargs) -> Response:
+        run = self._resolve_in_progress_run(kwargs, required_tool="edit_report")
+        data = request.validated_data
+        try:
+            result = edit_report_sync(
+                # Canonical team, as in `emit_report` above — avoids a child-env `_assert_team_owns_run` trip.
+                team=run.team,
+                run=run,
+                report_id=data["report_id"],
+                title=data.get("title"),
+                summary=data.get("summary"),
+                append_note=data.get("append_note"),
+            )
+        except InvalidScoutReportError as exc:
+            raise exceptions.ValidationError({"detail": str(exc)})
+        return Response(
+            EditReportResponseSerializer(
+                {
+                    "report_id": result.report_id,
+                    "updated_fields": result.updated_fields,
+                    "note_appended": result.note_appended,
                 }
             ).data,
             status=status.HTTP_200_OK,

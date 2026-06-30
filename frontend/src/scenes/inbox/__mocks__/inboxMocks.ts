@@ -424,7 +424,7 @@ export function mockTask(taskId: string, runStatus?: string): any {
     }
 }
 
-/** The run-status payload (`/runs/:runId`) the `SandboxRunViewer` reads before replaying its log. */
+/** The run-status payload (`/runs/:runId`) the `ReadonlyRunSurface` reads before replaying its log. */
 export function mockTaskRun(taskId: string, runId: string): any {
     return makeTaskRun(taskId, runId, 'completed')
 }

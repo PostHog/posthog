@@ -57,6 +57,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             description="Description of the purpose of this ticket field.",
             active="Whether this field is currently available.",
             required="Whether agents must enter a value before solving the ticket.",
+            removable="Whether this field can be deleted; false for system fields present on all tickets.",
             position="Relative position of the field on a ticket.",
             custom_field_options="List of selectable options for dropdown-type fields.",
         ),

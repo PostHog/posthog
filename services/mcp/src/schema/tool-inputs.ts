@@ -29,7 +29,7 @@ export const AgentResolveResourceSchema = z.object({
     resource: z
         .string()
         .describe(
-            `Which operator playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for doing a class of agent-platform operations well — the same skills the agent concierge uses.`
+            `Which builder playbook to fetch. Accepts either a bare id (one of: ${PLAYBOOK_IDS.join(', ')}) or its URI form (\`${PLAYBOOK_URI_PREFIX}<id>\`). A playbook is a markdown guide for using the agent-platform authoring tools well; it comes back with the live, scope-aware tool surface for the operation. Fetch the playbook rather than recalling tool names from memory.`
         ),
 })
 

@@ -5,7 +5,7 @@ import { CapturePage } from '~/session-replay/recording-rasterizer/capture/captu
 import { RequestInterceptor } from '~/session-replay/recording-rasterizer/capture/request-interceptor'
 
 const mockFetch = jest.fn()
-jest.mock('~/utils/request', () => ({
+jest.mock('~/common/utils/request', () => ({
     fetch: (...args: any[]) => mockFetch(...args),
 }))
 

@@ -95,6 +95,8 @@ Escalating to the next rung is the last resort, not the default.
 - **No doc comments** in Python tests (house rule).
 - Mock only **true boundaries** — network, external APIs, the clock, queues.
   Don't mock your own internal helpers (that's how change-detector tests are born).
+- **Person/group/cohort data:** use the helpers in `posthog/test/persons.py` (`create_person`, `create_group`, `create_group_type_mapping`, `add_cohort_members`, etc.) — never `Person.objects.create()` or similar ORM calls directly.
+  See [`posthog/test/AGENTS.md`](../../posthog/test/AGENTS.md) for the full API reference and rationale.
 
 ### Frontend (Jest)
 

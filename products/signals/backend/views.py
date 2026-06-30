@@ -52,7 +52,7 @@ from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
 from posthog.user_permissions import UserPermissions
 
-from products.data_warehouse.backend.data_load.service import trigger_external_data_workflow
+from products.data_warehouse.backend.facade.api import trigger_external_data_workflow
 from products.signals.backend.artefact_schemas import (
     NON_WRITABLE_ARTEFACT_TYPES,
     ArtefactContentValidationError,
@@ -116,7 +116,7 @@ from products.signals.backend.temporal.types import (
     SignalReportReingestionWorkflowInputs,
 )
 from products.tasks.backend.facade import api as tasks_facade
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -710,21 +710,20 @@ class SignalReportViewSet(
             type=SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS,
         ).filter(~has_newer)
 
-    def _implementation_pr_exists_subquery(self):
-        # EXISTS over the latest implementation TaskRun that carries a non-empty
-        # `pr_url`. Mirrors `_annotate_implementation_pr_url`, but as a boolean
-        # EXISTS so it can be used as a filter (and counted) without the
-        # per-row PR-url annotation, which the list action skips for performance.
-        return tasks_facade.task_run_pr_url_exists_subquery(
-            SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
-        )
+    def _implementation_pr_report_filter(self):
+        # Reports with a shipped implementation PR, as a `Q` on `SignalReport.id`. Decorrelated:
+        # starts from the (small, index-backed) set of this team's tasks whose runs carry a non-empty
+        # `pr_url` and maps them to reports via the indexed `task_id` columns — instead of a correlated
+        # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
+        # PR-tab count scan the whole `ready` set per PR'd run).
+        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery(self.team.id))
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether a shipped
         # implementation PR exists. Lets the inbox count PR reports (the "Pull
-        # requests" tab) with a cheap `limit=1` count query instead of paging the
-        # whole list and filtering client-side. Absent or empty param leaves the
-        # list unchanged; an unrecognized value is a 400.
+        # requests" tab) with a cheap count query instead of paging the whole list
+        # and filtering client-side. Absent or empty param leaves the list
+        # unchanged; an unrecognized value is a 400.
         raw = self.request.query_params.get("has_implementation_pr")
         if raw is None or not raw.strip():
             return queryset
@@ -737,8 +736,8 @@ class SignalReportViewSet(
             raise serializers.ValidationError(
                 {"has_implementation_pr": f"Invalid value: {raw!r}. Allowed: true, false."}
             )
-        pr_exists = self._implementation_pr_exists_subquery()
-        return queryset.filter(pr_exists if wants_pr else ~pr_exists)
+        pr_filter = self._implementation_pr_report_filter()
+        return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")

@@ -8,6 +8,7 @@ import { DataTableNode, LLMTrace, NodeKind, TraceQuery } from '~/queries/schema/
 
 import { SortDirection, SortState, aiObservabilitySharedLogic } from '../aiObservabilitySharedLogic'
 import { buildAiObservabilityStorageConfig } from '../preferenceStorage'
+import { GENERATION_SENTIMENT_SELECT } from '../sentimentResults'
 import type { aiObservabilityGenerationsLogicType } from './aiObservabilityGenerationsLogicType'
 
 export type AIObservabilityGenerationsLogicProps = Record<string, never>
@@ -17,7 +18,7 @@ export function getDefaultGenerationsColumns(): string[] {
         'uuid',
         'properties.$ai_trace_id',
         'person',
-        "'' -- Sentiment",
+        GENERATION_SENTIMENT_SELECT,
         "f'{properties.$ai_model}' -- Model",
         'properties.$ai_tools_called',
         "if(properties.$ai_is_error = 'true', '❌', '') -- Error",
@@ -65,7 +66,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
 
         generationsColumns: [
             null as string[] | null,
-            buildAiObservabilityStorageConfig('generations.columns'),
+            buildAiObservabilityStorageConfig('generations.columns.v4'),
             {
                 setGenerationsColumns: (_, { columns }) => columns,
             },
@@ -127,6 +128,7 @@ export const aiObservabilityGenerationsLogic = kea<aiObservabilityGenerationsLog
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
                     dateRange: {
                         date_from: dateFrom,
                         date_to: dateTo,

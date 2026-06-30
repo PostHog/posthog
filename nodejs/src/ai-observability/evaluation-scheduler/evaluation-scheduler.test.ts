@@ -6,7 +6,7 @@ import {
     createEvaluationCondition,
     createTagger,
 } from '~/ai-observability/_tests/fixtures'
-import { logger } from '~/utils/logger'
+import { logger } from '~/common/utils/logger'
 
 import {
     EvaluationMatcher,

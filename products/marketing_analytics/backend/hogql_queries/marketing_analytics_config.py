@@ -107,6 +107,64 @@ class MarketingAnalyticsConfig:
     conversion_goal_precomputation_enabled: bool = False
     costs_precomputation_enabled: bool = False
 
+    @staticmethod
+    def _precompute_flags(team: "Team") -> dict[str, bool]:
+        """Evaluate the conversion + cost precompute flags once per team instance.
+
+        `from_team` runs in every runner's `__init__` (table + aggregated + non-integrated, and each also
+        spins up a previous-period runner for compare), so a single dashboard load otherwise evaluates each
+        flag ~6 times. The team model instance is shared across the runners of a query, so caching on it
+        dedupes the evaluation to once per load without leaking across requests (a fresh team is loaded per
+        request). The multi-touch flag is evaluated separately (see `_multi_touch_enabled`) so single-touch
+        modes never trigger its evaluation.
+
+        Test authors: the cache lives on the team instance (`team._ma_precompute_flags`, and
+        `team._ma_multi_touch_flag`). A test that reuses the same team across cases (e.g. class-level setup)
+        while mocking `feature_enabled_or_false` differently per case will get the first case's stale flags.
+        Clear both attributes in setup/teardown to force re-evaluation.
+        """
+        cached = getattr(team, "_ma_precompute_flags", None)
+        if cached is not None:
+            return cached
+        groups = {"organization": str(team.organization.id)}
+        group_properties = {"organization": {"id": str(team.organization.id)}}
+        flags = {
+            "conversion": feature_enabled_or_false(
+                "marketing-analytics-precomputation",
+                str(team.uuid),
+                groups=groups,
+                group_properties=group_properties,
+            ),
+            "costs": feature_enabled_or_false(
+                "marketing-analytics-costs-precomputation",
+                str(team.uuid),
+                groups=groups,
+                group_properties=group_properties,
+            ),
+        }
+        team._ma_precompute_flags = flags  # type: ignore[attr-defined]
+        return flags
+
+    @staticmethod
+    def _multi_touch_enabled(team: "Team") -> bool:
+        """Evaluate the multi-touch attribution flag once per team instance.
+
+        Kept out of `_precompute_flags` so single-touch modes never evaluate it (a needless flag call that
+        would otherwise fire a `$feature_flag_called` event). Cached on the team instance for the same
+        per-load dedup reason.
+        """
+        cached = getattr(team, "_ma_multi_touch_flag", None)
+        if cached is not None:
+            return cached
+        enabled = feature_enabled_or_false(
+            "marketing-analytics-multi-touch-attribution",
+            str(team.uuid),
+            groups={"organization": str(team.organization.id)},
+            group_properties={"organization": {"id": str(team.organization.id)}},
+        )
+        team._ma_multi_touch_flag = enabled  # type: ignore[attr-defined]
+        return enabled
+
     @classmethod
     def from_team(cls, team: "Team") -> "MarketingAnalyticsConfig":
         """Create config instance with team-specific attribution settings"""
@@ -116,39 +174,20 @@ class MarketingAnalyticsConfig:
             config.attribution_window_days = ma_config.attribution_window_days
             config.attribution_mode = AttributionMode(ma_config.attribution_mode)
 
-        # Gate precomputation behind feature flag
-        config.conversion_goal_precomputation_enabled = feature_enabled_or_false(
-            "marketing-analytics-precomputation",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={"organization": {"id": str(team.organization.id)}},
-        )
+        flags = cls._precompute_flags(team)
+        config.conversion_goal_precomputation_enabled = flags["conversion"]
+        config.costs_precomputation_enabled = flags["costs"]
 
-        # Gate cost precomputation (reads native CH instead of the S3 cost tables) behind its own flag,
-        # so it rolls out independently of the conversion/touchpoint precompute.
-        config.costs_precomputation_enabled = feature_enabled_or_false(
-            "marketing-analytics-costs-precomputation",
-            str(team.uuid),
-            groups={"organization": str(team.organization.id)},
-            group_properties={"organization": {"id": str(team.organization.id)}},
-        )
-
-        # Gate multi-touch attribution behind feature flag
-        if config.attribution_mode in MULTI_TOUCH_MODES:
-            has_multi_touch = feature_enabled_or_false(
-                "marketing-analytics-multi-touch-attribution",
-                str(team.uuid),
-                groups={"organization": str(team.organization.id)},
-                group_properties={"organization": {"id": str(team.organization.id)}},
+        # Gate multi-touch attribution behind its flag; fall back to last-touch when disabled. Evaluated
+        # only for multi-touch modes so single-touch never triggers the flag call.
+        if config.attribution_mode in MULTI_TOUCH_MODES and not cls._multi_touch_enabled(team):
+            logger.warning(
+                "multi_touch_attribution_disabled",
+                team_id=team.pk,
+                requested_mode=config.attribution_mode.value,
+                flag_value=False,
             )
-            if not has_multi_touch:
-                logger.warning(
-                    "multi_touch_attribution_disabled",
-                    team_id=team.pk,
-                    requested_mode=config.attribution_mode.value,
-                    flag_value=has_multi_touch,
-                )
-                config.attribution_mode = AttributionMode.LAST_TOUCH
+            config.attribution_mode = AttributionMode.LAST_TOUCH
 
         return config
 

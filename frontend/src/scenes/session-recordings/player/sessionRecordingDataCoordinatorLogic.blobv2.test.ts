@@ -112,8 +112,6 @@ describe('sessionRecordingDataCoordinatorLogic blobby v2', () => {
                     }),
                 ])
             )
-            expect(actual).toMatchSnapshot()
-
             expect(logic.values.snapshotSources).toEqual([
                 {
                     blob_key: '0',

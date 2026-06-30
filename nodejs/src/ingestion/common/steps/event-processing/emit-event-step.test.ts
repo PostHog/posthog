@@ -4,6 +4,7 @@ import { Message } from 'node-rdkafka'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
 import { eventProcessedAndIngestedCounter } from '~/ingestion/common/event-pipeline/metrics'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
 import { isOkResult } from '~/ingestion/framework/results'
@@ -11,7 +12,6 @@ import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { EventHeaders, ISOTimestamp, ProcessedEvent, ProjectId } from '~/types'
-import { MessageSizeTooLarge } from '~/utils/db/error'
 
 import {
     EmitEventStepConfig,

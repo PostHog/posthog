@@ -1,6 +1,6 @@
 import json
 from datetime import timedelta
-from typing import NotRequired, Required, TypedDict
+from typing import Any, NotRequired, Required, TypedDict
 
 from django.conf import settings
 
@@ -8,6 +8,13 @@ import temporalio
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.ai_observability.evaluation_errors import (
+    application_error_details,
+    get_evaluation_error_spec,
+    is_terminal_user_error_result,
+    status_reason_detail_for_terminal_user_error,
+    terminal_user_error_result_from_application_error,
+)
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_activity, run_hog_eval
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
@@ -137,65 +144,20 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 )
             except temporalio.exceptions.ActivityError as e:
                 if isinstance(e.cause, ApplicationError) and e.cause.details:
-                    details = e.cause.details[0]
+                    details = application_error_details(e.cause)
                     error_type = details.get("error_type")
+                    legacy_terminal_result = terminal_user_error_result_from_application_error(
+                        e.cause,
+                        allows_na=(evaluation.get("output_config") or {}).get("allows_na", False),
+                    )
+                    if legacy_terminal_result is not None:
+                        return await self._handle_terminal_user_error_result(
+                            evaluation=evaluation,
+                            evaluation_type=evaluation_type,
+                            result=legacy_terminal_result,
+                        )
 
-                    if error_type in (
-                        "trial_limit_reached",
-                        "key_invalid",
-                        "parse_error",
-                        "model_not_allowed",
-                        "no_default_model",
-                    ):
-                        if error_type in ("trial_limit_reached", "model_not_allowed", "no_default_model"):
-                            await temporalio.workflow.execute_activity(
-                                disable_evaluation_activity,
-                                args=[evaluation["id"], evaluation["team_id"], error_type],
-                                schedule_to_close_timeout=timedelta(seconds=30),
-                                retry_policy=RetryPolicy(maximum_attempts=2),
-                            )
-                            if error_type == "trial_limit_reached":
-                                if temporalio.workflow.patched("trial-usage-email"):
-                                    try:
-                                        await temporalio.workflow.execute_activity(
-                                            send_trial_usage_email_activity,
-                                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
-                                            activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
-                                            schedule_to_close_timeout=timedelta(seconds=30),
-                                            retry_policy=RetryPolicy(maximum_attempts=2),
-                                        )
-                                    except Exception:
-                                        temporalio.workflow.logger.exception(
-                                            "Failed to send trial exhausted email",
-                                            team_id=evaluation["team_id"],
-                                        )
-                            elif error_type == "model_not_allowed":
-                                if temporalio.workflow.patched("eval-disabled-email"):
-                                    model = details.get("model", "the selected model")
-                                    try:
-                                        await temporalio.workflow.execute_activity(
-                                            send_evaluation_disabled_email_activity,
-                                            SendEvaluationDisabledEmailInputs(
-                                                team_id=evaluation["team_id"],
-                                                evaluation_id=evaluation["id"],
-                                                evaluation_name=evaluation.get("name", "Unknown evaluation"),
-                                                status_reason="model_not_allowed",
-                                                human_readable_reason=(
-                                                    f"The model '{model}' isn't available on the trial plan."
-                                                ),
-                                            ),
-                                            activity_id=(
-                                                f"send-eval-disabled-email-{evaluation['id']}-model_not_allowed"
-                                            ),
-                                            schedule_to_close_timeout=timedelta(seconds=30),
-                                            retry_policy=RetryPolicy(maximum_attempts=2),
-                                        )
-                                    except Exception:
-                                        temporalio.workflow.logger.exception(
-                                            "Failed to send evaluation disabled email",
-                                            evaluation_id=evaluation["id"],
-                                            team_id=evaluation["team_id"],
-                                        )
+                    if error_type in ("parse_error",):
                         skip_result: WorkflowResult = {
                             "verdict": None,
                             "skipped": True,
@@ -247,6 +209,13 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             raise ApplicationError(
                 f"Unsupported evaluation type: {evaluation_type}",
                 non_retryable=True,
+            )
+
+        if is_terminal_user_error_result(result):
+            return await self._handle_terminal_user_error_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                result=result,
             )
 
         try:
@@ -340,4 +309,104 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             skip_reason = result.get("skip_reason")
             if skip_reason is not None:
                 workflow_result["skip_reason"] = skip_reason
+        return workflow_result
+
+    async def _handle_terminal_user_error_result(
+        self,
+        *,
+        evaluation: dict[str, Any],
+        evaluation_type: str,
+        result: EvaluationActivityResult,
+    ) -> WorkflowResult:
+        skip_reason = result.get("skip_reason", "terminal_user_error")
+        spec = get_evaluation_error_spec(
+            str(skip_reason) if skip_reason else None,
+            is_byok=bool(result.get("is_byok", False)),
+        )
+        status_reason = result.get("status_reason")
+        disabled_evaluation = False
+        if status_reason:
+            reasoning = result.get("reasoning")
+            status_reason_detail = (
+                status_reason_detail_for_terminal_user_error(
+                    spec,
+                    reasoning if isinstance(reasoning, str) else None,
+                )
+                if spec
+                else None
+            )
+            disabled_evaluation = await temporalio.workflow.execute_activity(
+                disable_evaluation_activity,
+                args=[evaluation["id"], evaluation["team_id"], status_reason, status_reason_detail],
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+        key_id = result.get("key_id")
+        provider_key_state = result.get("provider_key_state")
+        if key_id and provider_key_state:
+            await temporalio.workflow.execute_activity(
+                update_key_state_activity,
+                args=[str(key_id), provider_key_state, result["reasoning"]],
+                schedule_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+
+        if spec and spec.send_trial_usage_email and temporalio.workflow.patched("trial-usage-email"):
+            try:
+                await temporalio.workflow.execute_activity(
+                    send_trial_usage_email_activity,
+                    SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                    activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception(
+                    "Failed to send trial exhausted email",
+                    team_id=evaluation["team_id"],
+                )
+
+        dedupe_disabled_email = temporalio.workflow.patched("eval-disabled-email-on-disable-transition")
+        should_send_disabled_email = (
+            spec is not None
+            and spec.disables_evaluation
+            and bool(status_reason)
+            and (disabled_evaluation or not dedupe_disabled_email)
+            and not spec.send_trial_usage_email
+            and temporalio.workflow.patched("eval-disabled-email")
+        )
+        if should_send_disabled_email:
+            assert spec is not None
+            email_status_reason = str(status_reason)
+            try:
+                await temporalio.workflow.execute_activity(
+                    send_evaluation_disabled_email_activity,
+                    SendEvaluationDisabledEmailInputs(
+                        team_id=evaluation["team_id"],
+                        evaluation_id=evaluation["id"],
+                        evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                        status_reason=email_status_reason,
+                        human_readable_reason=spec.safe_message,
+                        disabled_at=temporalio.workflow.now(),
+                    ),
+                    activity_id=f"send-eval-disabled-email-{evaluation['id']}-{email_status_reason}",
+                    schedule_to_close_timeout=timedelta(seconds=30),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception(
+                    "Failed to send evaluation disabled email",
+                    evaluation_id=evaluation["id"],
+                    team_id=evaluation["team_id"],
+                )
+
+        workflow_result: WorkflowResult = {
+            "verdict": None,
+            "skipped": True,
+            "skip_reason": skip_reason,
+            "message": result["reasoning"],
+            "evaluation_id": evaluation["id"],
+            "evaluation_type": evaluation_type,
+        }
         return workflow_result
