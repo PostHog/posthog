@@ -63,19 +63,23 @@ any report was created — the same AI-data-processing / source-enabled gates th
 ### Opening a draft PR (autostart)
 
 A surfaced, immediately-actionable report can open a draft PR automatically. It's opt-in per report
-via four more fields; supply them only when the report is a concrete, fixable issue you'd want a PR for:
+via these fields; supply the PR-specific ones only when the report is a concrete, fixable issue you'd
+want a PR for. (`suggested_reviewers` is different — it doubles as the routing lever and you set it far
+more often than you open a PR; see the next section.)
 
 | Field                  | Type        | Notes                                                                                                                                                                                                                                                    |
 | ---------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `repository`           | string      | `"owner/repo"` targets that repo; the `NO_REPO` sentinel opts out; **omitting it** falls back to free-form selection across the team's repos — the slow path on a many-repo team (it spawns a selection sandbox), so pass `owner/repo` when you know it. |
 | `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                                                                                                     |
 | `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                                                                                                         |
-| `suggested_reviewers`  | list of str | GitHub logins to consider. A PR opens only if at least one clears their autonomy threshold.                                                                                                                                                              |
+| `suggested_reviewers`  | list of str | GitHub logins to consider. Gates the PR (one must clear their autonomy threshold) **and** routes the report to a human even with no PR — so set it whenever you can name an owner, not only for PRs. See the next section.                               |
 
 Repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority`
 and `suggested_reviewers`. A report that supplies none of these just surfaces in the inbox (no repo
 sandbox, no PR). Autostart no-ops unless the report is `immediately_actionable`, has a repo +
-priority, and a reviewer qualifies — so these fields are safe to omit for an informational report.
+priority, and a reviewer qualifies — so the PR fields (`repository` / `priority` /
+`priority_explanation`) are safe to omit for an informational report. `suggested_reviewers` is the
+exception: set it whenever you can name a plausible owner (see the next section), PR or not.
 
 ## Choosing `suggested_reviewers` — how a report gets routed to a human
 
