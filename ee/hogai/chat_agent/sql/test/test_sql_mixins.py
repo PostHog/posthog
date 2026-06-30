@@ -275,6 +275,16 @@ class TestSQLMixins(NonAtomicBaseTest):
         with self.assertRaises(PydanticOutputParserException):
             await mixin._quality_check_output(invalid_output)
 
+    async def test_quality_check_unrecognized_placeholder_reports_clean_error(self):
+        mixin = self._node
+
+        output = self._sql_output("SELECT {some_other} AS d FROM events")
+
+        with self.assertRaises(PydanticOutputParserException) as context:
+            await mixin._quality_check_output(output)
+
+        self.assertIn("some_other", context.exception.validation_message)
+
     @parameterized.expand(
         [
             ("resolves_to_default_in_string_context", "SELECT coalesce({variables.district_name}, '') AS d", False),

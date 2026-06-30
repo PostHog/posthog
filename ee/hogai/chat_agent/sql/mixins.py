@@ -28,7 +28,7 @@ from posthog.hogql.errors import (
 )
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
-from posthog.hogql.placeholders import find_placeholders, replace_placeholders
+from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.variables import replace_variables
 
@@ -174,7 +174,6 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         try:
             parsed_query = parse_select(cleaned_query, placeholders={})
 
-            # Replace placeholders with dummy values to compile the generated query.
             finder = find_placeholders(parsed_query)
 
             # Handle filter placeholders using the proper filter replacement system.
@@ -182,18 +181,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
             if finder.has_filters:
                 parsed_query = cast(ast.SelectQuery, replace_filters(parsed_query, None, self._team))
 
-            if finder.placeholder_fields:
-                if any(field and field[0] == "variables" for field in finder.placeholder_fields):
-                    variables = self._get_insight_variables(finder.placeholder_fields)
-                    parsed_query = cast(ast.SelectQuery, replace_variables(parsed_query, variables, self._team))
-                non_variable_fields = [
-                    field for field in finder.placeholder_fields if not (field and field[0] == "variables")
-                ]
-                if non_variable_fields:
-                    dummy_placeholders: dict[str, ast.Expr] = {
-                        str(field[0]): ast.Constant(value=1) for field in non_variable_fields
-                    }
-                    parsed_query = cast(ast.SelectQuery, replace_placeholders(parsed_query, dummy_placeholders))
+            if any(field and field[0] == "variables" for field in finder.placeholder_fields):
+                variables = self._get_insight_variables(finder.placeholder_fields)
+                parsed_query = cast(ast.SelectQuery, replace_variables(parsed_query, variables, self._team))
 
             prepare_and_print_ast(parsed_query, context=hogql_context, dialect="clickhouse")
         except (ExposedHogQLError, HogQLNotImplementedError, QueryError, ResolutionError) as err:
