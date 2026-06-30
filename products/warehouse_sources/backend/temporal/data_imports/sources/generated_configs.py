@@ -544,7 +544,8 @@ class CalendlySourceConfig(config.Config):
 
 @config.config
 class CallRailSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_id: str | None = None
 
 
 @config.config
