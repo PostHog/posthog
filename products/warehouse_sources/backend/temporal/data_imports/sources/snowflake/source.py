@@ -16,6 +16,8 @@ from posthog.schema import (
 )
 
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql.direct_sql.snowflake_adapter import validate_snowflake_account_id
+from posthog.hogql.errors import ExposedHogQLError
 
 from products.data_warehouse.backend.facade.api import reconcile_snowflake_schemas
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
@@ -66,6 +68,10 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.SNOWFLAKE
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        return ["account_id"]
 
     @property
     def get_source_config(self) -> SourceConfig:
@@ -287,6 +293,11 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
     def validate_credentials(
         self, config: SnowflakeSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        try:
+            validate_snowflake_account_id(config.account_id)
+        except ExposedHogQLError as e:
+            return False, str(e)
+
         if config.auth_type.selection == "password" and (not config.auth_type.user or not config.auth_type.password):
             return False, "Missing required parameters: username, password"
 

@@ -1785,6 +1785,49 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["auth_type"]["passphrase"] == "secret-passphrase"
 
     @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_snowflake_account_id_requires_reentering_credentials(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="snowflake-test",
+            job_inputs={
+                "account_id": "abc-123",
+                "database": "MY_DB",
+                "warehouse": "COMPUTE_WH",
+                "schema": "PUBLIC",
+                "auth_type": {
+                    "selection": "password",
+                    "user": "myuser",
+                    "password": "secret-password",
+                },
+            },
+        )
+
+        get_response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}")
+        assert get_response.status_code == 200
+        job_inputs = get_response.json()["job_inputs"]
+        assert "password" not in job_inputs["auth_type"]
+
+        patch_response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {**job_inputs, "account_id": "attacker.example/path"}},
+        )
+
+        assert patch_response.status_code == 400
+        assert "Changing the connection host requires re-entering your credentials" in str(patch_response.json())
+        mock_validate_credentials.assert_not_called()
+        source.refresh_from_db()
+        assert source.job_inputs["account_id"] == "abc-123"
+        assert source.job_inputs["auth_type"]["password"] == "secret-password"
+
+    @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
     )

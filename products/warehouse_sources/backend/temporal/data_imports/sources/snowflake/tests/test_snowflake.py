@@ -156,6 +156,21 @@ class TestFilterIncrementalFields:
         assert filter_snowflake_incremental_fields([("c", "varchar", True)]) == []
 
 
+class TestSnowflakeSource:
+    def test_validate_credentials_rejects_invalid_account_id_before_connecting(self):
+        source = SnowflakeSource()
+
+        with patch.object(source, "get_schemas") as mock_get_schemas:
+            is_valid, error = source.validate_credentials(
+                _make_config(account_id="attacker.example/path"),
+                team_id=1,
+            )
+
+        assert is_valid is False
+        assert error == "Invalid Snowflake account identifier."
+        mock_get_schemas.assert_not_called()
+
+
 class TestBuildQuery:
     def test_incremental_requires_field(self):
         with pytest.raises(ValueError, match="incremental_field"):
