@@ -56,6 +56,7 @@ the row lists both.
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
+| assemblyai              | HTTP                        | requests                                                        | ✅                          |
 | attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack           | HTTP                        | requests                                                        | ✅                          |
@@ -318,7 +319,6 @@ doesn't conflict with concurrent PRs.
 - apple_search_ads
 - appstack
 - apptivo
-- assemblyai
 - auth0
 - awin
 - aws_cloudtrail
