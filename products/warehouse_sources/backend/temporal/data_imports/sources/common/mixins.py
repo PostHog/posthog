@@ -190,7 +190,8 @@ class OAuthMixin:
         retried with backoff before failing the whole import on a momentary blip. A failed query
         marks its connection unusable, so ``close_old_connections()`` evicts it between attempts and
         the next attempt runs on a fresh one; the sleep lets a saturated pool drain. A genuinely
-        missing integration raises ``ValueError`` and is not retried.
+        missing integration is surfaced as the stable, non-retryable ``ValueError`` and is not
+        retried.
         """
         if not integration_id:
             raise ValueError(f"Missing integration ID")
@@ -198,10 +199,9 @@ class OAuthMixin:
         attempt = 0
         while True:
             try:
-                if not Integration.objects.filter(id=integration_id, team_id=team_id).exists():
-                    raise ValueError(f"Integration not found: {integration_id}")
-
                 return Integration.objects.get(id=integration_id, team_id=team_id)
+            except Integration.DoesNotExist:
+                raise ValueError(f"Integration not found: {integration_id}") from None
             except OperationalError:
                 attempt += 1
                 if attempt >= _MAX_INTEGRATION_FETCH_ATTEMPTS:
