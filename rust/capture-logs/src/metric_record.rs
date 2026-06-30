@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hasher;
 
 use anyhow::Result;
 use base64::{prelude::BASE64_STANDARD, Engine};
@@ -18,6 +19,7 @@ use opentelemetry_proto::tonic::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value as JsonValue};
+use siphasher::sip::SipHasher13;
 use tracing::debug;
 use uuid::Uuid;
 
@@ -46,6 +48,10 @@ pub struct KafkaMetricRow {
     pub resource_attributes: HashMap<String, String>,
     pub instrumentation_scope: String,
     pub attributes: HashMap<String, String>,
+    /// Stable per-series identity, assigned here at ingest and stored verbatim by
+    /// ClickHouse (which never recomputes it). Links a sample to its series at read
+    /// time. i64 carries the u64 hash bits to fit Avro's `long`.
+    pub series_fingerprint: i64,
 }
 
 /// Flatten an OTEL Metric into one or more KafkaMetricRow records.
@@ -295,6 +301,11 @@ fn build_number_row(
         })
         .collect();
 
+    // Identity is assigned once, here. Computed before the synthetic $originalTimestamp
+    // is added so an overridden timestamp never splits a series.
+    let series_fingerprint =
+        compute_series_fingerprint(metric_name, service_name, resource_attributes, &attributes);
+
     if let Some(original) = original_timestamp {
         attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
     }
@@ -321,9 +332,49 @@ fn build_number_row(
         resource_attributes: resource_attributes.clone(),
         instrumentation_scope: instrumentation_scope.to_string(),
         attributes,
+        series_fingerprint,
     };
 
     Ok((row, was_overridden))
+}
+
+/// Stable, order-independent 64-bit identity for a metric series, assigned at ingest.
+///
+/// Computed once here and carried to ClickHouse as `series_fingerprint`, so storage
+/// never recomputes it — the TSDB / Snuffle-default approach. The hash is internal
+/// (samples link to their series within this system only), so it need not match any
+/// ClickHouse hash; any deterministic algorithm works. SipHash-1-3 with a fixed key is
+/// stable across builds. Returned as i64 (the u64 bit pattern) to fit Avro's `long`;
+/// ClickHouse reinterprets it back to UInt64.
+fn compute_series_fingerprint(
+    metric_name: &str,
+    service_name: &str,
+    resource_attributes: &HashMap<String, String>,
+    attributes: &HashMap<String, String>,
+) -> i64 {
+    let mut hasher = SipHasher13::new();
+    hash_str(&mut hasher, metric_name);
+    hash_str(&mut hasher, service_name);
+    hash_sorted_map(&mut hasher, resource_attributes);
+    hash_sorted_map(&mut hasher, attributes);
+    hasher.finish() as i64
+}
+
+/// Length-prefixed so e.g. {"ab":"c"} and {"a":"bc"} can never collide.
+fn hash_str(hasher: &mut SipHasher13, s: &str) {
+    hasher.write_u64(s.len() as u64);
+    hasher.write(s.as_bytes());
+}
+
+/// Sort by key so HashMap iteration order can never change the fingerprint.
+fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
+    let mut pairs: Vec<(&str, &str)> = map.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    pairs.sort_unstable();
+    hasher.write_u64(pairs.len() as u64);
+    for (key, value) in pairs {
+        hash_str(hasher, key);
+        hash_str(hasher, value);
+    }
 }
 
 /// Flatten exponential histogram buckets into explicit bounds and counts.
@@ -679,5 +730,84 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].trace_id, "");
         assert_eq!(rows[0].span_id, "");
+    }
+
+    // --- Series fingerprint ---
+
+    fn attrs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn test_series_fingerprint_is_order_independent() {
+        // The same logical label set must hash identically regardless of HashMap
+        // iteration order — this is the invariant the whole join depends on.
+        let resource = attrs(&[("k8s.pod", "\"p\""), ("k8s.node", "\"n\"")]);
+        let a1 = attrs(&[("topic", "\"t\""), ("partition", "\"9\"")]);
+        let a2 = attrs(&[("partition", "\"9\""), ("topic", "\"t\"")]);
+        assert_eq!(
+            compute_series_fingerprint("m", "svc", &resource, &a1),
+            compute_series_fingerprint("m", "svc", &resource, &a2),
+        );
+    }
+
+    #[test]
+    fn test_series_fingerprint_distinguishes_label_changes() {
+        let r = attrs(&[("k8s.pod", "\"p\"")]);
+        let base = compute_series_fingerprint("m", "svc", &r, &attrs(&[("partition", "\"9\"")]));
+        // a different value, a different key, a different metric, and a different service
+        // each yield a different series
+        assert_ne!(
+            base,
+            compute_series_fingerprint("m", "svc", &r, &attrs(&[("partition", "\"10\"")]))
+        );
+        assert_ne!(
+            base,
+            compute_series_fingerprint("m", "svc", &r, &attrs(&[("part", "\"9\"")]))
+        );
+        assert_ne!(
+            base,
+            compute_series_fingerprint("m2", "svc", &r, &attrs(&[("partition", "\"9\"")]))
+        );
+        assert_ne!(
+            base,
+            compute_series_fingerprint("m", "svc2", &r, &attrs(&[("partition", "\"9\"")]))
+        );
+    }
+
+    #[test]
+    fn test_series_fingerprint_no_delimiter_collision() {
+        // Length-prefixing must stop {"ab":"c"} from colliding with {"a":"bc"}.
+        let r = HashMap::new();
+        assert_ne!(
+            compute_series_fingerprint("m", "", &r, &attrs(&[("ab", "c")])),
+            compute_series_fingerprint("m", "", &r, &attrs(&[("a", "bc")])),
+        );
+    }
+
+    #[test]
+    fn test_series_fingerprint_is_pinned() {
+        // Golden value: locks the algorithm so an accidental hash-library or
+        // canonicalization change is caught (it would silently re-key every series).
+        let r = attrs(&[("k8s.pod", "\"p\"")]);
+        let a = attrs(&[("topic", "\"t\""), ("partition", "\"9\"")]);
+        assert_eq!(
+            compute_series_fingerprint("m", "svc", &r, &a),
+            GOLDEN_FINGERPRINT
+        );
+    }
+
+    const GOLDEN_FINGERPRINT: i64 = -8471192696909837629;
+
+    #[test]
+    fn test_build_row_sets_fingerprint() {
+        let row = build_test_row(&[]);
+        assert_ne!(
+            row.series_fingerprint, 0,
+            "every row must carry a series identity"
+        );
     }
 }
