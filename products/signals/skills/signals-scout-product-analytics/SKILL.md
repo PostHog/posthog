@@ -165,9 +165,10 @@ a future run finds it with one `text=` search:
   cheaply instead of recomputing the full baseline.
 - `dedupe:product_analytics:flow:<short_id>:<date>` — a regression already surfaced, with the
   condition that should re-escalate it (a further drop, or recovery + relapse).
-- `report:product_analytics:flow:<short_id>` — the `report_id` of a report you authored for
-  this flow's regression, so the next run edits it (append_note with the fresh window) instead
-  of duplicating.
+- `report:product_analytics:flow:<short_id>:<rate>` — the `report_id` of a report you authored for
+  a regression on this flow's specific rate (the affected step/cohort/state), so the next run edits
+  _that rate's_ report (append_note with the fresh window) instead of duplicating; a distinct rate on
+  the same insight gets its own pointer and its own report.
 - `reviewer:product_analytics:<area>` — a resolved owner (bare lowercase GitHub login) for a
   flow / product area, so reports route to a human faster.
 
@@ -228,8 +229,9 @@ scratchpad (net-new / material-update / already-covered / addressed-or-noise), t
   usually absent from a scout run, so don't depend on them — see
   [`references/report.md`](references/report.md). Routing is how the report reaches a human; left empty
   it's assigned to nobody and likely missed, so resolve one when you safely can. After authoring, write a
-  `report:product_analytics:flow:<short_id>`
-  scratchpad entry with the `report_id` so the next run edits it instead of duplicating. The
+  rate-scoped `report:product_analytics:flow:<short_id>:<rate>` scratchpad entry (the affected
+  step/cohort/state, not just the `short_id`) with the `report_id` so the next run edits _this rate's_
+  report instead of duplicating — and a distinct rate on the same insight gets its own pointer. The
   full report channel — field schema, safety × actionability status mapping, reviewer routing,
   dedupe (it is **not** idempotent), and the edit rules — lives in
   [`references/report.md`](references/report.md).

@@ -157,7 +157,10 @@ later (see below) rather than risk the emit. Otherwise resolve a `github_login`,
    build the reviewer recipe around them. Where they _are_ available, `org-members-list` gives a
    member's `user_uuid` (pass it straight through as `user_uuid` — simplest), and
    `org-member-get-github-login` resolves a `user_uuid` to a GitHub login if you'd rather hand a
-   `github_login`. In practice the flow's `created_by` UUID is the route that always works.
+   `github_login`. The flow's `created_by` UUID is usually the most convenient route — but it only
+   works when that user is an org member with a linked GitHub identity; a `created_by` that isn't
+   (a PM, customer, or departed user) fails the whole `emit-report`, so confirm or fall back per the
+   fail-loud caveat above rather than treating it as always safe.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces, just
