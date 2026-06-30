@@ -136,6 +136,18 @@ class HyphenatedPropertyDetector(TraversingVisitor):
         return True
 
 
+class RecordAliasRewriter(TraversingVisitor):
+    """Rewrite `{record.x}` template references to `{event.properties.x}` for data-warehouse-table
+    sources. The synced row is delivered under `event.properties` at runtime, so `record` is a
+    friendlier alias users can write in destination/workflow templates instead of `event.properties`.
+    """
+
+    def visit_field(self, node: ast.Field):
+        super().visit_field(node)
+        if node.chain and str(node.chain[0]) == "record":
+            node.chain = ["event", "properties", *node.chain[1:]]
+
+
 def collect_inputs(node: ast.Expr) -> set[str]:
     input_collector = InputCollector()
     input_collector.visit(node)
@@ -146,17 +158,23 @@ def generate_template_bytecode(
     obj: Any,
     input_collector: set[str],
     function_type: Optional[str] = None,
+    is_dwh_source: bool = False,
 ) -> Any:
     """
     Clones an object, compiling any string values to bytecode templates
     """
 
     if isinstance(obj, dict):
-        return {key: generate_template_bytecode(value, input_collector, function_type) for key, value in obj.items()}
+        return {
+            key: generate_template_bytecode(value, input_collector, function_type, is_dwh_source)
+            for key, value in obj.items()
+        }
     elif isinstance(obj, list):
-        return [generate_template_bytecode(item, input_collector, function_type) for item in obj]
+        return [generate_template_bytecode(item, input_collector, function_type, is_dwh_source) for item in obj]
     elif isinstance(obj, str):
         node = parse_string_template(obj)
+        if is_dwh_source:
+            RecordAliasRewriter().visit(node)
         input_collector.update(collect_inputs(node))
         detector = HyphenatedPropertyDetector()
         detector.visit(node)
@@ -176,7 +194,7 @@ def generate_template_bytecode(
         return obj
 
 
-def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
+def transpile_template_code(obj: Any, compiler: JavaScriptCompiler, is_dwh_source: bool = False) -> str:
     """
     Clones an object, compiling any string values to bytecode templates
     """
@@ -186,7 +204,7 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
             + (
                 ", ".join(
                     [
-                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler)}"
+                        f"{json.dumps(str(key))}: {transpile_template_code(value, compiler, is_dwh_source)}"
                         for key, value in obj.items()
                     ]
                 )
@@ -194,9 +212,12 @@ def transpile_template_code(obj: Any, compiler: JavaScriptCompiler) -> str:
             + "}"
         )
     elif isinstance(obj, list):
-        return "[" + (", ".join([transpile_template_code(item, compiler) for item in obj])) + "]"
+        return "[" + (", ".join([transpile_template_code(item, compiler, is_dwh_source) for item in obj])) + "]"
     elif isinstance(obj, str):
-        return compiler.visit(parse_string_template(obj))
+        node = parse_string_template(obj)
+        if is_dwh_source:
+            RecordAliasRewriter().visit(node)
+        return compiler.visit(node)
     else:
         return json.dumps(obj)
 
@@ -271,6 +292,7 @@ class InputsItemSerializer(serializers.Serializer):
     def validate(self, attrs):
         schema = self.context["schema"]
         function_type = self.context["function_type"]
+        is_dwh_source = self.context.get("is_dwh_source", False)
         value = attrs.get("value")
         item_type = schema["type"]
 
@@ -355,14 +377,14 @@ class InputsItemSerializer(serializers.Serializer):
 
                         if function_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                             compiler = JavaScriptCompiler()
-                            code = transpile_template_code(value, compiler)
+                            code = transpile_template_code(value, compiler, is_dwh_source=is_dwh_source)
                             attrs["transpiled"] = {"lang": "ts", "code": code, "stl": list(compiler.stl_functions)}
                             if "bytecode" in attrs:
                                 del attrs["bytecode"]
                         else:
                             input_collector: set[str] = set()
                             attrs["bytecode"] = generate_template_bytecode(
-                                value, input_collector, function_type=function_type
+                                value, input_collector, function_type=function_type, is_dwh_source=is_dwh_source
                             )
                             attrs["input_deps"] = list(input_collector)
                             if "transpiled" in attrs:

@@ -348,7 +348,7 @@ class Auth0SourceConfig(config.Config):
 
 @config.config
 class AviationstackSourceConfig(config.Config):
-    pass
+    access_key: str
 
 
 @config.config
@@ -481,7 +481,8 @@ class BrazeSourceConfig(config.Config):
 
 @config.config
 class BreezometerSourceConfig(config.Config):
-    pass
+    api_key: str
+    locations: str
 
 
 @config.config
@@ -637,7 +638,8 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class ChurnkeySourceConfig(config.Config):
-    pass
+    api_key: str
+    app_id: str
 
 
 @config.config

@@ -23,6 +23,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
@@ -66,6 +67,10 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
             query=parse_select(sql, placeholders={"cutoff": ast.Constant(value=cutoff_iso)}),
             team=team,
             query_type="GithubJobLogsDiscovery",
+            # Trusted internal sweep with no request user: without this, HogQL's access-control build
+            # marks the team's own warehouse tables denied and the query raises "You don't have access
+            # to table" — so nothing is ever discovered. The query stays scoped to this team's table.
+            bypass_warehouse_access_control=True,
         )
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
@@ -105,6 +110,8 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         # the activity's fail-closed guard, but here it also skips the per-source warehouse queries.
         return []
     found: list[dict[str, Any]] = []
+    eligible_sources = 0
+    skipped_sources = 0
     sources = (
         ExternalDataSource.objects.filter(source_type=ExternalDataSourceType.GITHUB)
         .exclude(deleted=True)
@@ -115,6 +122,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
         prefix = source.prefix or ""
         if params is None or not _PREFIX.match(prefix):
             continue
+        eligible_sources += 1
         integration_id, repo = params
         try:
             # Row handling stays inside the try so a single bad row (e.g. a null job_id) skips this
@@ -138,12 +146,28 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
                 )
                 if len(found) >= MAX_DISCOVERED_JOBS:
                     logger.warning("github_job_logs_discovery_capped", cap=MAX_DISCOVERED_JOBS)
-                    return found
-        except Exception:
-            # A source whose jobs table isn't synced (most teams don't enable the workflow_jobs
-            # schema) or a transient query error shouldn't fail the whole sweep — skip it.
-            logger.warning("github_job_logs_discovery_skipped_source", source_id=str(source.id), exc_info=True)
+                    break  # inner loop only; the outer break below stops the sweep so the cap holds
+        except Exception as e:
+            # A source whose jobs table isn't synced or a transient query error shouldn't fail the
+            # whole sweep — skip it. Most teams never enable the workflow_jobs schema, so a missing
+            # table is the expected common case (log at debug); anything else is a real error (warn).
+            skipped_sources += 1
+            if isinstance(e, QueryError) and "Unknown table" in str(e):
+                logger.debug("github_job_logs_discovery_source_not_synced", source_id=str(source.id))
+            else:
+                logger.warning("github_job_logs_discovery_skipped_source", source_id=str(source.id), exc_info=True)
             continue
+        if len(found) >= MAX_DISCOVERED_JOBS:
+            break  # stop the sweep at the cap, but fall through to the summary log below
+    # One summary line per tick so coverage stays observable even though per-source "not synced" skips
+    # log at debug: a sweep that suddenly skips everything (e.g. a mistyped prefix or a dropped table)
+    # is visible here instead of silently emitting nothing.
+    logger.info(
+        "github_job_logs_discovery_complete",
+        eligible_sources=eligible_sources,
+        skipped_sources=skipped_sources,
+        jobs_found=len(found),
+    )
     return found
 
 

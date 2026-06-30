@@ -1540,6 +1540,46 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 return 'idle'
             },
         ],
+        /**
+         * Whether the bottom-of-thread gerund loader ("Thinking…", "Pondering…") should show. The
+         * loader is a *gap filler*: it stands in only while the agent is working a turn but nothing
+         * visible is streaming at the tail — i.e. it is genuinely "thinking". It hides the moment the
+         * tail produces visible output: a streaming assistant message, an in-flight tool call, or a
+         * running structured-progress activity (each already conveys "the agent is busy"). Reasoning is
+         * deliberately NOT a hide condition — the gerund is what fills the thinking/reasoning period
+         * (and the explicit `agent_thought_chunk` thinking signal arrives during exactly these gaps).
+         */
+        showThinkingIndicator: [
+            (s) => [s.streamPhase, s.threadItems, s.toolInvocations],
+            (streamPhase, threadItems, toolInvocations): boolean => {
+                if (streamPhase !== 'thinking') {
+                    return false
+                }
+                // Scan the current turn only (items after the last separator).
+                const turnStart = threadItems.findLastIndex((item) => item.type === 'turn_separator') + 1
+                for (let i = turnStart; i < threadItems.length; i++) {
+                    const item = threadItems[i]
+                    // A running structured-progress activity owns the "busy" line.
+                    if (item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')) {
+                        return false
+                    }
+                    // A tool actively running already shows its own spinner.
+                    if (
+                        item.type === 'tool_invocation' &&
+                        item.toolCallId &&
+                        ['pending', 'in_progress'].includes(toolInvocations.get(item.toolCallId)?.status ?? '')
+                    ) {
+                        return false
+                    }
+                }
+                // The visible tail is streaming answer text — that's writing, not thinking.
+                const tail = threadItems[threadItems.length - 1]
+                if (tail?.type === 'assistant_message' && tail.complete !== true) {
+                    return false
+                }
+                return true
+            },
+        ],
         /** Whether the run exposes any git artifact worth surfacing — gates the pre/post-turn coding UI. */
         hasGitArtifacts: [
             (s) => [s.runArtifacts],
