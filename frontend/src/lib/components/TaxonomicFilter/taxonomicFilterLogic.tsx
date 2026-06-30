@@ -342,7 +342,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             joinsLogic,
             ['columnsJoinedToPersons'],
             propertyDefinitionsModel,
-            ['eventMetadataPropertyDefinitions'],
+            ['eventMetadataPropertyDefinitions', 'personMetadataPropertyDefinitions'],
             featureFlagLogic,
             ['featureFlags'],
             primaryEventPropertiesModel,
@@ -558,6 +558,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             () => [(_, props) => props.endpointFilters],
             (endpointFilters: Record<string, any>) => endpointFilters,
         ],
+        // Combined selector so taxonomicGroups stays under kea's 16-dep tuple type limit.
+        metadataPropertyDefinitionsByType: [
+            (s) => [s.eventMetadataPropertyDefinitions, s.personMetadataPropertyDefinitions],
+            (
+                event: PropertyDefinition[],
+                person: PropertyDefinition[]
+            ): { event: PropertyDefinition[]; person: PropertyDefinition[] } => ({ event, person }),
+        ],
         taxonomicGroups: [
             (s) => [
                 s.currentTeam,
@@ -570,7 +578,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.metadataSource,
                 s.suggestedFiltersLabel,
                 s.propertyFilters,
-                s.eventMetadataPropertyDefinitions,
+                s.metadataPropertyDefinitionsByType,
                 s.maxContextOptions,
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
@@ -591,7 +599,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 metadataSource: AnyDataNode,
                 suggestedFiltersLabel: string | undefined,
                 propertyFilters,
-                eventMetadataPropertyDefinitions: PropertyDefinition[],
+                {
+                    event: eventMetadataPropertyDefinitions,
+                    person: personMetadataPropertyDefinitions,
+                }: {
+                    event: PropertyDefinition[]
+                    person: PropertyDefinition[]
+                },
                 maxContextOptions: MaxContextTaxonomicFilterOption[],
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
@@ -1114,6 +1128,22 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         propertyAllowList:
                             propertyAllowList?.[TaxonomicFilterGroupType.PersonProperties]?.filter(isString),
                         ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
+                    },
+                    {
+                        name: 'Person metadata',
+                        searchPlaceholder: 'person metadata',
+                        type: TaxonomicFilterGroupType.PersonMetadata,
+                        options: personMetadataPropertyDefinitions,
+                        getIcon: getPropertyDefinitionIcon,
+                        getName: (option: PropertyDefinition) => {
+                            const coreDefinition = getCoreFilterDefinition(
+                                option.id,
+                                TaxonomicFilterGroupType.PersonMetadata
+                            )
+                            return coreDefinition ? coreDefinition.label : option.name
+                        },
+                        getValue: (option: PropertyDefinition) => option.id,
+                        getPopoverHeader: () => 'Person metadata',
                     },
                     {
                         name: 'Cohorts',
