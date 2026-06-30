@@ -191,16 +191,13 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 groupTypeLabel: 'Users' as const,
                 renderSeriesOverride: renderLifecycleSeriesLabel,
             }
-            if (tooltipEnabled) {
-                return <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows />
-            }
             const onRowClick = canHandleClick
                 ? (datum: SeriesDatum) => {
                       const seriesKey = ctx.seriesData[datum.datasetIndex].series.key
                       handleTrendsChartClick(seriesKey, datum.dataIndex, clickDeps, LIFECYCLE_PERSONS_MODAL_OPTIONS)
                   }
                 : undefined
-            return <InsightSeriesTooltip {...sharedProps} onRowClick={onRowClick} />
+            return <InsightSeriesTooltip {...sharedProps} sortedByValue={false} hideZeroRows onRowClick={onRowClick} />
         },
         [
             timezone,
