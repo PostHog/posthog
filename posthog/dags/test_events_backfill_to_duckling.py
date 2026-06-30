@@ -1729,12 +1729,16 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         _fixup_partition_values_for_added_files(MagicMock(), target, "events", files)
 
         executed_sql = [str(call.args[0]) for call in cur.execute.call_args_list]
-        # First three statements bound the session and acquire the lock, before any DML.
-        assert "SET LOCAL statement_timeout" in executed_sql[0]
-        assert "SET LOCAL lock_timeout" in executed_sql[1]
-        assert "pg_try_advisory_xact_lock" in executed_sql[2]
+        # Session advisory lock is acquired OUTSIDE the txn (the very first SQL)
+        # so retry backoffs don't sit idle-in-transaction. SET LOCAL bounds come
+        # immediately after, inside the txn, before any DML.
+        assert "pg_try_advisory_lock" in executed_sql[0]
+        assert "SET LOCAL statement_timeout" in executed_sql[1]
+        assert "SET LOCAL lock_timeout" in executed_sql[2]
         # Nothing touches the file_partition_value table before the lock is held.
         assert not any("file_partition_value" in s for s in executed_sql[:3])
+        # Lock is released at the end (best-effort, via finally).
+        assert "pg_advisory_unlock" in executed_sql[-1]
 
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
     def test_runtime_spec_mismatch_raises(self, mock_open_conn, target):
