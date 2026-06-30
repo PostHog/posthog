@@ -97,9 +97,15 @@ describe('accountsLogic', () => {
         expect(logic.values.searchQuery).toBe('')
     })
 
-    it('carries the overview tile metrics on the same AccountsQuery', () => {
+    it('keeps the overview tile metrics off the list query so it loads independently', () => {
         const source = logic.values.hogqlQuery.source as AccountsQuery
-        expect(source.metrics).toEqual(['count()'])
+        expect(source.metrics).toBeUndefined()
+    })
+
+    it('exposes the overview tile metrics on a separate metrics-only query (no select)', () => {
+        const metricsQuery = logic.values.metricsQuery as AccountsQuery
+        expect(metricsQuery.metrics).toEqual(['count()'])
+        expect(metricsQuery.select).toBeUndefined()
     })
 
     it('setAllRolesUnassigned toggles the flag', () => {

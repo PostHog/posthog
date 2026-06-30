@@ -13,12 +13,14 @@ from pymongo.errors import ServerSelectionTimeoutError
 from pymongo.server_description import ServerDescription
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
+    _build_query,
     _get_rows_to_sync,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
     get_leading_index_keys,
 )
+from products.warehouse_sources.backend.types import IncrementalFieldType
 
 
 class TestSafeServerSelector(SimpleTestCase):
@@ -320,6 +322,27 @@ class TestGetLeadingIndexKeys(SimpleTestCase):
     def test_returns_empty_set_for_collection_with_no_indexes(self):
         coll = self._collection_with_indexes([])
         assert get_leading_index_keys(coll) == set()
+
+
+class TestBuildQuery(SimpleTestCase):
+    """`_id` is offered as an ObjectID incremental cursor, but MongoDB `_id` values aren't
+    always ObjectIds — a non-ObjectId cursor must not crash query construction."""
+
+    _OID_HEX = "507f1f77bcf86cd799439011"
+    _UUID = "fffdb62e-4704-4671-984c-ffcff3a8dd52"
+
+    @parameterized.expand(
+        [
+            # A valid 24-char hex cursor stays an ObjectId so native ordered comparison is preserved.
+            ("objectid_cursor_is_wrapped", _OID_HEX, ObjectId(_OID_HEX)),
+            # Regression: a UUID-string `_id` previously raised bson.errors.InvalidId here,
+            # permanently breaking every incremental sync for collections that key on UUIDs.
+            ("uuid_cursor_compares_as_string", _UUID, _UUID),
+        ]
+    )
+    def test_cursor_coercion(self, _name: str, cursor: str, expected_gt):
+        query = _build_query(True, "_id", IncrementalFieldType.ObjectID, cursor)
+        assert query == {"_id": {"$gt": expected_gt, "$exists": True}}
 
 
 class TestMongoDBNonRetryableErrors(SimpleTestCase):

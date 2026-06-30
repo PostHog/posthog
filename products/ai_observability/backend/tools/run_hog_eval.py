@@ -10,6 +10,8 @@ from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, merge_heavy_properties
 from posthog.sync import database_sync_to_async
 
+from products.ai_observability.backend.hog import compile_ai_observability_hog
+
 from ee.hogai.tool import MaxTool
 
 TOOL_DESCRIPTION = """Test Hog evaluation code against sample events from the last 7 days.
@@ -46,12 +48,11 @@ class RunHogEvalTestTool(MaxTool):
         return [("llm_analytics", "viewer")]
 
     async def _arun_impl(self, source: str, sample_count: int = 3) -> tuple[str, Any]:
-        from posthog.cdp.validation import compile_hog
         from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
         from posthog.temporal.ai_observability.run_evaluation import run_hog_eval
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_ai_observability_hog(source, "destination")
         except Exception as e:
             return (f"Compilation error: {e}", None)
 

@@ -7,7 +7,7 @@ import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
-import type { DashboardAddTileType } from 'scenes/dashboard/addTilePickerModalLogic'
+import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -587,11 +587,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
-        reportDashboardAddTileOptionClicked: (tileType: DashboardAddTileType, variant: 'control' | 'test') => ({
-            tileType,
-            variant,
-        }),
-        reportDashboardTileAdded: (tileType: DashboardAddTileType) => ({ tileType }),
+        reportDashboardTileInsertedInline: (
+            tileType: DashboardAddTileType,
+            column: number,
+            row: number,
+            fullWidth: boolean
+        ) => ({ tileType, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -1631,11 +1632,13 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
         },
-        reportDashboardAddTileOptionClicked: async ({ tileType, variant }) => {
-            posthog.capture('dashboard add tile option clicked', { tile_type: tileType, variant })
-        },
-        reportDashboardTileAdded: async ({ tileType }) => {
-            posthog.capture('dashboard tile added', { tile_type: tileType })
+        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+            posthog.capture('dashboard tile inserted inline', {
+                tile_type: tileType,
+                column,
+                row,
+                full_width: fullWidth,
+            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {

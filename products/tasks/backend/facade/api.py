@@ -123,6 +123,7 @@ __all__ = [
     "get_latest_run_by_task",
     "get_sandbox_environment",
     "get_sandbox_snapshot",
+    "get_stale_prewarmed_queued_task_run_ids",
     "get_stale_queued_task_run_ids",
     "get_task_automation",
     "get_task_detail",
@@ -148,7 +149,6 @@ __all__ = [
     "presign_task_run_artifact",
     "read_task_run_artifact",
     "read_task_run_logs",
-    "read_task_run_session_log_content",
     "redeem_code_invite",
     "refresh_team_code_workstreams",
     "relay_task_run_message",
@@ -451,6 +451,19 @@ def get_sandbox_snapshot(snapshot_id: str | UUID) -> contracts.SandboxSnapshotDT
     return _sandbox_snapshot_to_dto(snapshot) if snapshot is not None else None
 
 
+def get_tasks_by_ids(task_ids: Iterable[str | UUID], team_ids: Iterable[int]) -> list[contracts.TaskDTO]:
+    """Tasks matching the supplied ids, restricted to ``team_ids``.
+
+    For multi-team callers (e.g. the Slack App Home Tasks card) that already resolved the
+    set of accessible teams upstream and need a bulk DTO fetch in one query.
+    """
+    ids = [str(t) for t in task_ids]
+    teams = list(team_ids)
+    if not ids or not teams:
+        return []
+    return [_task_to_dto(task) for task in Task.objects.filter(id__in=ids, team_id__in=teams)]
+
+
 def get_latest_pr_url_by_task(task_ids: Iterable[str | UUID]) -> dict[str, str]:
     """Latest non-empty ``output.pr_url`` per task, for the supplied task ids."""
     ids = [str(t) for t in task_ids]
@@ -514,15 +527,47 @@ def get_latest_run_by_task(task_ids: Iterable[str | UUID]) -> dict[str, contract
     return {str(run.task_id): _task_run_to_dto(run) for run in runs}
 
 
-def get_stale_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
-    """Ids of runs stuck in QUEUED with ``updated_at`` older than the cutoff.
+def get_stale_queued_task_run_ids(
+    older_than: timedelta,
+    limit: int,
+    *,
+    created_hard_cap: timedelta | None = None,
+    hard_cap_min_queued: timedelta = timedelta(hours=1),
+) -> list[UUID]:
+    """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
-    cutoff = django_timezone.now() - older_than
+    now = django_timezone.now()
+    stale = Q(updated_at__lt=now - older_than)
+    if created_hard_cap is not None:
+        stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
+    return list(
+        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+        .filter(stale)
+        .order_by("updated_at")
+        .values_list("id", flat=True)[:limit]
+    )
+
+
+def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
+    """Ids of prewarmed runs orphaned in QUEUED — their processing workflow never started, so the
+    in-workflow ``WARM_IDLE_TIMEOUT`` (10m) never armed to finalize them.
+
+    A live warm run idles in QUEUED awaiting its first message and self-terminates at
+    ``WARM_IDLE_TIMEOUT``, so a prewarmed run still QUEUED well past that window has no workflow
+    behind it (dispatch lost — e.g. an ``on_commit`` callback that never ran) and can be reaped
+    immediately rather than lingering until the 24h stale sweep. ``older_than`` should sit safely
+    above ``WARM_IDLE_TIMEOUT`` so a still-idling warm run is never killed early.
+
+    Intentionally cross-team — the janitor sweep runs without a team context.
+    """
+    now = django_timezone.now()
     return list(
         TaskRun.objects.filter(  # nosemgrep: celery-task-team-scope-audit
-            status=TaskRun.Status.QUEUED, updated_at__lt=cutoff
+            status=TaskRun.Status.QUEUED,
+            state__prewarmed=True,
+            updated_at__lt=now - older_than,
         )
         .order_by("updated_at")
         .values_list("id", flat=True)[:limit]
@@ -1248,6 +1293,9 @@ def update_task_run(
     from products.tasks.backend.automation_service import (  # noqa: PLC0415 — keep temporalio off the api import path
         update_automation_run_result,
     )
+    from products.tasks.backend.metrics import (  # noqa: PLC0415 — keep prometheus deps off the api import path
+        observe_agent_turn_failed,
+    )
 
     run = _get_visible_run(run_id, task_id, team_id)
     if run is None:
@@ -1315,6 +1363,8 @@ def update_task_run(
     update_automation_run_result(run)
 
     if new_status in _TERMINAL_TASK_RUN_STATUSES and old_status != new_status:
+        if new_status == TaskRun.Status.FAILED:
+            observe_agent_turn_failed(run)
         signal_workflow_completion(run.id, new_status, validated_data.get("error_message"))
         if new_status == TaskRun.Status.CANCELLED:
             from products.tasks.backend.push_dispatcher import (  # noqa: PLC0415 — keep push deps off the api import path
@@ -1433,8 +1483,9 @@ def _build_artifact_manifest_entry(
     content_type: str,
     storage_path: str,
     uploaded_at: str,
-) -> dict[str, str | int]:
-    return {
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    entry: dict[str, Any] = {
         "id": artifact_id,
         "name": name,
         "type": artifact_type,
@@ -1444,6 +1495,9 @@ def _build_artifact_manifest_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at,
     }
+    if metadata:
+        entry["metadata"] = metadata
+    return entry
 
 
 def _find_artifact_manifest_entry(manifest: list[dict], artifact_id: str, storage_path: str) -> dict | None:
@@ -1494,6 +1548,7 @@ def upload_task_run_artifacts(
                 content_type=content_type or "",
                 storage_path=storage_path,
                 uploaded_at=django_timezone.now().isoformat(),
+                metadata=artifact.get("metadata"),
             )
         )
         logger.info(
@@ -1550,19 +1605,20 @@ def prepare_task_run_artifact_uploads(
         if not presigned_post:
             return None, False
 
-        prepared.append(
-            {
-                "id": artifact_id,
-                "name": safe_name,
-                "type": artifact["type"],
-                "source": artifact.get("source") or "",
-                "size": artifact["size"],
-                "content_type": content_type,
-                "storage_path": storage_path,
-                "expires_in": upload_expiration_seconds,
-                "presigned_post": presigned_post,
-            }
-        )
+        prepared_artifact = {
+            "id": artifact_id,
+            "name": safe_name,
+            "type": artifact["type"],
+            "source": artifact.get("source") or "",
+            "size": artifact["size"],
+            "content_type": content_type,
+            "storage_path": storage_path,
+            "expires_in": upload_expiration_seconds,
+            "presigned_post": presigned_post,
+        }
+        if metadata := artifact.get("metadata"):
+            prepared_artifact["metadata"] = metadata
+        prepared.append(prepared_artifact)
     return prepared, True
 
 
@@ -1628,6 +1684,7 @@ def finalize_task_run_artifact_uploads(
             content_type=content_type,
             storage_path=storage_path,
             uploaded_at=django_timezone.now().isoformat(),
+            metadata=artifact.get("metadata"),
         )
         manifest.append(entry)
         finalized_entries.append(entry)
@@ -1713,16 +1770,6 @@ def read_task_run_logs(run_id: str | UUID, task_id: str | UUID, team_id: int) ->
                 chunk = chunk + "\n"
             parts.append(chunk)
     return "".join(parts)
-
-
-def read_task_run_session_log_content(run_id: str | UUID, task_id: str | UUID, team_id: int) -> str | None:
-    """Raw session-log JSONL for a run. ``None`` if the run isn't found."""
-    from posthog.storage import object_storage  # noqa: PLC0415 — keep storage deps off the api import path
-
-    run = _get_visible_run(run_id, task_id, team_id)
-    if run is None:
-        return None
-    return object_storage.read(run.log_url, missing_ok=True) or ""
 
 
 def create_task_run_connection_token(
@@ -2808,6 +2855,7 @@ def prepare_task_staged_artifacts(
                 storage_path=storage_path,
                 expires_in=upload_expiration_seconds,
                 presigned_post=presigned_post,
+                metadata=artifact.get("metadata"),
             )
         )
 
@@ -2875,6 +2923,7 @@ def finalize_task_staged_artifacts(
                 size=content_length,
                 content_type=content_type,
                 storage_path=storage_path,
+                metadata=artifact.get("metadata"),
             )
         )
 

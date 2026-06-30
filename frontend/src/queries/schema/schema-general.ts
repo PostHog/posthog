@@ -196,6 +196,11 @@ export enum NodeKind {
     MCPHarnessBreakdownQuery = 'MCPHarnessBreakdownQuery',
     MCPToolTopUsersQuery = 'MCPToolTopUsersQuery',
     MCPToolFailuresQuery = 'MCPToolFailuresQuery',
+    MCPToolStatsQuery = 'MCPToolStatsQuery',
+    MCPToolDailyStatsQuery = 'MCPToolDailyStatsQuery',
+    MCPToolDescriptionsQuery = 'MCPToolDescriptionsQuery',
+    MCPToolSampleIntentsQuery = 'MCPToolSampleIntentsQuery',
+    MCPToolNeighborsQuery = 'MCPToolNeighborsQuery',
 
     // Property values
     PropertyValuesQuery = 'PropertyValuesQuery',
@@ -263,6 +268,11 @@ export type AnyDataNode =
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
+    | MCPToolStatsQuery
+    | MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolNeighborsQuery
 
 /**
  * @discriminator kind
@@ -377,6 +387,11 @@ export type QuerySchema =
     | MCPHarnessBreakdownQuery
     | MCPToolTopUsersQuery
     | MCPToolFailuresQuery
+    | MCPToolStatsQuery
+    | MCPToolDailyStatsQuery
+    | MCPToolDescriptionsQuery
+    | MCPToolSampleIntentsQuery
+    | MCPToolNeighborsQuery
 
     // Property values
     | PropertyValuesQuery
@@ -1225,6 +1240,9 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showValuesOnSeries?: boolean
+    // Deprecated: superseded by `pie.showTotal`. Retained so pre-existing pie-chart insights still
+    // validate (ChartSettings is `extra="forbid"`). Read as a fallback in the pie chart components.
+    showPieTotal?: boolean
     showTotalRow?: boolean
     showNullsAsZero?: boolean
     heatmap?: HeatmapSettings
@@ -2552,6 +2570,8 @@ export interface MCPHarnessBreakdownQuery extends DataNode<MCPHarnessBreakdownQu
     dateRange?: DateRange
     properties?: AnyPropertyFilter[]
     filterTestAccounts?: boolean
+    /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
+    toolName?: string
 }
 
 export type CachedMCPHarnessBreakdownQueryResponse = CachedQueryResponse<MCPHarnessBreakdownQueryResponse>
@@ -2605,6 +2625,124 @@ export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryRespo
 }
 
 export type CachedMCPToolFailuresQueryResponse = CachedQueryResponse<MCPToolFailuresQueryResponse>
+
+/** Summary scalars for a single MCP tool: activity, latency, reach, and intent coverage. */
+export interface MCPToolStatsItem {
+    calls: integer
+    errors: integer
+    p50_ms: number | null
+    p95_ms: number | null
+    users: integer
+    conversations: integer
+    /** Calls carrying a non-empty intent payload; the coverage denominator is `calls`. */
+    with_intent: integer
+}
+
+export interface MCPToolStatsQueryResponse extends AnalyticsQueryResponseBase {
+    /** Zero or one row; empty when the tool had no calls in the window. */
+    results: MCPToolStatsItem[]
+}
+
+/** Summary scalars and intent coverage for a single MCP tool over the last 7 days. */
+export interface MCPToolStatsQuery extends DataNode<MCPToolStatsQueryResponse> {
+    kind: NodeKind.MCPToolStatsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolStatsQueryResponse = CachedQueryResponse<MCPToolStatsQueryResponse>
+
+/** One day of activity for a single MCP tool. */
+export interface MCPToolDailyStatItem {
+    day: string
+    calls: integer
+    errors: integer
+    p50: number
+    p95: number
+    users: integer
+    sessions: integer
+}
+
+export interface MCPToolDailyStatsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolDailyStatItem[]
+}
+
+/** Per-day activity series for a single MCP tool over the last 30 days. */
+export interface MCPToolDailyStatsQuery extends DataNode<MCPToolDailyStatsQueryResponse> {
+    kind: NodeKind.MCPToolDailyStatsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolDailyStatsQueryResponse = CachedQueryResponse<MCPToolDailyStatsQueryResponse>
+
+/** One distinct description seen for a single MCP tool, with the last time it was reported. */
+export interface MCPToolDescriptionItem {
+    description: string
+    last_seen: string
+}
+
+export interface MCPToolDescriptionsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolDescriptionItem[]
+}
+
+/** Distinct descriptions reported for a single MCP tool over the last 30 days, most recent first. */
+export interface MCPToolDescriptionsQuery extends DataNode<MCPToolDescriptionsQueryResponse> {
+    kind: NodeKind.MCPToolDescriptionsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolDescriptionsQueryResponse = CachedQueryResponse<MCPToolDescriptionsQueryResponse>
+
+/** One sampled call of a single MCP tool that carried a non-empty intent. */
+export interface MCPToolSampleIntentItem {
+    timestamp: string
+    /** JSON-encoded intent payload as reported by the client. */
+    intent: string
+    intent_source: string
+    /** Resolved harness label for the call. */
+    harness: string
+}
+
+export interface MCPToolSampleIntentsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolSampleIntentItem[]
+}
+
+/** Recent sampled intents for a single MCP tool over the last 7 days, with a resolved harness label. */
+export interface MCPToolSampleIntentsQuery extends DataNode<MCPToolSampleIntentsQueryResponse> {
+    kind: NodeKind.MCPToolSampleIntentsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolSampleIntentsQueryResponse = CachedQueryResponse<MCPToolSampleIntentsQueryResponse>
+
+/** One tool frequently called adjacent to the target tool within the same conversation. */
+export interface MCPToolNeighborItem {
+    neighbor_tool: string
+    co_occurrences: integer
+}
+
+export interface MCPToolNeighborsQueryResponse extends AnalyticsQueryResponseBase {
+    results: MCPToolNeighborItem[]
+}
+
+/** Tools most often called immediately before or after a single MCP tool within a conversation. */
+export interface MCPToolNeighborsQuery extends DataNode<MCPToolNeighborsQueryResponse> {
+    kind: NodeKind.MCPToolNeighborsQuery
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+    /** Whether to count tools called immediately before or after the target tool. */
+    neighborDirection: 'before' | 'after'
+    dateRange?: DateRange
+}
+
+export type CachedMCPToolNeighborsQueryResponse = CachedQueryResponse<MCPToolNeighborsQueryResponse>
 
 export enum WebStatsBreakdown {
     Page = 'Page',
@@ -4071,8 +4209,6 @@ export interface ExperimentParameters {
     minimum_detectable_effect?: number
     /** Overall rollout percentage (0-100). Controls what fraction of all users enter the experiment. Users outside the rollout never see any variant and are excluded from analysis. Default: 100. */
     rollout_percentage?: number
-    /** Variant keys to exclude from metric result calculations. Excluded variants are still served to users but omitted from statistical analysis. */
-    excluded_variants?: string[]
     /** Free-text notes per variant, keyed by variant key. Use to document what each variant does or its reroute URL. */
     variant_notes?: Record<string, string>
 }
@@ -7052,6 +7188,7 @@ export const externalDataSources = [
     'NextdoorAds',
     'AppLovin',
     'Baserow',
+    'Plunk',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
@@ -7585,6 +7722,7 @@ export enum ProductKey {
     LOGS = 'logs',
     MARKETING_ANALYTICS = 'marketing_analytics',
     MAX = 'max',
+    MCP_ANALYTICS = 'mcp_analytics',
     MOBILE_REPLAY = 'mobile_replay',
     NOTEBOOKS = 'notebooks',
     PERSONS = 'persons',

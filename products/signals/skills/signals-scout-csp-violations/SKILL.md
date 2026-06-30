@@ -1,14 +1,9 @@
 ---
 name: signals-scout-csp-violations
 description: >
-  Focused Signals scout for PostHog projects collecting Content Security Policy (CSP)
-  violation reports. Watches `$csp_violation` events for fresh blocked-URL clusters,
-  per-directive bursts, page-scoped regressions after deploys, standing high-reach
-  enforced / first-party blocks, and suspicious third-party domains that may indicate a
-  compromised script. Emits aggregated
-  findings only when a cluster clears the confidence bar; otherwise writes durable
-  memory and closes out empty. Self-contained peer in the signals-scout-* fleet — no
-  dependencies on other skills.
+  Signals scout for Content Security Policy violation reports. Watches `$csp_violation` events
+  for blocked-URL clusters, per-directive bursts, post-deploy regressions, and suspicious
+  third-party domains.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
