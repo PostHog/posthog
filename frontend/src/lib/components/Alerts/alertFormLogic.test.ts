@@ -889,6 +889,26 @@ describe('alertFormLogic', () => {
             })
         })
 
+        it('trends funnel: relative with a percentage threshold compares the ratio change', () => {
+            // 60 → 40 is a 33% relative drop. Percentage-threshold bounds are stored as a ratio (0.3),
+            // so the change (0.333) breaches — mirroring the backend comparator's _relative_value.
+            const preview = deriveFunnelAlertPreview(
+                { result: [trend([60, 40])] },
+                ongoing, // 2 points + ongoing → anchor the latest (40) against the prior (60)
+                { upper: 0.3 },
+                true,
+                AlertConditionType.RELATIVE_DECREASE,
+                InsightThresholdType.PERCENTAGE
+            )
+            expect(preview).toEqual({
+                status: 'ok',
+                values: [{ label: null, rate: 40, previousRate: 60, breaching: true }],
+                isBreakdown: false,
+                hasBounds: true,
+                relative: true,
+            })
+        })
+
         it('trends funnel: relative condition with only one complete period flags no prior', () => {
             const preview = deriveFunnelAlertPreview(
                 { result: [trend([30, 20])] }, // only one complete period (20 is in progress)

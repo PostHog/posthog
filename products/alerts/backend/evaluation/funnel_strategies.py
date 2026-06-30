@@ -55,7 +55,8 @@ class StepsFunnelStrategy(FunnelVizStrategy):
             )
 
     def to_series(self, result: Any, config: FunnelsAlertConfig) -> list[ComparableSeries]:
-        # A steps funnel is a single snapshot, so the condition is always absolute (enforced upstream).
+        # A steps funnel is a single snapshot: the condition is always absolute (enforced upstream) and
+        # check_ongoing_interval has no meaning (there are no periods), so neither is read here.
         breakdowns = _steps_per_breakdown(_current_period_only(result))
         return [
             ComparableSeries(

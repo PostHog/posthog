@@ -63,14 +63,15 @@ function _deriveTrendsPreview(
         const data = (s.data ?? []).map((value) => (typeof value === 'number' ? value : 0))
         const label = _breakdownLabel(s.breakdown_value)
         // By default the latest period is still in progress, so anchor on the last complete one;
-        // check_ongoing_interval anchors on the latest instead. Same anchor for absolute and relative.
-        const anchorIndex = checkOngoing ? data.length - 1 : data.length - 2
-        const rate = anchorIndex >= 0 ? data[anchorIndex] : (data[0] ?? 0)
+        // check_ongoing_interval anchors on the latest instead. Same anchor for absolute and relative,
+        // clamped to 0 like the backend's `max(len - 1 if ongoing else len - 2, 0)`.
+        const anchorIndex = Math.max(checkOngoing ? data.length - 1 : data.length - 2, 0)
+        const rate = data[anchorIndex] ?? 0
         if (!relative) {
             return { label, rate, breaching: valueBreachesBounds(rate, bounds) }
         }
         // Relative: diff the anchor against the period before it (same as the backend comparator).
-        const previousRate = anchorIndex - 1 >= 0 ? data[anchorIndex - 1] : undefined
+        const previousRate = anchorIndex >= 1 ? data[anchorIndex - 1] : undefined
         const breaching =
             previousRate === undefined
                 ? false
