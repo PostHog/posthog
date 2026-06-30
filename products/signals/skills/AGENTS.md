@@ -3,12 +3,12 @@
 Two distinct skill families live in this directory:
 
 1. **Official PostHog skills** — `signals/`, `inbox-exploration/`,
-   `authoring-signals-scouts/`, `exploring-signals-scouts/`. First-party PostHog skills
+   `authoring-scouts/`, `exploring-scouts/`. First-party PostHog skills
    published via `products/posthog_ai/dist/skills/` and loaded by users through the PostHog
    MCP. They teach a caller how to query, browse, and reason about signals data. Two are
-   meta skills about the scout fleet itself: `authoring-signals-scouts/` teaches a user's
+   meta skills about the scout fleet itself: `authoring-scouts/` teaches a user's
    agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
-   in this directory), and `exploring-signals-scouts/` is its read-only counterpart —
+   in this directory), and `exploring-scouts/` is its read-only counterpart —
    teaching a caller how to observe and make sense of what a project's scouts are doing and
    how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
    / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
@@ -245,7 +245,7 @@ directly and does not `emit_signal`, so it carries two references:
 The rest of the fleet still emits weak `emit_signal` findings for the pipeline to
 cluster; those specialists carry their own emit/dedupe contract where they need it,
 and its canonical write-up now lives in
-`authoring-signals-scouts/references/emit-contract.md`.
+`authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references

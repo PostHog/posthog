@@ -235,6 +235,20 @@ describe('tracingDataLogic', () => {
             tracingFiltersLogic().actions.setViewMode('spans')
             expect(logic.values.totalMatchingFilters).toBe(5000)
         })
+
+        it('sparkline counts root spans in traces mode and all spans in spans mode', async () => {
+            const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
+            logic = mountWithSpans([])
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenCalledWith(expect.objectContaining({ rootSpans: true }), expect.anything())
+            tracingFiltersLogic().actions.setViewMode('spans')
+            await logic.asyncActions.fetchSparkline()
+            expect(sparklineSpy).toHaveBeenLastCalledWith(
+                expect.objectContaining({ rootSpans: false }),
+                expect.anything()
+            )
+            sparklineSpy.mockRestore()
+        })
     })
 
     describe('matching counts', () => {
@@ -270,14 +284,15 @@ describe('tracingDataLogic', () => {
     })
 
     describe('sparkline', () => {
-        it('does not re-fetch the sparkline when only the view mode changes', async () => {
+        it('re-fetches the sparkline when the view mode changes', async () => {
             const sparklineSpy = jest.spyOn(api.tracing, 'sparkline').mockResolvedValue({ results: [] })
             logic = mountWithSpans([])
             await logic.asyncActions.fetchSparkline()
             tracingFiltersLogic().actions.setViewMode('spans')
             await logic.asyncActions.fetchSparkline()
-            // The sparkline is view-mode-independent, so the second run reuses the cached result.
-            expect(sparklineSpy).toHaveBeenCalledTimes(1)
+            // The sparkline counts root spans in 'traces' mode and all spans in 'spans' mode, so a
+            // view-mode toggle changes its scope and must re-fetch.
+            expect(sparklineSpy).toHaveBeenCalledTimes(2)
             sparklineSpy.mockRestore()
         })
 

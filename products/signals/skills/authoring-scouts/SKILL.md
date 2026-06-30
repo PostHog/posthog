@@ -1,5 +1,5 @@
 ---
-name: authoring-signals-scouts
+name: authoring-scouts
 description: >
   How to author, edit, and adapt PostHog Signals scouts — the scheduled agents that
   scan a project and emit findings into the Signals inbox. Use when a user wants to
@@ -195,7 +195,7 @@ see [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 
 To **read** what your scouts are doing rather than change them — surveying the fleet, inspecting
 individual runs, the scratchpad memory, and assessing performance — use the read-only companion
-skill `exploring-signals-scouts`. Keep the two in sync when the scout config / run / scratchpad
+skill `exploring-scouts`. Keep the two in sync when the scout config / run / scratchpad
 surfaces change.
 
 ## Quality bar for a v1 scout
