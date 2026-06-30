@@ -367,7 +367,6 @@ tools:
             readOnly: false
             destructive: true
             idempotent: true
-        enrich_url: '{id}'
         title: Delete a scout config
         description: >
             Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up

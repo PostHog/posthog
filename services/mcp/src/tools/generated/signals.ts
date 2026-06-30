@@ -599,7 +599,7 @@ const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSch
             method: 'DELETE',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
         })
-        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+        return result
     },
 })
 
