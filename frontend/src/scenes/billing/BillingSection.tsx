@@ -5,6 +5,8 @@ import { router } from 'kea-router'
 
 import { LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -27,12 +29,20 @@ const tabs: { key: BillingSectionId; label: string }[] = [
 
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
 
-    const section = location.pathname.includes('spend')
-        ? 'spend'
-        : location.pathname.includes('usage')
-          ? 'usage'
-          : 'overview'
+    // The usage/spend dashboards are intentionally hidden from large orgs (the breakdown queries are
+    // slow there) via this flag. Force the overview when it's off so these orgs land on the same
+    // simple billing page regardless of how they navigated in.
+    const usageSpendDashboardsEnabled = !!featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]
+
+    const section = !usageSpendDashboardsEnabled
+        ? 'overview'
+        : location.pathname.includes('spend')
+          ? 'spend'
+          : location.pathname.includes('usage')
+            ? 'usage'
+            : 'overview'
 
     const handleTabChange = (key: BillingSectionId): void => {
         const newUrl = urls.organizationBillingSection(key)
@@ -63,7 +73,7 @@ export function BillingSection(): JSX.Element {
 
     return (
         <div className="flex flex-col">
-            <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />
+            {usageSpendDashboardsEnabled && <LemonTabs activeKey={section} onChange={handleTabChange} tabs={tabs} />}
 
             {section === 'overview' && <Billing />}
             {section === 'usage' && <BillingUsage />}

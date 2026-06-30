@@ -70,11 +70,15 @@ export function Billing(): JSX.Element {
     })
 
     useEffect(() => {
-        if (location.pathname === urls.organizationBilling() && featureFlags[FEATURE_FLAGS.USAGE_SPEND_DASHBOARDS]) {
+        // Always send the bare /organization/billing URL to the canonical section URL. The tabbed
+        // usage/spend experience is gated inside BillingSection, so this redirect must not depend on
+        // feature-flag load timing — otherwise navigating here (e.g. via the command palette) before
+        // flags resolve would strand the user on the section-less page.
+        if (location.pathname === urls.organizationBilling()) {
             router.actions.replace(urls.organizationBillingSection('overview'), searchParams)
             return
         }
-    }, [featureFlags, location.pathname, searchParams])
+    }, [location.pathname, searchParams])
 
     useEffect(() => {
         if (billing) {
