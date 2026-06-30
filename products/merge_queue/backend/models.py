@@ -10,6 +10,8 @@ acknowledged as legitimately unscoped in `.github/scripts/check-idor-model-cover
 from django.db import models
 from django.db.models import Q
 
+from posthog.models.utils import UUIDModel
+
 
 class Strategy(models.TextChoices):
     OPTIMISTIC = "optimistic"
@@ -24,7 +26,7 @@ class PartitionMode(models.TextChoices):
     EXCLUSIVE = "exclusive"  # every merge goes through the queue
 
 
-class Partition(models.Model):
+class Partition(UUIDModel):
     """Identity + resolved config + runtime state.
 
     Predicate / strategy / config are authored in `partitions.yml` and synced into this
@@ -59,7 +61,7 @@ class EnrollmentState(models.TextChoices):
     DEQUEUED = "dequeued"  # terminal: removed by a human/agent
 
 
-class Enrollment(models.Model):
+class Enrollment(UUIDModel):
     """A PR in the queue (PR-level — the thing that merges)."""
 
     repo = models.CharField(max_length=255)  # "owner/name"
@@ -99,7 +101,7 @@ class SlotState(models.TextChoices):
     HELD = "held"  # blocked by an unlanded stack parent or a freeze
 
 
-class Slot(models.Model):
+class Slot(UUIDModel):
     """A PR's membership + position in one partition."""
 
     enrollment = models.ForeignKey(Enrollment, on_delete=models.CASCADE, related_name="slots")
@@ -135,7 +137,7 @@ class TrialState(models.TextChoices):
     # note: freeze lets in-flight trials FINISH — there is no "cancelled-by-freeze" state.
 
 
-class Trial(models.Model):
+class Trial(UUIDModel):
     """One full-suite CI attempt against a projected state (one slot, or many when batched)."""
 
     partition = models.ForeignKey(Partition, on_delete=models.PROTECT, related_name="trials")
@@ -176,7 +178,7 @@ class QueueEventType(models.TextChoices):
     SHADOW_DECISION = "shadow_decision"  # payload: {hook, would_be, taken}
 
 
-class QueueEvent(models.Model):
+class QueueEvent(UUIDModel):
     """Append-only audit/observability log. Never updated or deleted.
 
     The single source for `engineering_analytics` emission, the break-glass
