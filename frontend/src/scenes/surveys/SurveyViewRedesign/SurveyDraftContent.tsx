@@ -4,7 +4,9 @@ import { IconCheck, IconRocket } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { BuilderHog1 } from 'lib/components/hedgehogs'
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { LaunchSurveyButton } from 'scenes/surveys/components/LaunchSurveyButton'
+import { NEW_SURVEY } from 'scenes/surveys/constants'
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 
 import { Survey, SurveyType } from '~/types'
@@ -91,6 +93,12 @@ export function SurveyDraftContent({ onSeeSurveyDetails }: { onSeeSurveyDetails?
                         </p>
                     </div>
                 </div>
+
+                {survey.id && survey.id !== NEW_SURVEY.id && (
+                    <div className="w-full max-w-2xl">
+                        <PendingChangeRequestBanner resourceType="survey" resourceId={survey.id} />
+                    </div>
+                )}
 
                 <div className="flex items-center gap-2">
                     <LaunchSurveyButton>Launch survey</LaunchSurveyButton>

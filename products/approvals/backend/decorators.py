@@ -174,9 +174,12 @@ def _build_context(view_or_serializer, team, organization, request) -> dict[str,
 
 
 def _extract_resource_id(request, args: tuple, kwargs: dict) -> Optional[str]:
-    """Extract resource ID from request context."""
-    if request.method == "POST":
-        return None
+    """Extract resource ID from request context.
+
+    Prefer an explicit reference: the serializer instance arg (update) or a detail-route pk
+    (a detail viewset action such as `POST .../launch/`). A create — POST with neither — has
+    no resource yet and correctly yields None.
+    """
     if args and hasattr(args[0], "id"):
         return str(args[0].id)
     if kwargs.get("pk"):

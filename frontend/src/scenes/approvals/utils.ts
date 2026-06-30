@@ -3,6 +3,7 @@ export const ApprovalActionKey = {
     FEATURE_FLAG_ENABLE: 'feature_flag.enable',
     FEATURE_FLAG_DISABLE: 'feature_flag.disable',
     FEATURE_FLAG_UPDATE: 'feature_flag.update',
+    SURVEY_LAUNCH: 'survey.launch',
 } as const
 
 export type ApprovalActionKeyType = (typeof ApprovalActionKey)[keyof typeof ApprovalActionKey]
@@ -31,6 +32,10 @@ export const APPROVAL_ACTIONS: Record<string, ApprovalActionConfig> = {
         description: 'update feature flag fields',
         contextDescriptions: { experiment: 'update this experiment' },
     },
+    [ApprovalActionKey.SURVEY_LAUNCH]: {
+        label: 'Launch survey',
+        description: 'launch this survey',
+    },
 }
 
 export function getApprovalActionLabel(actionKey: string): string {
@@ -50,11 +55,13 @@ export function getApprovalActionDescription(actionKey: string, context?: Approv
 
 export const ApprovalResourceType = {
     FEATURE_FLAG: 'feature_flag',
+    SURVEY: 'survey',
 } as const
 
 // Maps resource types to display names and URL builders
 const APPROVAL_RESOURCE_CONFIG: Record<string, { label: string; urlBuilder: (id: string) => string }> = {
     [ApprovalResourceType.FEATURE_FLAG]: { label: 'Feature flag', urlBuilder: (id) => `/feature_flags/${id}` },
+    [ApprovalResourceType.SURVEY]: { label: 'Survey', urlBuilder: (id) => `/surveys/${id}` },
 }
 
 export function getApprovalResourceUrl(actionKey: string, resourceId: string | null): string | null {

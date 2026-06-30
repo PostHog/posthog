@@ -61,6 +61,8 @@ from posthog.utils_cors import cors_response
 
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
+from products.approvals.backend.decorators import approval_gate
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.feature_flags.backend.api.feature_flag import (
     BEHAVIOURAL_COHORT_FOUND_ERROR_CODE,
     FeatureFlagSerializer,
@@ -1606,6 +1608,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
 
         return instance
 
+    @approval_gate(["survey.launch"])
     def update(self, instance: Survey, validated_data):
         before_update = Survey.objects.get(pk=instance.pk)
         user = self.context["request"].user
@@ -2065,7 +2068,7 @@ class SurveyFilterSet(FilterSet):
         ],
     ),
 )
-class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
+class SurveyViewSet(ApprovalHandlingMixin, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet):
     scope_object = "survey"
     queryset = Survey.objects.select_related(
         "linked_flag", "linked_insight", "targeting_flag", "internal_targeting_flag"
@@ -2157,6 +2160,7 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
         responses={200: SurveySerializer},
     )
     @action(methods=["POST"], detail=True, required_scopes=["survey:write"])
+    @approval_gate(["survey.launch"])
     def launch(self, request: request.Request, **kwargs: Any) -> Response:
         survey = self.get_object()
         now = datetime.now(UTC)

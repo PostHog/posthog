@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { handleApprovalRequired } from 'lib/approvals/utils'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -1174,6 +1175,13 @@ export const surveyLogic = kea<surveyLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchSurvey)
 
                 actions.loadSurveys()
+            },
+            launchSurveyFailure: ({ errorObject }) => {
+                // When an approval policy gates launches, the API replies 409 instead of launching.
+                // Surface that as "submitted for approval" and refresh the pending-request banner.
+                if (props.id !== NEW_SURVEY.id && handleApprovalRequired(errorObject, 'survey', props.id)) {
+                    return
+                }
             },
             stopSurveySuccess: () => {
                 actions.loadSurveys()

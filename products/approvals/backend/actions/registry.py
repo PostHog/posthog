@@ -11,10 +11,12 @@ def register_actions():
         EnableFeatureFlagAction,
         UpdateFeatureFlagAction,
     )
+    from products.approvals.backend.actions.surveys import LaunchSurveyAction
 
     ACTION_REGISTRY[EnableFeatureFlagAction.key] = EnableFeatureFlagAction
     ACTION_REGISTRY[DisableFeatureFlagAction.key] = DisableFeatureFlagAction
     ACTION_REGISTRY[UpdateFeatureFlagAction.key] = UpdateFeatureFlagAction
+    ACTION_REGISTRY[LaunchSurveyAction.key] = LaunchSurveyAction
 
 
 def get_action(action_key: str) -> Optional[type[BaseAction]]:
