@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.
 )
 
 E_CONOMIC_BASE_URL = "https://restapi.e-conomic.com"
+E_CONOMIC_HOST = urlparse(E_CONOMIC_BASE_URL).netloc
 
 # Max page size the API allows for classic offset pagination.
 PAGE_SIZE = 1000
@@ -44,6 +45,19 @@ def _headers(app_secret_token: str, agreement_grant_token: str) -> dict[str, str
         "X-AgreementGrantToken": agreement_grant_token,
         "Content-Type": "application/json",
     }
+
+
+def _assert_trusted_url(url: str) -> None:
+    """Guard against following a pagination/resume URL off the e-conomic host.
+
+    The session carries `X-AppSecretToken`/`X-AgreementGrantToken` on every request, so a `nextPage`
+    link or persisted resume URL pointing anywhere other than the API host would leak those tokens.
+    We only ever fetch HATEOAS links the API itself returns (or our own resume state), so anything
+    off-host is unexpected and we abort rather than send credentials to it.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or parsed.netloc != E_CONOMIC_HOST:
+        raise ValueError(f"Refusing to fetch untrusted e-conomic URL: {url}")
 
 
 def _format_incremental_value(value: Any) -> str:
@@ -88,7 +102,11 @@ def _build_initial_url(
     reraise=True,
 )
 def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict:
-    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
+    # Validate before every GET so untrusted resume state and `nextPage` links can never carry the
+    # auth headers off-host. Redirects are disabled for the same reason: a redirect could bounce the
+    # request (and its tokens) to an arbitrary host that this check never sees.
+    _assert_trusted_url(url)
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS, allow_redirects=False)
 
     # 429 (throttled) and transient 5xx are retryable. The API may send Retry-After on a 429; the
     # exponential-jitter backoff is a safe, deterministic substitute when it's absent.

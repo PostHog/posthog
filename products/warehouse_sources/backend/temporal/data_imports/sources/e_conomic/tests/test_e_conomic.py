@@ -118,6 +118,28 @@ class TestFetchPage:
             "collection": [{"customerNumber": 1}]
         }
 
+    def test_does_not_follow_redirects(self) -> None:
+        # Redirects are disabled so a bounce can't carry the auth headers to another host.
+        session = MagicMock()
+        session.get.return_value = _fake_response(200, {"collection": []})
+        _fetch_page(session, "https://restapi.e-conomic.com/customers", MagicMock())
+        assert session.get.call_args.kwargs["allow_redirects"] is False
+
+    @parameterized.expand(
+        [
+            ("other_host", "https://evil.example.com/customers"),
+            ("subdomain_spoof", "https://restapi.e-conomic.com.evil.example.com/customers"),
+            ("http_scheme", "http://restapi.e-conomic.com/customers"),
+            ("no_scheme", "//restapi.e-conomic.com/customers"),
+        ]
+    )
+    def test_untrusted_url_raises_without_request(self, _name: str, url: str) -> None:
+        # An off-host or non-https URL must abort before any GET that would leak the auth headers.
+        session = MagicMock()
+        with pytest.raises(ValueError):
+            _fetch_page(session, url, MagicMock())
+        session.get.assert_not_called()
+
 
 class TestGetRows:
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.e_conomic.e_conomic.make_tracked_session")
