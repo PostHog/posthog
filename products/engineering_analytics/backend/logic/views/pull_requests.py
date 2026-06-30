@@ -1,23 +1,15 @@
 """Curated pull-requests query builder.
 
-Maps the raw GitHub pull-requests warehouse snapshot (GitHub's PR JSON, landed
-verbatim) into honest, query-able columns. This is the ONLY place PR domain rules
-live — bot detection, repo identity from ``base.repo.full_name``, label extraction,
-the canonical PR state, and the coarse open-to-merge duration. The source table name
-is resolved per-team and passed in (see ``logic.sources``); it is never hardcoded,
-because a warehouse table's name is ``prefix + "github_pull_requests"`` and the prefix
-is user-chosen. Every query module embeds this ``SELECT`` as a subquery (see
-``_curated``) rather than re-deriving the columns from JSON; nothing registers it as a
-global HogQL view, so the product stays off the per-query catalog hot path.
+Maps the raw GitHub pull-requests snapshot (PR JSON, landed verbatim) into honest query-able columns.
+The ONLY place PR domain rules live — bot detection, repo identity from ``base.repo.full_name``, label
+extraction, canonical PR state, the coarse open-to-merge duration. The source table name is resolved
+per-team and passed in (see ``logic.sources``); never hardcoded.
 
-The real GitHub source lands timestamps as **strings** and the nested objects
-(``user`` / ``head`` / ``base`` / ``labels``) as **Nullable** JSON, so this builder
-runs in two layers: an inner SELECT parses each timestamp with
-``parseDateTimeBestEffort`` and unwraps the Nullable JSON with ``ifNull`` (a
-Nullable column cannot feed ``JSONExtractArrayRaw`` / ``splitByChar`` — ClickHouse
-rejects an Array nested inside a Nullable); the outer SELECT then derives state, repo
-identity, labels and the duration off those parsed columns. Splitting the layers also
-avoids referencing a same-SELECT alias as another expression's input.
+The real source lands timestamps as strings and nested objects (``user`` / ``head`` / ``base`` /
+``labels``) as Nullable JSON, so this runs in two layers: an inner SELECT parses timestamps with
+``parseDateTimeBestEffort`` and unwraps Nullable JSON with ``ifNull`` (ClickHouse rejects an Array
+nested inside a Nullable); the outer SELECT derives state, repo identity, labels, and the duration off
+the parsed columns. Splitting also avoids referencing a same-SELECT alias as another expression's input.
 """
 
 # Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix. Kept

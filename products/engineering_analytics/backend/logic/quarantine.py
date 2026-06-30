@@ -64,19 +64,18 @@ QUARANTINE_FILENAME = ".test_quarantine.json"
 
 _SCHEMA_VERSION = 1
 _DEFAULT_RUNNER = "pytest"
-# Matches DEFAULT_GRACE_DAYS in the quarantine contract: an expired entry stays
-# inert for this long before `quarantine check` makes its removal mandatory.
+# Matches DEFAULT_GRACE_DAYS in the contract: an expired entry stays inert this long before
+# `quarantine check` makes its removal mandatory.
 _GRACE_DAYS = 7
 _EXPIRING_SOON_DAYS = 7
 _ENTRY_FIELDS = ("id", "runner", "reason", "owner", "issue", "added", "expires", "mode")
 
-# SSRF hardening: both halves of `owner/name` must look like a GitHub slug
-# before they are interpolated into the fetch URL.
+# SSRF hardening: both halves of `owner/name` must look like a GitHub slug before interpolation.
 _REPO_PART_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,99}$")
 _FETCH_TIMEOUT_SECONDS = 3
 _CACHE_TTL_SECONDS = 60
-# A real quarantine file is tens of KB; this is generous headroom while bounding how
-# much a hostile public repo can make us buffer, cache, and parse from one request.
+# Generous headroom (a real file is tens of KB) while bounding what a hostile public repo can make us
+# buffer, cache, and parse.
 _MAX_QUARANTINE_BYTES = 5 * 1024 * 1024
 
 # Most urgent first; ties broken by soonest expiry, then id.

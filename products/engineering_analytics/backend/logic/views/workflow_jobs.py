@@ -1,17 +1,12 @@
 """Curated workflow-jobs query builder.
 
-Maps the raw GitHub workflow-jobs warehouse snapshot (``WORKFLOW_JOBS_COLUMNS`` in
-``source_schema``) into honest job-level columns: ``status`` / ``conclusion`` pass through
-unchanged, ``duration_seconds`` is computed only for completed jobs, and ``labels`` (the
-runner-tier JSON the cost model parses) is unwrapped from its Nullable column. ``run_id`` joins
-back to ``github_workflow_runs``. The source table name is resolved per-team and passed in (see
-``logic.sources``); it is never hardcoded.
+Maps the raw GitHub workflow-jobs snapshot (``WORKFLOW_JOBS_COLUMNS``) into honest job-level columns:
+``status`` / ``conclusion`` pass through, ``duration_seconds`` is computed only for completed jobs, and
+``labels`` (the runner-tier JSON) is unwrapped from its Nullable column. ``run_id`` joins back to
+``github_workflow_runs``. The source table name is resolved per-team and passed in; never hardcoded.
 
 Same two-layer shape as ``workflow_runs``: the inner SELECT parses timestamps with
-``parseDateTimeBestEffortOrNull`` (a queued/running job has no start/finish) and unwraps Nullable
-JSON with ``ifNull``; the outer SELECT derives the duration off the parsed columns.
-
-Embedded as a subquery by the jobs query module (see ``_curated``); nothing registers a global view.
+``parseDateTimeBestEffortOrNull`` and unwraps Nullable JSON with ``ifNull``; the outer derives duration.
 """
 
 

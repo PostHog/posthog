@@ -1,10 +1,8 @@
 """Orchestration for engineering_analytics.
 
-Resolves caller inputs (PostHog-convention date strings, ``owner/name`` repo) and binds the
-team to its curated GitHub read layer (``CuratedGitHubSource``, which resolves the warehouse
-table names), then returns canonical contract types. The curated query builders
-(``backend/logic/views``) own all GitHub-shaped mapping and domain rules; this layer deals
-only in canonical types.
+Resolves caller inputs (date strings, ``owner/name`` repo), binds the team to its curated read layer
+(``CuratedGitHubSource``), and returns canonical contracts. The curated builders (``backend/logic/views``)
+own all GitHub-shaped mapping; this layer deals only in canonical types.
 """
 
 from datetime import datetime
@@ -43,22 +41,20 @@ from products.engineering_analytics.backend.logic.sources import list_github_sou
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
 
-# Default recency window when a caller omits date_from. Relative strings (-30d) and
-# ISO8601 are both accepted and resolved against the team's timezone.
+# Default recency window when a caller omits date_from.
 _DEFAULT_WINDOW = "-30d"
 
-# Workflow health defaults to a tighter window than the PR backlog — CI health is a "right now"
-# question, and the short window also buckets by hour for a live-looking trend.
+# Tighter window than the PR backlog — CI health is a "right now" question, and the short window
+# buckets by hour for a live-looking trend.
 _DEFAULT_WORKFLOW_WINDOW = "-24h"
 
-# workflow_health zero-fills one daily entry per workflow per day in the window, so an
-# unbounded range would materialize an enormous response. A year is plenty for trends.
+# workflow_health zero-fills one entry per workflow per day, so an unbounded range would materialize
+# an enormous response. A year is plenty for trends.
 _MAX_WINDOW_DAYS = 366
 
 
-# Each builder operates on an already-resolved CuratedGitHubSource: source selection and per-source
-# warehouse access control happen once at the facade, which hands these builders the authorized
-# handle. They validate their own inputs (dates, repo) and read PR/CI data through the handle.
+# Each builder operates on an already-resolved CuratedGitHubSource (source selection + access control
+# happened once at the facade); they validate their own inputs and read through the handle.
 def build_pr_lifecycle(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRLifecycle | None:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -140,8 +136,8 @@ def build_ci_cards(*, curated: CuratedGitHubSource) -> CICardSummary:
     return query_ci_cards(curated=curated)
 
 
-# Listing the team's connected sources is its own concern (no curated read handle): it threads the
-# requesting user's access control so the picker can't enumerate sources the user can't access.
+# Listing sources is its own concern (no curated read handle): threads the user's access control so
+# the picker can't enumerate sources the user can't access.
 def build_github_sources(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> list[GitHubSource]:
     return list_github_sources(team=team, user_access_control=user_access_control)
 
@@ -176,8 +172,8 @@ def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not repo:
         return None, None
     owner, _, name = repo.partition("/")
-    # A half-specified repo (bare org, trailing/leading slash) would otherwise drop
-    # the filter silently and return a PR from the wrong repo — fail loudly instead.
+    # A half-specified repo would otherwise drop the filter silently and return a PR from the wrong
+    # repo — fail loudly instead.
     if not (owner and name):
         raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
     return owner, name
