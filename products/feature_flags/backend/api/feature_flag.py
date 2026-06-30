@@ -557,8 +557,8 @@ def check_flag_limits_for_team(
         )
 
 
-# Default per-key and per-team cap for remote_config. Per-team overrides come from
-# REMOTE_CONFIG_RATE_LIMITS and only apply to the per-key throttle below.
+# Default per-key and per-team cap for remote_config. Both throttles below respect
+# per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
 REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
 
 
@@ -586,10 +586,22 @@ class RemoteConfigThrottle(PersonalOrProjectSecretApiKeyRateThrottle):
 
 class RemoteConfigProjectSecretApiKeyTeamThrottle(ProjectSecretApiKeyTeamRateThrottle):
     # Per-team aggregate cap stacked alongside the per-key RemoteConfigThrottle so a project can't
-    # multiply its budget by minting many keys. Defense-in-depth for the new credential — real SDK
-    # volume hits the Rust flags service, not this endpoint.
+    # multiply its budget by minting many keys. Defense-in-depth for the new credential.
     scope = "feature_flag_remote_config_psak_team"
     rate = REMOTE_CONFIG_DEFAULT_RATE
+
+    def allow_request(self, request, view):
+        logger = logging.getLogger(__name__)
+        team_id = self.safely_get_team_id_from_view(view)
+        if team_id:
+            try:
+                custom_rate = REMOTE_CONFIG_RATE_LIMITS.get(team_id)
+                if custom_rate:
+                    self.rate = custom_rate
+                    self.num_requests, self.duration = self.parse_rate(self.rate)
+            except Exception:
+                logger.exception(f"Error getting team-specific rate limit for team {team_id}")
+        return super().allow_request(request, view)
 
 
 class EvaluationTagsChecker:
