@@ -8,9 +8,10 @@ from django.db import models, transaction
 from django.db.models import F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.utils import timezone
 
-from drf_spectacular.utils import extend_schema, extend_schema_field
+import structlog
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
-from rest_framework import serializers, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
@@ -21,6 +22,7 @@ from posthog.schema import LogsAlertFilters
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
@@ -38,6 +40,7 @@ from products.logs.backend.alert_destinations import (
     build_teams_config,
     build_webhook_config,
 )
+from products.logs.backend.alert_error_classifier import classify as classify_alert_error
 from products.logs.backend.alert_state_machine import (
     AlertCheckOutcome,
     AlertSnapshot,
@@ -75,6 +78,8 @@ STATE_TIMELINE_LOOKBACK_HOURS = 24
 DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
+
+logger = structlog.get_logger(__name__)
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -663,6 +668,16 @@ class LogsAlertSimulateResponseSerializer(serializers.Serializer):
     threshold_operator = serializers.CharField(help_text="Threshold operator used for evaluation.")
 
 
+class LogsAlertSimulateErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(
+        help_text="Human-readable explanation of why the simulation could not complete, safe to show to the user."
+    )
+    code = serializers.CharField(
+        help_text="Machine-readable error category — one of 'server_busy', 'query_performance', "
+        "'invalid_query', 'cancelled', 'unknown'.",
+    )
+
+
 class LogsAlertCreateDestinationSerializer(serializers.Serializer):
     type = serializers.ChoiceField(
         choices=list(DestinationType), help_text="Destination type — slack, webhook, or teams."
@@ -1026,7 +1041,18 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     @extend_schema(
         request=LogsAlertSimulateRequestSerializer,
-        responses={200: LogsAlertSimulateResponseSerializer},
+        responses={
+            200: LogsAlertSimulateResponseSerializer,
+            400: OpenApiResponse(
+                response=LogsAlertSimulateErrorSerializer,
+                description="The simulation query was too expensive or otherwise rejected by the query engine. "
+                "Narrow the filters or shorten the lookback window and retry.",
+            ),
+            503: OpenApiResponse(
+                response=LogsAlertSimulateErrorSerializer,
+                description="The query engine was temporarily unavailable. Retry shortly.",
+            ),
+        },
         description="Simulate a logs alert on historical data using the full state machine. "
         "Read-only — no alert check records are created.",
     )
@@ -1050,12 +1076,37 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         cadence_minutes = fake_alert.check_interval_minutes
 
-        sparse_buckets: list[BucketedCount] = AlertCheckQuery(
-            team=self.team,
-            alert=fake_alert,
-            date_from=date_from_dt,
-            date_to=date_to_dt,
-        ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
+        # The simulate query runs with the same hard byte/time limits as the production
+        # evaluator (max_bytes_to_read + read_overflow_mode="throw", max_execution_time).
+        # A wide window over a large `logs` table can blow past those caps, so classify
+        # the ClickHouse failure into a safe, actionable message instead of letting it
+        # surface as an opaque 500 — mirroring how the evaluator records `error_message`.
+        try:
+            sparse_buckets: list[BucketedCount] = AlertCheckQuery(
+                team=self.team,
+                alert=fake_alert,
+                date_from=date_from_dt,
+                date_to=date_to_dt,
+            ).execute_bucketed(interval_minutes=cadence_minutes, limit=MAX_SIMULATE_BUCKETS)
+        except Exception as e:
+            classified = classify_alert_error(e)
+            # Only genuinely unexpected failures are worth a Sentry report — query-too-large,
+            # server-busy and cancellations are expected outcomes of the simulate controls.
+            if classified.code == "unknown":
+                capture_exception(e, {"team_id": self.team.id, "endpoint": "logs_alert_simulate"})
+            logger.warning(
+                "Logs alert simulate query failed",
+                team_id=self.team.id,
+                classification=classified.code,
+                error=str(e),
+            )
+            error_status = (
+                status.HTTP_503_SERVICE_UNAVAILABLE if classified.is_transient else status.HTTP_400_BAD_REQUEST
+            )
+            return Response(
+                LogsAlertSimulateErrorSerializer({"detail": classified.user_message, "code": classified.code}).data,
+                status=error_status,
+            )
 
         cadence_buckets = _fill_empty_buckets(sparse_buckets, date_from_dt, date_to_dt, cadence_minutes)
 
