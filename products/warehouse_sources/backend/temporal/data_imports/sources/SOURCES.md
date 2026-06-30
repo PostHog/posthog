@@ -67,6 +67,7 @@ the row lists both.
 | blogger             | HTTP                        | requests                                                        | ✅                          |
 | braintree           | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze               | HTTP                        | requests                                                        | ✅                          |
+| breezometer         | HTTP                        | requests                                                        | ✅                          |
 | brevo               | HTTP                        | requests                                                        | ✅                          |
 | brex                | HTTP                        | requests                                                        | ✅                          |
 | bugsnag             | HTTP                        | requests                                                        | ✅                          |
@@ -327,7 +328,6 @@ doesn't conflict with concurrent PRs.
 - box
 - braintrust
 - branch
-- breezometer
 - breezy_hr
 - bunny
 - buzzsprout
