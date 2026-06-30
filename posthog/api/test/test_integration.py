@@ -567,11 +567,11 @@ class TestDatabricksIntegration:
             "192.168.1.1",
         ],
     )
-    # Force production SSRF behavior: is_url_allowed bypasses validation in dev mode (DEBUG).
-    @patch("posthog.security.url_validation.is_dev_mode", return_value=False)
+    # FORCE_URL_VALIDATION exercises the real SSRF guard; otherwise is_url_allowed short-circuits
+    # in dev/DEBUG, which is on under tests.
+    @override_settings(FORCE_URL_VALIDATION=True)
     def test_integration_from_config_rejects_internal_host(
         self,
-        mock_is_dev_mode,
         host,
         client: HttpClient,
     ):
