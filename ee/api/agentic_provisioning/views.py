@@ -96,6 +96,8 @@ _SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 # app. Mirrors the de-facto set tokens already carry (`StripeIntegration.SCOPES`,
 # the default in `_exchange_authorization_code` when no per-code scopes are given).
 STRIPE_CONTRACTED_SCOPES: list[str] = StripeIntegration.SCOPES.split()
+# Required for wizard state-sync writes (`POST /api/projects/:id/wizard/sessions/`).
+WIZARD_REQUIRED_SCOPES: tuple[str, ...] = ("wizard_session:write",)
 # Mirrors PersonalAPIKey.label's CharField(max_length=40) - keep in sync if that ever changes.
 PROVISIONED_PAT_LABEL_MAX_LENGTH = 40
 # Cap partner-supplied prefix below the full label length so " - {team_name}" still
@@ -1133,6 +1135,7 @@ def _exchange_authorization_code(request: Request) -> Response:
         # Direct-mint bypasses /authorize's OAuthValidator, so the per-app scope
         # ceiling has to be enforced here before the token is created by hand.
         requested_scopes = scopes if scopes else StripeIntegration.SCOPES.split()
+        requested_scopes = _with_required_wizard_scopes(locked_app, requested_scopes)
         app_scopes = locked_app.ceiling_scopes if locked_app else []
         if not scopes_within_ceiling(requested_scopes, app_scopes):
             _capture_provisioning_event("token_exchange", "scope_ceiling_exceeded", grant_type="authorization_code")
@@ -1295,7 +1298,7 @@ def _exchange_refresh_token(request: Request) -> Response:
                 },
                 status=400,
             )
-        new_scope = " ".join(narrowed_scopes)
+        new_scope = " ".join(_with_required_wizard_scopes(oauth_app, narrowed_scopes))
 
         # provisioning_partner_type is a stable marker set at partner registration;
         # checking it instead of is_provisioning_partner prevents a bypass when an admin
@@ -2565,6 +2568,19 @@ class LegacyStripeOAuthAppMissingError(Exception):
     operational misconfiguration, not something to paper over with a freshly
     created application that carries no scope ceiling.
     """
+
+
+def _with_required_wizard_scopes(app: OAuthApplication | None, scopes: list[str]) -> list[str]:
+    deduped_scopes = list(dict.fromkeys(scopes))
+    if app is None or app.provisioning_partner_type != "wizard":
+        return deduped_scopes
+
+    missing_ceiling = [scope for scope in WIZARD_REQUIRED_SCOPES if scope not in app.ceiling_scopes]
+    if missing_ceiling:
+        app.scopes = list(dict.fromkeys([*app.scopes, *missing_ceiling]))
+        app.save(update_fields=["scopes"])
+
+    return list(dict.fromkeys([*deduped_scopes, *WIZARD_REQUIRED_SCOPES]))
 
 
 def _seed_stripe_app_scopes(app: OAuthApplication) -> None:

@@ -156,6 +156,59 @@ class TestProvisioningAuthentication(APIBaseTest):
         assert res.json()["status"] == "complete"
         assert "api_key" in res.json()["complete"]["access_configuration"]
 
+    def test_pkce_wizard_exchange_backfills_and_grants_wizard_session_scope(self):
+        from posthog.models.oauth import OAuthAccessToken
+
+        legacy_wizard_scopes = [
+            "dashboard:write",
+            "insight:write",
+            "llm_gateway:write",
+            "query:read",
+            "user:read",
+        ]
+        self.wizard_app.scopes = legacy_wizard_scopes
+        self.wizard_app.save(update_fields=["scopes"])
+
+        verifier, challenge = _pkce_pair()
+        res = self.client.post(
+            "/api/agentic/provisioning/account_requests",
+            data={
+                "id": "req_wizard_scope_backfill",
+                "email": "wizard-scope-backfill@example.com",
+                "client_id": WIZARD_CLIENT_ID,
+                "code_challenge": challenge,
+                "code_challenge_method": "S256",
+                "scopes": legacy_wizard_scopes,
+            },
+            content_type="application/json",
+            headers={"api-version": "0.1d"},
+        )
+        assert res.status_code == 200
+        code = res.json()["oauth"]["code"]
+
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=urlencode(
+                {
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "code_verifier": verifier,
+                }
+            ),
+            content_type="application/x-www-form-urlencoded",
+            headers={"api-version": "0.1d"},
+        )
+        assert res.status_code == 200
+
+        token = OAuthAccessToken.objects.get(token=res.json()["access_token"])
+        token_scopes = set(token.scope.split())
+        for scope in legacy_wizard_scopes:
+            assert scope in token_scopes
+        assert "wizard_session:write" in token_scopes
+
+        self.wizard_app.refresh_from_db()
+        assert "wizard_session:write" in self.wizard_app.scopes
+
     def test_pkce_wrong_verifier_rejected(self):
         _, challenge = _pkce_pair()
 
