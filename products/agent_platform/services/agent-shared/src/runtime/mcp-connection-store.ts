@@ -8,12 +8,30 @@
 
 import type { Pool, PoolClient } from 'pg'
 
+import type { ToolApprovalLevel } from '../spec/spec'
 import { EncryptedFields } from './encryption'
 import type { HttpFetcher } from './http-client'
 import { createLogger } from './logger'
 
 export type McpConnectionResolution =
-    | { kind: 'resolved'; url: string; bearer: string }
+    | {
+          kind: 'resolved'
+          url: string
+          bearer: string
+          /**
+           * The owner's required per-tool approvals, keyed by raw remote tool
+           * name. The connection-backed path talks to the upstream server
+           * DIRECTLY (it does NOT route through the mcp_store proxy that enforces
+           * `MCPServerInstallationTool.approval_state`), so the runner must apply
+           * the owner's marks itself: `deny` (do_not_use) → never exposed,
+           * `approve` (needs_approval) → always gated. The agent author's
+           * `default_tool_approval`/`level` can only TIGHTEN these, never widen
+           * them. Only explicit non-`allow` marks are returned; a tool with an
+           * `approved` row or no row at all imposes no approval (agent policy
+           * governs).
+           */
+          ownerToolApprovals: Record<string, ToolApprovalLevel>
+      }
     /** No usable credential (missing or `needs_reauth`); the OWNER must reconnect. */
     | { kind: 'needs_reauth' }
     /** Owner disabled the installation (`is_enabled = false`). */
@@ -64,6 +82,19 @@ const SELECT_INSTALLATION = `
       LEFT JOIN mcp_store_mcpservertemplate t ON t.id = i.template_id
      WHERE i.id = $1 AND i.team_id = $2`
 
+const SELECT_TOOL_STATES = `
+    SELECT tool_name, approval_state
+      FROM mcp_store_mcpserverinstallationtool
+     WHERE installation_id = $1 AND removed_at IS NULL`
+
+/** `MCPServerInstallationTool.approval_state` → the runner's tool-approval
+ *  level. `approved` imposes no approval (the agent policy governs), so it's
+ *  omitted from the resolved map. */
+const APPROVAL_STATE_TO_APPROVAL: Record<string, ToolApprovalLevel | undefined> = {
+    needs_approval: 'approve',
+    do_not_use: 'deny',
+}
+
 /** Reads `mcp_store_mcpserverinstallation` (+ optional template) from the main
  *  DB. Pass the main-DB pool. Write-back needs UPDATE on that table. */
 export class PgMcpConnectionStore implements McpConnectionStore {
@@ -89,12 +120,16 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             return { kind: 'needs_reauth' }
         }
 
+        // ponytail: one extra query per session-start per connection; fine. The
+        // owner's per-tool marks are needed for every resolved result.
+        const ownerToolApprovals = await this.fetchOwnerToolApprovals(connectionId)
+
         if (row.auth_type === 'api_key') {
             const apiKey = asNonEmptyString(sensitive.api_key)
             if (!apiKey) {
                 return { kind: 'needs_reauth' }
             }
-            return { kind: 'resolved', url: row.url, bearer: apiKey }
+            return { kind: 'resolved', url: row.url, bearer: apiKey, ownerToolApprovals }
         }
 
         // OAuth: use the stored access token, refreshing first if it's expiring.
@@ -103,10 +138,28 @@ export class PgMcpConnectionStore implements McpConnectionStore {
             return { kind: 'needs_reauth' }
         }
         if (!isTokenExpiring(sensitive)) {
-            return { kind: 'resolved', url: row.url, bearer: accessToken }
+            return { kind: 'resolved', url: row.url, bearer: accessToken, ownerToolApprovals }
         }
         const refreshed = await this.refresh(connectionId, teamId)
-        return { kind: 'resolved', url: row.url, bearer: refreshed }
+        return { kind: 'resolved', url: row.url, bearer: refreshed, ownerToolApprovals }
+    }
+
+    /** The owner's required per-tool approvals for this installation — only the
+     *  explicit non-`allow` marks (`needs_approval` → `approve`, `do_not_use` →
+     *  `deny`). Tools with an `approved` row or no row at all are absent (no
+     *  required approval). Excludes tools `removed_at` from the upstream catalog. */
+    private async fetchOwnerToolApprovals(connectionId: string): Promise<Record<string, ToolApprovalLevel>> {
+        const { rows } = await this.pool.query<{ tool_name: string; approval_state: string }>(SELECT_TOOL_STATES, [
+            connectionId,
+        ])
+        const approvals: Record<string, ToolApprovalLevel> = {}
+        for (const r of rows) {
+            const level = APPROVAL_STATE_TO_APPROVAL[r.approval_state]
+            if (level) {
+                approvals[r.tool_name] = level
+            }
+        }
+        return approvals
     }
 
     /** Refresh under a row lock, write back the rotated token, return it.

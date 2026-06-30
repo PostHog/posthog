@@ -121,7 +121,9 @@ describe('openMcpClients', () => {
 
     it('opens an external ref and lists+calls remote tools', async () => {
         const { factory, calls, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'agent', id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [
+            { kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/mcp', secrets: [] },
+        ]
 
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
@@ -150,8 +152,20 @@ describe('openMcpClients', () => {
     it('preserves the prefix as the entry id for external refs', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'agent', id: 'linear', url: 'https://example.com/linear', secrets: [] },
-            { kind: 'agent', id: 'github', url: 'https://example.com/github', secrets: [] },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'linear',
+                url: 'https://example.com/linear',
+                secrets: [],
+            },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'github',
+                url: 'https://example.com/github',
+                secrets: [],
+            },
         ]
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
@@ -165,8 +179,8 @@ describe('openMcpClients', () => {
     it('rejects duplicate prefixes across refs', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'agent', id: 'dup', url: 'https://example.com/a', secrets: [] },
-            { kind: 'agent', id: 'dup', url: 'https://example.com/b', secrets: [] },
+            { kind: 'agent', default_tool_approval: 'allow', id: 'dup', url: 'https://example.com/a', secrets: [] },
+            { kind: 'agent', default_tool_approval: 'allow', id: 'dup', url: 'https://example.com/b', secrets: [] },
         ]
         await expect(openMcpClients(refs, { secrets: {}, transportFactory: factory })).rejects.toThrow(
             /duplicate_mcp_prefix: dup/
@@ -179,7 +193,13 @@ describe('openMcpClients', () => {
     it('substitutes ${NAME} placeholders in url from secrets', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'agent', id: 'tenant', url: 'https://example.com/${TENANT}/mcp', secrets: ['TENANT'] },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'tenant',
+                url: 'https://example.com/${TENANT}/mcp',
+                secrets: ['TENANT'],
+            },
         ]
         const { close } = await openMcpClients(refs, {
             secrets: { TENANT: 'acme' },
@@ -201,6 +221,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://api.githubcopilot.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -224,7 +245,14 @@ describe('openMcpClients', () => {
     it('auth.provider stamps the asker bearer when the identity resolves ok', async () => {
         const { factory, pairs, targets } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'principal', id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } },
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'gh',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'github' },
+            },
         ]
         const { close } = await openMcpClients(refs, {
             secrets: {},
@@ -245,7 +273,14 @@ describe('openMcpClients', () => {
     it('auth.provider unlinked → ref fails to open in the auth category', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'principal', id: 'gh', url: 'https://example.com/mcp', secrets: [], auth: { provider: 'github' } },
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'gh',
+                url: 'https://example.com/mcp',
+                secrets: [],
+                auth: { provider: 'github' },
+            },
         ]
         const { clients, failures, close } = await openMcpClients(refs, {
             secrets: {},
@@ -280,6 +315,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'principal',
+                default_tool_approval: 'allow',
                 id: 'posthog',
                 url: 'https://example.com/mcp',
                 secrets: [],
@@ -309,7 +345,14 @@ describe('openMcpClients', () => {
     it('auth.provider refuses a host outside the resolved credential allowlist', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'principal', id: 'gh', url: 'https://evil.example/mcp', secrets: [], auth: { provider: 'github' } },
+            {
+                kind: 'principal',
+                default_tool_approval: 'allow',
+                id: 'gh',
+                url: 'https://evil.example/mcp',
+                secrets: [],
+                auth: { provider: 'github' },
+            },
         ]
         const { clients, failures, close } = await openMcpClients(refs, {
             secrets: {},
@@ -333,6 +376,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'principal',
+                default_tool_approval: 'allow',
                 id: 'posthog',
                 url: 'http://localhost:8787/mcp',
                 secrets: [],
@@ -366,6 +410,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://example.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -388,7 +433,13 @@ describe('openMcpClients', () => {
     it('reports a url-secret-missing ref as an unavailable MCP (auth category)', async () => {
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'agent', id: 'tenant', url: 'https://example.com/${TENANT}/mcp', secrets: ['TENANT'] },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'tenant',
+                url: 'https://example.com/${TENANT}/mcp',
+                secrets: ['TENANT'],
+            },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
             secrets: {},
@@ -412,6 +463,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'exfil',
                 url: 'https://attacker.example.com/collect',
                 secrets: ['SLACK_BOT_TOKEN'],
@@ -440,6 +492,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://api.githubcopilot.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -467,6 +520,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'github',
                 url: 'https://api.githubcopilot.com/mcp',
                 secrets: ['GITHUB_TOKEN'],
@@ -489,7 +543,13 @@ describe('openMcpClients', () => {
         // attacker host. The final-host check applies to URL substitution too.
         const { factory, pairs } = await buildEchoFactory()
         const refs: McpRef[] = [
-            { kind: 'agent', id: 'tenant', url: 'https://attacker.example.com/${TENANT}/mcp', secrets: ['TENANT'] },
+            {
+                kind: 'agent',
+                default_tool_approval: 'allow',
+                id: 'tenant',
+                url: 'https://attacker.example.com/${TENANT}/mcp',
+                secrets: ['TENANT'],
+            },
         ]
         const { clients, close, failures } = await openMcpClients(refs, {
             secrets: { TENANT: 'super-secret-tenant' },
@@ -510,6 +570,7 @@ describe('openMcpClients', () => {
         const refs: McpRef[] = [
             {
                 kind: 'agent',
+                default_tool_approval: 'allow',
                 id: 'svc',
                 url: 'https://api.example.com/mcp',
                 secrets: ['SVC_TOKEN'],
@@ -528,7 +589,9 @@ describe('openMcpClients', () => {
 
     it('surfaces remote tool errors as isError on the McpCallResult', async () => {
         const { factory, pairs } = await buildEchoFactory()
-        const refs: McpRef[] = [{ kind: 'agent', id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [
+            { kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/mcp', secrets: [] },
+        ]
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
@@ -563,7 +626,9 @@ describe('openMcpClients', () => {
                 },
             }) as Transport
         }
-        const refs: McpRef[] = [{ kind: 'agent', id: 'echo', url: 'https://example.com/mcp', secrets: [] }]
+        const refs: McpRef[] = [
+            { kind: 'agent', default_tool_approval: 'allow', id: 'echo', url: 'https://example.com/mcp', secrets: [] },
+        ]
         const { clients, close } = await openMcpClients(refs, {
             secrets: {},
             transportFactory: factory,
@@ -585,7 +650,15 @@ describe('openMcpClients', () => {
         it('attaches Authorization: Bearer when ref has no auth and a dev bearer is configured', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
             const { close } = await openMcpClients(
-                [{ kind: 'agent', id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }],
+                [
+                    {
+                        kind: 'agent',
+                        default_tool_approval: 'allow',
+                        id: 'x',
+                        url: 'https://mcp.example.com/sse',
+                        secrets: [],
+                    },
+                ],
                 {
                     secrets: {},
                     transportFactory: factory,
@@ -600,7 +673,15 @@ describe('openMcpClients', () => {
         it('omits Authorization entirely when no auth and no dev bearer is set', async () => {
             const { factory, pairs, targets } = await buildEchoFactory()
             const { close } = await openMcpClients(
-                [{ kind: 'agent', id: 'x', url: 'https://mcp.example.com/sse', secrets: [] }],
+                [
+                    {
+                        kind: 'agent',
+                        default_tool_approval: 'allow',
+                        id: 'x',
+                        url: 'https://mcp.example.com/sse',
+                        secrets: [],
+                    },
+                ],
                 {
                     secrets: {},
                     transportFactory: factory,
@@ -618,6 +699,7 @@ describe('openMcpClients', () => {
             const refs: McpRef[] = [
                 {
                     kind: 'agent',
+                    default_tool_approval: 'allow',
                     id: 'incident',
                     url: 'https://placeholder.invalid/',
                     connection: 'conn-1',
@@ -632,6 +714,7 @@ describe('openMcpClients', () => {
                         kind: 'resolved',
                         url: 'https://mcp.incident.io/mcp',
                         bearer: 'shared-tok',
+                        ownerToolApprovals: {},
                     }),
                 },
             })
@@ -647,6 +730,7 @@ describe('openMcpClients', () => {
             const refs: McpRef[] = [
                 {
                     kind: 'agent',
+                    default_tool_approval: 'allow',
                     id: 'incident',
                     url: 'https://placeholder.invalid/',
                     connection: 'conn-1',
@@ -668,7 +752,14 @@ describe('openMcpClients', () => {
         it('not_found → fails in the not_found category', async () => {
             const { factory, pairs } = await buildEchoFactory()
             const refs: McpRef[] = [
-                { kind: 'agent', id: 'incident', url: 'https://placeholder.invalid/', connection: 'gone', secrets: [] },
+                {
+                    kind: 'agent',
+                    default_tool_approval: 'allow',
+                    id: 'incident',
+                    url: 'https://placeholder.invalid/',
+                    connection: 'gone',
+                    secrets: [],
+                },
             ]
             const { failures, close } = await openMcpClients(refs, {
                 secrets: {},
@@ -685,6 +776,7 @@ describe('openMcpClients', () => {
             const refs: McpRef[] = [
                 {
                     kind: 'agent',
+                    default_tool_approval: 'allow',
                     id: 'incident',
                     url: 'https://placeholder.invalid/',
                     connection: 'conn-1',

@@ -149,7 +149,18 @@ function byLabel(
 
 describe('mcp proxy exposure', () => {
     it('proxies a large connection: two helper tools, no inline tools, populates mcpProxyCallTools', async () => {
-        const rev = makeRev([], [{ kind: 'agent', id: 'posthog', url: 'https://example.com/mcp', secrets: [] }])
+        const rev = makeRev(
+            [],
+            [
+                {
+                    kind: 'agent',
+                    id: 'posthog',
+                    url: 'https://example.com/mcp',
+                    secrets: [],
+                    default_tool_approval: 'allow',
+                },
+            ]
+        )
         const mcp = makeFakeMcp('posthog', rev.spec.mcps[0], manyHandlers(60))
         const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
 
@@ -166,7 +177,18 @@ describe('mcp proxy exposure', () => {
     })
 
     it('inlines a small connection: one tool per remote, no proxy helpers', async () => {
-        const rev = makeRev([], [{ kind: 'agent', id: 'linear', url: 'https://example.com/linear', secrets: [] }])
+        const rev = makeRev(
+            [],
+            [
+                {
+                    kind: 'agent',
+                    id: 'linear',
+                    url: 'https://example.com/linear',
+                    secrets: [],
+                    default_tool_approval: 'allow',
+                },
+            ]
+        )
         const mcp = makeFakeMcp('linear', rev.spec.mcps[0], {
             'create-issue': handler('Open a new Linear issue.'),
             'list-issues': handler('List recent Linear issues.'),
@@ -192,7 +214,18 @@ describe('mcp proxy exposure', () => {
                 properties: { project_id: { type: 'number' } },
                 required: ['project_id'],
             })
-            const rev = makeRev([], [{ kind: 'agent', id: 'posthog', url: 'https://example.com/mcp', secrets: [] }])
+            const rev = makeRev(
+                [],
+                [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/mcp',
+                        secrets: [],
+                        default_tool_approval: 'allow',
+                    },
+                ]
+            )
             const mcp = makeFakeMcp('posthog', rev.spec.mcps[0], handlers)
             const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
             return { built, mcp }
@@ -242,7 +275,18 @@ describe('mcp proxy exposure', () => {
 
     describe('call_tool', () => {
         it('dispatches the raw remote tool through the open client', async () => {
-            const rev = makeRev([], [{ kind: 'agent', id: 'posthog', url: 'https://example.com/mcp', secrets: [] }])
+            const rev = makeRev(
+                [],
+                [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/mcp',
+                        secrets: [],
+                        default_tool_approval: 'allow',
+                    },
+                ]
+            )
             const mcp = makeFakeMcp('posthog', rev.spec.mcps[0], manyHandlers(60))
             const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
 
@@ -293,7 +337,18 @@ describe('mcp proxy exposure', () => {
         })
 
         it('surfaces a remote isError as a thrown error', async () => {
-            const rev = makeRev([], [{ kind: 'agent', id: 'posthog', url: 'https://example.com/mcp', secrets: [] }])
+            const rev = makeRev(
+                [],
+                [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/mcp',
+                        secrets: [],
+                        default_tool_approval: 'allow',
+                    },
+                ]
+            )
             const handlers = manyHandlers(60)
             handlers['tool-5'] = {
                 description: 'boom',

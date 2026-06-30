@@ -131,7 +131,15 @@ describe('runtime MCPs: real e2e', () => {
         await c.deployAgent({
             slug: 'mcp-filtered',
             spec: {
-                mcps: [{ kind: 'agent', id: 'linear', url: 'https://example.com/linear', tools: ['list-issues'] }],
+                mcps: [
+                    {
+                        kind: 'agent',
+                        id: 'linear',
+                        url: 'https://example.com/linear',
+                        default_tool_approval: 'deny',
+                        tools: [{ name: 'list-issues', level: 'allow' }],
+                    },
+                ],
             },
         })
         const res = await request(c.ingress).post('/agents/mcp-filtered/run').send({ message: 'list' })
@@ -324,10 +332,11 @@ describe('runtime MCPs: real e2e', () => {
                         kind: 'agent',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
+                        default_tool_approval: 'allow',
                         tools: [
                             {
                                 name: 'promote-revision',
-                                requires_approval: true,
+                                level: 'approve',
                                 approval_policy: { type: 'agent', ttl_ms: 900_000 },
                             },
                         ],
@@ -401,10 +410,11 @@ describe('runtime MCPs: real e2e', () => {
                         kind: 'agent',
                         id: 'posthog',
                         url: 'https://example.com/posthog',
+                        default_tool_approval: 'allow',
                         tools: [
                             {
                                 name: 'promote-revision',
-                                requires_approval: true,
+                                level: 'approve',
                                 approval_policy: { type: 'agent', ttl_ms: 900_000 },
                             },
                         ],

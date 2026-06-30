@@ -489,7 +489,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
             posthogApiBaseUrl: deps.posthogApiBaseUrl,
             gatewayCatalog: deps.gatewayCatalog,
         }
-        const { tools, nameToId, mcpProxyCallTools } = await buildAgentTools(rev, toolDeps)
+        const { tools, nameToId, mcpProxyCallTools, mcpOwnerApprovals } = await buildAgentTools(rev, toolDeps)
 
         await emit('session_started', {
             team_id: session.team_id,
@@ -604,6 +604,13 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                         if (gate?.requires_approval) {
                             return queueGated(exposedName, toolCallId, a, gate.approval_policy)
                         }
+                        // Owner-required approval: a connection tool the
+                        // installation owner marked `needs_approval` parks even if
+                        // the agent author set it to `allow`.
+                        const ownerApproval = mcpOwnerApprovals.get(exposedName)
+                        if (ownerApproval) {
+                            return queueGated(exposedName, toolCallId, a, ownerApproval)
+                        }
                         return realProxyExecute(toolCallId, a)
                     }
                     continue
@@ -626,11 +633,15 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // collision-skip in `build-agent-tools.ts` handles the
                 // surface side; this just keeps the wrap path consistent.
                 const mcpGate = ref ? null : lookupMcpToolApproval(id, rev.spec)
+                // Owner-required approval for inline-exposed connection tools:
+                // force a gate on `needs_approval` tools the agent author left
+                // ungated.
+                const ownerApprovalPolicy = ref ? undefined : mcpOwnerApprovals.get(id)
                 const policy: ApprovalPolicy | null = nativeRef
                     ? (nativeRef.approval_policy as ApprovalPolicy)
                     : mcpGate?.requires_approval
                       ? mcpGate.approval_policy
-                      : null
+                      : (ownerApprovalPolicy ?? null)
                 if (policy) {
                     tool.execute = async (toolCallId, args) =>
                         queueGated(id, toolCallId, (args ?? {}) as Record<string, unknown>, policy)

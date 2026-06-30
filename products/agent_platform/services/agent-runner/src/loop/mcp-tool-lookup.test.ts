@@ -12,17 +12,18 @@ function buildSpec(overrides: Record<string, unknown> = {}): AgentSpec {
 }
 
 describe('lookupMcpToolApproval', () => {
-    it('returns the policy when the exposed name resolves to a gated object entry', () => {
+    it('returns the policy when the exposed name resolves to an approve-level entry', () => {
         const spec = buildSpec({
             mcps: [
                 {
                     kind: 'agent',
                     id: 'posthog',
                     url: 'https://app.posthog.com/api/mcp',
+                    default_tool_approval: 'allow',
                     tools: [
                         {
                             name: 'agent-applications-revisions-promote-create',
-                            requires_approval: true,
+                            level: 'approve',
                             approval_policy: { type: 'principal', ttl_ms: 900_000 },
                         },
                     ],
@@ -36,55 +37,26 @@ describe('lookupMcpToolApproval', () => {
         expect(result?.approval_policy.ttl_ms).toBe(900_000)
     })
 
-    it('returns null when the exposed name matches a bare-string entry (inclusion only, no policy)', () => {
-        const spec = buildSpec({
-            mcps: [{ kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', tools: ['create-issue'] }],
-        })
-        expect(lookupMcpToolApproval('linear__create-issue', spec)).toBeNull()
-    })
-
-    it('returns null when the remote name has no entry in the matching mcp', () => {
+    it('returns null when a tool takes an allow default (no gate)', () => {
         const spec = buildSpec({
             mcps: [
                 {
                     kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
-                    tools: [{ name: 'create-issue', requires_approval: true }],
+                    default_tool_approval: 'allow',
+                    tools: [{ name: 'create-issue', level: 'approve' }],
                 },
             ],
         })
+        // list-issues has no entry → takes the 'allow' default → no gate.
         expect(lookupMcpToolApproval('linear__list-issues', spec)).toBeNull()
-    })
-
-    it('returns the entry verbatim when matched — requires_approval=false flows through to the driver', () => {
-        const spec = buildSpec({
-            mcps: [
-                {
-                    kind: 'agent',
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: [{ name: 'create-issue' /* requires_approval defaults to false */ }],
-                },
-            ],
-        })
-        const result = lookupMcpToolApproval('linear__create-issue', spec)
-        // The driver checks `requires_approval` separately, so we still return
-        // the entry — null is reserved for "no entry at all". The
-        // `requires_approval: false` signal flows through naturally.
-        expect(result).not.toBeNull()
-        expect(result?.requires_approval).toBe(false)
     })
 
     it('returns null when no mcp prefix matches', () => {
         const spec = buildSpec({
             mcps: [
-                {
-                    kind: 'agent',
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: [{ name: 'create-issue', requires_approval: true }],
-                },
+                { kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', default_tool_approval: 'approve' },
             ],
         })
         expect(lookupMcpToolApproval('github__create-issue', spec)).toBeNull()
@@ -102,12 +74,7 @@ describe('lookupMcpToolApproval', () => {
     ])('returns null for non-MCP-shaped names like %s', (name) => {
         const spec = buildSpec({
             mcps: [
-                {
-                    kind: 'agent',
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: [{ name: 'create-issue', requires_approval: true }],
-                },
+                { kind: 'agent', id: 'linear', url: 'https://mcp.linear.app/sse', default_tool_approval: 'approve' },
             ],
         })
         expect(lookupMcpToolApproval(name, spec)).toBeNull()
@@ -124,33 +91,12 @@ describe('lookupMcpToolApproval', () => {
                     kind: 'agent',
                     id: 'service',
                     url: 'https://example.com/mcp',
-                    tools: [{ name: 'parent__child', requires_approval: true }],
+                    default_tool_approval: 'allow',
+                    tools: [{ name: 'parent__child', level: 'approve' }],
                 },
             ],
         })
         expect(lookupMcpToolApproval('service__parent__child', spec)).not.toBeNull()
-    })
-
-    it('walks every entry — does not bail on the first bare-string match', () => {
-        // Iteration order belt-and-braces (review #3 sibling). The bare
-        // string sits BEFORE an object entry under a DIFFERENT name; the
-        // helper has to keep walking past the bare string to find the
-        // object form. If a future refactor early-returned on first
-        // match-by-presence (instead of first match-by-name), this
-        // assertion catches it.
-        const spec = buildSpec({
-            mcps: [
-                {
-                    kind: 'agent',
-                    id: 'linear',
-                    url: 'https://mcp.linear.app/sse',
-                    tools: ['list-issues', { name: 'create-issue', requires_approval: true }],
-                },
-            ],
-        })
-        const result = lookupMcpToolApproval('linear__create-issue', spec)
-        expect(result).not.toBeNull()
-        expect(result?.requires_approval).toBe(true)
     })
 
     it('only checks against ref.tools[]; ignores tools listed in spec.tools[]', () => {
@@ -171,24 +117,19 @@ describe('lookupMcpToolApproval', () => {
                     kind: 'agent',
                     id: 'linear',
                     url: 'https://mcp.linear.app/sse',
-                    tools: ['list-issues'], // no `create-issue` entry → no MCP-side gating
+                    // create-issue takes the 'allow' default → no MCP-side gate.
+                    default_tool_approval: 'allow',
                 },
             ],
         })
         // Even though `spec.tools[]` declares the same id, the lookup
-        // resolves through `spec.mcps[].tools[]` only — and `create-issue`
-        // isn't listed there.
+        // resolves through `spec.mcps[]` only — and create-issue takes the allow default.
         expect(lookupMcpToolApproval('linear__create-issue', spec)).toBeNull()
     })
 })
 
 describe('effectiveToolLevel (default + per-tool override model)', () => {
     const refOf = (mcp: Record<string, unknown>): McpRef => buildSpec({ mcps: [mcp] }).mcps[0]
-
-    it('returns null for a legacy ref (no default_tool_approval) so callers fall back to allowlist semantics', () => {
-        const ref = refOf({ kind: 'agent', id: 'demo', url: 'https://example.com/mcp', tools: ['echo'] })
-        expect(effectiveToolLevel(ref, 'echo')).toBeNull()
-    })
 
     it('returns the connection default when there is no per-tool override', () => {
         const ref = refOf({
@@ -215,18 +156,6 @@ describe('effectiveToolLevel (default + per-tool override model)', () => {
         expect(effectiveToolLevel(ref, 'danger')).toBe('deny')
         // A tool with no override falls back to the default.
         expect(effectiveToolLevel(ref, 'other')).toBe('approve')
-    })
-
-    it('a bare-string / level-less entry does not override — the default still applies', () => {
-        const ref = refOf({
-            kind: 'agent',
-            id: 'demo',
-            url: 'https://example.com/mcp',
-            default_tool_approval: 'allow',
-            tools: ['echo', { name: 'noop' /* no level */ }],
-        })
-        expect(effectiveToolLevel(ref, 'echo')).toBe('allow')
-        expect(effectiveToolLevel(ref, 'noop')).toBe('allow')
     })
 })
 

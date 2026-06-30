@@ -52,6 +52,7 @@ import {
     type McpConnectionResolution,
     McpRef,
     secretHostMatches,
+    type ToolApprovalLevel,
 } from '@posthog/agent-shared'
 
 /** Remote tool descriptor as returned by `client.listTools()`. */
@@ -77,6 +78,12 @@ export interface OpenedMcp {
     /** The original spec ref this client was opened for. Handy for logging
      *  and for the caller to inspect `tools[]` per tool. */
     ref: McpRef
+    /** Connection-backed (`ref.connection`) only: the installation owner's
+     *  required per-tool approvals (raw remote name → level). `buildAgentTools`
+     *  drops `deny` tools and force-gates `approve` ones, so the agent author's
+     *  policy can only tighten the owner's marks, never widen them. Absent for
+     *  non-connection MCPs (auth.provider / secrets). */
+    connectionToolApprovals?: Record<string, ToolApprovalLevel>
     listTools(): Promise<RemoteMcpTool[]>
     callTool(name: string, args: Record<string, unknown>): Promise<McpCallResult>
     close(): Promise<void>
@@ -347,6 +354,7 @@ async function openOne(ref: McpRef, deps: OpenOneDeps): Promise<OpenedMcp> {
     return {
         prefix,
         ref,
+        connectionToolApprovals: target.connectionToolApprovals,
         listTools: async () => {
             const res = await client.listTools()
             return res.tools.map((t) => ({
@@ -373,7 +381,11 @@ function isLoopbackHost(hostname: string): boolean {
 async function resolveTarget(
     ref: McpRef,
     deps: OpenMcpClientsDeps
-): Promise<{ url: string; headers: Record<string, string> }> {
+): Promise<{
+    url: string
+    headers: Record<string, string>
+    connectionToolApprovals?: Record<string, ToolApprovalLevel>
+}> {
     // Shared-credential path (`ref.connection`): bearer + URL come from the
     // referenced installation, ignoring auth/secrets/headers. No author secrets
     // substituted → no cross-host exfiltration; just refuse non-https (loopback
@@ -398,7 +410,11 @@ async function resolveTarget(
         if (!loopback && parsed.protocol !== 'https:') {
             throw new Error(`mcp_connection_unsafe_scheme: ${ref.connection} → ${parsed.protocol}`)
         }
-        return { url: res.url, headers: { Authorization: `Bearer ${res.bearer}` } }
+        return {
+            url: res.url,
+            headers: { Authorization: `Bearer ${res.bearer}` },
+            connectionToolApprovals: res.ownerToolApprovals,
+        }
     }
 
     // SSRF protection is handled at the infra layer by smokescreen (see
