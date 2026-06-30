@@ -5171,6 +5171,8 @@ export namespace Schemas {
       CustomerioWebhook: 'customerio-webhook',
       CustomerioTrack: 'customerio-track',
       Postgresql: 'postgresql',
+      AwsS3: 'aws-s3',
+      S3Compatible: 's3-compatible',
     } as const;
 
     export interface ErrorTrackingExternalReferenceIntegration {
@@ -20050,6 +20052,18 @@ export namespace Schemas {
     };
 
     /**
+     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     */
+    export type EvaluationTargetConfig = {
+      /**
+         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    };
+
+    /**
      * * `active` - Active
      * * `paused` - Paused
      * * `error` - Error
@@ -20139,6 +20153,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     */
+    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
+
+
+    export const EvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+    } as const;
+
+    /**
      * * `openai` - Openai
      * * `anthropic` - Anthropic
      * * `gemini` - Gemini
@@ -20213,6 +20239,13 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      target_config?: EvaluationTargetConfig;
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -36744,6 +36777,18 @@ export namespace Schemas {
       allows_na?: boolean;
     };
 
+    /**
+     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     */
+    export type PatchedEvaluationTargetConfig = {
+      /**
+         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -36779,6 +36824,13 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      target_config?: PatchedEvaluationTargetConfig;
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -47205,6 +47257,25 @@ export namespace Schemas {
     }
 
     /**
+     * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
+     */
+    export interface ScoutMember {
+      /** The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on entities they own. A durable handle for this person across runs. */
+      user_uuid: string;
+      /** The member's email — use to match a finding's owner by name/email. */
+      email: string;
+      /** The member's first name (may be empty). */
+      first_name: string;
+      /** The member's last name (may be empty). */
+      last_name: string;
+      /**
+         * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+         * @nullable
+         */
+      github_login: string | null;
+    }
+
+    /**
      * Team-scoped scout metadata for the inbox / Code-app UIs: enrollment, the alpha banner, and
      * the enforced limits. Sourced from the `signals-scout` flag payload so the banner and caps can
      * change without a deploy to either app.
@@ -50328,6 +50399,70 @@ export namespace Schemas {
       summary_bullets: SummaryBullet[];
       /** Interesting notes (0-2 for minimal, more for detailed) */
       interesting_notes: InterestingNote[];
+    }
+
+    /**
+     * Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited.
+     */
+    export interface SuggestTagsRequest {
+      /**
+         * The classifier's instruction prompt — the single dimension to categorize sessions by.
+         * @maxLength 10000
+         */
+      prompt: string;
+      /**
+         * The current tag vocabulary, so suggestions never duplicate a tag the user already has.
+         * @maxItems 200
+         * @items.maxLength 200
+         */
+      tags?: string[];
+      /** Whether the classifier assigns multiple tags per session. */
+      multi_label?: boolean;
+      /** Whether the classifier may emit tags outside the fixed vocabulary. */
+      allow_freeform_tags?: boolean;
+      /**
+         * Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.
+         * @nullable
+         */
+      scanner_id?: string | null;
+    }
+
+    /**
+     * * `observed` - observed
+     * * `product` - product
+     * * `prompt` - prompt
+     */
+    export type TagSuggestionSourceEnum = typeof TagSuggestionSourceEnum[keyof typeof TagSuggestionSourceEnum];
+
+
+    export const TagSuggestionSourceEnum = {
+      Observed: 'observed',
+      Product: 'product',
+      Prompt: 'prompt',
+    } as const;
+
+    /**
+     * One grounded tag suggestion.
+     */
+    export interface TagSuggestion {
+      /** Suggested tag to add to the vocabulary, normalized to lowercase. */
+      tag: string;
+      /** One sentence explaining the specific evidence this tag is grounded in. */
+      rationale: string;
+      /** Primary grounding: observed=a category this scanner already emitted on recordings; product=the org's events/screens; prompt=the scanner's stated goal.
+       *
+       * * `observed` - observed
+       * * `product` - product
+       * * `prompt` - prompt */
+      source: TagSuggestionSourceEnum;
+    }
+
+    /**
+     * Grounded tag suggestions for the classifier config editor.
+     */
+    export interface SuggestTagsResponse {
+      /** Suggested tags to add, most relevant first. May be empty when the evidence is too thin. */
+      suggestions: TagSuggestion[];
     }
 
     /**
@@ -65133,6 +65268,14 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsScoutMembersListParams = {
+    /**
+     * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.
+     * @minLength 1
+     */
+    search?: string;
     };
 
     export type SignalsScoutProjectProfileGetParams = {

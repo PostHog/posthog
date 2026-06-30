@@ -26,6 +26,7 @@ from products.ai_observability.backend.models.evaluation_configs import (
     evaluation_supports_reports,
 )
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
+from products.ai_observability.backend.models.evaluations import EvaluationTarget
 from products.workflows.backend.utils.rrule_utils import validate_rrule
 
 logger = structlog.get_logger(__name__)
@@ -138,6 +139,8 @@ class EvaluationReportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Evaluation does not belong to this team.")
         if not evaluation_supports_reports(value.output_type):
             raise serializers.ValidationError("Reports are only supported for boolean evaluations.")
+        if value.target == EvaluationTarget.TRACE:
+            raise serializers.ValidationError("Reports are not yet supported for trace-level evaluations.")
         return value
 
     def validate_rrule(self, value: str) -> str:
@@ -431,6 +434,11 @@ class EvaluationReportViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewse
         if not evaluation_supports_reports(report.evaluation.output_type):
             return Response(
                 {"error": "Reports are only supported for boolean evaluations."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if report.evaluation.target == EvaluationTarget.TRACE:
+            return Response(
+                {"error": "Reports are not yet supported for trace-level evaluations."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

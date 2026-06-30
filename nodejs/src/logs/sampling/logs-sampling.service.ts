@@ -245,6 +245,7 @@ export class LogsSamplingService {
         }
 
         const ruleById = new Map(ruleSet.rules.map((r) => [r.id, r]))
+        const nowSeconds = Date.now() / 1000
         type Entry = { indices: number[]; costs: number[]; req: KeyedRateLimitRequest }
         const entries: Entry[] = []
 
@@ -264,6 +265,7 @@ export class LogsSamplingService {
                     cost: totalCost,
                     bucketSize: rl.poolMax,
                     refillRate: rl.refillPerSecond,
+                    now: nowSeconds,
                 },
             })
         }

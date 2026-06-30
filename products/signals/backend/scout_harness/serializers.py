@@ -1494,3 +1494,42 @@ class ScoutMetadataSerializer(serializers.Serializer):
         help_text="Free-form announcement banner to show above the scout UI (e.g. alpha run-limit notice), or null when unset.",
     )
     limits = ScoutLimitsSerializer(help_text="The team's enforced scout run caps and current usage.")
+
+
+# --- Members (reviewer routing) --------------------------------------------
+
+
+class ScoutMembersQuerySerializer(serializers.Serializer):
+    """Query params for `signals-scout-members-list`."""
+
+    search = serializers.CharField(
+        required=False,
+        help_text=(
+            "Case-insensitive substring filter over member email and first/last name. Use it to narrow a "
+            "large project's roster to the owner you're trying to match instead of pulling every member."
+        ),
+    )
+
+
+class ScoutMemberSerializer(serializers.Serializer):
+    """One project member's routing identity, for picking a `suggested_reviewers` entry on a report."""
+
+    user_uuid = serializers.CharField(
+        help_text=(
+            "The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on "
+            "entities they own. A durable handle for this person across runs."
+        )
+    )
+    email = serializers.EmailField(help_text="The member's email — use to match a finding's owner by name/email.")
+    first_name = serializers.CharField(help_text="The member's first name (may be empty).")
+    last_name = serializers.CharField(help_text="The member's last name (may be empty).")
+    github_login = serializers.CharField(
+        allow_null=True,
+        help_text=(
+            "The member's resolved GitHub login (lowercased), already resolved server-side — put this value "
+            "in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null "
+            "when the member has no linked GitHub identity: a null-login member can't be routed to at all "
+            "(neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` "
+            "empty."
+        ),
+    )
