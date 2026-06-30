@@ -284,6 +284,8 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
             execute_nodes = []
             skip_nodes = []
             ephemeral_nodes = []
+            # failed_node_set only grows between levels, so the blocked set is stable within one
+            blocked_node_set = failed_node_set | suspended_node_set
             for node_id in level:
                 should_skip = False
                 skip_reason = None
@@ -291,7 +293,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
                     should_skip = True
                     skip_reason = "Node suspended after repeated materialization failures"
                 else:
-                    for blocked_id in failed_node_set | suspended_node_set:
+                    for blocked_id in blocked_node_set:
                         if node_id in downstreams[blocked_id]:
                             should_skip = True
                             verb = "suspended" if blocked_id in suspended_node_set else "failed"

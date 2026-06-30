@@ -2,6 +2,7 @@ import uuid
 import datetime as dt
 
 import pytest
+import unittest.mock
 
 import pytest_asyncio
 import temporalio.worker
@@ -138,7 +139,11 @@ class TestGetDagStructureActivity:
         source_node = dag_nodes[0]
         assert str(source_node.id) not in dag.executable_nodes
 
-    async def test_reports_suspended_nodes_per_engine(self, activity_environment, ateam, dag_nodes, adag):
+    @pytest.mark.parametrize("enforced", [True, False])
+    async def test_reports_suspended_nodes_only_when_enforced(
+        self, activity_environment, ateam, dag_nodes, adag, enforced
+    ):
+        from posthog.temporal.data_modeling.activities import get_dag_structure as gds
         from posthog.temporal.data_modeling.activities.utils import mark_node_suspended
 
         suspended_node = dag_nodes[1]
@@ -146,9 +151,10 @@ class TestGetDagStructureActivity:
         await database_sync_to_async(suspended_node.save)()
 
         inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
-        dag = await activity_environment.run(get_dag_structure_activity, inputs)
+        with unittest.mock.patch.object(gds, "_is_suspension_enforced", return_value=enforced):
+            dag = await activity_environment.run(get_dag_structure_activity, inputs)
 
-        assert dag.suspended_nodes["clickhouse"] == [str(suspended_node.id)]
+        assert dag.suspended_nodes["clickhouse"] == ([str(suspended_node.id)] if enforced else [])
         assert dag.suspended_nodes["duckgres"] == []
 
     @pytest.mark.usefixtures("dag_edges")  # avoids type checking unused arg
@@ -598,7 +604,6 @@ class TestExecuteDAGWorkflowWithMocks:
                     execution_timeout=dt.timedelta(seconds=30),
                 )
 
-        # serving engine is duckgres: its suspension is enforced, clickhouse suspension is ignored
         assert node_ch_id in _mock_workflow_calls
         assert node_duck_id not in _mock_workflow_calls
         assert result.successful_nodes == 1
