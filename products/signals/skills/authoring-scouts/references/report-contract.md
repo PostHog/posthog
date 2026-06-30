@@ -81,7 +81,7 @@ when the report is a concrete, fixable issue you'd want a PR for:
 | `repository`           | string      | `"owner/repo"` targets that repo; the `NO_REPO` sentinel opts out; **omitting it** falls back to free-form selection across the team's repos — the slow path on a many-repo team (it spawns a selection sandbox), so pass `owner/repo` when you know it. |
 | `priority`             | `P0`-`P4`   | Required for a PR. Pair with `priority_explanation`.                                                                                                                                                                                                     |
 | `priority_explanation` | string      | Required when `priority` is set.                                                                                                                                                                                                                         |
-| `suggested_reviewers`  | list of str | GitHub logins to consider. A PR opens only if at least one clears their autonomy threshold.                                                                                                                                                              |
+| `suggested_reviewers`  | list of obj | Reviewers to consider, each `{github_login?, user_uuid?}` (at least one per entry; see the section below). A PR opens only if at least one clears their autonomy threshold.                                                                              |
 
 Repo selection only runs when you signal PR intent — an explicit `repository`, or both `priority`
 and `suggested_reviewers`. A report that supplies none of these just surfaces in the inbox (no repo
@@ -98,12 +98,21 @@ human even when **no PR** is involved. **Set it whenever you can name a plausibl
 including on informational `requires_human_input` reports**, not only PR-bound ones. A report
 with no reviewer just sits in the shared inbox hoping someone grabs it.
 
-Each entry must be a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`,
-not `@OctoCat`). Internal assignment matches the login against each user's linked GitHub login by
-exact, lowercased comparison, so a mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS
-**team** slug, or an email won't set `is_suggested_reviewer` for anyone (autostart's PR-selection
-path is more lenient, but the assignment path is not). You rarely know the login outright —
-resolve it, cheapest source first:
+Each entry identifies one reviewer by **`github_login`**, **`user_uuid`**, or both:
+
+- **`github_login`** — a **bare, lowercase GitHub login** (e.g. `octocat`, not `@OctoCat`). Internal
+  assignment matches it against each user's linked GitHub login by exact, lowercased comparison, so a
+  mis-cased handle, an `@`-prefix, a display name, a CODEOWNERS **team** slug, or an email won't set
+  `is_suggested_reviewer` for anyone (autostart's PR-selection path is more lenient, but the
+  assignment path is not).
+- **`user_uuid`** — a **PostHog user UUID**. The server resolves it to that org member's linked GitHub
+  login for you (and it wins if you also pass a `github_login`). Use this whenever your evidence
+  already names a PostHog user — an account owner, an entity's `created_by`, a CSM — so you can route
+  to them without ever looking up their handle. A `user_uuid` that isn't an org member of this team
+  **with a linked GitHub identity** is rejected (the whole call fails), so it never silently drops.
+
+So you have two routes to a reviewer. If you already hold a PostHog user UUID, prefer passing it as
+`user_uuid` — it's the most reliable. Otherwise resolve a `github_login`, cheapest source first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a sibling run) recorded
    before — reuse it. Fastest path, and the reason the caching step at the end of this list exists.
@@ -116,16 +125,18 @@ resolve it, cheapest source first:
    login directly: CODEOWNERS entries are often **team** slugs (`@your-org/team-name`) and `git log`
    gives a name + email — both must be resolved to an **individual** GitHub login before you write
    the reviewer (a team slug or an email won't match any user).
-4. **`org-member-get-github-login`** — the canonical login resolver, available to every scout run
-   (it needs only `organization_member:read`, which scout tokens carry). Once you've identified the
-   owning **person** — by name/email via `org-members-list`, or `@me` for the current user — pass
-   their PostHog user UUID to this tool to get their linked GitHub login (it returns null when the
-   member has no GitHub identity linked). This is the one step that actually hands you a usable
-   handle, so prefer it over guessing when steps 1–3 only give you a person rather than a login.
+4. **`org-members-list` + `org-member-get-github-login`** — only where the run has organization scope
+   (`organization_member:read`), which **headless scout runs scoped to a single team often don't
+   have**, so these tools are typically **absent from a scout's toolset**; don't build a scout's
+   reviewer recipe around them. Where they _are_ available: `org-members-list` gives a member's
+   `user_uuid` (pass that straight through as `user_uuid` — simplest), and `org-member-get-github-login`
+   resolves a `user_uuid` to its GitHub login if you'd rather hand a `github_login`.
 
-**If you can't resolve a confident login, leave `suggested_reviewers` empty** — the report still
-surfaces for a human to grab. **Never guess a handle**: a wrong login mis-assigns the report (or
-silently fails to assign), which is worse than leaving it open.
+**If you can't confidently identify a reviewer, leave `suggested_reviewers` empty** — the report
+still surfaces for a human to grab. **Never guess a handle**: a wrong login mis-assigns the report
+(or silently fails to assign), which is worse than leaving it open. And remember `edit_report` can set
+reviewers on a report later — so a report that surfaced routed to no one isn't stuck; once you resolve
+an owner, edit it in (which also re-runs autostart).
 
 **Cache for next time.** After you confidently tie an area to an owner, write a
 `reviewer:<domain>:<area>` scratchpad entry with the bare lowercase login so the next run — and
@@ -133,12 +144,13 @@ sibling scouts — route faster. The fleet's reviewer map should compound over t
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary` and/or append a note to a report that already exists. Pass `run_id`
-(the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`.
+Rewrite `title`/`summary`, append a note, and/or set `suggested_reviewers` on a report that already
+exists. Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`,
+`append_note`, `suggested_reviewers`.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or
-another scout) created. Two rules of good behavior:
+another scout) created. Rules of good behavior:
 
 - **Prefer `append_note` over rewriting** `title`/`summary` on a report you didn't author. A
   note is additive and audit-friendly (it carries your scout as the author); a rewrite
@@ -146,6 +158,11 @@ another scout) created. Two rules of good behavior:
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on
   can have its fields overwritten under you. If a report is actively being worked, append a
   note rather than rewriting.
+- **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same
+  `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and
+  re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you
+  resolved later, and a now-actionable report with a repo + priority can open a draft PR. An empty
+  list is a no-op (it never clears existing reviewers).
 
 ## Finding "the report I made last time"
 

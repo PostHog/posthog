@@ -163,7 +163,9 @@ class AdyenSourceConfig(config.Config):
 
 @config.config
 class AgileCRMSourceConfig(config.Config):
-    pass
+    domain: str
+    email: str
+    api_key: str
 
 
 @config.config

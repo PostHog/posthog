@@ -13,6 +13,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -44,6 +45,51 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'ratio', label: 'Ratio' },
     { value: 'retention', label: 'Retention' },
 ]
+
+// Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
+// mirroring how the Duration column sums total_duration_ms over the group.
+const groupBytes = (item: SlowestQuery): number =>
+    item.read_bytes + item.sub_queries.reduce((sum, q) => sum + q.read_bytes, 0)
+
+// Off/gated reasons come straight from the runner tag; build-failed/not-ready are derived from the
+// precompute-build sub-queries. Empty tag + no sub-queries is the legacy/forward-only case ("not ready").
+const SKIP_REASON_LABELS: Record<string, string> = {
+    override_direct: 'forced direct (query override)',
+    team_disabled: 'precompute off for team',
+    min_runtime: 'experiment <12h old',
+    data_warehouse: 'data warehouse metric',
+}
+
+function reasonForDirect(item: SlowestQuery, table: 'exposures' | 'metric_events'): string {
+    const skip = item.experiment_precompute_skip_reason
+    if (skip && SKIP_REASON_LABELS[skip]) {
+        return SKIP_REASON_LABELS[skip]
+    }
+    const builds = item.sub_queries.filter((q) => q.experiment_precompute_table === table)
+    const failed = builds.find((q) => q.exception)
+    if (failed) {
+        return `build failed (${failed.exception_code || 'error'})`
+    }
+    if (builds.length > 0) {
+        return 'build incomplete / not ready'
+    }
+    return 'not ready'
+}
+
+function QueryStats({
+    read_bytes,
+    read_rows,
+    memory_usage,
+    exception_code,
+}: Pick<SlowestQuery, 'read_bytes' | 'read_rows' | 'memory_usage' | 'exception_code'>): JSX.Element {
+    return (
+        <div className="font-mono text-xs text-muted">
+            Read {humanizeBytes(read_bytes)} · {read_rows.toLocaleString()} rows
+            {memory_usage ? ` · ${humanizeBytes(memory_usage)} peak memory` : ''}
+            {exception_code ? ` · exit code ${exception_code}` : ''}
+        </div>
+    )
+}
 
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -179,6 +225,23 @@ export function QueryPerformance(): JSX.Element {
             },
         },
         {
+            title: 'Read',
+            width: 130,
+            sorter: (a, b) => groupBytes(a) - groupBytes(b),
+            render: function Read(_, item): JSX.Element {
+                const total = groupBytes(item)
+                const hasSubQueries = item.sub_queries && item.sub_queries.length > 0
+                return (
+                    <div className="font-mono">
+                        <span>{humanizeBytes(total)}</span>
+                        {hasSubQueries && (
+                            <span className="text-muted text-xs"> · read {humanizeBytes(item.read_bytes)}</span>
+                        )}
+                    </div>
+                )
+            },
+        },
+        {
             title: 'Organization',
             render: function OrgCell(_, item) {
                 return (
@@ -242,19 +305,30 @@ export function QueryPerformance(): JSX.Element {
                         </LemonTag>
                     )
                 }
-                const pathTag = (label: string, value: string): JSX.Element | null => {
+                const pathTag = (
+                    label: string,
+                    value: string,
+                    table: 'exposures' | 'metric_events'
+                ): JSX.Element | null => {
                     if (!value || value === 'not_applicable') {
                         return null
                     }
+                    if (value === 'precomputed') {
+                        return <LemonTag type="success">{label}: precomputed</LemonTag>
+                    }
                     return (
-                        <LemonTag type={value === 'precomputed' ? 'success' : 'default'}>
-                            {label}: {value === 'precomputed' ? 'precomputed' : 'direct'}
-                        </LemonTag>
+                        <Tooltip title={reasonForDirect(item, table)}>
+                            <LemonTag type="default">{label}: direct</LemonTag>
+                        </Tooltip>
                     )
                 }
                 // Fall back to the deprecated experiment_execution_path for rows logged before the split.
-                const exposures = pathTag('exposures', item.experiment_exposures_path || item.experiment_execution_path)
-                const events = pathTag('events', item.experiment_metric_events_path)
+                const exposures = pathTag(
+                    'exposures',
+                    item.experiment_exposures_path || item.experiment_execution_path,
+                    'exposures'
+                )
+                const events = pathTag('events', item.experiment_metric_events_path, 'metric_events')
                 if (!exposures && !events) {
                     return null
                 }
@@ -395,6 +469,7 @@ export function QueryPerformance(): JSX.Element {
                                         expandedRowRender: function ExpandedQuery(item) {
                                             return (
                                                 <div className="flex flex-col gap-2 p-2">
+                                                    <QueryStats {...item} />
                                                     <div className="font-mono text-xs text-muted flex flex-wrap items-center gap-x-3 gap-y-1">
                                                         <span>
                                                             query_id:{' '}
@@ -422,13 +497,16 @@ export function QueryPerformance(): JSX.Element {
                                                                 expandable={{
                                                                     expandedRowRender: function ExpandedSubQuery(sub) {
                                                                         return (
-                                                                            <CodeSnippet
-                                                                                language={Language.SQL}
-                                                                                thing="query"
-                                                                                maxLinesWithoutExpansion={10}
-                                                                            >
-                                                                                {sub.query}
-                                                                            </CodeSnippet>
+                                                                            <div className="flex flex-col gap-2 p-2">
+                                                                                <QueryStats {...sub} />
+                                                                                <CodeSnippet
+                                                                                    language={Language.SQL}
+                                                                                    thing="query"
+                                                                                    maxLinesWithoutExpansion={10}
+                                                                                >
+                                                                                    {sub.query}
+                                                                                </CodeSnippet>
+                                                                            </div>
                                                                         )
                                                                     },
                                                                 }}

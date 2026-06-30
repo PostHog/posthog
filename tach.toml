@@ -596,6 +596,7 @@ depends_on = [
     "products.dashboards",
     "products.product_analytics",
     "products.signals",
+    "products.tasks",
 ]
 layer = "modules"
 
