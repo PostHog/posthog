@@ -95,6 +95,16 @@ export interface OpenedMcp {
  * upstream error string, which often leaks transport URLs / docs links /
  * provider-side stack hints). The agent owner gets the full reason via
  * log_entries.
+ *   - `connection_dead` — a `kind: 'agent'` SHARED connection is permanently
+ *                   broken: the installing owner's token can't refresh
+ *                   (`needs_reauth`), they disabled the install (`disabled`),
+ *                   or the install is gone (`not_found`). The asker can't fix
+ *                   someone else's shared credential and a retry won't heal it —
+ *                   only the owner/admin reconnecting will. Kept distinct from
+ *                   `auth` (per-asker) so the prompt says "an admin must
+ *                   reconnect" instead of "retry shortly". A TRANSIENT refresh
+ *                   blip (`mcp_connection_refresh_failed`, 5xx/429) is NOT this —
+ *                   it self-heals, so it stays `auth`.
  *   - `auth`      — credentials / token / secret resolution problem
  *                   (`mcp_secret_not_resolved`, `mcp_identity_*`,
  *                   401/403 from the remote)
@@ -102,7 +112,7 @@ export interface OpenedMcp {
  *   - `not_found` — server responded but said the endpoint is gone (404, 410)
  *   - `unknown`   — anything else; default bucket for novel transport errors
  */
-export type McpFailureCategory = 'auth' | 'network' | 'not_found' | 'unknown'
+export type McpFailureCategory = 'connection_dead' | 'auth' | 'network' | 'not_found' | 'unknown'
 
 export interface McpOpenFailure {
     ref: McpRef
@@ -140,12 +150,25 @@ class McpIdentityLinkRequiredError extends Error {
  */
 export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     const msg = err.message.toLowerCase()
+    // Checked FIRST: a permanently-dead shared connection. These three are
+    // terminal states `resolve()` returns for an `mcp_store` install the asker
+    // can't fix (it's the owner's credential) and a retry won't heal — only the
+    // owner/admin reconnecting will. Must precede the generic `auth`/`not_found`
+    // matches below (which would otherwise swallow needs_reauth/disabled →
+    // `auth` and not_found → `not_found`). The TRANSIENT `refresh_failed` is
+    // deliberately absent — it self-heals next session, so it falls through to
+    // `auth` as retryable.
+    if (
+        msg.includes('mcp_connection_needs_reauth') ||
+        msg.includes('mcp_connection_disabled') ||
+        msg.includes('mcp_connection_not_found')
+    ) {
+        return 'connection_dead'
+    }
     if (
         msg.includes('mcp_secret_') ||
         msg.includes('mcp_identity_') ||
-        // Shared-credential problems (owner must reconnect) → auth.
-        msg.includes('mcp_connection_needs_reauth') ||
-        msg.includes('mcp_connection_disabled') ||
+        // Transient shared-credential refresh blip (5xx/429) → retryable auth.
         msg.includes('mcp_connection_refresh_failed') ||
         msg.includes('no token') ||
         msg.includes('unauthor') ||
@@ -161,12 +184,7 @@ export function categorizeMcpOpenError(err: Error): McpFailureCategory {
     ) {
         return 'auth'
     }
-    if (
-        msg.includes(' 404') ||
-        msg.includes('not found') ||
-        msg.includes('gone') ||
-        msg.includes('mcp_connection_not_found')
-    ) {
+    if (msg.includes(' 404') || msg.includes('not found') || msg.includes('gone')) {
         return 'not_found'
     }
     if (

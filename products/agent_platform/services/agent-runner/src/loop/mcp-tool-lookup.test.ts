@@ -233,18 +233,20 @@ describe('lookupMcpToolApproval (default + per-tool override model)', () => {
         expect(lookupMcpToolApproval('demo__echo', spec)).toBeNull()
     })
 
-    it('never gates the proxy meta-tools (explore_tools / call_tool), even under an approve default', () => {
-        // `explore_tools` is read-only catalog browsing; `call_tool` is gated
-        // DYNAMICALLY by the driver on the underlying tool, not here. With a
-        // bare `effectiveToolLevel` lookup both would inherit `approve` and the
-        // catalog-enumeration helper would block on a human — defeating the
-        // proxy's "schemas on demand" design.
+    it('gates a real remote tool that merely shares a proxy-helper name (no blanket name exemption)', () => {
+        // Regression for veria-ai's finding: the lookup used to return null for
+        // ANY tool named call_tool / explore_tools / get_tool_schema, so a real
+        // remote tool with one of those names on a NON-proxied connection ran
+        // inline without approval under an `approve` default. The lookup is now a
+        // pure level check — the synthetic-proxy-helper exemption is proxy-aware
+        // and lives in the driver (which knows which connections are proxied),
+        // not here, so a real same-named tool is gated like any other.
         const spec = buildSpec({
-            mcps: [{ kind: 'agent', id: 'big', url: 'https://example.com/mcp', default_tool_approval: 'approve' }],
+            mcps: [{ kind: 'agent', id: 'small', url: 'https://example.com/mcp', default_tool_approval: 'approve' }],
         })
-        expect(lookupMcpToolApproval('big__explore_tools', spec)).toBeNull()
-        expect(lookupMcpToolApproval('big__get_tool_schema', spec)).toBeNull()
-        expect(lookupMcpToolApproval('big__call_tool', spec)).toBeNull()
+        expect(lookupMcpToolApproval('small__call_tool', spec)?.requires_approval).toBe(true)
+        expect(lookupMcpToolApproval('small__explore_tools', spec)?.requires_approval).toBe(true)
+        expect(lookupMcpToolApproval('small__get_tool_schema', spec)?.requires_approval).toBe(true)
     })
 })
 
