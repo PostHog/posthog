@@ -4,6 +4,12 @@ import { cleanup, render, screen } from '@testing-library/react'
 
 import { AssistantFailureMessage } from './AssistantFailureMessage'
 
+// Render content verbatim instead of through the real marked/LemonMarkdown pipeline,
+// which is slow to mount and rewrites the markdown (e.g. strips emphasis asterisks).
+jest.mock('./MarkdownMessage', () => ({
+    MarkdownMessage: ({ content }: { content: string }) => <div data-attr="markdown">{content}</div>,
+}))
+
 describe('AssistantFailureMessage', () => {
     afterEach(cleanup)
 
