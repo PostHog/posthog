@@ -539,25 +539,15 @@ class DataDeletionRequestAdmin(admin.ModelAdmin):
             )
             copy_note = f"Copy of data deletion request {original.pk} ({original_url})."
             notes = f"{copy_note}\n\n{original.notes}" if original.notes else copy_note
-            # Build a fresh draft from the criteria only — stats, approval, and execution
-            # tracking fall back to their model defaults (DRAFT, no stats, not approved).
+            # Build a fresh draft from CRITERIA_FIELDS (the single source of truth) so a new
+            # criteria field is copied automatically. Everything operational — stats, approval,
+            # execution tracking — falls back to model defaults (DRAFT, no stats, not approved).
+            criteria = {field: getattr(original, field) for field in CRITERIA_FIELDS}
+            # Shallow-copy mutable list fields so the duplicate never aliases the original's lists.
+            criteria = {k: list(v) if isinstance(v, list) else v for k, v in criteria.items()}
             DataDeletionRequest.objects.create(
+                **criteria,
                 team_id=original.team_id,
-                request_type=original.request_type,
-                start_time=original.start_time,
-                end_time=original.end_time,
-                events=list(original.events),
-                delete_all_events=original.delete_all_events,
-                hogql_predicate=original.hogql_predicate,
-                properties=list(original.properties),
-                person_properties=(
-                    list(original.person_properties) if original.person_properties is not None else None
-                ),
-                person_uuids=list(original.person_uuids),
-                person_distinct_ids=list(original.person_distinct_ids),
-                person_drop_profiles=original.person_drop_profiles,
-                person_drop_events=original.person_drop_events,
-                person_drop_recordings=original.person_drop_recordings,
                 requires_approval=original.requires_approval,
                 notes=notes,
                 status=RequestStatus.DRAFT,

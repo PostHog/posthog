@@ -821,14 +821,20 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
             self.admin.duplicate_requests(http_request, queryset)
 
-    def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self):
+    @parameterized.expand(
+        [
+            ("with_notes", "please be careful"),
+            ("without_notes", ""),
+        ]
+    )
+    def test_duplicate_copies_criteria_into_a_fresh_draft_with_link_note(self, _name, original_notes):
         original = DataDeletionRequest.objects.create(
             team_id=self.team.id,
             request_type=RequestType.EVENT_REMOVAL,
             events=["$pageview"],
             start_time=datetime.now() - timedelta(days=7),
             end_time=datetime.now(),
-            notes="please be careful",
+            notes=original_notes,
             status=RequestStatus.COMPLETED,
             count=42,
             approved=True,
@@ -848,4 +854,8 @@ class TestDataDeletionRequestAdminDuplicate(BaseTest):
         self.assertEqual(copy.created_by, self.user)
         self.assertIn(str(original.pk), copy.notes)
         self.assertIn("Copy of data deletion request", copy.notes)
-        self.assertIn("please be careful", copy.notes)
+        if original_notes:
+            self.assertIn(original_notes, copy.notes)
+        else:
+            # No original notes — the copy note stands alone, no trailing separator.
+            self.assertFalse(copy.notes.endswith("\n"))
