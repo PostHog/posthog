@@ -274,10 +274,9 @@ async fn ai_handler_inner(
     let gw_request_id = gw_sig.map(|s| s.request_id).unwrap_or_default();
     let gw_trusted = gw_outcome == gp::Provenance::Verified && !gw_request_id.is_empty();
 
-    // Step 4: Check quota limiter - drop if over quota. Gateway-verified events are
-    // wallet-billed, so they're exempt from the scoped LLM-events quota — but still
-    // subject to the team's global Events quota (matching the v1 flow), so the trusted
-    // path can't become a global-quota bypass.
+    // Step 4: quota limiter. Verified gateway events are wallet-billed, so they're
+    // exempt from the scoped LLM-events quota but still subject to the team's global
+    // Events quota (matching the v1 flow).
     let event_metadata = if gw_trusted {
         if state
             .quota_limiter
