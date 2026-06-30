@@ -1505,7 +1505,6 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .prefetch_related("experiment_set")
         )
 
-        # Search applied its own exact-first relevance ordering; don't clobber it.
         if not search_ordered:
             queryset = queryset.order_by("-created_at")
 
