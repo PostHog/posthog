@@ -506,6 +506,62 @@ async def test_insert_into_postgres_activity_inserts_fails_on_missing_primary_ke
         assert result.error.message.startswith("An operation could not be completed as")
 
 
+async def test_insert_into_postgres_activity_fails_fast_on_missing_integration(
+    clickhouse_client,
+    activity_environment,
+    postgres_config,
+    data_interval_start,
+    data_interval_end,
+    ateam,
+    generate_test_data,
+):
+    """Test the activity fails fast (without retrying) when the backing integration is gone.
+
+    A batch export pointing at a deleted integration can never recover by retrying, so the
+    activity must return a `BatchExportResult` error rather than raising and being retried by
+    Temporal. We point at an integration id that does not exist to simulate a deleted one.
+    """
+    missing_integration_id = 2**31 - 1
+    table_name = f"test_missing_integration_table__{ateam.pk}"
+
+    insert_inputs = PostgresInsertInputs(
+        team_id=ateam.pk,
+        table_name=table_name,
+        data_interval_start=data_interval_start.isoformat(),
+        data_interval_end=data_interval_end.isoformat(),
+        batch_export_model=BatchExportModel(name="events", schema=None),
+        batch_export_id=str(uuid.uuid4()),
+        integration_id=missing_integration_id,
+        **postgres_config,
+    )
+
+    assert insert_inputs.batch_export_id is not None
+    stage_result = await activity_environment.run(
+        insert_into_internal_stage_activity,
+        BatchExportInsertIntoInternalStageInputs(
+            team_id=insert_inputs.team_id,
+            batch_export_id=insert_inputs.batch_export_id,
+            data_interval_start=insert_inputs.data_interval_start,
+            data_interval_end=insert_inputs.data_interval_end,
+            exclude_events=insert_inputs.exclude_events,
+            include_events=None,
+            run_id=None,
+            backfill_details=None,
+            batch_export_model=insert_inputs.batch_export_model,
+            batch_export_schema=insert_inputs.batch_export_schema,
+            destination_default_fields=postgres_default_fields(),
+        ),
+    )
+    insert_inputs.stage_folder = stage_result.stage_folder
+    insert_inputs.records_total = stage_result.records_total
+
+    result = await activity_environment.run(insert_into_postgres_activity_from_stage, insert_inputs)
+
+    assert result.error is not None
+    assert result.error.type == "PostgreSQLIntegrationNotFoundError"
+    assert str(missing_integration_id) in result.error.message
+
+
 async def test_insert_into_postgres_activity_handles_person_schema_changes(
     clickhouse_client,
     activity_environment,
