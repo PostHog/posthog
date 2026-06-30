@@ -96,6 +96,15 @@ from products.signals.backend.scout_harness.serializers import (
 )
 from products.signals.backend.scout_harness.skill_loader import SkillNotFoundError, load_skill_for_run
 from products.signals.backend.scout_harness.team_limits import (
+    DAILY_BUDGET_WINDOW,
+    _canonicalize_team_config_keys,
+    _default_team_config,
+    _parse_enrollment,
+    _read_flag_payload,
+    _resolve_enrolled,
+    _resolve_max_runs_per_day,
+    _runs_today_by_team,
+    _team_configs,
     resolve_sync_seed_inputs,
     resolve_team_metadata,
     withheld_skills_for_team,
@@ -202,6 +211,37 @@ def _scout_run_in_flight(team_id: int, skill_name: str) -> bool:
         )
         .exists()
     )
+
+
+def _reject_if_manual_run_suppressed(team_id: int) -> None:
+    """Apply the fleet-level gates the scheduled coordinator enforces, so a manual trigger can't
+    run a scout the scheduled path would deliberately suppress.
+
+    Reads the `signals-scout` flag payload once (the same snapshot the coordinator plans off):
+
+    - **Enrollment kill switch.** A project in `skip_team_ids`, or one not enrolled at all, never
+      runs scheduled scouts — so its manual trigger is forbidden too (403). Without this, any
+      caller with `signal_scout:write` could run a scout on a project an operator has explicitly
+      drained or held back via the flag.
+    - **Daily run budget.** `max_runs_per_day` (per-team override → fleet default → code constant)
+      bounds dispatches per rolling 24h. Manual runs land the same `SignalScoutRun` rows the
+      coordinator counts, so they share the tally: once the budget is spent the trigger is
+      throttled (429) until the window rolls, instead of letting repeated manual runs blow past
+      the per-team daily cap the scheduled path enforces.
+
+    `team_id` is the canonical (parent) project id, matching how the coordinator plans; team
+    config keys are canonicalized the same way so a child-env override still lines up.
+    """
+    payload = _read_flag_payload()
+    if not _resolve_enrolled(team_id, _parse_enrollment(payload)):
+        raise exceptions.PermissionDenied(detail="Signals scouts are not enabled for this project.")
+
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    per_day = _resolve_max_runs_per_day(team_id, team_configs, _default_team_config(payload))
+    if per_day is not None:
+        runs_today = _runs_today_by_team({team_id}, timezone.now() - DAILY_BUDGET_WINDOW).get(team_id, 0)
+        if runs_today >= per_day:
+            raise exceptions.Throttled(detail="This project has reached its daily scout run budget. Try again later.")
 
 
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
@@ -1345,17 +1385,21 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 response=SignalScoutManualRunSerializer,
                 description="A run was dispatched. It executes asynchronously; poll the scout's runs for the result.",
             ),
+            403: OpenApiResponse(description="Signals scouts are not enabled for this project."),
             404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
             409: OpenApiResponse(description="A run for this scout is already in progress."),
-            429: OpenApiResponse(description="The project is over its Signals credits quota; try again later."),
+            429: OpenApiResponse(
+                description="The project is over its Signals credits quota or daily scout run budget; try again later."
+            ),
         },
         summary="Run a scout now",
         description=(
             "Dispatch one on-demand run of this scout immediately, regardless of its schedule. "
             "Useful to test a scout right after authoring it, or to refresh its findings on demand. "
             "The run executes asynchronously on the worker and inherits every guard the scheduled "
-            "path has: it is skipped if the project is over its Signals credits quota (429) or a run "
-            "for this scout is already in progress (409). A manual run does not change the scout's "
+            "path has: it is forbidden if scouts are not enabled for the project (403), and skipped "
+            "if the project is over its Signals credits quota or daily run budget (429) or a run for "
+            "this scout is already in progress (409). A manual run does not change the scout's "
             "schedule or `last_run_at`. A disabled scout can still be run this way (to test before "
             "enabling). Returns immediately with the workflow id — poll the scout's runs for the result."
         ),
@@ -1388,6 +1432,13 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # without its skill, so this is a 404 alongside the withheld branch above.
         if not LLMSkill.objects.filter(team_id=team_id, name=skill_name, is_latest=True, deleted=False).exists():
             raise exceptions.NotFound()
+
+        # Honor the fleet-level controls the scheduled coordinator enforces before it would ever
+        # dispatch this scout: the enrollment kill switch (`skip_team_ids` / not-enrolled → 403) and
+        # the per-team daily run budget (`max_runs_per_day` → 429). Without these, a manual trigger
+        # would bypass a rollout/kill-switch the operator set in the flag, and let repeated runs
+        # exceed the daily cap the scheduled path respects.
+        _reject_if_manual_run_suppressed(team_id)
 
         # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. Both are
         # re-checked authoritatively downstream (quota in the run activity, single-flight in the
