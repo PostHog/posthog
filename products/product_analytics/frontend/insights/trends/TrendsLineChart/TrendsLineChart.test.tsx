@@ -553,11 +553,16 @@ describe('TrendsLineChart', () => {
             })
 
             await screen.findByRole('img', { name: /chart with/i })
-            const lines = getHogChart().referenceLines()
-            expect(lines.map((l) => l.label)).toEqual(expectedLabels)
-            for (const line of lines) {
-                expect(line.orientation).toBe('horizontal')
-            }
+            await waitFor(
+                () => {
+                    const lines = getHogChart().referenceLines()
+                    expect(lines.map((l) => l.label)).toEqual(expectedLabels)
+                    for (const line of lines) {
+                        expect(line.orientation).toBe('horizontal')
+                    }
+                },
+                { timeout: 5000 }
+            )
         })
     })
 

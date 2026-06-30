@@ -170,7 +170,8 @@ class AgileCRMSourceConfig(config.Config):
 
 @config.config
 class AhaSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -330,7 +331,8 @@ class AshbySourceConfig(config.Config):
 
 @config.config
 class AssemblyAISourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -989,7 +991,7 @@ class DripSourceConfig(config.Config):
 
 @config.config
 class DropboxSignSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
