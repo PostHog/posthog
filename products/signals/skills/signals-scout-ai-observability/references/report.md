@@ -41,7 +41,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability_explanation` | string                  | One sentence justifying the actionability call below.                                                                                                                                                                                              |
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                    |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                 |
-| `suggested_reviewers`       | list of strings         | Bare, lowercase GitHub logins. The **single most important routing field** — set on every report (PR or not). See the _`suggested_reviewers`_ section below for resolution steps.                                                                  |
+| `suggested_reviewers`       | list of objects         | Each `{github_login}` and/or `{user_uuid}` (**not** a bare string). The **single most important routing field** — set on every report (PR or not). See the _`suggested_reviewers`_ section below for the object shape + resolution steps.          |
 
 **Status is decided for you, from safety × actionability:**
 
@@ -117,10 +117,18 @@ is assigned to nobody — it lands in the shared inbox and is very likely to be 
 set at least one reviewer on every report you author, including informational `requires_human_input`
 ones.
 
-Each entry must be a **bare, lowercase GitHub login** — no `@`, no display name (e.g. `octocat`, not
-`@OctoCat`). Assignment matches the login against each user's linked GitHub login by exact, lowercased
-comparison, so a mis-cased handle, an `@`-prefix, a display name, a team slug, or an email won't
-assign to anyone. You rarely know the login outright, so resolve it — cheapest first:
+Each entry is an **object**, not a bare string — `{"github_login": "..."}` and/or
+`{"user_uuid": "..."}` (at least one of the two per entry; a list of plain strings like `["octocat"]`
+**fails validation**). Pick whichever you resolved:
+
+- **`github_login`** — the GitHub login, case-insensitive (stored lowercased), no `@`, no display name
+  (e.g. `{"github_login": "octocat"}`).
+- **`user_uuid`** — the PostHog user UUID (e.g. from `org-members-list`); the server resolves it to the
+  member's linked GitHub login. Use this when you know the PostHog user but not their handle. A
+  `user_uuid` that isn't an org member with a linked GitHub identity is **rejected** (never silently
+  dropped), so the reviewer always routes or the call tells you it didn't.
+
+You rarely know either outright, so resolve it — cheapest first:
 
 1. **Scratchpad cache.** A `reviewer:<domain>:<area>` entry you (or a prior run) recorded — reuse it.
    For AI observability, key by the owning product / model area (`reviewer:llm_analytics:<area>`).
@@ -130,19 +138,20 @@ assign to anyone. You rarely know the login outright, so resolve it — cheapest
    expose it). Reuse that reviewer for the same area.
 3. **`org-member-get-github-login`** — the **canonical resolver, available on every run**. Identify the
    owning **person** (by name/email via `org-members-list`, or `@me`), then pass their PostHog user
-   UUID to `org-member-get-github-login` to get their linked GitHub login. It returns null when the
+   UUID to `org-member-get-github-login` to get their linked GitHub login (or just pass the UUID
+   straight through as `{"user_uuid": "..."}` and let the server resolve it). It returns null when the
    person hasn't linked a GitHub account — then try the next plausible owner.
 
 **Never guess a handle** — a wrong login mis-assigns the report, which is worse than leaving it open.
 If you genuinely can't resolve any confident owner, author the report anyway (it still surfaces) but
 treat that as the exception, not the norm. Once you've tied a product/model area to an owner, write a
-`reviewer:llm_analytics:<area>` scratchpad entry with the bare lowercase login so the next run routes
+`reviewer:llm_analytics:<area>` scratchpad entry with the resolved login so the next run routes
 instantly.
 
-**On `edit-report`:** reviewers are set at author time and `edit-report` can't change them — so the
-one chance to route a report is when you `emit-report` it. If you're editing a report that landed with
-no reviewer, `append_note` naming the owner you'd route it to so a human can pick it up; the durable
-fix is to get `suggested_reviewers` right at emit.
+**On `edit-report`:** `edit-report` **also accepts `suggested_reviewers`** — it replaces the report's
+reviewer list (an empty list is a no-op; existing reviewers are never cleared) and re-runs autostart,
+so it's the right tool to **route a report that surfaced with no owner**. When a later run resolves an
+owner for an orphaned report, `edit-report` it with the reviewer rather than only appending a note.
 
 ## `edit-report` — update an existing report
 

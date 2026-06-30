@@ -174,8 +174,10 @@ candidate:
   `suppressed` / `failed` report (one that won't surface) buries a real relapse under a closed
   item. When the prior report is no longer live, **author a fresh report** for the relapse and
   repoint `report:llm_analytics:<entity>` at the new id.
-- **Author** a fresh report via `signals-scout-emit-report` when nothing in the inbox covers
-  it (or a known regression has new evidence that changes the verdict). A **strong finding**
+- **Author** a fresh report via `signals-scout-emit-report` only when nothing live in the inbox
+  covers it. New evidence on a regression an existing report already tracks is an **edit**, not a
+  new report — `emit-report` is for a genuinely uncovered slice (or a relapse whose prior report is
+  no longer live, per the Edit bullet). A **strong finding**
   here: confidence ≥ 0.85, the move localized to a specific slice (not an aggregate artifact),
   with concrete trace / generation / evaluation / cluster IDs and query results in the
   `evidence`. A cost / latency / eval regression is an investigation, not a one-line code fix,
@@ -183,9 +185,10 @@ candidate:
   they're PR-autostart fields, and supplying `priority` + `suggested_reviewers` with no
   `repository` signals PR intent that spins up a repo-selection sandbox only to no-op
   (autostart needs `immediately_actionable`). **Always set `suggested_reviewers`** regardless —
-  resolve the owning person's GitHub login with `org-member-get-github-login` (cache it under a
-  `reviewer:llm_analytics:<area>` key). It's how the report reaches a human; left empty, the
-  report is assigned to nobody and is likely missed. After authoring, write a
+  resolve the owning person via `org-member-get-github-login` and pass it as a `{github_login}` (or
+  `{user_uuid}`) object, since `suggested_reviewers` is a **list of objects, not bare strings** (cache
+  the login under a `reviewer:llm_analytics:<area>` key). It's how the report reaches a human; left
+  empty, the report is assigned to nobody and is likely missed. After authoring, write a
   `report:llm_analytics:<entity>` scratchpad entry with the `report_id` so the next run edits
   it instead of duplicating.
 - **Remember** if it's below the bar but worth carrying forward, or to record what you
@@ -261,8 +264,8 @@ Inbox & reviewer routing:
 - `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
   `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
 - `org-members-list` / `org-member-get-github-login` — resolve a product / model / eval owner
-  to a bare GitHub login for `suggested_reviewers` (returns null when unlinked → try the next
-  owner).
+  to a GitHub login, wrapped as a `{github_login}` object for `suggested_reviewers` (returns null
+  when unlinked → try the next owner, or pass the member's `{user_uuid}` and let the server resolve).
 
 Harness-level:
 
