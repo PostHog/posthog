@@ -632,6 +632,15 @@ class Team(UUIDTClassicModel):
     # Environment-level default HogQL query modifiers
     modifiers = field_access_control(models.JSONField(null=True, blank=True), "project", "admin")
 
+    def clean(self) -> None:
+        super().clean()
+        # test_account_filters is blank=True (so ModelForms accept empty input) but NOT NULL.
+        # A blank form field cleans to None, and clean_fields skips it (blank + empty value),
+        # so None would otherwise slip past validation and fail on save with a NOT NULL error.
+        # Normalize the empty case back to the field's default empty list.
+        if self.test_account_filters is None:
+            self.test_account_filters = []
+
     # This is meant to be used as a stopgap until https://github.com/PostHog/meta/pull/39 gets implemented
     # Switches _most_ queries to using distinct_id as aggregator instead of person_id
     @property

@@ -9,6 +9,7 @@ from unittest.mock import patch
 from django.contrib.admin.sites import AdminSite
 from django.contrib.messages.storage.fallback import FallbackStorage
 from django.core.exceptions import PermissionDenied
+from django.forms import modelform_factory
 from django.test import RequestFactory
 
 from parameterized import parameterized
@@ -528,3 +529,16 @@ class TestTeamInlineForm(BaseTest):
         # empty_values, so a required field rejects it as "This field is required",
         # blocking the org save for any team whose filters were cleared.
         assert self._inline_form().fields["test_account_filters"].required is False
+
+    @parameterized.expand([("explicit_empty_list", "[]"), ("blank_input", "")])
+    def test_empty_test_account_filters_normalizes_to_list(self, _name: str, raw: str) -> None:
+        # blank=True makes the field optional, but the column is NOT NULL and a blank input
+        # cleans to None. Without model-level normalization that None passes form validation
+        # and then errors on save. Both an explicit `[]` and an empty input must round-trip
+        # to `[]`, never None.
+        form_class = modelform_factory(Team, fields=["test_account_filters"])
+        form = form_class(data={"test_account_filters": raw}, instance=self.team)
+        assert form.is_valid(), form.errors
+        form.save()
+        self.team.refresh_from_db()
+        assert self.team.test_account_filters == []
