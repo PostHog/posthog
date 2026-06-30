@@ -9,7 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType, PropertyOperator } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -49,6 +49,10 @@ export type HogFlowFiltersProps = {
     // has no such key, so a group-based wait could never be woken and would only ever time out.
     // Used by wait conditions to keep them constrained to matcher-observable signals.
     excludeGroupProperties?: boolean
+    // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
+    // as suggestions and resolve their distinct values.
+    schemaColumns?: DatabaseSchemaField[]
+    dataWarehouseTableName?: string
 }
 
 /**
@@ -118,6 +122,8 @@ export function HogFlowPropertyFilters({
     filters,
     setFilters,
     excludeGroupProperties,
+    schemaColumns,
+    dataWarehouseTableName,
 }: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
@@ -129,6 +135,7 @@ export function HogFlowPropertyFilters({
             name: variable.key,
         })),
     }
+    const isDataWarehouse = !!dataWarehouseTableName
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
@@ -137,6 +144,7 @@ export function HogFlowPropertyFilters({
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
             taxonomicGroupTypes={[
+                ...(isDataWarehouse ? [TaxonomicFilterGroupType.DataWarehouseProperties] : []),
                 TaxonomicFilterGroupType.WorkflowVariables,
                 TaxonomicFilterGroupType.EventProperties,
                 TaxonomicFilterGroupType.EventFeatureFlags,
@@ -146,6 +154,8 @@ export function HogFlowPropertyFilters({
                 TaxonomicFilterGroupType.EventMetadata,
             ]}
             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+            schemaColumns={schemaColumns}
+            dataWarehouseTableName={dataWarehouseTableName}
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),

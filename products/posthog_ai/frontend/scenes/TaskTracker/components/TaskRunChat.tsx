@@ -48,12 +48,10 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
         // `RunSurface.Root` binds `runStreamLogic` keyed by `runId`; `runInteractionLogic` connects to the same
         // key, so the composer slot's gating reads the right stream. Don't introduce a diverging `streamKey`.
         <RunSurface.Root taskId={logicProps.taskId} runId={logicProps.runId} interaction="live">
-            <div className="@container/thread flex flex-col h-full overflow-hidden">
-                <div className="flex-1 min-h-0">
-                    <RunSurface.Thread listClassName="pt-4" rowClassName="pr-4" />
-                </div>
-                <RunSurface.Resources />
+            <div className="@container/thread flex flex-col h-full -mx-4">
+                <RunSurface.Thread className="flex-1 min-h-0" listClassName="py-4" rowClassName="px-4" />
                 <RunSurface.Composer>
+                    <RunSurface.Resources />
                     <Composer.Root value={draft} onChange={setDraft} onSubmit={submit} loading={isSubmitting}>
                         {queuedMessages.length > 0 && (
                             <Composer.Banner>
@@ -75,7 +73,6 @@ function TaskRunChatContent({ logicProps }: { logicProps: RunInteractionLogicPro
                         <Composer.Submit data-attr="sandbox-composer-send" />
                     </Composer.Root>
                 </RunSurface.Composer>
-                <RunSurface.ContextUsage />
             </div>
         </RunSurface.Root>
     )

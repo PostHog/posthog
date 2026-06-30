@@ -1312,6 +1312,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: values.activeTab?.name || '',
                         folderId: null,
                         isTest: false,
+                        materializeAfterSave,
                         dagId: multiDagEnabled
                             ? (values.dags.find((d) => d.id === values.selectedDagId)?.id ?? values.dags[0]?.id ?? null)
                             : undefined,
@@ -1402,6 +1403,21 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                                         )}
                                     </LemonField>
                                 )}
+                                <LemonField name="materializeAfterSave" className="mt-2">
+                                    {({ value, onChange }) => (
+                                        <div className="flex items-center gap-2">
+                                            <LemonCheckbox
+                                                checked={value}
+                                                onChange={onChange}
+                                                data-attr="sql-editor-input-save-view-materialize"
+                                                label="Materialize this view"
+                                            />
+                                            <Tooltip title="Pre-compute the results into a table for faster queries. Syncs daily by default — you can adjust the frequency later in the view's materialization settings.">
+                                                <span className="text-muted cursor-pointer">&#9432;</span>
+                                            </Tooltip>
+                                        </div>
+                                    )}
+                                </LemonField>
                                 <SaveTargetCycler
                                     candidates={candidates}
                                     onChange={(q) => {
@@ -1414,10 +1430,16 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         viewName: validateSavedQueryName,
                         dagId: (dagId) => (multiDagEnabled && !dagId ? 'Please select a DAG' : undefined),
                     },
-                    onSubmit: async ({ viewName, dagId, folderId, isTest }) => {
+                    onSubmit: async ({
+                        viewName,
+                        dagId,
+                        folderId,
+                        isTest,
+                        materializeAfterSave: shouldMaterialize,
+                    }) => {
                         await asyncActions.saveAsViewSubmit(
                             viewName,
-                            materializeAfterSave,
+                            shouldMaterialize ?? false,
                             fromDraft,
                             dagId,
                             folderId,

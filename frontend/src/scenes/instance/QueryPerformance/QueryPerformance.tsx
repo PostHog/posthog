@@ -11,6 +11,7 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { humanizeBytes } from 'lib/utils/numbers'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 
@@ -42,6 +43,21 @@ const METRIC_TYPE_OPTIONS = [
     { value: 'ratio', label: 'Ratio' },
     { value: 'retention', label: 'Retention' },
 ]
+
+function QueryStats({
+    read_bytes,
+    read_rows,
+    memory_usage,
+    exception_code,
+}: Pick<SlowestQuery, 'read_bytes' | 'read_rows' | 'memory_usage' | 'exception_code'>): JSX.Element {
+    return (
+        <div className="font-mono text-xs text-muted">
+            Read {humanizeBytes(read_bytes)} · {read_rows.toLocaleString()} rows
+            {memory_usage ? ` · ${humanizeBytes(memory_usage)} peak memory` : ''}
+            {exception_code ? ` · exit code ${exception_code}` : ''}
+        </div>
+    )
+}
 
 export function QueryPerformance(): JSX.Element {
     const { user } = useValues(userLogic)
@@ -393,6 +409,7 @@ export function QueryPerformance(): JSX.Element {
                                         expandedRowRender: function ExpandedQuery(item) {
                                             return (
                                                 <div className="flex flex-col gap-2 p-2">
+                                                    <QueryStats {...item} />
                                                     {item.sub_queries && item.sub_queries.length > 0 && (
                                                         <div>
                                                             <h4 className="mb-1">Sub-queries (precompute builds)</h4>
@@ -403,13 +420,16 @@ export function QueryPerformance(): JSX.Element {
                                                                 expandable={{
                                                                     expandedRowRender: function ExpandedSubQuery(sub) {
                                                                         return (
-                                                                            <CodeSnippet
-                                                                                language={Language.SQL}
-                                                                                thing="query"
-                                                                                maxLinesWithoutExpansion={10}
-                                                                            >
-                                                                                {sub.query}
-                                                                            </CodeSnippet>
+                                                                            <div className="flex flex-col gap-2 p-2">
+                                                                                <QueryStats {...sub} />
+                                                                                <CodeSnippet
+                                                                                    language={Language.SQL}
+                                                                                    thing="query"
+                                                                                    maxLinesWithoutExpansion={10}
+                                                                                >
+                                                                                    {sub.query}
+                                                                                </CodeSnippet>
+                                                                            </div>
                                                                         )
                                                                     },
                                                                 }}

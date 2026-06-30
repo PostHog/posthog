@@ -116,6 +116,7 @@ pub const ALERTING_STAGE: &str = "cymbal_exception_alerting_stage";
 pub const RATE_LIMITING_STAGE: &str = "cymbal_rate_limiting_stage";
 pub const RATE_LIMIT_OUTCOMES: &str = "cymbal_error_tracking_rate_limiter_outcomes";
 pub const RATE_LIMIT_FAIL_OPEN: &str = "cymbal_error_tracking_rate_limiter_fail_open";
+pub const RATE_LIMIT_METRIC_EMIT: &str = "cymbal_error_tracking_rate_limiter_metric_emit";
 pub const SPIKE_ALERT_STAGE: &str = "cymbal_spike_detection_time";
 
 // Operators
