@@ -43,14 +43,23 @@ armed imports are delivering, not whether the team chose to import a given table
 
 ## Quick close-out: are imports even armed?
 
-Sweep `external-data-schemas-list` (paginated) and keep only schemas with
-`should_sync: true`. If there are none, imports aren't in play — write one scratchpad entry
+One SQL count over the schema metadata tells you whether imports are in play:
+
+```sql
+SELECT status, count() AS schemas, uniq(source_id) AS sources
+FROM system.source_schemas
+WHERE should_sync AND deleted = 0
+GROUP BY status
+```
+
+If it returns nothing (no armed schemas), imports aren't in play — write one scratchpad entry
 and close out empty (re-running the same key idempotently refreshes it):
 
 - key: `not-in-use:data_warehouse:team{team_id}`
 - content: brief note ("checked at {timestamp}, no armed import schemas")
 
-If only one source has armed schemas, scope the run to it and skip the rest silently.
+If everything is `Completed` and fresh, the run is nearly done — only the silent-staleness and
+webhook checks below can still find something behind a green status.
 
 ## How a run works
 
@@ -68,24 +77,39 @@ Three cheap reads cold-start a run:
   are not events**, so the profile won't enumerate them; it only tells you whether the
   warehouse is in use at all.
 
-Then take the import roster with two reads:
+Then take the import roster. **Sweep with SQL over the metadata system tables, drill down
+with REST.** A large project can have thousands of schemas — paginating
+`external-data-schemas-list` (50/page) is hundreds of pages, so do the bulk scan in one query
+against `system.source_schemas` instead:
 
-1. **Source roster** — `external-data-sources-list`. Read only the **source-level** fields
-   per entry: `status` (`Running` / `Completed` / `Failed` / `Error`), `source_type`,
-   `latest_error`, `last_run_at`, `prefix`. **Footgun: each source embeds all of its
-   schemas, so this response can be many MB on a large project** — never rely on the embedded
-   schema blobs for the per-table sweep; get those from the schemas endpoint below, and
-   paginate the source roster with `limit`/`offset` following `next`.
-2. **Schema sweep** — `external-data-schemas-list` (`limit` + `offset`, follow `next`). Each
-   row carries the fields you score on: `name`, `should_sync`, `status`, `last_synced_at`,
-   `sync_frequency`, `latest_error`, `sync_type`, `incremental`, `incremental_field`. Filter
-   to `should_sync: true` and bucket by `status`. On a big project this is the table you
-   spend the run on; use `search` to narrow to a watchlisted source's tables.
+```sql
+-- Everything not cleanly Completed, plus the silent-staleness candidates, in one pass.
+SELECT name, source_id, status, sync_type, last_synced_at,
+       dateDiff('hour', last_synced_at, now()) AS hours_since_sync
+FROM system.source_schemas
+WHERE should_sync AND deleted = 0
+  AND (status != 'Completed'
+       OR last_synced_at < now() - INTERVAL 48 HOUR)  -- tune the staleness floor per cadence
+ORDER BY status, hours_since_sync DESC
+```
 
-Before any per-schema deep dive, normalize against the whole roster: if every schema under
-one source failed at once, that's **one source-level finding** (the connection broke), not N
-per-table findings. If schemas across _many_ sources failed in the same window, suspect a
-platform/warehouse incident — one finding naming the shared cause.
+`system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`,
+`latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id`
+to find cascades (one source whose tables all fail at once is **one source-level finding**, not
+N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the
+**source-level** `status` / `latest_error`. Get those from REST, but only for the handful of
+candidates the SQL sweep surfaced:
+
+- `external-data-schemas-list` (`search=<schema name>`) — the one candidate's `sync_frequency`,
+  `incremental_field`, full `latest_error`. **Footgun: never call it unfiltered to page the
+  whole project, and never use `external-data-sources-list` for the schema sweep — each source
+  there embeds all its schemas, so the response is many MB on a large project.**
+- `external-data-sources-retrieve {source_id}` — the source's connection-level `status`
+  (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_
+  rather than N independent table failures.
+
+If `Failed` schemas span _many_ sources in the same window, suspect a platform/warehouse
+incident — one finding naming the shared cause.
 
 ### Profile shape — config vs delivery
 
@@ -129,12 +153,22 @@ orphaned job — the same growing-gap finding, not a healthy state.
 
 #### Silent staleness (Completed but behind cadence)
 
-The endpoints' active-failure view does not flag this — it's where you earn your keep.
-Compute each armed `Completed` schema's freshness: `now() − last_synced_at` against its
-`sync_frequency` (`6hour`, `1hour`, `24hour`, …). A schema on a 1-hour cadence last synced 3
-days ago is effectively broken even though `status` reads `Completed` — typically a silently
-disabled trigger or a stuck scheduler. Treat freshness > ~3× the cadence (with no
-`Running` run in flight) as a candidate; confirm against the source status before calling it.
+The active-failure view does not flag this — it's where you earn your keep. The SQL sweep
+already surfaced armed `Completed` schemas with a stale `last_synced_at` (a real `DateTime` on
+`system.source_schemas`, so `dateDiff('hour', last_synced_at, now())` works directly — no
+string parsing). Score each candidate's gap against its **promised cadence**, which you pull
+per-candidate from REST `sync_frequency`:
+
+- **A tight cadence gone stale is the real signal** — a `1hour` / `6hour` incremental whose
+  freshness is > ~3× its cadence with no `Running` run in flight is effectively broken behind a
+  green status (a silently disabled trigger or stuck scheduler). Confirm the source status,
+  quantify the gap, emit.
+- **Don't confuse abandoned with broken.** An armed schema that hasn't synced in _months_ — a
+  `full_refresh` one-shot that was never on a recurring cadence, or a table under a source the
+  team quietly stopped using — is most likely abandoned, not an active regression. That's a P3
+  cleanup/hygiene note (or a `noise:` entry once confirmed), not a P1/P2 gap. The shape that
+  earns an anomaly emit is a schema **recently** healthy that **just** fell behind its cadence,
+  not one stale since last year.
 
 #### Broken webhook behind a green status
 
@@ -155,11 +189,13 @@ the cliff.
 
 #### Materialized view failures and waste
 
-`view-list` carries each saved query's materialization status, `latest_error`, and last-run
-timestamp; `view-run-history {id}` is the run trail. A materialized view `Failed` is usually
-a HogQL/data problem in the view itself (missing table, type mismatch) — surface it and route
-to view diagnosis rather than deep-diving. A healthy-but-never-queried materialized view is a
-P3 cost-hygiene note, not an anomaly.
+Sweep materialized views the same SQL-first way: `SELECT name, status, last_run_at FROM
+system.data_modeling_views WHERE is_materialized = 1 AND deleted = 0 AND status = 'Failed'`.
+For a failing view, `view-run-history {id}` is the run trail and `view-list` carries the
+`latest_error`. A materialized view `Failed` is usually a HogQL/data problem in the view itself
+(missing table, type mismatch) — surface it and route to view diagnosis rather than
+deep-diving. A healthy-but-never-queried materialized view is a P3 cost-hygiene note, not an
+anomaly.
 
 ### Save memory as you go
 
@@ -255,25 +291,36 @@ When in doubt, write a memory entry instead of emitting.
 
 ## MCP tools
 
-Direct calls (read-only):
+The sweep is SQL over the metadata system tables; REST is per-candidate drill-down.
 
-- `external-data-sources-list` — source roster: source-level `status`, `source_type`,
-  `latest_error`, `last_run_at`, `prefix`. Paginate (`limit`/`offset`, `next`); ignore the
-  embedded schema blobs (huge) and use the schemas endpoint instead.
-- `external-data-sources-retrieve` — one source's full detail including its schemas, when you
-  need the mechanism behind a source-level Error.
-- `external-data-schemas-list` — the per-table sweep: `name`, `should_sync`, `status`,
-  `last_synced_at`, `sync_frequency`, `latest_error`, `sync_type`, `incremental`,
-  `incremental_field`. Paginate; `search` narrows to one source's tables.
-- `external-data-schemas-retrieve` — one schema's full detail (columns, `sync_type_config`)
-  when `latest_error` is null on the list but the schema is `Failed`.
+`execute-sql` over the warehouse metadata tables (the bulk scan — one query, no pagination):
+
+- `system.source_schemas` — one row per armed/unarmed import table: `should_sync`, `status`,
+  `sync_type`, `last_synced_at` (a real `DateTime`), `latest_error`, `source_id`. The schema
+  sweep and the staleness scan both run off this. **HogQL footguns:** `should_sync` is a
+  `Boolean` (use it bare, `WHERE should_sync` — no `= 1`), but `deleted` is an `Integer`
+  (`deleted = 0`). It has **no** `sync_frequency` column — pull cadence from REST.
+- `system.data_warehouse_sources` — one row per source (`source_type`, `prefix`, `created_at`);
+  has **no** `status` / `latest_error` (those are REST-only — use `-sources-retrieve`).
+- `system.data_modeling_views` — saved queries / materialized views: `status`, `is_materialized`,
+  `last_run_at`. The materialized-view sweep.
+- `execute-sql` also confirms a row cliff with a `count()` over the warehouse data table itself
+  (by ingested day). Those _data_ tables (not these metadata tables) can carry string
+  timestamps — `parseDateTimeBestEffort(...)` there if needed.
+
+REST (per-candidate detail the system tables don't carry):
+
+- `external-data-schemas-list` (`search=<name>`) — one schema's `sync_frequency`,
+  `incremental_field`, full `latest_error`. **Never page it unfiltered; never use
+  `external-data-sources-list` for the schema sweep (embeds all schemas, many MB).**
+- `external-data-sources-retrieve {source_id}` — the source's connection-level `status`
+  (`Error`/…) and `latest_error`, to confirm a cascade is a broken connection.
+- `external-data-schemas-retrieve` — one schema's columns / `sync_type_config` when the sweep's
+  `latest_error` is null but the schema is `Failed`.
 - `external-data-sources-webhook-info-retrieve` — per-source webhook registration + remote
   status for `sync_type: webhook` schemas; the only place push-channel health shows.
-- `view-list` / `view-run-history` — materialized-view status, `latest_error`, last-run, and
-  the run trail.
-- `execute-sql` — `count()` over a warehouse table (by ingested day) to confirm a row cliff,
-  and `system.*` reads for entity context. Name your columns; warehouse timestamps are often
-  strings — parse with `parseDateTimeBestEffort(...)`.
+- `view-list` / `view-run-history` — materialized-view `latest_error` and the run trail when a
+  `system.data_modeling_views` row is `Failed`.
 - `activity-log-list` — dating source/schema config edits against a failure or staleness onset.
 - `inbox-reports-list` / `health-issues-list` — pre-emit dedupe against the inbox and the
   health-checks scout's `external_data_failure` issues.
