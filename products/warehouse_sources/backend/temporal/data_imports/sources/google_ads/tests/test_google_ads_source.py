@@ -99,6 +99,13 @@ class TestGoogleAdsValidateConfig:
         }
         assert len(self._manager_id_errors(job_inputs)) == 1
 
+    @pytest.mark.parametrize("is_mcc_account", [False, True, None])
+    def test_non_dict_is_mcc_account_does_not_crash(self, is_mcc_account):
+        # API callers may send is_mcc_account as a plain bool instead of the switch-group dict;
+        # validate_config must not crash trying to read `.get("enabled")` off it.
+        job_inputs = {"customer_id": "1234567890", "is_mcc_account": is_mcc_account}
+        assert self._manager_id_errors(job_inputs) == []
+
 
 class TestGoogleAdsNonRetryableErrors:
     def setup_method(self):
