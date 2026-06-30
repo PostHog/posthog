@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Iterator
+from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
 from typing import Any, cast
@@ -1031,6 +1031,11 @@ class TestIsConnectionDroppedError:
             psycopg.errors.InternalError_(
                 "(EDBHANDLEREXITED) connection to database closed. Check logs for more information"
             ),
+            # Supavisor also surfaces a transient pool-checkout failure as an XX000 InternalError_
+            # carrying the "(ECHECKOUTRETRIES)" code — it couldn't hand us a backend connection after
+            # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
+            # reconnect once a session returns a connection to the pool.
+            psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
@@ -1055,7 +1060,8 @@ class TestIsConnectionDroppedError:
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),
             # A genuine XX000 internal error that isn't the Supavisor pooler drop must stay
-            # non-recoverable — the InternalError_ match is scoped to the "(EDBHANDLEREXITED)" code.
+            # non-recoverable — the InternalError_ match is scoped to the known pooler codes
+            # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
         ],
     )
@@ -1113,6 +1119,13 @@ class TestIsConnectionLimitError:
             psycopg.OperationalError(
                 'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
                 'FATAL:  too many connections for role "reader"'
+            ),
+            # Supabase's Supavisor session-mode pooler refuses a new connection once every client
+            # slot is in use. A plain OperationalError (not the XX000 pooler-drop class), so it must
+            # be recognised here for the in-process connect retry to recover from it.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "10.0.0.1", port 5432 failed: '
+                "FATAL:  (EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size: 15"
             ),
         ],
     )
@@ -1655,6 +1668,122 @@ class TestServerCursorStatementTimeout:
             self._run(should_use_incremental_field=should_use_incremental_field)
         if expected_substr is not None:
             assert expected_substr in str(exc_info.value)
+
+
+class TestServerCursorCloseStatementTimeout:
+    """Closing the `get_rows` generator (the sync finished, or the activity was cancelled) tears
+    down the open server cursor; that teardown round-trip can itself hit the statement_timeout and
+    raise QueryCanceled. It must be swallowed so close() completes cleanly — re-raising it (or
+    mapping it to a non-retryable QueryTimeoutException) masks the real outcome and floods error
+    tracking with phantom statement timeouts.
+    """
+
+    class _Cursor:
+        def __init__(self, *, named: bool):
+            self._named = named
+            self._yielded = False
+            col = mock.Mock()
+            col.name = "id"
+            self.description = [col]
+
+        def execute(self, *args, **kwargs):
+            return None
+
+        def fetchmany(self, _n: int):
+            # Yield one chunk once so the generator suspends at the yield inside the
+            # `with cursor` block, then report end-of-rows on the next call.
+            if self._yielded:
+                return []
+            self._yielded = True
+            return [(1,)]
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            # Only the named server cursor's close round-trip trips the timeout, and
+            # only while the generator is being closed (GeneratorExit unwinding).
+            if self._named and any(isinstance(a, GeneratorExit) for a in args):
+                raise psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+            return False
+
+    class _Connection:
+        def __init__(self):
+            self.autocommit = False
+            self.closed = False
+            self.broken = False
+            self.adapters = mock.Mock()
+
+        def cursor(self, *args, **kwargs):
+            return TestServerCursorCloseStatementTimeout._Cursor(named="name" in kwargs)
+
+        def commit(self):
+            return None
+
+        def close(self):
+            self.closed = True
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+    def _open(self, *, should_use_incremental_field: bool) -> tuple[Generator[Any], Any]:
+        from contextlib import contextmanager
+
+        @contextmanager
+        def fake_tunnel():
+            yield ("localhost", 5432)
+
+        fake_table = mock.Mock()
+        fake_table.to_arrow_schema.return_value = pa.schema([pa.field("id", pa.int64())])
+        fake_table.type = "table"
+        fake_table.columns = []
+        fake_table.__contains__ = mock.Mock(return_value=False)
+
+        connection = self._Connection()
+        module = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres"
+        with (
+            patch(f"{module}.psycopg.connect", return_value=connection),
+            patch(f"{module}.psycopg.Cursor", return_value=self._Cursor(named=False)),
+            patch(f"{module}._get_table", return_value=fake_table),
+            patch(f"{module}._is_read_replica", return_value=False),
+            patch(f"{module}._get_primary_keys", return_value=["id"]),
+            patch(f"{module}._is_partitioned_table", return_value=False),
+            patch(f"{module}._get_table_chunk_size", return_value=100),
+            patch(f"{module}._get_rows_to_sync", return_value=10),
+            patch(f"{module}._role_subject_to_rls", return_value=False),
+            patch(f"{module}._get_partition_settings", return_value=None),
+        ):
+            response = postgres_source(
+                tunnel=lambda: fake_tunnel(),
+                user="u",
+                password="p",
+                database="db",
+                sslmode="prefer",
+                schema="public",
+                table_names=["companies"],
+                should_use_incremental_field=should_use_incremental_field,
+                logger=structlog.get_logger(),
+                db_incremental_field_last_value=datetime(2026, 6, 15, tzinfo=UTC)
+                if should_use_incremental_field
+                else None,
+                team_id=1,
+                incremental_field="updated_at" if should_use_incremental_field else None,
+                incremental_field_type=IncrementalFieldType.Timestamp if should_use_incremental_field else None,
+            )
+            gen = cast(Generator[Any], response.items())
+            next(gen)  # one chunk; generator now suspended at the yield inside `with cursor`
+            return gen, connection
+
+    @pytest.mark.parametrize("should_use_incremental_field", [True, False])
+    def test_close_swallows_statement_timeout(self, should_use_incremental_field):
+        gen, connection = self._open(should_use_incremental_field=should_use_incremental_field)
+        # close() must not raise — neither the raw QueryCanceled nor a converted
+        # QueryTimeoutException should escape teardown.
+        gen.close()
+        assert connection.closed
 
 
 class TestOffsetChunkingConnectRecoveryConflict:

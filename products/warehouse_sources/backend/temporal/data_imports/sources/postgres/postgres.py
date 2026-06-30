@@ -194,30 +194,39 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a
 # libpq/PgBouncer signature — it raises its own pooler-internal error as a generic psycopg
-# InternalError_ (SQLSTATE XX000) carrying the "(EDBHANDLEREXITED)" code. The trailing message
-# varies — both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
+# InternalError_ (SQLSTATE XX000) carrying a Supavisor error code. The trailing message varies —
+# both "(EDBHANDLEREXITED) DbHandler exited. Check logs for more information" and
 # "(EDBHANDLEREXITED) connection to database closed. Check logs for more information" have been
-# observed for the same condition — but the EDBHANDLEREXITED code is the stable signal: the
-# pooler's per-session DbHandler process exited because its backend connection died (idle cull,
-# backend restart, failover). That's the same transient class as the libpq drops above and
-# recovers on reconnect, so match the code itself rather than any one message wording. Genuine
+# observed for the same condition — but the code is the stable signal, so match the code itself
+# rather than any one message wording.
+#   - EDBHANDLEREXITED: the pooler's per-session DbHandler process exited because its backend
+#     connection died (idle cull, backend restart, failover).
+#   - ECHECKOUTRETRIES ("failed to check out a connection after multiple retries"): the pooler
+#     couldn't hand us a backend connection after retrying internally — its pool was momentarily
+#     exhausted or every backend was busy. A slot frees the moment another session returns one.
+# Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited",)
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
 # clients already" once max_connections is reached, "remaining connection slots are reserved for
 # roles with the SUPERUSER attribute" once only the superuser_reserved_connections slots remain,
-# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. All three are
-# transient capacity conditions on the customer's database — a slot frees the moment another
-# connection closes — so a fresh connect after a short backoff usually succeeds. Retried in-process
-# on the read/sync connect path (see `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`);
-# kept retryable and intentionally NOT added to `get_non_retryable_errors` for the same reason as
-# pooler saturation (see source.py).
+# and "too many connections for role" once a role's own CONNECTION LIMIT is hit. Supabase's
+# Supavisor session-mode pooler reports its own variant when every client slot it exposes is in use
+# ("(EMAXCONNSESSION) max clients reached in session mode - max clients are limited to pool_size:
+# <n>"). All of these are transient capacity conditions on the customer's database or pooler — a
+# slot frees the moment another connection closes (or a session ends) — so a fresh connect after a
+# short backoff usually succeeds. Retried in-process on the read/sync connect path (see
+# `_is_dropped_or_connect_timeout` / `_connect_with_dropped_retry`); kept retryable and intentionally
+# NOT added to `get_non_retryable_errors` (see source.py). The Supavisor match is on the stable
+# "max clients reached in session mode" phrase, excluding the volatile pool_size and the
+# "(EMAXCONNSESSION)" code (mirrors the `PostgresErrors` validation mapping in source.py).
 _CONNECTION_LIMIT_ERROR_SUBSTRINGS = (
     "sorry, too many clients already",
     "remaining connection slots are reserved",
     "too many connections for role",
+    "max clients reached in session mode",
 )
 
 # Exception types that can carry a connection-dropped error. ProtocolViolation is
@@ -425,6 +434,28 @@ def _statement_timeout_as_non_retryable(
         f"10 min timeout statement reached. Please ensure your incremental field "
         f"({incremental_field}) has an appropriate index created"
     )
+
+
+def _raised_while_closing_generator(error: BaseException) -> bool:
+    """True when `error` surfaced while the row generator was being closed.
+
+    Closing a suspended generator raises GeneratorExit at the yield; the server
+    cursor / connection `__exit__` then runs and can itself issue a round-trip
+    (closing the server cursor, the implicit rollback) that hits the
+    statement_timeout and raises QueryCanceled, with the GeneratorExit left as
+    its `__context__`. The consumer is already done — the sync finished, or the
+    activity is being cancelled — so a teardown error here is irrelevant to the
+    sync outcome and must not be re-raised: doing so masks the real cause (e.g.
+    the cancellation) and floods error tracking with phantom statement timeouts.
+    """
+    seen: set[int] = set()
+    ctx: BaseException | None = error.__context__
+    while ctx is not None and id(ctx) not in seen:
+        if isinstance(ctx, GeneratorExit):
+            return True
+        seen.add(id(ctx))
+        ctx = ctx.__context__
+    return False
 
 
 def _pk_uniqueness_probe_timeout_error() -> QueryTimeoutException:
@@ -3038,10 +3069,17 @@ def postgres_source(
                     except psycopg.errors.QueryCanceled as e:
                         # A chunk hit the 10-min statement_timeout. QueryCanceled
                         # subclasses OperationalError, so this clause must precede the
-                        # connection-dropped handler below. Retrying won't help, so map
-                        # it to the same non-retryable QueryTimeoutException the
-                        # server-cursor and windowed paths raise instead of leaking a
-                        # raw, retryable QueryCanceled that Temporal keeps re-attempting.
+                        # connection-dropped handler below.
+                        if _raised_while_closing_generator(e):
+                            # The generator is being closed and the cursor teardown
+                            # round-trip hit the statement_timeout — irrelevant to the
+                            # sync outcome, so swallow it and let close() complete cleanly.
+                            _safe_close_connection(connection)
+                            return
+                        # Retrying won't help, so map it to the same non-retryable
+                        # QueryTimeoutException the server-cursor and windowed paths
+                        # raise instead of leaking a raw, retryable QueryCanceled that
+                        # Temporal keeps re-attempting.
                         _safe_close_connection(connection)
                         timeout_error = _statement_timeout_as_non_retryable(
                             e,
@@ -3217,6 +3255,13 @@ def postgres_source(
                 # A FETCH against the server cursor exhausted the 10-min
                 # statement_timeout. QueryCanceled subclasses OperationalError, so
                 # this clause must precede the connection-dropped handler below.
+                if _raised_while_closing_generator(e):
+                    # Not a real read timeout: the generator is being closed and the
+                    # cursor/connection teardown round-trip hit the statement_timeout.
+                    # Swallow it so close() completes cleanly instead of masking the
+                    # real outcome (e.g. an activity cancellation) with a phantom timeout.
+                    _safe_close_connection(connection)
+                    return
                 # Retrying is futile (usually a missing index on the incremental
                 # field or a scan too large to finish in time), so map it to the
                 # same non-retryable QueryTimeoutException the offset-chunking and
