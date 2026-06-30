@@ -285,3 +285,10 @@ class IncidentContext:
     leadout: dt.timedelta = dt.timedelta(minutes=15)
     service_name: str | None = None
     companions: tuple[CompanionMetric, ...] = ()
+
+    def __post_init__(self) -> None:
+        # The docstring promises a UTC instant; a naive datetime would be taken
+        # as UTC by the window math and silently mis-bucket a local-time fire.
+        # Fail fast at construction so callers stay explicit.
+        if self.fired_at.tzinfo is None:
+            raise ValueError("fired_at must be timezone-aware (UTC)")
