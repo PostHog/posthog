@@ -257,6 +257,7 @@ class DatabricksClient:
         inputs: DatabricksInsertInputs,
         integration: DatabricksIntegration,
         statement_timeout_seconds: float | None = None,
+        connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT,
     ) -> t.Self:
         """Initialize a DatabricksClient from `DatabricksInsertInputs` and `DatabricksIntegration`.
 
@@ -272,6 +273,7 @@ class DatabricksClient:
             catalog=inputs.catalog,
             schema=inputs.schema,
             statement_timeout_seconds=statement_timeout_seconds,
+            connect_timeout_seconds=connect_timeout_seconds,
         )
 
     @property
