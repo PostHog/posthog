@@ -23,6 +23,7 @@ from posthog.models.team import Team
 from products.engineering_analytics.backend import logic
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    CIFailureLogs,
     GitHubSource,
     PRCostSummary,
     PRLifecycle,
@@ -98,6 +99,19 @@ def list_pr_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_pr_runs(
+        curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
+    )
+
+
+def get_ci_failure_logs(
+    *,
+    team: Team,
+    pr_number: int,
+    repo: str,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> CIFailureLogs:
+    return logic.build_ci_failure_logs(
         curated=_authorized_source(team, source_id, user_access_control), pr_number=pr_number, repo=repo
     )
 

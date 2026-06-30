@@ -37,6 +37,7 @@ import {
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
+    ExternalDataSourcesWizardRetrieveQueryParams,
 } from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
@@ -843,17 +844,19 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = z.object({})
+const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
+            query: {
+                source_type: params.source_type,
+            },
         })
         const filtered = pickResponseFields(result, [
             '*.name',
