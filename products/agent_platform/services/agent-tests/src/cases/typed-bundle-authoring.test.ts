@@ -549,6 +549,170 @@ describe('typed bundle authoring API: real e2e', () => {
         })
     })
 
+    // ─── Dry-run: single-shot sandbox execution ─────────────────────
+    //
+    // Janitor proxies a compiled tool through the same sandbox pool the
+    // runner uses, with a per-call lifecycle (acquire → invoke → release
+    // in one handler) instead of per-session. The harness wires the same
+    // InProcessSandboxPool to both worker + janitor so these cases exercise
+    // the real dispatch path.
+
+    describe('POST /tools/:id/dry_run', () => {
+        async function putGoodTool(rid: string, id: string, source: string): Promise<void> {
+            await request(c.janitor)
+                .put(`/revisions/${rid}/tools/${id}`)
+                .send({ description: id, args_schema: { type: 'object' }, source })
+                .expect(200)
+        }
+
+        it('runs the persisted compiled.js with caller-supplied args and returns the result', async () => {
+            const rid = await newDraft(c)
+            await putGoodTool(
+                rid,
+                'echo',
+                `export default {
+                    actions: {
+                        default: async (args: { name: string }) => ({ greeting: 'hi ' + args.name })
+                    }
+                }`
+            )
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/echo/dry_run`)
+                .send({ args: { name: 'dylan' } })
+                .expect(200)
+            expect(res.body.ok).toBe(true)
+            expect(res.body.tool_id).toBe('echo')
+            expect(res.body.result).toEqual({ greeting: 'hi dylan' })
+            expect(typeof res.body.duration_ms).toBe('number')
+        })
+
+        it('surfaces a tool-thrown error as ok:false, passing the dispatcher code through', async () => {
+            const rid = await newDraft(c)
+            await putGoodTool(
+                rid,
+                'thrower',
+                `export default {
+                    actions: {
+                        default: async () => { throw new Error('boom') }
+                    }
+                }`
+            )
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/thrower/dry_run`)
+                .send({ args: {} })
+                .expect(200)
+            expect(res.body.ok).toBe(false)
+            // The dispatcher catches the throw and returns ok:false with its
+            // own structured code (in-process → `exception`; docker/modal →
+            // dispatcher-specific). The janitor passes that code through
+            // verbatim — it does NOT overwrite with `sandbox_invoke_failed`,
+            // because that code is reserved for invocations that threw
+            // OUT of the sandbox (infrastructure failure, not tool code).
+            expect(res.body.error.code).not.toBe('sandbox_invoke_failed')
+            expect(res.body.error.code).not.toBe('sandbox_acquire_failed')
+            expect(res.body.error.message).toContain('boom')
+        })
+
+        it('captures duration_ms on every path (success, tool-throw)', async () => {
+            // Same `duration_ms` contract on both ok:true and ok:false paths —
+            // measured after sandbox release in the finally block so the two
+            // numbers are comparable.
+            const rid = await newDraft(c)
+            await putGoodTool(rid, 'fast', GOOD_TOOL_SOURCE)
+            await putGoodTool(
+                rid,
+                'fast-thrower',
+                `export default { actions: { default: async () => { throw new Error('x') } } }`
+            )
+            const okRes = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/fast/dry_run`)
+                .send({ args: {} })
+                .expect(200)
+            const throwRes = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/fast-thrower/dry_run`)
+                .send({ args: {} })
+                .expect(200)
+            expect(okRes.body.ok).toBe(true)
+            expect(throwRes.body.ok).toBe(false)
+            expect(typeof okRes.body.duration_ms).toBe('number')
+            expect(typeof throwRes.body.duration_ms).toBe('number')
+            expect(okRes.body.duration_ms).toBeGreaterThanOrEqual(0)
+            expect(throwRes.body.duration_ms).toBeGreaterThanOrEqual(0)
+        })
+
+        it('plumbs mock_secrets into ctx.secrets.ref(name)', async () => {
+            const rid = await newDraft(c)
+            await putGoodTool(
+                rid,
+                'reads-secret',
+                `export default {
+                    actions: {
+                        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string } }) => ({ token: ctx.secrets.ref('FOO_TOKEN') })
+                    }
+                }`
+            )
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/reads-secret/dry_run`)
+                .send({ args: {}, mock_secrets: { FOO_TOKEN: 'nonce-abc' } })
+                .expect(200)
+            expect(res.body.ok).toBe(true)
+            expect(res.body.result).toEqual({ token: 'nonce-abc' })
+        })
+
+        it('returns ok:false when the tool refs an undeclared secret', async () => {
+            // The dispatcher (docker / modal) throws `secret not provisioned`;
+            // the in-process sandbox throws `secret not bound`. Both share the
+            // word `secret`, which is what we actually want to assert here —
+            // that the failure surfaces back as a structured error rather than
+            // a 500.
+            const rid = await newDraft(c)
+            await putGoodTool(
+                rid,
+                'missing-secret',
+                `export default {
+                    actions: {
+                        default: async (_a: unknown, ctx: { secrets: { ref(n: string): string } }) => ({ t: ctx.secrets.ref('NOPE') })
+                    }
+                }`
+            )
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/missing-secret/dry_run`)
+                .send({ args: {} })
+                .expect(200)
+            expect(res.body.ok).toBe(false)
+            expect(res.body.error.message).toMatch(/secret/)
+            expect(res.body.error.message).toContain('NOPE')
+        })
+
+        it('404s when the tool has never been PUT', async () => {
+            const rid = await newDraft(c)
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/never-existed/dry_run`)
+                .send({ args: {} })
+                .expect(404)
+            expect(res.body.error).toBe('tool_not_found')
+        })
+
+        it('400s on invalid_resource_id', async () => {
+            const rid = await newDraft(c)
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/BadID/dry_run`)
+                .send({ args: {} })
+                .expect(400)
+            expect(res.body.error).toBe('invalid_resource_id')
+        })
+
+        it('400s on invalid body (mock_secrets not a string map)', async () => {
+            const rid = await newDraft(c)
+            await putGoodTool(rid, 'ok', GOOD_TOOL_SOURCE)
+            const res = await request(c.janitor)
+                .post(`/revisions/${rid}/tools/ok/dry_run`)
+                .send({ args: {}, mock_secrets: { FOO: 123 } })
+                .expect(400)
+            expect(res.body.error).toBe('invalid_request')
+        })
+    })
+
     // ─── Spec derivation at freeze ───────────────────────────────────
 
     describe('freeze derives spec.skills / spec.tools from the typed bundle', () => {
