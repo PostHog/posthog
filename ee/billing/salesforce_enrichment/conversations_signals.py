@@ -131,8 +131,8 @@ def _fetch_slack_channel_aggregate_rows(org_ids: list[str]) -> list[dict[str, ob
         .annotate(activity_at=_activity_at())
         .values("organization_id", "slack_channel_id")
         .annotate(
-            team_id=Min("team_id"),
-            slack_team_id=Max("slack_team_id"),
+            representative_team_id=Min("team_id"),
+            representative_slack_team_id=Max("slack_team_id"),
             slack_issue_count=Count("id"),
             last_slack_activity=Max("activity_at"),
         )
@@ -193,10 +193,10 @@ def aggregate_conversations_slack_signals_for_orgs(
             slack_channel_id_value if isinstance(slack_channel_id_value, str) and slack_channel_id_value else None
         )
 
-        slack_team_id_value = row.get("slack_team_id")
+        slack_team_id_value = row.get("representative_slack_team_id")
         slack_team_id = slack_team_id_value if isinstance(slack_team_id_value, str) and slack_team_id_value else None
 
-        team_id_value = row.get("team_id")
+        team_id_value = row.get("representative_team_id")
         team_id = int(team_id_value) if isinstance(team_id_value, int) else None
 
         slack_user_count = (
