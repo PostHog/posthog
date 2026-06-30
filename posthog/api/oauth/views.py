@@ -69,10 +69,11 @@ from posthog.views import login_required
 logger = structlog.get_logger(__name__)
 
 
-# Extended access-token TTL for clients that re-authorize rarely: dynamically
+# Extended access-token TTL for clients that rarely re-authorize: dynamically
 # registered (DCR/CIMD) clients that don't reliably refresh, and first-party
-# PostHog apps. Safe to extend because these tokens stay opaque and DB-backed,
-# so OAuthApplication.sessions_revoked_at can still force-revoke them.
+# PostHog apps. Safe to extend because these tokens stay opaque and DB-backed:
+# every request revalidates the token against the DB, so revoking an app's
+# sessions deletes its token rows and takes effect immediately regardless of TTL.
 EXTENDED_ACCESS_TOKEN_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
 
