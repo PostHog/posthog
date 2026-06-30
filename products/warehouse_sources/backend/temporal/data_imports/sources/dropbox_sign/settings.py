@@ -36,6 +36,8 @@ DROPBOX_SIGN_ENDPOINTS: dict[str, DropboxSignEndpointConfig] = {
         data_key="signature_requests",
         primary_keys=["signature_request_id"],
         partition_key="created_at",
+        # Incomplete requests expose a `signing_url` bearer link; never land it in the warehouse.
+        redact_paths=["signing_url"],
     ),
     "templates": DropboxSignEndpointConfig(
         name="templates",

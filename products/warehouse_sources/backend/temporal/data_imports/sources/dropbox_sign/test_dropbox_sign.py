@@ -132,6 +132,15 @@ class TestGetRows:
         assert "sk_live_super_secret" not in rows[0]["oauth"]
         assert "callback_url" in rows[0]["oauth"]
 
+    def test_signature_requests_signing_url_is_redacted(self, monkeypatch: Any) -> None:
+        # Incomplete signature requests expose a `signing_url` bearer link; it must never reach the warehouse.
+        item = {"signature_request_id": "sr1", "signing_url": "https://app.hellosign.com/sign/abc", "title": "Doc"}
+        pages = {1: _page_body("signature_requests", [item], page=1, num_pages=1)}
+        rows, _ = self._collect("signature_requests", _FakeResumableManager(), monkeypatch, pages)
+        assert rows[0]["signature_request_id"] == "sr1"
+        assert "signing_url" not in rows[0]
+        assert rows[0]["title"] == "Doc"
+
     def test_single_object_endpoint_yields_one_row_without_pagination(self, monkeypatch: Any) -> None:
         captured: list[dict[str, Any]] = []
 
