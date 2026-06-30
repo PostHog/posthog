@@ -26,7 +26,7 @@ from products.review_hog.backend.temporal.types import ReviewPRWorkflowInputs, r
 logger = logging.getLogger(__name__)
 
 # Retry the whole review once on a hard failure; the re-run resumes (reuses persisted
-# chunk/analysis/perspective rows for the same head) rather than redoing the work.
+# chunk/perspective/verdict rows for the same head) rather than redoing the work.
 _PARENT_RETRY = RetryPolicy(maximum_attempts=2)
 
 

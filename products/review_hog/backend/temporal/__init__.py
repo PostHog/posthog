@@ -1,5 +1,4 @@
 from products.review_hog.backend.temporal.activities import (
-    analyze_chunk_activity,
     build_body_activity,
     combine_and_clean_activity,
     dedup_activity,
@@ -12,11 +11,10 @@ from products.review_hog.backend.temporal.activities import (
     review_chunk_activity,
     split_chunks_activity,
     sync_review_skills_activity,
+    validate_chunk_activity,
     validate_github_integration_activity,
-    validate_issue_activity,
 )
 from products.review_hog.backend.temporal.workflow import (
-    AnalyzeChunksWorkflow,
     ReviewPerspectivesWorkflow,
     ReviewPRWorkflow,
     ValidateIssuesWorkflow,
@@ -24,7 +22,6 @@ from products.review_hog.backend.temporal.workflow import (
 
 WORKFLOWS = [
     ReviewPRWorkflow,
-    AnalyzeChunksWorkflow,
     ReviewPerspectivesWorkflow,
     ValidateIssuesWorkflow,
 ]
@@ -37,12 +34,11 @@ ACTIVITIES = [
     generate_schemas_activity,
     split_chunks_activity,
     load_perspectives_activity,
-    analyze_chunk_activity,
     review_chunk_activity,
     combine_and_clean_activity,
     dedup_activity,
     load_validation_skill_activity,
-    validate_issue_activity,
+    validate_chunk_activity,
     build_body_activity,
     publish_review_activity,
 ]

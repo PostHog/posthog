@@ -10,20 +10,6 @@ Each chunk is reviewed by several independent specialist perspectives running in
 {{CURRENT_CHUNK|safe}}
 </pr_current_chunk_context>
 
-{% if CHUNK_ANALYSIS_CONTEXT %}
-<pr_current_chunk_analysis>
-The following analysis was performed on this chunk to understand its architecture and design:
-
-```json
-{{ CHUNK_ANALYSIS_CONTEXT | safe }}
-```
-
-### How to Use This Analysis:
-- Use the `goal` section to understand what this chunk accomplishes
-- This analysis provides architectural context but does NOT replace your need to find issues
-</pr_current_chunk_analysis>
-{% endif %}
-
 <pr_intent>
 The pull request author's stated intent. Use it to understand what this change is meant to accomplish, then judge whether the code in this chunk actually achieves it:
 

@@ -75,7 +75,6 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
         NOTE = "note"
         # Per-turn pipeline working state, read back by the DB-driven resume (head_sha-scoped).
         CHUNK_SET = "chunk_set"
-        CHUNK_ANALYSIS = "chunk_analysis"
         PERSPECTIVE_RESULT = "perspective_result"
         # The turn's fetched PR inputs, stored by reference so stage activities reload them from the
         # DB instead of crossing the Temporal workflow boundary with the big pr_files payload.
@@ -91,7 +90,6 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     WORKING_STATE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         {
             ArtefactType.CHUNK_SET,
-            ArtefactType.CHUNK_ANALYSIS,
             ArtefactType.PERSPECTIVE_RESULT,
             ArtefactType.PR_SNAPSHOT,
         }
@@ -172,7 +170,7 @@ class ReviewReportArtefact(UUIDModel, TeamScopedRootMixin):
     def add_working_state(
         cls, *, team_id: int, report_id: str, content: ReviewWorkingStateContent, attribution: ArtefactAttribution
     ) -> "ReviewReportArtefact":
-        """Append per-turn pipeline working state (`chunk_set` / `chunk_analysis` / `perspective_result`).
+        """Append per-turn pipeline working state (`chunk_set` / `perspective_result` / `pr_snapshot`).
 
         These accumulate; the DB-driven resume reads the latest row per (head_sha, key), so a
         resumed turn reuses completed sandbox work instead of re-running it.

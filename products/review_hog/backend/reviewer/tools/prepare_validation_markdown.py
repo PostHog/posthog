@@ -1,15 +1,14 @@
 """Render the PR-facing review body (stored as `ReviewReport.report_markdown` and posted to GitHub).
 
-Assembles the per-chunk report tree from in-process pipeline objects (chunks, analyses, the
-canonical issues and their validations), keeping only validated issues, then renders the
-high-level summary body. The detailed per-issue findings are published as inline comments by
-`publish_review` (read from the durable finding/verdict rows), so the body stays a summary.
+Assembles the per-chunk report tree from in-process pipeline objects (chunks, the canonical issues
+and their validations), keeping only validated issues, then renders the high-level summary body. The
+detailed per-issue findings are published as inline comments by `publish_review` (read from the
+durable finding/verdict rows), so the body stays a summary.
 """
 
 import logging
 
 from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis, ChunkMeta
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue
 from products.review_hog.backend.reviewer.models.prepare_validation_markdown import (
@@ -17,7 +16,7 @@ from products.review_hog.backend.reviewer.models.prepare_validation_markdown imp
     ValidationMarkdownReportChunk,
     ValidationMarkdownReportIssue,
 )
-from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
+from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 def build_review_body(
     *,
     chunks_data: ChunksList,
-    analyses: dict[int, ChunkAnalysis],
     issues: list[Issue],
     validations: dict[str, IssueValidation],
 ) -> str:
@@ -34,13 +32,12 @@ def build_review_body(
     `validations` is keyed by the live issue id (`{pass}-{chunk}-{issue}`); only issues the
     validator ruled valid appear in the report.
     """
-    report = _assemble_report(chunks_data, analyses, issues, validations)
+    report = _assemble_report(chunks_data, issues, validations)
     return _render_review_body(report)
 
 
 def _assemble_report(
     chunks_data: ChunksList,
-    analyses: dict[int, ChunkAnalysis],
     issues: list[Issue],
     validations: dict[str, IssueValidation],
 ) -> ValidationMarkdownReport:
@@ -65,26 +62,12 @@ def _assemble_report(
             for issue in issues_by_chunk.get(chunk.chunk_id, [])
             if (v := validations.get(issue.id)) is not None and v.is_valid
         ]
-        analysis = analyses.get(chunk.chunk_id)
-        if analysis is None:
-            # Analysis is best-effort and can fail transiently. Dropping the chunk would hide a valid
-            # finding that publish (DB-driven) still posts an inline comment for — so keep the chunk
-            # (with a placeholder) when it has validated issues, and stay quiet otherwise.
-            if not validated_issues:
-                continue
-            analysis = _placeholder_analysis(chunk)
-        report_chunks.append(
-            ValidationMarkdownReportChunk(chunk=chunk, chunk_analysis=analysis, validated_issues=validated_issues)
-        )
+        # A chunk with no validated finding has nothing to show — skip it so the body stays a list of
+        # findings and doesn't balloon on a large multi-chunk PR.
+        if not validated_issues:
+            continue
+        report_chunks.append(ValidationMarkdownReportChunk(chunk=chunk, validated_issues=validated_issues))
     return ValidationMarkdownReport(chunks=report_chunks)
-
-
-def _placeholder_analysis(chunk: Chunk) -> ChunkAnalysis:
-    """A stand-in analysis for a chunk whose analysis sandbox failed but which has validated issues."""
-    return ChunkAnalysis(
-        goal="(analysis unavailable for this chunk)",
-        chunk_meta=ChunkMeta(chunk_id=chunk.chunk_id, files_in_this_chunk=[f.filename for f in chunk.files]),
-    )
 
 
 def _render_review_body(report: ValidationMarkdownReport) -> str:
@@ -96,7 +79,6 @@ def _render_review_body(report: ValidationMarkdownReport) -> str:
 
     for chunk_report in report.chunks:
         chunk = chunk_report.chunk
-        analysis = chunk_report.chunk_analysis
         issue_count = sum(1 for vi in chunk_report.validated_issues if vi.issue.priority in PUBLISHED_PRIORITIES)
 
         chunk_type = chunk.chunk_type.replace("_", " ").capitalize() if chunk.chunk_type else "Changes"
@@ -115,18 +97,5 @@ def _render_review_body(report: ValidationMarkdownReport) -> str:
             for change in chunk.key_changes:
                 lines.append(f"- {change}")
             lines.extend(["", "</details>", ""])
-
-        lines.extend(
-            [
-                "<details>",
-                "<summary>Full analysis</summary>",
-                "<br>",
-                "",
-                analysis.goal,
-                "",
-                "</details>",
-                "",
-            ]
-        )
 
     return "\n".join(lines)

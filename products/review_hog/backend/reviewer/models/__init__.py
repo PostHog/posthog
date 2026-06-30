@@ -1,19 +1,12 @@
 import json
 from pathlib import Path
 
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.issue_deduplicator import IssueDeduplication
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import IssuesReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import ChunksList
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-
-
-def generate_chunk_analysis_schema() -> None:
-    schema_path = PROMPTS_DIR / "chunk_analysis" / "schema.json"
-    with schema_path.open("w") as f:
-        f.write(json.dumps(ChunkAnalysis.model_json_schema(), indent=2))
 
 
 def generate_issues_review_schema() -> None:
@@ -41,7 +34,6 @@ def generate_issue_deduplicator_schema() -> None:
 
 
 def generate_all_schemas() -> None:
-    generate_chunk_analysis_schema()
     generate_issues_review_schema()
     generate_chunking_schema()
     generate_issue_validation_schema()

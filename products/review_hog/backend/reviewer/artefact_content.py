@@ -17,7 +17,6 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
-from products.review_hog.backend.reviewer.models.chunk_analysis import ChunkAnalysis
 from products.review_hog.backend.reviewer.models.github_meta import PRComment, PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, IssuesReview, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk
@@ -106,14 +105,6 @@ class ChunkSetArtefact(BaseModel):
     chunks: list[Chunk] = Field(description="The reviewable chunks for this turn.")
 
 
-class ChunkAnalysisArtefact(BaseModel):
-    """Content for a `chunk_analysis` artefact: one chunk's analysis narrative for one turn."""
-
-    head_sha: str = Field(description="PR head commit this analysis was computed for.")
-    chunk_id: int = Field(description="The chunk this analysis describes.")
-    analysis: ChunkAnalysis = Field(description="The chunk analysis narrative.")
-
-
 class PerspectiveResultArtefact(BaseModel):
     """Content for a `perspective_result` artefact: one (perspective, chunk) review for one turn."""
 
@@ -139,10 +130,10 @@ class PRSnapshotArtefact(BaseModel):
 
 
 # Reused leaf models back the work-log entry types; ReviewHog adds findings + verdicts. The
-# working-state types (chunk_set / chunk_analysis / perspective_result) are per-turn pipeline
-# scaffolding the DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
+# working-state types (chunk_set / perspective_result) are per-turn pipeline scaffolding the
+# DB-driven resume reads back — head_sha-scoped, latest-wins within a turn.
 ReviewLogArtefactContent = TaskRunArtefact | Commit | CodeReference | NoteArtefact
-ReviewWorkingStateContent = ChunkSetArtefact | ChunkAnalysisArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
+ReviewWorkingStateContent = ChunkSetArtefact | PerspectiveResultArtefact | PRSnapshotArtefact
 ReviewArtefactContent = ReviewIssueFinding | ValidationVerdict | ReviewLogArtefactContent | ReviewWorkingStateContent
 
 # Keys must match `ReviewReportArtefact.ArtefactType` values exactly (asserted by a test).
@@ -154,7 +145,6 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "code_reference": CodeReference,
     "note": NoteArtefact,
     "chunk_set": ChunkSetArtefact,
-    "chunk_analysis": ChunkAnalysisArtefact,
     "perspective_result": PerspectiveResultArtefact,
     "pr_snapshot": PRSnapshotArtefact,
 }

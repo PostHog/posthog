@@ -1,1 +1,1 @@
-0006_reviewskillconfig
+0007_alter_reviewreportartefact_type
