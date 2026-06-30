@@ -1600,9 +1600,9 @@ _PERSONS_SPEC_ROWS = [(0, "year"), (1, "month")]
 
 def _make_catalog_conn_mock(
     *,
+    post_condition_row: tuple[int, int, int],
     spec_rows: list[tuple[int, str]] | None = None,
     partition_info_rows: list[tuple[int, int]] | None = None,
-    post_condition_row: tuple[int, int, int] | None = None,
     lock_acquired: bool = True,
 ):
     """Builds a MagicMock catalog conn + cur that returns scripted values for the
@@ -1611,9 +1611,13 @@ def _make_catalog_conn_mock(
       fetchall() → partition_info_rows
       fetchall() → spec_rows (live partition_column spec)
       fetchone() → post_condition_row
+
+    post_condition_row is required: defaulting it to (0, 0, 0) would silently
+    trip the post-condition's `total != len(file_paths)` branch in any test
+    that passes a non-empty file list — a footgun for future tests.
     """
     cur = MagicMock()
-    cur.fetchone.side_effect = [(lock_acquired,), post_condition_row or (0, 0, 0)]
+    cur.fetchone.side_effect = [(lock_acquired,), post_condition_row]
     cur.fetchall.side_effect = [
         partition_info_rows or [(760, 761)],
         spec_rows or _EVENTS_SPEC_ROWS,
@@ -1737,7 +1741,8 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         files = ["s3://bkt/backfill/events/2/year=2026/month=06/day=17/run1_0.parquet"]
         # Live catalog returns only (year, month) for an events table that expects
         # (year, month, day) — the fix-up must fail before any DML.
-        conn, cur = _make_catalog_conn_mock(spec_rows=[(0, "year"), (1, "month")])
+        # post_condition_row never reached (spec mismatch raises earlier); pass a dummy.
+        conn, cur = _make_catalog_conn_mock(spec_rows=[(0, "year"), (1, "month")], post_condition_row=(0, 0, 0))
         mock_open_conn.return_value = conn
 
         with pytest.raises(RuntimeError, match="live catalog spec for posthog.events"):
@@ -1761,7 +1766,8 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
     def test_unique_partition_info_required(self, mock_open_conn, target):
         files = ["s3://bkt/backfill/events/2/year=2026/month=06/day=17/run1_0.parquet"]
         # Two live partition_info rows for the same table → ambiguous → fail loud.
-        conn, _cur = _make_catalog_conn_mock(partition_info_rows=[(760, 761), (760, 999)])
+        # post_condition_row never reached (partition_info-cardinality check raises earlier).
+        conn, _cur = _make_catalog_conn_mock(partition_info_rows=[(760, 761), (760, 999)], post_condition_row=(0, 0, 0))
         mock_open_conn.return_value = conn
 
         with pytest.raises(RuntimeError, match="expected exactly one live partition_info"):

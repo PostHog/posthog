@@ -1812,7 +1812,9 @@ def _fixup_partition_values_for_added_files(
                 ).format(tid=psql.Literal(table_id)),
                 (list(file_paths), expected_index_set),
             )
-            wrong_indexes, null_values, total = cur.fetchone()
+            post_condition_row = cur.fetchone()
+            assert post_condition_row is not None, "post-condition aggregate must return one row"
+            wrong_indexes, null_values, total = post_condition_row
 
             if wrong_indexes != 0 or null_values != 0 or total != len(file_paths):
                 # Raise inside the `with catalog_conn` block so the context
