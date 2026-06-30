@@ -47687,6 +47687,22 @@ export namespace Schemas {
     }
 
     /**
+     * Response for an on-demand (`run now`) scout dispatch.
+     *
+     * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+     * row yet at response time — the bridge row is created once the run's first turn starts.
+     * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+     */
+    export interface SignalScoutManualRun {
+      /** The `signals-scout-*` skill that was dispatched. */
+      skill_name: string;
+      /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+      workflow_id: string;
+      /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+      started: boolean;
+    }
+
+    /**
      * Full `SignalScoutRun` projection used by `get-run`. Same shape as the summary
      * today; kept distinct so future detail-only extensions (linked Signal rows,
      * LLMA token-cost join) can land here without bloating the list response.

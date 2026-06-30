@@ -19,6 +19,7 @@ import {
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
     SignalsScoutConfigCreateBody,
+    SignalsScoutConfigRunParams,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
     SignalsScoutEditReportBody,
@@ -536,6 +537,21 @@ const signalsScoutConfigList = (): ToolBase<
     },
 })
 
+const SignalsScoutConfigRunSchema = SignalsScoutConfigRunParams.omit({ project_id: true })
+
+const signalsScoutConfigRun = (): ToolBase<typeof SignalsScoutConfigRunSchema, unknown> => ({
+    name: 'signals-scout-config-run',
+    schema: SignalsScoutConfigRunSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigRunSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/run/`,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
 const SignalsScoutConfigSyncSchema = z.object({})
 
 const signalsScoutConfigSync = (): ToolBase<
@@ -934,6 +950,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-list': signalsScoutConfigList,
+    'signals-scout-config-run': signalsScoutConfigRun,
     'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
     'signals-scout-edit-report': signalsScoutEditReport,

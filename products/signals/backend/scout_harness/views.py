@@ -30,6 +30,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -42,6 +43,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
+from posthog.temporal.common.client import sync_connect
 
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -50,6 +52,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
+from products.signals.backend.quota import is_team_signals_quota_limited
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
     ensure_scout_category,
@@ -84,6 +87,7 @@ from products.signals.backend.scout_harness.serializers import (
     SignalScoutConfigCreateSerializer,
     SignalScoutConfigSerializer,
     SignalScoutEmissionSerializer,
+    SignalScoutManualRunSerializer,
     SignalScoutRunDetailSerializer,
     SignalScoutRunSummarySerializer,
 )
@@ -104,8 +108,10 @@ from products.signals.backend.scout_harness.tools.scratchpad import (
     search_scratchpad,
 )
 from products.signals.backend.scout_report import InvalidScoutReportError
+from products.signals.backend.temporal.agentic.scout_scheduler import start_manual_signals_scout_run
 from products.signals.backend.temporal.signal_queries import fetch_report_ids_for_source_ids
 from products.skills.backend.models.skills import LLMSkill
+from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
@@ -159,6 +165,31 @@ def _caller_carries_scout_internal_scope(request: Request) -> bool:
     else:
         return False
     return "signal_scout_internal:write" in scopes
+
+
+class Conflict(exceptions.APIException):
+    status_code = status.HTTP_409_CONFLICT
+    default_detail = "A run for this scout is already in progress."
+    default_code = "conflict"
+
+
+def _scout_run_in_flight(team_id: int, skill_name: str) -> bool:
+    """Whether a run for this `(canonical team, skill)` is already QUEUED or IN_PROGRESS.
+
+    Mirrors the runner's authoritative single-flight (`scout_harness/runner._has_running_run`)
+    so the manual-trigger endpoint can fail fast with a 409 instead of dispatching a workflow
+    that the runner would only skip. Status flows from the linked `TaskRun`; covers a run
+    started by either the coordinator or a prior manual trigger.
+    """
+    return (
+        SignalScoutRun.objects.unscoped()
+        .filter(
+            team_id=team_id,
+            skill_name=skill_name,
+            task_run__status__in=(tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.IN_PROGRESS),
+        )
+        .exists()
+    )
 
 
 def _parse_run_id_or_404(kwargs: dict) -> uuid.UUID:
@@ -1294,6 +1325,80 @@ class SignalScoutConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         instance = serializer.save(**save_kwargs)
         skill_info = _skill_info_for(team_id, [instance.skill_name])
         return Response(SignalScoutConfigSerializer(instance, context={"skill_info": skill_info}).data)
+
+    @extend_schema(
+        request=None,
+        responses={
+            202: OpenApiResponse(
+                response=SignalScoutManualRunSerializer,
+                description="A run was dispatched. It executes asynchronously; poll the scout's runs for the result.",
+            ),
+            404: OpenApiResponse(description="Config not found for this project (or the scout is withheld)."),
+            409: OpenApiResponse(description="A run for this scout is already in progress."),
+            429: OpenApiResponse(description="The project is over its Signals credits quota; try again later."),
+        },
+        summary="Run a scout now",
+        description=(
+            "Dispatch one on-demand run of this scout immediately, regardless of its schedule. "
+            "Useful to test a scout right after authoring it, or to refresh its findings on demand. "
+            "The run executes asynchronously on the worker and inherits every guard the scheduled "
+            "path has: it is skipped if the project is over its Signals credits quota (429) or a run "
+            "for this scout is already in progress (409). A manual run does not change the scout's "
+            "schedule or `last_run_at`. A disabled scout can still be run this way (to test before "
+            "enabling). Returns immediately with the workflow id — poll the scout's runs for the result."
+        ),
+        operation_id="signals_scout_config_run",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="run",
+        # Running a scout drives spend, so this is a write — same scope as enabling a config.
+        required_scopes=["signal_scout:write"],
+    )
+    def run(self, request: Request, *args, **kwargs) -> Response:
+        team_id = _canonical_team_id(self)
+        config_id = _parse_run_id_or_404(kwargs)
+        config = SignalScoutConfig.objects.unscoped().filter(team_id=team_id, id=config_id).first()
+        if config is None:
+            raise exceptions.NotFound()
+        skill_name = config.skill_name
+        # A withheld scout is invisible across the whole config API (it's excluded from list), so a
+        # run request for one is a 404 here too — and the runner would refuse it anyway. Resolved
+        # against the canonical team, matching `list`/`sync`.
+        if skill_name in withheld_skills_for_team(team_id):
+            raise exceptions.NotFound()
+
+        # Fail-fast guards so the trigger can't be gamed into churning workflows or spend. Both are
+        # re-checked authoritatively downstream (quota in the run activity, single-flight in the
+        # runner and at the Temporal server), but rejecting here avoids dispatching a workflow that
+        # would only be skipped, and turns the common cases into clean 429/409 responses.
+        api_token = Team.objects.only("api_token").get(pk=team_id).api_token
+        if is_team_signals_quota_limited(api_token):
+            raise exceptions.Throttled(detail="This project is over its Signals credits quota. Try again later.")
+        if _scout_run_in_flight(team_id, skill_name):
+            raise Conflict()
+
+        try:
+            workflow_id = start_manual_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
+        except WorkflowAlreadyStartedError:
+            # A run for this scout was dispatched between the in-flight check and the start call —
+            # the Temporal server's id-conflict policy single-flights it. Surface the same 409.
+            raise Conflict()
+
+        logger.info(
+            "signals_scout: manual run dispatched",
+            team_id=team_id,
+            skill_name=skill_name,
+            workflow_id=workflow_id,
+            user_id=request.user.pk,
+        )
+        return Response(
+            SignalScoutManualRunSerializer(
+                {"skill_name": skill_name, "workflow_id": workflow_id, "started": True}
+            ).data,
+            status=status.HTTP_202_ACCEPTED,
+        )
 
     @extend_schema(
         request=None,

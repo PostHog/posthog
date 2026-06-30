@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 31 enabled ops
+ * PostHog API - MCP 32 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -449,6 +449,19 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
     .describe(
         'Per-(team, skill) scout config: schedule, enablement, and emit posture.\n\nOne row per `signals-scout-*` skill on the team. The coordinator auto-creates a row\nwhen it discovers a scout skill; this serializer lets agents tune the row.'
     )
+
+/**
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is skipped if the project is over its Signals credits quota (429) or a run for this scout is already in progress (409). A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * @summary Run a scout now
+ */
+export const SignalsScoutConfigRunParams = /* @__PURE__ */ zod.object({
+    id: zod.string().describe('A UUID string identifying this Signal scout config.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
 
 /**
  * Materialize the scout fleet for this project on demand (idempotent): seed the canonical `signals-scout-*` skills, create a default-schedule config for any scout lacking one, and return all scout configs. Normally the Temporal coordinator does this on its next tick; this action exists so setup flows (e.g. the wizard's self-driving program) can hand the user a tunable fleet immediately.
