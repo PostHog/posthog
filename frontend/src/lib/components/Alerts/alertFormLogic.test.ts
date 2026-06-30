@@ -159,6 +159,28 @@ describe('alertFormLogic', () => {
         expect(successToastSpy).toHaveBeenCalledWith('Alert created.')
     })
 
+    // Funnels hide the #/% unit toggle and always compare a relative change as a percentage of the
+    // prior period, so a funnel relative alert must persist with a PERCENTAGE threshold even if the
+    // form still carries an ABSOLUTE type. Regresses if the submit-side force is dropped.
+    it('persists a funnel relative alert with a PERCENTAGE threshold', async () => {
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({
+            ...makeFormDefaults({
+                config: { type: 'FunnelsAlertConfig', metric: 'conversion_from_start', funnel_step: null },
+                condition: { type: AlertConditionType.RELATIVE_DECREASE },
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: { lower: 0.2 } } },
+            }),
+            checks: undefined,
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(1)
+        expect(createSpy.mock.calls[0][0].threshold.configuration.type).toBe(InsightThresholdType.PERCENTAGE)
+    })
+
     // Regression test for ticket #353:
     // A post-save side-effect (e.g. the parent `onEditSuccess` callback) throwing must NOT surface as
     // "Error saving alert: undefined: undefined" — the alert was already created successfully (HTTP 201).

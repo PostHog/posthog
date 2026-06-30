@@ -41,6 +41,7 @@ import {
     AlertType,
     AlertTypeWrite,
     AnomalyPoint,
+    isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
 } from './types'
@@ -334,6 +335,14 @@ export const alertFormLogic = kea<alertFormLogicType>([
                 // absolute value alert can only have absolute threshold
                 if (payload.condition.type === AlertConditionType.ABSOLUTE_VALUE) {
                     payload.threshold.configuration.type = InsightThresholdType.ABSOLUTE
+                }
+                // Funnels express relative change as a percentage of the prior period; the absolute (#)
+                // unit is hidden in the funnel UI, so persist PERCENTAGE for any funnel relative condition.
+                if (
+                    isFunnelsAlertConfig(payload.config) &&
+                    payload.condition.type !== AlertConditionType.ABSOLUTE_VALUE
+                ) {
+                    payload.threshold.configuration.type = InsightThresholdType.PERCENTAGE
                 }
 
                 const upsertToParent = (updatedAlert: AlertType): void => {

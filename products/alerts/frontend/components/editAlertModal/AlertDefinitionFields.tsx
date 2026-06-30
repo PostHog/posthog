@@ -1,7 +1,7 @@
 import { Group } from 'kea-forms'
 
 import { IconInfo } from '@posthog/icons'
-import { LemonBanner, LemonCheckbox, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSelect, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { AlertFormType } from 'lib/components/Alerts/alertFormLogic'
 import {
@@ -179,31 +179,12 @@ export function FunnelsDefinitionFields({
 }): JSX.Element {
     const config = isFunnelsAlertConfig(alertForm.config) ? alertForm.config : null
     if (isTrendsFunnel) {
-        // A trends funnel charts the overall conversion rate over time, so there's no per-step choice;
-        // the only option is whether to evaluate the current (in-progress) period or wait for it to complete.
+        // A trends funnel charts the overall conversion rate over time, so there's no per-step choice.
+        // The in-progress-period toggle lives in Advanced options, mirroring the trends-alert equivalent.
         return (
-            <div className="flex flex-col gap-2 w-full">
-                <div className="flex flex-wrap gap-3 items-center">
-                    <div>Alert on the overall conversion rate</div>
-                    <FunnelAlertPreviewBanner preview={funnelPreview} />
-                </div>
-                <div className="flex items-center gap-1">
-                    <LemonCheckbox
-                        data-attr="alertForm-funnel-check-ongoing-interval"
-                        checked={!!config?.check_ongoing_interval}
-                        onChange={(checked) =>
-                            config && onSetAlertFormValue('config', { ...config, check_ongoing_interval: checked })
-                        }
-                        label="Evaluate the current (in-progress) period"
-                    />
-                    <Tooltip
-                        title="By default the alert uses the most recently completed period. Enable this to evaluate the current, still-in-progress period instead — useful to be alerted sooner, at the cost of a partial datapoint."
-                        placement="right"
-                        delayMs={0}
-                    >
-                        <IconInfo className="text-muted" />
-                    </Tooltip>
-                </div>
+            <div className="flex flex-wrap gap-3 items-center">
+                <div>Alert on the overall conversion rate</div>
+                <FunnelAlertPreviewBanner preview={funnelPreview} />
             </div>
         )
     }

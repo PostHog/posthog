@@ -36,7 +36,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
-import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
+import { isFunnelsAlertConfig, supportsAnomalyDetection, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -197,9 +197,10 @@ export function EditAlertModal({
     const enabledAdvancedOptionsCount = useMemo(() => {
         let n = 0
         if (
-            can_check_ongoing_interval &&
             supportsOngoingInterval(alertForm.config) &&
-            alertForm.config.check_ongoing_interval
+            alertForm.config.check_ongoing_interval &&
+            // Funnels gate on being a trends funnel; trends gate on canCheckOngoingInterval.
+            (isFunnelsAlertConfig(alertForm.config) ? isTrendsFunnel : can_check_ongoing_interval)
         ) {
             n += 1
         }
@@ -220,6 +221,7 @@ export function EditAlertModal({
         alertForm.schedule_restriction?.blocked_windows?.length,
         alertForm.skip_weekend,
         can_check_ongoing_interval,
+        isTrendsFunnel,
     ])
 
     return (
@@ -337,6 +339,7 @@ export function EditAlertModal({
                             <AlertAdvancedOptionsSection
                                 alertForm={alertForm}
                                 canCheckOngoingInterval={can_check_ongoing_interval}
+                                isTrendsFunnel={isTrendsFunnel}
                                 projectTimezone={projectTimezone}
                                 enabledAdvancedOptionsCount={enabledAdvancedOptionsCount}
                                 onSetAlertFormValue={setAlertFormValue}

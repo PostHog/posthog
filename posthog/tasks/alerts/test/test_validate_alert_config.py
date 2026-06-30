@@ -316,7 +316,7 @@ class TestValidateAlertConfig:
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
-                "Funnel alerts only support absolute value conditions",
+                "This funnel only supports absolute value conditions",
             ),
             (
                 "funnels_relative_increase_rejected",
@@ -325,7 +325,7 @@ class TestValidateAlertConfig:
                 _funnels_config(),
                 _base_threshold(),
                 "daily",
-                "Funnel alerts only support absolute value conditions",
+                "This funnel only supports absolute value conditions",
             ),
             (
                 "funnels_from_previous_at_step_zero_rejected",
