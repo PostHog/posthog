@@ -1,4 +1,5 @@
 import os
+import json
 import uuid
 import datetime
 from typing import cast
@@ -378,6 +379,19 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # Assert user is redirected to the IdP's login page
         location = response.headers["Location"]
         self.assertIn("https://idp.hogflix.io/saml?SAMLRequest=", location)
+
+    def test_saml_flow_carries_next_url_in_relay_state(self):
+        # The session cookie is SameSite=Lax, so it's dropped on the IdP's cross-site POST
+        # back to /complete/saml/. The `next` redirect must therefore travel in RelayState
+        # (echoed back by the IdP) rather than the session, or re-auth lands the user on `/`.
+        response = self.client.get(
+            "/login/saml/?email=hellohello@posthog.com&next=/settings/organization/authentication"
+        )
+        self.assertEqual(response.status_code, status.HTTP_302_FOUND)
+
+        relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
+        self.assertEqual(relay_state["idp"], str(self.organization_domain.id))
+        self.assertEqual(relay_state["next"], "/settings/organization/authentication")
 
     def test_cannot_initiate_saml_flow_without_target_email_address(self):
         """
