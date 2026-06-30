@@ -89,13 +89,6 @@ THIRTY_MINUTES = 30 * 60
 ONE_HOUR = 60 * 60
 SIX_HOURS = 6 * 60 * 60
 
-# Timeout (seconds) for the TCP reachability preflight we run before `sql.connect`. The Databricks
-# SDK's OIDC endpoint discovery inside `sql.connect` ignores `_socket_timeout` and retries for ~5
-# minutes on an unreachable/invalid host (https://github.com/databricks/databricks-sdk-py/issues/1046),
-# blocking the worker thread the whole time. A short TCP probe lets us fail fast instead — 30s is
-# generous for a TCP connect to a live host while bounding the bad-host failure.
-DEFAULT_CONNECT_TIMEOUT = 30.0
-
 
 class DatabricksConnectionError(Exception):
     """Error for Databricks connection."""
@@ -220,6 +213,13 @@ class DatabricksClient:
     # How often to poll for query status. This is a trade-off between responsiveness and number of
     # queries we make to Databricks. 1 second has been chosen rather arbitrarily.
     DEFAULT_POLL_INTERVAL = 1.0
+
+    # Timeout (seconds) for the TCP reachability preflight we run before `sql.connect`. The Databricks
+    # SDK's OIDC endpoint discovery inside `sql.connect` ignores `_socket_timeout` and retries for ~5
+    # minutes on an unreachable/invalid host (https://github.com/databricks/databricks-sdk-py/issues/1046),
+    # blocking the worker thread the whole time. A short TCP probe lets us fail fast instead — 30s is
+    # generous for a TCP connect to a live host while bounding the bad-host failure.
+    DEFAULT_CONNECT_TIMEOUT = 30.0
 
     def __init__(
         self,
