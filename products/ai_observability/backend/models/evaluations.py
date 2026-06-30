@@ -188,7 +188,8 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
 
     def save(self, *args, **kwargs):
         from posthog.cdp.filters import compile_filters_bytecode
-        from posthog.cdp.validation import compile_hog
+
+        from ..hog import compile_ai_observability_hog  # noqa: PLC0415 - keeps Hog compiler off model import path
 
         # Coerce status and enabled into a consistent pair. status is authoritative, but we accept writes to
         # either field — typically `enabled` from user PATCHes, `status` from system transitions.
@@ -222,7 +223,7 @@ class Evaluation(ModelActivityMixin, UUIDTModel):
         # Compile Hog source to bytecode
         if self.evaluation_type == EvaluationType.HOG and self.evaluation_config.get("source"):
             try:
-                bytecode = compile_hog(self.evaluation_config["source"], "destination")
+                bytecode = compile_ai_observability_hog(self.evaluation_config["source"], "destination")
                 self.evaluation_config["bytecode"] = bytecode
             except Exception as e:
                 raise ValidationError({"evaluation_config": f"Failed to compile Hog code: {e}"})

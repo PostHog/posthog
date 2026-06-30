@@ -1657,6 +1657,18 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
         )
+        snowflake_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="Analytics Snowflake",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"account_id": "acct", "database": "TPCH_SF1"},
+            connection_metadata={"engine": "snowflake", "database": "TPCH_SF1"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
@@ -1665,6 +1677,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             payload,
             [
+                {
+                    "id": str(snowflake_source.pk),
+                    "prefix": "Analytics Snowflake",
+                    "engine": "snowflake",
+                },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
@@ -2983,7 +3000,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertIn("not supported for direct-query sources", str(response.json()))
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3758,7 +3775,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3774,7 +3791,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):

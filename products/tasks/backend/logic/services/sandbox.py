@@ -285,15 +285,15 @@ class SandboxBase(ABC):
     @abstractmethod
     def is_running(self) -> bool: ...
 
-    def read_agent_server_boot_ms(self) -> int | None:
+    def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
-    def _read_health_boot_ms(self, port: int) -> int | None:
+    def _read_health_session_init_ms(self, port: int) -> int | None:
         try:
             result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
             payload = json.loads(result.stdout or "{}")
-            boot_ms = payload.get("bootMs")
-            return int(boot_ms) if isinstance(boot_ms, int | float) else None
+            session_init_ms = payload.get("sessionInitMs")
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
 
