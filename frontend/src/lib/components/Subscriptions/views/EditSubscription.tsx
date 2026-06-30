@@ -569,7 +569,7 @@ function EditSubscriptionForm({
                                                 return (
                                                     <LemonField
                                                         name={['delivery_config', 'post_all_insights_in_main_message']}
-                                                        help="Posts every insight as a grouped image gallery in the main Slack message."
+                                                        help="Posts all insight images together in the main Slack message, instead of one per threaded reply."
                                                     >
                                                         {({ value, onChange }) => (
                                                             <div className="border rounded">
@@ -589,11 +589,11 @@ function EditSubscriptionForm({
                                                                     <div className="flex items-center gap-2 border-t px-2 py-2">
                                                                         <IconInfo className="text-base text-secondary shrink-0" />
                                                                         <span className="flex-1 text-xs text-secondary">
-                                                                            Posting all insights as one grouped gallery
-                                                                            needs the Slack file-upload permission (
-                                                                            <code>files:write</code>). Reconnect Slack
-                                                                            to grant it — you will return to this page
-                                                                            when done.
+                                                                            Posting all insights together in the main
+                                                                            message needs the Slack file-upload
+                                                                            permission (<code>files:write</code>).
+                                                                            Reconnect Slack to grant it — you will
+                                                                            return to this page when done.
                                                                         </span>
                                                                         <LemonButton
                                                                             type="secondary"

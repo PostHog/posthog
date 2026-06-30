@@ -21,30 +21,15 @@ describe('EditSubscription free-tier gate', () => {
 })
 
 describe('EditSubscription slack gallery gate', () => {
-    describe('integrationHasFilesWrite', () => {
-        it('returns true when files:write is in the scope string', () => {
-            expect(integrationHasFilesWrite('chat:write,files:write,channels:read')).toBe(true)
-        })
-
-        it('returns false when files:write is absent from the scope string', () => {
-            expect(integrationHasFilesWrite('chat:write,channels:read')).toBe(false)
-        })
-
-        it('returns false for an empty scope string', () => {
-            expect(integrationHasFilesWrite('')).toBe(false)
-        })
-
-        it('returns false for null scope', () => {
-            expect(integrationHasFilesWrite(null)).toBe(false)
-        })
-
-        it('returns false for undefined scope', () => {
-            expect(integrationHasFilesWrite(undefined)).toBe(false)
-        })
-
-        it('does not false-positive on a scope that contains files:write as a substring', () => {
-            // e.g. a hypothetical "files:write:advanced" must not match
-            expect(integrationHasFilesWrite('files:write:advanced')).toBe(false)
-        })
+    it.each<[string, string | null | undefined, boolean]>([
+        ['files:write is granted', 'chat:write,files:write,channels:read', true],
+        ['files:write is absent', 'chat:write,channels:read', false],
+        ['the scope string is empty', '', false],
+        ['the scope is null', null, false],
+        ['the scope is undefined', undefined, false],
+        // files:write:advanced (substring) must not match the exact files:write scope
+        ['files:write only appears as a substring', 'files:write:advanced', false],
+    ])('integrationHasFilesWrite is %s -> %s', (_desc, scope, expected) => {
+        expect(integrationHasFilesWrite(scope)).toBe(expected)
     })
 })
