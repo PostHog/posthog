@@ -6,6 +6,8 @@ Client names are untrusted input — they arrive from an unauthenticated DCR req
 consent screen. Both ingestion paths (`dcr.py`, `cimd.py`) share these helpers.
 """
 
+import re
+
 from django.utils.html import escape
 
 from rest_framework import serializers
@@ -18,6 +20,11 @@ BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names c
 # AbstractApplication.name is a CharField(max_length=255). HTML-escaping can lengthen the
 # value, so sanitize_client_name truncates the escaped result back to fit the column.
 CLIENT_NAME_MAX_LENGTH = 255
+
+# Matches a partial HTML entity left dangling at the end after truncation (e.g. "&am"
+# from "&amp;"). After escaping, every literal "&" becomes the start of an entity, so any
+# trailing "&" followed by entity-name characters without a closing ";" is a cut-off entity.
+_DANGLING_ENTITY_RE = re.compile(r"&[a-zA-Z0-9#]*$")
 
 
 def validate_client_name(value: str) -> None:
@@ -36,6 +43,11 @@ def sanitize_client_name(value: str) -> str:
 
     Escape at ingestion rather than trusting every downstream renderer to do it. The
     escaped result is truncated to the model's column limit because escaping can push
-    it past 255 chars.
+    it past 255 chars. Truncation can slice through an entity (e.g. leaving "&am" from
+    "&amp;"), so any dangling partial entity at the end is stripped to avoid rendering
+    a stray fragment.
     """
-    return escape(value)[:CLIENT_NAME_MAX_LENGTH]
+    truncated = escape(value)[:CLIENT_NAME_MAX_LENGTH]
+    undangled = _DANGLING_ENTITY_RE.sub("", truncated)
+
+    return undangled
