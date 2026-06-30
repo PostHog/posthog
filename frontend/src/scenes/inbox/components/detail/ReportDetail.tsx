@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { ReactNode } from 'react'
+import { ReactNode, useState } from 'react'
 
 import {
     IconArrowLeft,
@@ -36,7 +36,9 @@ import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
+import { CommitContent } from './artefactTypes'
 import { RightColumnSection } from './DetailSection'
+import { PullRequestDiffModal } from './PullRequestDiffModal'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -435,9 +437,17 @@ function prFilesUrl(prUrl: string): string {
 }
 
 export function ReportDetail({ report, tab }: { report: SignalReport; tab: InboxTabKey }): JSX.Element {
+    const { latestCommitArtefact } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
+    const [diffModalOpen, setDiffModalOpen] = useState(false)
+
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prRef = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = !!(prRef && prUrl)
+
+    // The report's branch to diff comes from the latest "Commit pushed" artefact; only render the
+    // inline diff entry when that artefact carries the repo + branch the diff endpoint needs.
+    const commit = latestCommitArtefact ? (latestCommitArtefact.content as CommitContent) : null
+    const canDiff = !!(commit?.repository && commit?.branch)
 
     return (
         <InboxDetailFrame
@@ -459,9 +469,35 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
                 ) : undefined
             }
         >
-            {hasPr ? (
+            {hasPr || canDiff ? (
                 <RightColumnSection icon={<IconCode />} title="Diff">
-                    <PullRequestBanner prUrl={prFilesUrl(prUrl)} prRef={prRef} />
+                    <div className="flex flex-col gap-2">
+                        {hasPr ? <PullRequestBanner prUrl={prFilesUrl(prUrl)} prRef={prRef} /> : null}
+                        {canDiff && commit && latestCommitArtefact ? (
+                            <>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconCode />}
+                                    fullWidth
+                                    center
+                                    onClick={() => setDiffModalOpen(true)}
+                                    tooltip={`${commit.repository}@${commit.branch}`}
+                                >
+                                    View changed files
+                                </LemonButton>
+                                <PullRequestDiffModal
+                                    reportId={report.id}
+                                    artefactId={latestCommitArtefact.id}
+                                    commit={commit}
+                                    prUrl={hasPr ? prFilesUrl(prUrl) : null}
+                                    prLabel={prRef ? `${prRef.repoSlug}#${prRef.number}` : null}
+                                    isOpen={diffModalOpen}
+                                    onClose={() => setDiffModalOpen(false)}
+                                />
+                            </>
+                        ) : null}
+                    </div>
                 </RightColumnSection>
             ) : null}
         </InboxDetailFrame>

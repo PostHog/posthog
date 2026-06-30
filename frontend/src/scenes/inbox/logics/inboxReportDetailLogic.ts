@@ -259,6 +259,19 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             (s) => [s.report],
             (report: SignalReport | null): boolean => (report ? ACTIVE_STATUSES.includes(report.status) : false),
         ],
+        // The most recent `commit` artefact — its branch is treated as the report's branch to diff
+        // against the repository default branch. A report's code work may span several pushes; the
+        // latest commit's branch tip is the current state worth inspecting.
+        latestCommitArtefact: [
+            (s) => [s.reportArtefacts],
+            (reportArtefacts: SignalReportArtefact[] | null): SignalReportArtefact | null => {
+                const commits = (reportArtefacts ?? []).filter((a) => a.type === 'commit')
+                if (commits.length === 0) {
+                    return null
+                }
+                return commits.reduce((latest, a) => (a.created_at > latest.created_at ? a : latest))
+            },
+        ],
         // Rationale behind the priority / actionability judgments, pulled from the already-loaded artefacts.
         priorityExplanation: [
             (s) => [s.reportArtefacts],
