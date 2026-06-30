@@ -553,9 +553,12 @@ def _is_transient_grpc_error(exc: BaseException) -> bool:
     if isinstance(candidate, google_api_exceptions.ResourceExhausted):
         return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     code = getattr(candidate, "code", None)
-    if not (callable(code) and code() in _TRANSIENT_GRPC_STATUS_CODES):
+    if not callable(code):
         return False
-    if code() == grpc.StatusCode.RESOURCE_EXHAUSTED:
+    status = code()
+    if status not in _TRANSIENT_GRPC_STATUS_CODES:
+        return False
+    if status == grpc.StatusCode.RESOURCE_EXHAUSTED:
         return _RECEIVE_LIMIT_EXHAUSTED_SIGNATURE not in str(candidate)
     return True
 
