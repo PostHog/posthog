@@ -11,11 +11,12 @@ const metaPath = path.join(frontendDir, 'posthog-app-esbuild-meta.json')
 // --report-only: record results without failing the build. Used by build:with-report
 // because compressed-size-action runs that script for BOTH the PR build and the base
 // build — a base-branch budget breach must not abort the action for every open PR.
-// Enforcement happens in the dedicated workflow step via --assert-report.
+// Budget breaches are surfaced as warnings in the dedicated workflow step via --assert-report.
 const reportOnly = process.argv.includes('--report-only')
 
-// --assert-report <path>: skip measuring; read a previously written report and exit
-// non-zero if it records violations.
+// --assert-report <path>: skip measuring; read a previously written report and surface any
+// recorded violations as warnings (GitHub Actions annotations) without failing CI — the
+// bundle-size Signals scout tracks regressions from the PR comment, so the check informs.
 const assertReportIndex = process.argv.indexOf('--assert-report')
 
 // The eager graph is everything reachable from a root through STATIC imports only —
@@ -53,45 +54,60 @@ function fail(message) {
     process.exitCode = 1
 }
 
+function warnViolation(message) {
+    console.warn(`\n⚠️ ${message}`)
+    const encoded = message.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A')
+    // console.info (not console.log, which oxlint strips) writes to stdout, where GitHub Actions parses workflow commands.
+    console.info(`::warning title=Eager graph budget::${encoded}`)
+}
+
 function assertReport(reportFilePath) {
     if (!fs.existsSync(reportFilePath)) {
-        fail(`Report not found at ${reportFilePath} — did the build run the check?`)
-        return
+        warnViolation(`Report not found at ${reportFilePath} — did the build run the check?`)
+        return 0
     }
     const reportToAssert = JSON.parse(fs.readFileSync(reportFilePath, 'utf-8'))
+    let violations = 0
     for (const message of reportToAssert.errors ?? []) {
-        fail(message)
+        warnViolation(message)
+        violations++
     }
     for (const r of reportToAssert.roots) {
         if (r.overBudget) {
-            fail(
+            warnViolation(
                 `Eager graph for '${r.root}' is ${formatMiB(r.bytes)}, over the ${formatMiB(r.budgetBytes)} budget.\n` +
                     `Largest files in the closure:\n` +
                     r.largest.map(({ file, bytes }) => `   ${formatMiB(bytes).padStart(9)}  ${file}`).join('\n') +
                     `\nMake the offending import lazy (React.lazy / dynamic import()), or raise the budget in ` +
                     `frontend/bin/check-eager-graph.mjs as a conscious decision in this PR.`
             )
+            violations++
         }
         for (const hit of r.forbiddenHits) {
-            fail(
+            warnViolation(
                 `'${hit.module}' is statically reachable from '${r.root}' — it must stay behind a dynamic import.\n` +
                     `Import chain:\n   ${hit.chain.join('\n   -> ')}`
             )
+            violations++
         }
-        if (!process.exitCode) {
+        if (!r.overBudget && r.forbiddenHits.length === 0) {
             console.info(`✅ ${r.label}: ${formatMiB(r.bytes)} within ${formatMiB(r.budgetBytes)}`)
         }
     }
+    return violations
 }
 
 if (assertReportIndex !== -1) {
-    assertReport(process.argv[assertReportIndex + 1])
-    if (process.exitCode) {
-        console.error('\nEager graph check failed — see above.')
+    const violations = assertReport(process.argv[assertReportIndex + 1])
+    if (violations) {
+        console.warn(
+            `\n⚠️ Eager graph over budget — ${violations} issue(s) above. Not failing CI: the bundle-size ` +
+                `Signals scout tracks this from the eager graph PR comment. Trim the eager closure when you can.`
+        )
     } else {
         console.info('\nAll eager graph budgets respected.')
     }
-    process.exit(process.exitCode ?? 0)
+    process.exit(0)
 }
 
 function formatMiB(bytes) {
