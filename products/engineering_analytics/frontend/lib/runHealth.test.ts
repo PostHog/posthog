@@ -1,4 +1,4 @@
-import { CostableJob, computeFleetSummary, computeHealthSummary, summarizeRunCost } from './runHealth'
+import { CostableJob, RunCostSummary, computeFleetSummary, computeHealthSummary, summarizeRunCost } from './runHealth'
 
 const at = (hour: number): string => `2026-06-24T${String(hour).padStart(2, '0')}:00:00Z`
 
@@ -103,35 +103,36 @@ describe('runHealth', () => {
         estimated_cost_usd: number | null
     ): CostableJob => ({ runner_provider, duration_seconds, estimated_cost_usd })
 
-    it('summarizeRunCost is null when nothing is billable, so the caller omits the tile (no $0.00)', () => {
-        expect(summarizeRunCost([job('github_hosted', 600, null), job('unknown', 600, null)])).toBeNull()
-    })
-
-    it('summarizeRunCost sums only settled self-hosted jobs and ignores free runners', () => {
-        expect(
-            summarizeRunCost([
-                job('self_hosted', 120, 0.5),
-                job('self_hosted', 60, 0.25),
-                job('github_hosted', 600, null),
-            ])
-        ).toEqual({ billableMinutes: 3, estimatedCostUsd: 0.75, unsettledJobs: 0 })
-    })
-
-    it('summarizeRunCost excludes in-flight billable jobs from the total but counts them as unsettled', () => {
-        // A running self-hosted job has no cost yet — counting it would understate $/min or report a bogus
-        // 0; it must drop out of the total and surface as a caveat, matching the backend roll-up.
-        expect(summarizeRunCost([job('self_hosted', 120, 0.5), job('self_hosted', null, null)])).toEqual({
-            billableMinutes: 2,
-            estimatedCostUsd: 0.5,
-            unsettledJobs: 1,
-        })
-    })
-
-    it('summarizeRunCost keeps the tile (null value) when every billable job is still in flight', () => {
-        expect(summarizeRunCost([job('self_hosted', null, null)])).toEqual({
-            billableMinutes: null,
-            estimatedCostUsd: null,
-            unsettledJobs: 1,
-        })
+    it.each<[string, CostableJob[], RunCostSummary | null]>([
+        // Nothing billable (all free / unknown) → null so the caller omits the tile instead of showing $0.
+        ['no billable jobs → null', [job('github_hosted', 600, null), job('unknown', 600, null)], null],
+        // Settled self-hosted jobs sum; free runners are ignored.
+        [
+            'sums settled self-hosted, ignores free',
+            [job('self_hosted', 120, 0.5), job('self_hosted', 60, 0.25), job('github_hosted', 600, null)],
+            { billableMinutes: 3, estimatedCostUsd: 0.75, unsettledJobs: 0 },
+        ],
+        // A still-running (no duration) billable job is excluded from the total and counted as unsettled —
+        // counting it would understate $/min or report a bogus 0.
+        [
+            'in-flight billable job is unsettled, not in the total',
+            [job('self_hosted', 120, 0.5), job('self_hosted', null, null)],
+            { billableMinutes: 2, estimatedCostUsd: 0.5, unsettledJobs: 1 },
+        ],
+        // Every billable job still in flight → keep the tile (null value) plus the unsettled caveat.
+        [
+            'all in flight → null value, caveat only',
+            [job('self_hosted', null, null)],
+            { billableMinutes: null, estimatedCostUsd: null, unsettledJobs: 1 },
+        ],
+        // A finished self-hosted job with no cost is an unpriced tier (non-Linux Depot), excluded — NOT
+        // unsettled. It must not keep the "unsettled job excluded" caveat alive on a completed run.
+        [
+            'finished uncostable self-hosted job is excluded, not unsettled',
+            [job('self_hosted', 120, 0.5), job('self_hosted', 300, null)],
+            { billableMinutes: 2, estimatedCostUsd: 0.5, unsettledJobs: 0 },
+        ],
+    ])('summarizeRunCost: %s', (_name, jobs, expected) => {
+        expect(summarizeRunCost(jobs)).toEqual(expected)
     })
 })

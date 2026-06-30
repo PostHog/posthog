@@ -203,10 +203,12 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
 
 /**
  * Roll a run's jobs up to a single cost figure, mirroring the backend cost model (logic/cost.py): only
- * self-hosted runners are billable, and a job contributes only once it has settled (a non-null estimated
- * cost). Running billable jobs are counted as `unsettledJobs` and excluded from the total, so the number
- * never silently inflates — the same caveat the PR page surfaces. Returns null when no job is billable at
- * all (every job GitHub-hosted / free), so the caller can omit the tile rather than show a misleading $0.
+ * self-hosted runners are billable, and a job contributes once it has settled (a non-null estimated cost).
+ * `unsettledJobs` counts only billable jobs that haven't finished yet (no duration) — excluded from the
+ * total and surfaced as a caveat so the number never silently inflates. A finished self-hosted job with no
+ * cost is an excluded tier (the backend doesn't price non-Linux Depot runners), not "unsettled", so it's
+ * left out of both. Returns null when no job is billable at all (every job GitHub-hosted / free), so the
+ * caller can omit the tile rather than show a misleading $0.
  */
 export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
     const billable = jobs.filter((job) => job.runner_provider === 'self_hosted')
@@ -214,7 +216,9 @@ export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
         return null
     }
     const costed = billable.filter((job) => job.estimated_cost_usd != null)
-    const unsettledJobs = billable.length - costed.length
+    // A null cost on a finished job means an unpriced tier (excluded), not "still running" — only a job
+    // with no duration is genuinely unsettled.
+    const unsettledJobs = billable.filter((job) => job.duration_seconds == null).length
     if (costed.length === 0) {
         // Billable jobs exist but none has settled yet — keep the tile (with a "—" value + caveat) rather
         // than reporting a misleading $0.00 / 0 min for a run whose cost simply hasn't landed.
