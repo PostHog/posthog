@@ -714,7 +714,6 @@ describe('openMcpClients', () => {
                         kind: 'resolved',
                         url: 'https://mcp.incident.io/mcp',
                         bearer: 'shared-tok',
-                        ownerToolApprovals: {},
                     }),
                 },
             })

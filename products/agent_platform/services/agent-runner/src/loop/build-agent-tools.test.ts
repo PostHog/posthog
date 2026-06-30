@@ -408,12 +408,11 @@ describe('buildAgentTools', () => {
             expect(names).not.toContain('linear__create-issue')
         })
 
-        it('enforces the connection owner per-tool approvals: do_not_use dropped, needs_approval force-gated, even under default_tool_approval allow', async () => {
-            // The direct connection path skips the mcp_store proxy that enforces
-            // MCPServerInstallationTool.approval_state, so buildAgentTools applies
-            // the owner's marks: `deny` → never exposed, `approve` → recorded in
-            // mcpOwnerApprovals so the driver force-gates it. The agent author's
-            // `default_tool_approval: 'allow'` must NOT widen past those marks.
+        it('exposes connection tools purely by the agent config — installation owner marks are not enforced', async () => {
+            // The agent's per-tool config / default_tool_approval is the sole
+            // authority. The shared installation's owner marks (needs_approval /
+            // do_not_use) are no longer plumbed into the runtime, so an `allow`
+            // default exposes every tool ungated regardless of what the owner set.
             const ref: McpRef = {
                 kind: 'agent',
                 id: 'incident',
@@ -427,18 +426,12 @@ describe('buildAgentTools', () => {
                 'create-incident': { description: 'Open an incident.', handler: async () => ({}) },
                 'delete-incident': { description: 'Delete an incident.', handler: async () => ({}) },
             })
-            mcp.connectionToolApprovals = { 'delete-incident': 'deny', 'create-incident': 'approve' }
             const rev = makeRev([], [], [ref])
             const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
             const names = built.tools.map((t) => t.label)
-            // do_not_use → never exposed, despite default_tool_approval: 'allow'.
-            expect(names).not.toContain('incident__delete-incident')
-            // needs_approval → exposed but force-gated for the driver.
-            expect(names).toContain('incident__create-incident')
-            expect(built.mcpOwnerApprovals.has('incident__create-incident')).toBe(true)
-            // unmarked tool under an allow default → exposed, not force-gated.
             expect(names).toContain('incident__list-incidents')
-            expect(built.mcpOwnerApprovals.has('incident__list-incidents')).toBe(false)
+            expect(names).toContain('incident__create-incident')
+            expect(names).toContain('incident__delete-incident')
         })
 
         it('execute dispatches through the open client and surfaces structured output', async () => {

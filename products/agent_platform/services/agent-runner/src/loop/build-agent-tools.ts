@@ -31,11 +31,9 @@ import type { TSchema } from '@earendil-works/pi-ai'
 import {
     AgentRevision,
     AgentSession,
-    type ApprovalPolicy,
     type ApprovalType,
     BundleStore,
     CredentialBroker,
-    DEFAULT_APPROVAL_POLICY,
     GatewayCatalog,
     getSecretAllowedHosts,
     HttpFetcher,
@@ -197,19 +195,12 @@ export interface BuiltAgentTools {
     /** `<prefix>__call_tool` name → its client, per proxied connection. The
      *  driver re-keys the approval gate on the underlying tool from the args. */
     mcpProxyCallTools: Map<string, OpenedMcp>
-    /** exposedName (`<prefix>__<remoteName>`) → approval policy, for
-     *  connection-backed tools the installation owner marked `needs_approval`.
-     *  The driver force-gates these even when the agent author's effective level
-     *  is `allow`, so the owner's required approval can't be widened away.
-     *  `deny`-marked tools aren't here — they're dropped from exposure entirely. */
-    mcpOwnerApprovals: Map<string, ApprovalPolicy>
 }
 
 export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): Promise<BuiltAgentTools> {
     const tools: AgentTool<TSchema, ToolResultDetails>[] = []
     const seen = new Set<string>()
     const mcpProxyCallTools = new Map<string, OpenedMcp>()
-    const mcpOwnerApprovals = new Map<string, ApprovalPolicy>()
 
     // `@posthog/load-skill` is auto-included only when the agent has skills —
     // exposing it otherwise just adds a tool that errors on use.
@@ -307,21 +298,6 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
         )
         for (const { client, tools: remoteTools } of listings) {
             const exposed = exposedRemoteTools(client, remoteTools, seen)
-            // Owner-required approvals (connection-backed): a `needs_approval`
-            // tool must always park for approval, even when the agent author's
-            // effective level is `allow`. Record exposedName → policy so the
-            // driver force-gates it on both the inline and proxy paths. (`deny`
-            // is already dropped from `exposed`.)
-            if (client.connectionToolApprovals) {
-                for (const remote of exposed) {
-                    if (client.connectionToolApprovals[remote.name] === 'approve') {
-                        mcpOwnerApprovals.set(
-                            `${client.prefix}__${remote.name}`,
-                            client.ref.approval_policy ?? DEFAULT_APPROVAL_POLICY
-                        )
-                    }
-                }
-            }
             // Inline below the budget; proxy a rich surface so it can't overflow the model.
             const decision = decideMcpExposure(exposed)
             if (decision.mode === 'inline') {
@@ -345,25 +321,20 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
     // Tools are named with their original ids (the loop matches calls by name).
     // The map keys the provider-safe form back to the original so the driver's
     // streamFn can translate names a strict provider echoed back.
-    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)), mcpProxyCallTools, mcpOwnerApprovals }
+    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)), mcpProxyCallTools }
 }
 
 /**
  * The catalog a client should expose, shared by the inline and proxy emitters:
  * drop tools whose effective level is `deny` (connection default ?? per-tool
- * override) or whose owner mark is `do_not_use`, then `<prefix>__<name>`
- * collision dedupe against `seen` (mutated).
+ * override), then `<prefix>__<name>` collision dedupe against `seen` (mutated).
+ *
+ * The agent's own config is the sole authority — the connection owner's
+ * installation marks (`needs_approval` / `do_not_use`) are not enforced here.
  */
 function exposedRemoteTools(client: OpenedMcp, remoteTools: RemoteMcpTool[], seen: Set<string>): RemoteMcpTool[] {
     const exposed: RemoteMcpTool[] = []
     for (const remote of remoteTools) {
-        // Owner's required per-tool approval (connection-backed MCPs only): a
-        // `do_not_use` tool is never exposable, regardless of the agent author's
-        // policy — the direct connection path doesn't route through the mcp_store
-        // proxy that would otherwise enforce this.
-        if (client.connectionToolApprovals?.[remote.name] === 'deny') {
-            continue
-        }
         // Agent author's effective level: `deny` → not exposed to the model.
         if (effectiveToolLevel(client.ref, remote.name) === 'deny') {
             continue
