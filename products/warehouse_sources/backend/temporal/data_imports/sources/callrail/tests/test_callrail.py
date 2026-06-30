@@ -51,8 +51,9 @@ class TestFormatStartDate:
     def test_format_start_date(self, value: Any, expected: str | None) -> None:
         assert _format_start_date(value) == expected
 
-    def test_naive_datetime_is_treated_as_utc(self) -> None:
-        # No tzinfo -> astimezone(UTC) localizes against the host; we only assert the date survives.
+    def test_naive_datetime_returns_a_date_string(self) -> None:
+        # No tzinfo -> astimezone(UTC) localizes against the host timezone, so we can only assert
+        # that a date string is returned without verifying the specific value.
         assert _format_start_date(datetime(2026, 3, 4, 12, 0, 0)) is not None
 
 
@@ -144,6 +145,8 @@ class TestResolveAccountId:
         session = mock.MagicMock()
         session.get.return_value = _response({"accounts": [{"id": "ACC1"}, {"id": "ACC2"}]})
         assert resolve_account_id(session, "key", mock.MagicMock()) == "ACC1"
+        # Only the first account is used, so we request a single row rather than a full page.
+        assert "per_page=1" in session.get.call_args.args[0]
 
     def test_raises_when_no_accounts(self) -> None:
         session = mock.MagicMock()

@@ -43,6 +43,13 @@ class CallRailSource(ResumableSource[CallRailSourceConfig, CallRailResumeConfig]
         return ExternalDataSourceType.CALLRAIL
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # account_id selects which CallRail account the stored API key is used against; changing it
+        # must require re-entering the secret so a preserved key can't be retargeted at another
+        # account the key happens to have access to.
+        return ["account_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.CALL_RAIL,

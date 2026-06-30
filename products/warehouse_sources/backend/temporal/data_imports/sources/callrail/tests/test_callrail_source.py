@@ -23,6 +23,10 @@ class TestCallRailSource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CALLRAIL
 
+    def test_connection_host_fields_includes_account_id(self) -> None:
+        # Changing account_id retargets the stored API key, so editing it must require re-entering secrets.
+        assert self.source.connection_host_fields == ["account_id"]
+
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 

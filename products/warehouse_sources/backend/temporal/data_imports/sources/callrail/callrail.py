@@ -101,7 +101,8 @@ def resolve_account_id(
     if account_id:
         return account_id
 
-    url = _build_url(f"{CALLRAIL_BASE_URL}/a.json", {"per_page": PER_PAGE})
+    # We only ever read the first account, so request a single row like validate_credentials does.
+    url = _build_url(f"{CALLRAIL_BASE_URL}/a.json", {"per_page": 1})
     data = _fetch_page(session, url, _get_headers(api_key), logger)
     accounts = data.get("accounts", [])
     if not accounts:
