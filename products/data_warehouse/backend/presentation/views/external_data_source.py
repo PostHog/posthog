@@ -2471,12 +2471,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         try:
             schemas = source.get_schemas(source_config, self.team_id)
         except Exception as e:
-            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
+            _, is_expected_source_error = _classify_refresh_schemas_error(source, e)
             if not is_expected_source_error:
                 capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
-                data={"message": error_message},
+                data={"message": str(e)},
             )
 
         # Best-effort per-endpoint scope probe — transient failure falls back to "available".
@@ -2587,10 +2587,8 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": f"Source type '{source_type}' does not support one-shot setup."},
             )
         except Exception as e:
-            error_message, is_expected_source_error = _classify_refresh_schemas_error(source, e)
-            if not is_expected_source_error:
-                capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
-            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": error_message})
+            capture_exception(e, {"source_type": source_type, "team_id": self.team_id})
+            return Response(status=status.HTTP_400_BAD_REQUEST, data={"message": str(e)})
 
         if not source_schemas:
             return Response(

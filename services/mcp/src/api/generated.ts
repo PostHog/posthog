@@ -20015,6 +20015,18 @@ export namespace Schemas {
     };
 
     /**
+     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     */
+    export type EvaluationTargetConfig = {
+      /**
+         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    };
+
+    /**
      * * `active` - Active
      * * `paused` - Paused
      * * `error` - Error
@@ -20104,6 +20116,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     */
+    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
+
+
+    export const EvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+    } as const;
+
+    /**
      * * `openai` - Openai
      * * `anthropic` - Anthropic
      * * `gemini` - Gemini
@@ -20178,6 +20202,13 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      target_config?: EvaluationTargetConfig;
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -36676,6 +36707,18 @@ export namespace Schemas {
       allows_na?: boolean;
     };
 
+    /**
+     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     */
+    export type PatchedEvaluationTargetConfig = {
+      /**
+         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -36711,6 +36754,13 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      target_config?: PatchedEvaluationTargetConfig;
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
