@@ -3,9 +3,12 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from django.db import models, transaction
+from django.db.models import Q
+
+import structlog
+from prometheus_client import Counter
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
-from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.scoping import team_scope
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
@@ -14,16 +17,24 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
 
+logger = structlog.get_logger(__name__)
+
+# The config-driven twin of `oauth_refresh_counter` in posthog.models.integration: a separate metric
+# since the custom store refreshes off a row-stored client rather than a kind-keyed settings client.
+custom_oauth2_refresh_counter = Counter(
+    "warehouse_custom_oauth2_refresh",
+    "Number of times a custom OAuth2 integration token refresh has been attempted",
+    labelnames=["result"],
+)
+
 # Re-mint the access token slightly before its declared expiry so a token that's still
-# valid at the check isn't rejected mid-flight. Mirrors OAuth2Auth._TOKEN_EXPIRY_BUFFER —
+# valid at the check isn't rejected mid-flight. Same value as OAuth2Auth._TOKEN_EXPIRY_BUFFER —
 # redeclared here rather than imported so the model module doesn't pull the HTTP transport
 # stack onto the django.setup() model-load path.
 _TOKEN_EXPIRY_BUFFER = timedelta(seconds=60)
 
 
-class CustomOAuth2Integration(
-    TeamScopedRootMixin, ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel
-):
+class CustomOAuth2Integration(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Encrypted token store for a Custom REST source's customer-owned OAuth2 client.
 
     The customer brings their own OAuth2 client (`client_id` / `client_secret` / `token_url`); this row
@@ -39,7 +50,7 @@ class CustomOAuth2Integration(
 
     `TeamScopedRootMixin` is first in the bases so its fail-closed manager wins the MRO; access outside
     request context (Temporal activities) must go through `objects.for_team(team_id)` or a `team_scope()`
-    block — the latter is required around writes, since `ModelActivityMixin` re-queries on update.
+    block — see the locked read in `refresh_and_persist`.
     """
 
     # db_constraint=False on the FKs to hot tables (posthog_team, posthog_user): creating a real FK
@@ -73,8 +84,13 @@ class CustomOAuth2Integration(
 
     class Meta:
         constraints = [
+            # Partial index: only enforce one integration per (team, source) for real source links.
+            # A plain UniqueConstraint is a no-op across NULL source FKs (Postgres treats NULLs as
+            # distinct), so unlinked rows would slip past it — the condition makes the name hold.
             models.UniqueConstraint(
-                fields=["team", "external_data_source"], name="unique_custom_oauth2_integration_per_source"
+                fields=["team", "external_data_source"],
+                condition=Q(external_data_source__isnull=False),
+                name="unique_custom_oauth2_integration_per_source",
             ),
         ]
 
@@ -108,7 +124,19 @@ class CustomOAuth2Integration(
         expiry = self.sensitive_config.get("token_expiry")
         if not expiry:
             return True
-        return datetime.fromisoformat(expiry) <= datetime.now(UTC) + _TOKEN_EXPIRY_BUFFER
+        token_expiry = datetime.fromisoformat(expiry)
+        # Cap the buffer at half the token's lifetime, matching OAuth2Auth._is_token_expired: a token
+        # whose whole TTL is <= the buffer would otherwise read as already-expired the instant it's
+        # minted, forcing a re-mint on every call. lifetime is derived from the data we already store —
+        # the absolute expiry and the mint timestamp (`refreshed_at`, unix seconds). When there's no
+        # mint timestamp the lifetime is unknown, so fall back to the flat buffer.
+        refreshed_at = self.config.get("refreshed_at")
+        if refreshed_at is None:
+            buffer = _TOKEN_EXPIRY_BUFFER
+        else:
+            lifetime = token_expiry - datetime.fromtimestamp(refreshed_at, UTC)
+            buffer = min(_TOKEN_EXPIRY_BUFFER, max(lifetime / 2, timedelta(0)))
+        return datetime.now(UTC) >= token_expiry - buffer
 
     def get_access_token(self) -> str:
         """Reuse the stored token while it's valid; refresh + persist only when expired.
@@ -137,9 +165,7 @@ class CustomOAuth2Integration(
         )
 
         # team_scope(): this runs in a Temporal activity, outside the request context the fail-closed
-        # manager needs. It covers both the locked read AND the row.save() calls — ModelActivityMixin's
-        # update path internally re-queries through the default (fail-closed) manager to diff fields, so
-        # the saves would raise TeamScopeError without an ambient scope, not just the explicit reads.
+        # manager needs, so the locked read below would raise TeamScopeError without an ambient scope.
         with team_scope(self.team_id):
             try:
                 # Mint under the row lock so concurrent syncs serialize: each waits, then re-reads the
@@ -165,7 +191,11 @@ class CustomOAuth2Integration(
                 # touches only `errors`, leaving the stored refresh token intact for re-entry to replace.
                 CustomOAuth2Integration.objects.filter(pk=self.pk).update(errors=ERROR_TOKEN_REFRESH_FAILED)
                 self.errors = ERROR_TOKEN_REFRESH_FAILED
+                custom_oauth2_refresh_counter.labels("failed").inc()
+                logger.warning("Failed to refresh custom OAuth2 token", integration_id=str(self.pk))
                 raise
+
+        custom_oauth2_refresh_counter.labels("success").inc()
 
         # Keep the in-memory instance the caller holds consistent with what we just persisted.
         self.sensitive_config = row.sensitive_config

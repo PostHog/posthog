@@ -34,9 +34,8 @@ class CustomOAuth2IntegrationAdmin(admin.ModelAdmin):
     ]
 
     # Inspection-only. The row holds OAuth2 secrets and is written solely by the sync worker
-    # (refresh_and_persist) under a row lock + team scope; editing it from admin would bypass that scope
-    # and crash ModelActivityMixin's update diff (which re-queries through the fail-closed manager with no
-    # request context). Reconnect/edit flows live in the product UI.
+    # (refresh_and_persist) under a row lock + team scope; editing it from admin would bypass that scope.
+    # Reconnect/edit flows live in the product UI.
     def has_add_permission(self, request) -> bool:
         return False
 

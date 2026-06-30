@@ -3,6 +3,7 @@
 import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
+from django.db.models import Q
 
 import posthog.models.utils
 import posthog.helpers.encrypted_fields
@@ -68,6 +69,7 @@ class Migration(migrations.Migration):
             options={
                 "constraints": [
                     models.UniqueConstraint(
+                        condition=Q(external_data_source__isnull=False),
                         fields=("team", "external_data_source"),
                         name="unique_custom_oauth2_integration_per_source",
                     )

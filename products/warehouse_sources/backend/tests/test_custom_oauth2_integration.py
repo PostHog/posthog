@@ -4,12 +4,15 @@ from typing import Any, Optional
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import IntegrityError
+
 from posthog.models import Team
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED
 from posthog.models.scoping.manager import TeamScopeError
 
 from products.warehouse_sources.backend.models.custom_oauth2_integration import (
     CustomOAuth2Integration,
+    custom_oauth2_refresh_counter,
     get_custom_oauth2_integration,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
@@ -121,6 +124,68 @@ class TestCustomOAuth2Integration(BaseTest):
         assert integration.get_access_token() == "minted-fresh"
         mock_session.return_value.post.assert_called_once()
         assert self._reload(integration).sensitive_config["access_token"] == "minted-fresh"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_refresh_increments_success_and_failure_counters(self, mock_session):
+        # The refresh path mirrors core OauthIntegration.refresh_access_token's observability: a
+        # success/failed counter so a stuck rotating provider shows up in metrics, not just logs.
+        success_before = custom_oauth2_refresh_counter.labels("success")._value.get()
+        failed_before = custom_oauth2_refresh_counter.labels("failed")._value.get()
+
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted", "expires_in": 3600}
+        )
+        self._make_integration().refresh_and_persist()
+
+        mock_session.return_value.post.return_value = _token_response(
+            status_code=400, payload={"error": "invalid_grant"}
+        )
+        with self.assertRaises(OAuth2AuthRequestError):
+            self._make_integration().refresh_and_persist()
+
+        assert custom_oauth2_refresh_counter.labels("success")._value.get() == success_before + 1
+        assert custom_oauth2_refresh_counter.labels("failed")._value.get() == failed_before + 1
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_short_lived_token_not_treated_as_expired_right_after_mint(self, mock_session):
+        # Capped buffer: a token whose whole TTL (30s) is under the flat 60s buffer would, with a flat
+        # buffer, read as already-expired the instant it's minted and re-mint on every call. With the
+        # buffer capped at lifetime/2 (15s), a freshly-minted token stays valid and is reused.
+        now = datetime.now(UTC)
+        integration = self._make_integration(
+            config={"refreshed_at": int(now.timestamp())},
+            sensitive_config={
+                "access_token": "short-lived",
+                "token_expiry": (now + timedelta(seconds=30)).isoformat(),
+            },
+        )
+
+        assert integration.get_access_token() == "short-lived"
+        mock_session.return_value.post.assert_not_called()
+
+    def test_constraint_rejects_duplicate_non_null_source_link(self):
+        # The partial unique index: a second integration for the same (team, source) must be rejected.
+        from products.warehouse_sources.backend.models import ExternalDataSource  # noqa: PLC0415
+
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="sid", connection_id="cid", status="Completed", source_type="Stripe"
+        )
+        CustomOAuth2Integration.objects.for_team(self.team.pk).create(team=self.team, external_data_source=source)
+
+        with self.assertRaises(IntegrityError):
+            CustomOAuth2Integration.objects.for_team(self.team.pk).create(team=self.team, external_data_source=source)
+
+    def test_constraint_allows_multiple_null_source_rows(self):
+        # The condition excludes NULL source links, so unlinked rows (pre-create token stores) don't
+        # collide — the plain UniqueConstraint would also allow this, but only by accident of NULL
+        # distinctness; this pins the intended behaviour.
+        self._make_integration()
+        self._make_integration()  # would raise without the partial condition only if NULLs collided
+
+        assert (
+            CustomOAuth2Integration.objects.for_team(self.team.pk).filter(external_data_source__isnull=True).count()
+            == 2
+        )
 
     def test_team_scoping_is_fail_closed(self):
         integration = self._make_integration()
