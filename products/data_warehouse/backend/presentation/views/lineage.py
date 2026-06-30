@@ -9,7 +9,7 @@ from rest_framework.response import Response
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
@@ -67,6 +67,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
     dag: dict[str, list[Any]] = {"nodes": [], "edges": []}
     seen_nodes: set[str] = set()
     node_data: dict[str, dict] = {}
+    node_key_by_saved_query_id: dict[Any, str] = {}
 
     # root node and its external tables
     root_query = DataWarehouseSavedQuery.objects.filter(id=model_id, team_id=team_id).first()
@@ -81,6 +82,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
         "last_run_at": root_query.last_run_at,
         "status": root_query.status,
     }
+    node_key_by_saved_query_id[root_query.id] = root_query.name
     seen_nodes.add(root_query.name)
 
     # Recursively fetch all dependencies with a bfs
@@ -121,6 +123,7 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                         "last_run_at": saved_query.last_run_at,
                         "status": saved_query.status,
                     }
+                    node_key_by_saved_query_id[saved_query.id] = external_table
                     to_process.append((external_table, saved_query.external_tables))
                 else:
                     table = tables.get(external_table)
@@ -131,6 +134,20 @@ def get_upstream_dag(team_id: int, model_id: str) -> dict[str, list[Any]]:
                         "type": "table",
                         "name": table.name if table else external_table,
                     }
+
+    # The v2 backend updates DataModelingJob but not DataWarehouseSavedQuery.last_run_at, so prefer
+    # the latest job's timestamp — one query for the whole DAG, matching the saved query serializer.
+    if node_key_by_saved_query_id:
+        latest_jobs = (
+            DataModelingJob.objects.filter(team_id=team_id, saved_query_id__in=node_key_by_saved_query_id.keys())
+            .order_by("saved_query_id", "-last_run_at")
+            .distinct("saved_query_id")
+            .values_list("saved_query_id", "last_run_at")
+        )
+        for saved_query_id, job_last_run_at in latest_jobs:
+            node_key = node_key_by_saved_query_id.get(saved_query_id)
+            if node_key is not None:
+                node_data[node_key]["last_run_at"] = job_last_run_at
 
     # Order nodes by dependency order
     ordered_nodes = topological_sort(list(node_data.keys()), dag["edges"])
