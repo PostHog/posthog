@@ -31,14 +31,16 @@ export function PullRequestDiffView({
 }): JSX.Element {
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const files = useMemo<FileDiffMetadata[]>(() => {
+    // Distinguish a parse failure from a genuinely empty diff — otherwise both render the same
+    // "no changes" message, hiding from the user that their real changes failed to parse.
+    const [parseFailed, files] = useMemo<[boolean, FileDiffMetadata[]]>(() => {
         if (!diff.trim()) {
-            return []
+            return [false, []]
         }
         try {
-            return parsePatchFiles(diff, cacheKey).flatMap((patch) => patch.files)
+            return [false, parsePatchFiles(diff, cacheKey).flatMap((patch) => patch.files)]
         } catch {
-            return []
+            return [true, []]
         }
     }, [diff, cacheKey])
 
@@ -52,6 +54,10 @@ export function PullRequestDiffView({
         }),
         [isDarkModeOn, diffStyle]
     )
+
+    if (parseFailed) {
+        return <p className="m-0 text-sm text-danger">Couldn't parse this diff — it may be in an unexpected format.</p>
+    }
 
     if (files.length === 0) {
         return <p className="m-0 text-sm text-tertiary">No file changes to display for this branch.</p>
