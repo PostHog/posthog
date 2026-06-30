@@ -1,13 +1,9 @@
 ---
 name: signals-scout-inbox-validation
 description: >
-  Follow-up scout for the Signals inbox itself. Watches reports that recently
-  transitioned to resolved (an implementation PR merged) and, after a deployment soak
-  window, re-measures the underlying problem to check the fix actually held — plus a
-  strictly-gated escalation check on recently dismissed reports. Emits findings only
-  when a shipped fix demonstrably didn't hold; confirmations and unverifiable verdicts
-  become durable memory and an empty close-out. Self-contained peer in the
-  signals-scout-* fleet — no dependencies on other skills.
+  Follow-up Signals scout for the inbox itself. After a deployment soak window, re-measures
+  the problems behind recently resolved reports to check the fix held, plus a gated escalation
+  check on dismissed reports.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
