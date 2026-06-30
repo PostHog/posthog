@@ -23,6 +23,17 @@ import { teamLogic } from '../../../scenes/teamLogic'
 const BASE_OUTPUT_FORMAT = 'ddd, MMM D, YYYY h:mm A'
 const BASE_OUTPUT_FORMAT_WITH_SECONDS = 'ddd, MMM D, YYYY h:mm:ss A'
 
+/** Last-resort timestamp string for when dayjs's `.format()` plugin chain throws.
+ * `toISOString()` calls the native Date method, bypassing the localizedFormat/relativeTime
+ * wrappers that have blown the call stack ("too much recursion") in some browsers. */
+function safeTimestampString(displayTime: dayjs.Dayjs, time: string | dayjs.Dayjs): string {
+    try {
+        return displayTime.toISOString()
+    } catch {
+        return typeof time === 'string' ? time : ''
+    }
+}
+
 export type TZLabelProps = Omit<LemonDropdownProps, 'overlay' | 'trigger' | 'children'> & {
     time: string | dayjs.Dayjs
     showSeconds?: boolean
@@ -204,16 +215,22 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
     const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
     const format = useCallback(() => {
-        if (formatDate || formatTime || effectiveTimestampStyle === 'absolute') {
-            return humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
-                timestampStyle: effectiveTimestampStyle,
-            })
+        try {
+            if (formatDate || formatTime || effectiveTimestampStyle === 'absolute') {
+                return humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
+                    timestampStyle: effectiveTimestampStyle,
+                })
+            }
+            if (suffix) {
+                return `${displayTime.fromNow(true)} ${suffix}`
+            }
+            return displayTime.fromNow()
+        } catch {
+            // dayjs's stacked format plugins can overflow the call stack on certain inputs/browsers.
+            // TZLabel renders all over the app, so degrade to a plain timestamp rather than crash the scene.
+            return safeTimestampString(displayTime, time)
         }
-        if (suffix) {
-            return `${displayTime.fromNow(true)} ${suffix}`
-        }
-        return displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, suffix])
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle, suffix, time])
 
     const [formattedContent, setFormattedContent] = useState(format)
 
