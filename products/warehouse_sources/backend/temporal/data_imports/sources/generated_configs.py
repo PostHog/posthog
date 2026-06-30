@@ -638,7 +638,8 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class ChurnkeySourceConfig(config.Config):
-    pass
+    api_key: str
+    app_id: str
 
 
 @config.config
