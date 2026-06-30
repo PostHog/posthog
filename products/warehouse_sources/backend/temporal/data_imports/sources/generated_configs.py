@@ -481,7 +481,8 @@ class BrazeSourceConfig(config.Config):
 
 @config.config
 class BreezometerSourceConfig(config.Config):
-    pass
+    api_key: str
+    locations: str
 
 
 @config.config
