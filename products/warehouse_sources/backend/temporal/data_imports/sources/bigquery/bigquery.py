@@ -112,10 +112,13 @@ BIGQUERY_DATASET_NOT_FOUND_ERROR = (
 # User-facing message for a syntactically invalid project/dataset ID (e.g. a value carrying
 # parentheses or other characters BigQuery forbids). Raised below and matched in
 # `BigQuerySource.get_non_retryable_errors`, so it must stay free of volatile data (the offending id).
+# Kept generic across project vs dataset: the raw 400 can be either ("Invalid project ID" /
+# "Invalid dataset ID"), and the two have different allowed character sets (dataset IDs allow
+# underscores but not dashes; project IDs allow dashes but not underscores), so naming a specific
+# allowlist or only one field would mislead half the cases.
 BIGQUERY_INVALID_IDENTIFIER_ERROR = (
-    "Your BigQuery Project ID or Dataset ID contains characters BigQuery doesn't allow — they may "
-    "only contain letters, numbers, dashes and underscores. Please check the Dataset ID in your "
-    "source configuration."
+    "Your BigQuery Project ID or Dataset ID contains characters BigQuery doesn't allow. "
+    "Please check the Project ID and Dataset ID in your source configuration."
 )
 
 # BigQuery occasionally fails a query job with a transient `jobInternalError`, surfaced from the
