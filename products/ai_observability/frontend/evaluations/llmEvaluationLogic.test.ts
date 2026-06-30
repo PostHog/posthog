@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
-import { DEFAULT_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
+import { DEFAULT_HOG_SOURCE, DEFAULT_TRACE_HOG_SOURCE, llmEvaluationLogic } from './llmEvaluationLogic'
 import { EvaluationConfig, EvaluationRun } from './types'
 
 const mockProviderKeys: LLMProviderKey[] = [
@@ -76,6 +76,8 @@ const mockEvaluation: EvaluationConfig = {
     output_type: 'boolean',
     output_config: { allows_na: false },
     conditions: [{ id: 'cond-1', rollout_percentage: 50, properties: [] }],
+    target: 'generation',
+    target_config: {},
     model_configuration: {
         provider: 'openai',
         model: 'gpt-5-mini',
@@ -315,6 +317,47 @@ describe('llmEvaluationLogic', () => {
             logic.actions.saveEvaluationSuccess(mockEvaluation)
 
             await expectLogic(logic).toMatchValues({ hasUnsavedChanges: false })
+        })
+
+        it('seeds the trace Hog default when switching to hog with a trace target', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE },
+                }),
+            })
+        })
+
+        it('swaps the untouched Hog default when the target changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_HOG_SOURCE } }),
+            })
+
+            logic.actions.setEvaluationTarget('trace')
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({ evaluation_config: { source: DEFAULT_TRACE_HOG_SOURCE } }),
+            })
+        })
+
+        it('does not clobber an edited Hog source when the target changes', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return length(events) > 5')
+            logic.actions.setEvaluationTarget('trace')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_config: expect.objectContaining({ source: 'return length(events) > 5' }),
+                }),
+            })
         })
     })
 
@@ -847,6 +890,21 @@ describe('llmEvaluationLogic', () => {
                     output_config: {},
                     model_configuration: null,
                     conditions: [expect.objectContaining({ rollout_percentage: 100 })],
+                }),
+            })
+        })
+
+        it('switching to sentiment resets a trace target back to generation', async () => {
+            await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
+
+            logic.actions.setEvaluationTarget('trace')
+            logic.actions.setEvaluationType('sentiment')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'sentiment',
+                    target: 'generation',
+                    target_config: {},
                 }),
             })
         })

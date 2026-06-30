@@ -46,6 +46,7 @@ the row lists both.
 | ----------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | adroll                  | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                | HTTP                        | requests                                                        | ✅                          |
+| aha                     | HTTP                        | requests                                                        | ✅                          |
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
@@ -56,6 +57,7 @@ the row lists both.
 | appsflyer               | HTTP (CSV reports)          | requests                                                        | ✅                          |
 | asana                   | HTTP                        | requests                                                        | ✅                          |
 | ashby                   | HTTP                        | requests                                                        | ✅                          |
+| assemblyai              | HTTP                        | requests                                                        | ✅                          |
 | attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack           | HTTP                        | requests                                                        | ✅                          |
@@ -66,6 +68,7 @@ the row lists both.
 | bigquery                | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | blogger                 | HTTP                        | requests                                                        | ✅                          |
+| boldsign                | HTTP                        | requests                                                        | ✅                          |
 | braintree               | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze                   | HTTP                        | requests                                                        | ✅                          |
 | breezometer             | HTTP                        | requests                                                        | ✅                          |
@@ -114,6 +117,7 @@ the row lists both.
 | dixa                    | HTTP                        | requests                                                        | ✅                          |
 | docuseal                | HTTP                        | requests                                                        | ✅                          |
 | doit                    | HTTP                        | requests                                                        | ✅                          |
+| dropbox_sign            | HTTP                        | requests                                                        | ✅                          |
 | drip                    | HTTP                        | requests                                                        | ✅                          |
 | e_conomic               | HTTP                        | requests                                                        | ✅                          |
 | easypost                | HTTP                        | requests                                                        | ✅                          |
@@ -297,7 +301,6 @@ doesn't conflict with concurrent PRs.
 - adobe_commerce
 - adp_workforce_now
 - adyen
-- aha
 - ahrefs
 - airbyte
 - akeneo
@@ -317,7 +320,6 @@ doesn't conflict with concurrent PRs.
 - apple_search_ads
 - appstack
 - apptivo
-- assemblyai
 - auth0
 - awin
 - aws_cloudtrail
@@ -328,7 +330,6 @@ doesn't conflict with concurrent PRs.
 - bigcommerce
 - bitly
 - bluetally
-- boldsign
 - box
 - braintrust
 - branch
@@ -377,7 +378,6 @@ doesn't conflict with concurrent PRs.
 - dolibarr
 - dremio
 - dropbox
-- dropbox_sign
 - dwolla
 - dynamics365
 - dynamodb

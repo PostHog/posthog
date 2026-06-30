@@ -11864,6 +11864,59 @@ export namespace Schemas {
       failing_ci: number;
     }
 
+    export interface CIFailureLogLine {
+      /**
+         * 1-based line number in the full pre-thinning job log, or null for a '... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.
+         * @nullable
+         */
+      original_line: number | null;
+      /** The log line text, or the omission-marker text. */
+      text: string;
+    }
+
+    export interface RepoRef {
+      /** Code host provider, e.g. 'github'. */
+      provider: string;
+      /** Repository owner or organization. */
+      owner: string;
+      /** Repository name. */
+      name: string;
+    }
+
+    export interface CIJobFailureLog {
+      /** The thinned failure-log lines in original order, with omission markers. */
+      lines: CIFailureLogLine[];
+      /** GitHub Actions job id of the failed job. */
+      job_id: number;
+      /** Workflow run id the job belongs to. */
+      run_id: number;
+      /** Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs. */
+      conclusion: string;
+      /** Git branch the run was triggered on, or '' when unknown. */
+      branch: string;
+      /** Total lines in the full job log before thinning (the denominator for each line's original_line); 0 when unknown. */
+      original_total_lines: number;
+      /** Number of lines returned for this job (after the per-job cap). */
+      line_count: number;
+      /** True when the job had more failure lines than the per-job cap. */
+      truncated: boolean;
+    }
+
+    export interface CIFailureLogs {
+      /** Repository the pull request belongs to. */
+      repo: RepoRef;
+      /** Failed CI jobs with their thinned failure logs, grouped by job. */
+      jobs: CIJobFailureLog[];
+      /** Pull request number the failure logs are for. */
+      pr_number: number;
+      /** Workflow runs attributed to the PR (across all its pushes) that were searched for logs. */
+      runs_attributed: number;
+      /** False when no failure logs were found — CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR carries no run association to resolve. */
+      logs_available: boolean;
+      /** True when the overall line cap across all jobs was hit. */
+      truncated: boolean;
+    }
+
     export interface CIMDVerificationToken {
       readonly id: string;
       /** @maxLength 40 */
@@ -20052,6 +20105,18 @@ export namespace Schemas {
     };
 
     /**
+     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     */
+    export type EvaluationTargetConfig = {
+      /**
+         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    };
+
+    /**
      * * `active` - Active
      * * `paused` - Paused
      * * `error` - Error
@@ -20141,6 +20206,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `generation` - Generation
+     * * `trace` - Trace
+     */
+    export type EvaluationTargetEnum = typeof EvaluationTargetEnum[keyof typeof EvaluationTargetEnum];
+
+
+    export const EvaluationTargetEnum = {
+      Generation: 'generation',
+      Trace: 'trace',
+    } as const;
+
+    /**
      * * `openai` - Openai
      * * `anthropic` - Anthropic
      * * `gemini` - Gemini
@@ -20215,6 +20292,13 @@ export namespace Schemas {
       output_config?: EvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      target_config?: EvaluationTargetConfig;
       model_configuration?: ModelConfiguration | null;
       readonly created_at: string;
       readonly updated_at: string;
@@ -30592,15 +30676,6 @@ export namespace Schemas {
       excluded_jobs: number;
     }
 
-    export interface RepoRef {
-      /** Code host provider, e.g. 'github'. */
-      provider: string;
-      /** Repository owner or organization. */
-      owner: string;
-      /** Repository name. */
-      name: string;
-    }
-
     export interface PullRequest {
       /** The pull request author. */
       author: Author;
@@ -36730,6 +36805,18 @@ export namespace Schemas {
       allows_na?: boolean;
     };
 
+    /**
+     * Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'.
+     */
+    export type PatchedEvaluationTargetConfig = {
+      /**
+         * For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight.
+         * @minimum 10
+         * @maximum 7200
+         */
+      window_seconds?: number;
+    };
+
     export interface PatchedEvaluation {
       readonly id?: string;
       /**
@@ -36765,6 +36852,13 @@ export namespace Schemas {
       output_config?: PatchedEvaluationOutputConfig;
       /** Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads. */
       conditions?: EvaluationCondition[];
+      /** What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.
+       *
+       * * `generation` - Generation
+       * * `trace` - Trace */
+      target?: EvaluationTargetEnum;
+      /** Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'. */
+      target_config?: PatchedEvaluationTargetConfig;
       model_configuration?: ModelConfiguration | null;
       readonly created_at?: string;
       readonly updated_at?: string;
@@ -55663,6 +55757,13 @@ export namespace Schemas {
     source_type?: string;
     };
 
+    export type EnvironmentsExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
+     */
+    source_type?: string;
+    };
+
     export type EnvironmentsFileDownloadBatchExportsListParams = {
     /**
      * Number of results to return per page.
@@ -61122,6 +61223,21 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsCiFailureLogsParams = {
+    /**
+     * Pull request number whose CI failure logs to fetch.
+     */
+    pr_number: number;
+    /**
+     * 'owner/name' repository the pull request belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrCostParams = {
     /**
      * Pull request number to estimate cost for.
@@ -61903,6 +62019,13 @@ export namespace Schemas {
     search?: string;
     /**
      * Only return stored credentials for this source type (e.g. 'Stripe', 'Postgres').
+     */
+    source_type?: string;
+    };
+
+    export type ExternalDataSourcesWizardRetrieveParams = {
+    /**
+     * Comma-separated source type(s) to return config for, e.g. 'Postgres' or 'Postgres,Stripe'. Strongly recommended: the unfiltered response describes every supported source and is very large. Omit only to enumerate the available types.
      */
     source_type?: string;
     };
