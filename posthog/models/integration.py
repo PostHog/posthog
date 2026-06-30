@@ -3450,10 +3450,9 @@ class DatabricksIntegration:
 
         We check the value is a bare hostname (not a full URL) and that it passes our shared SSRF
         guard (rejects unresolvable hosts, internal IPs, cloud-metadata hosts, and internal domain
-        patterns). We deliberately don't open a TCP connection here: it gave only weak "something is
-        listening on :443" feedback, added latency to the create request, and reintroduced an SSRF
-        vector via a second DNS resolution. Reachability is instead enforced at export time before
-        connecting to Databricks.
+        patterns). This is a quick check (testing connectivity to a SQL warehouse requires a
+        warehouse http_path in addition to these parameters so it not possible to perform a full
+        test here).
         """
         # we expect a hostname, not a full URL
         if server_hostname.startswith("http"):
