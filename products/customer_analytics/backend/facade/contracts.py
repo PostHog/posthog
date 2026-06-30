@@ -245,7 +245,8 @@ class CustomPropertyDefinitionView:
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
-    the old model serializer's ``PrimaryKeyRelatedField`` output.
+    the old model serializer's ``PrimaryKeyRelatedField`` output. ``source`` is the read-only
+    view-sync binding when one is configured for this definition, else ``None``.
     """
 
     id: UUID | None = None
@@ -256,6 +257,7 @@ class CustomPropertyDefinitionView:
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
+    source: "CustomPropertySourceView | None" = None
 
 
 @stdlib_dataclass(frozen=True)

@@ -266,58 +266,6 @@ class AccountNotebookSerializer(DataclassSerializer):
         ]
 
 
-class CustomPropertyDefinitionSerializer(DataclassSerializer):
-    """A team-scoped definition of a custom account property — the attribute side of the model.
-
-    Holds only the property's shape (name, display type, big-number flag). Per-account values are
-    stored separately, so this serializer never reads or writes account values. The numeric-only
-    big-number rule and the unique-name conflict are enforced behind the facade.
-    """
-
-    id = serializers.UUIDField(read_only=True)
-    name = serializers.CharField(
-        max_length=400,
-        help_text="Human-readable name of the custom property. Unique within the team.",
-    )
-    description = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text="Optional description of what the property represents.",
-    )
-    display_type = serializers.ChoiceField(
-        choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
-        help_text=(
-            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
-            "'percent', 'date', 'datetime', or 'boolean'."
-        ),
-    )
-    is_big_number = serializers.BooleanField(
-        required=False,
-        default=False,
-        help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
-    )
-    created_at = serializers.DateTimeField(read_only=True)
-    created_by = serializers.IntegerField(read_only=True, allow_null=True)
-    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
-
-    class Meta:
-        dataclass = CustomPropertyDefinitionView
-        # Pin the OpenAPI component name to the pre-isolation one (DataclassSerializer would
-        # otherwise name it after the wrapped dataclass, ``CustomPropertyDefinitionView``).
-        ref_name = "CustomPropertyDefinition"
-        fields = [
-            "id",
-            "name",
-            "description",
-            "display_type",
-            "is_big_number",
-            "created_at",
-            "created_by",
-            "updated_at",
-        ]
-
-
 class CustomPropertySourceSerializer(DataclassSerializer):
     """Binds a materialized data-warehouse view column to a custom property definition; the view's
     values are synced onto matching accounts on each materialization."""
@@ -369,6 +317,61 @@ class CustomPropertySourceSerializer(DataclassSerializer):
             "consecutive_failures",
             "last_synced_at",
             "last_sync_error",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+
+
+class CustomPropertyDefinitionSerializer(DataclassSerializer):
+    """A team-scoped definition of a custom account property — the attribute side of the model.
+
+    Holds only the property's shape (name, display type, big-number flag). Per-account values are
+    stored separately, so this serializer never reads or writes account values.
+    """
+
+    id = serializers.UUIDField(read_only=True)
+    name = serializers.CharField(
+        max_length=400,
+        help_text="Human-readable name of the custom property. Unique within the team.",
+    )
+    description = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text="Optional description of what the property represents.",
+    )
+    display_type = serializers.ChoiceField(
+        choices=CUSTOM_PROPERTY_DISPLAY_TYPE_CHOICES,
+        help_text=(
+            "How the property is interpreted and rendered: 'text', 'number', 'currency', "
+            "'percent', 'date', 'datetime', or 'boolean'."
+        ),
+    )
+    is_big_number = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties.",
+    )
+    source = CustomPropertySourceSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text="The data-warehouse view-sync binding feeding this property, or null when values are set manually.",
+    )
+    created_at = serializers.DateTimeField(read_only=True)
+    created_by = serializers.IntegerField(read_only=True, allow_null=True)
+    updated_at = serializers.DateTimeField(read_only=True, allow_null=True)
+
+    class Meta:
+        dataclass = CustomPropertyDefinitionView
+        ref_name = "CustomPropertyDefinition"
+        fields = [
+            "id",
+            "name",
+            "description",
+            "display_type",
+            "is_big_number",
+            "source",
             "created_at",
             "created_by",
             "updated_at",
