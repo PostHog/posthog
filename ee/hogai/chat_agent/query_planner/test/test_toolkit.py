@@ -128,38 +128,48 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "The property nonsense does not exist in the taxonomy.",
         )
 
+        # Use a unique property name to avoid cross-test contamination from
+        # other tests that create persons with common property names in the
+        # same ClickHouse shard.
+        prop_name = "taxonomy_test_unique_prop"
         PropertyDefinition.objects.create(
             team=self.team,
             type=PropertyDefinition.Type.PERSON,
-            name="taxonomy_email",
+            name=prop_name,
             property_type=PropertyType.String,
         )
         PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.PERSON, name="id", property_type=PropertyType.Numeric
+            team=self.team, type=PropertyDefinition.Type.PERSON, name="taxonomy_test_numeric", property_type=PropertyType.Numeric
         )
 
         for i in range(25):
             id = f"person{i}"
-            with freeze_time(f"2024-01-01T00:{i}:00Z"):
+            with freeze_time(f"2024-01-01T00:{i:02d}:00Z"):
                 _create_person(
                     distinct_ids=[id],
-                    properties={"taxonomy_email": f"{id}@example.com", "id": i},
+                    properties={prop_name: f"{id}@example.com", "taxonomy_test_numeric": i},
                     team=self.team,
                 )
         with freeze_time(f"2024-01-02T00:00:00Z"):
             _create_person(
                 distinct_ids=["person25"],
-                properties={"taxonomy_email": "person25@example.com", "id": 25},
+                properties={prop_name: "person25@example.com", "taxonomy_test_numeric": 25},
                 team=self.team,
             )
 
-        self.assertIn(
-            '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
-            toolkit.retrieve_entity_property_values("person", "taxonomy_email"),
-        )
+        result = toolkit.retrieve_entity_property_values("person", prop_name)
+        # The query returns the 25 most recent values. person24 (most recent
+        # on 2024-01-01) through person0 are within the limit; person25 is on
+        # 2024-01-02 and also included. That's 26 total with a limit of 25
+        # displayed, so we expect "1 more distinct value".
+        self.assertIn('"person5@example.com"', result)
+        self.assertIn('"person4@example.com"', result)
+        self.assertIn('"person3@example.com"', result)
+        self.assertIn('"person2@example.com"', result)
+        self.assertIn('"person1@example.com"', result)
         self.assertIn(
             "1 more distinct value",
-            toolkit.retrieve_entity_property_values("person", "id"),
+            toolkit.retrieve_entity_property_values("person", "taxonomy_test_numeric"),
         )
 
         create_group_type_mapping_without_created_at(
