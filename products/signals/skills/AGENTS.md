@@ -157,8 +157,11 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   dashboard access), curates a durable scratchpad watchlist, and balances
   re-checking known items (exploit) against discovering new ones (explore) across
   runs; scores the latest complete bucket by robust (MAD) deviation from each
-  insight's own seasonality-matched baseline. Bundles its own references
-  (`anomaly-methods.md`, `watchlist-and-memory.md`, `emit-contract.md`).
+  insight's own seasonality-matched baseline. The first canonical scout on the
+  **report channel** — it files each anomaly as a finished 1:1 inbox report via
+  `emit_report` / `edit_report` (its `allowed_tools`) rather than a weak signal.
+  Bundles its own references
+  (`anomaly-methods.md`, `watchlist-and-memory.md`, `report-contract.md`).
 - `signals-scout-health-checks/` — the judgment layer over PostHog's own health
   checks. Reads the project's active health issues (`health-issues-summary` /
   `-list` / `-get`) rather than re-running detection, and decides which are worth
@@ -282,7 +285,7 @@ where they need it, and its canonical write-up now lives in
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references
 read on demand — `signals-scout-anomaly-detection` (`anomaly-methods.md`,
-`watchlist-and-memory.md`, `emit-contract.md`), `signals-scout-ai-observability`
+`watchlist-and-memory.md`, `report-contract.md`), `signals-scout-ai-observability`
 (`lenses.md`), and `signals-scout-surveys` (`response-querying.md`). Treat the
 generalist as the reference shape. Note that a scout can only read its own bundled
 files at runtime (each team's `LLMSkill` row carries just that skill's files), so a
