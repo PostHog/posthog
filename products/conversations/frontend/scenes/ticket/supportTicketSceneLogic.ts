@@ -26,6 +26,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
 import { impersonationNoticeLogic } from '~/layout/navigation/ImpersonationNotice/impersonationNoticeLogic'
 import api from '~/lib/api'
 import { PERSON_DISPLAY_NAME_COLUMN_NAME } from '~/lib/constants'
@@ -33,7 +34,7 @@ import { CLOUD_HOSTNAMES } from '~/lib/constants'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 import type { Breadcrumb, CommentType, PersonType } from '~/types'
-import { PropertyFilterType, PropertyOperator, Region } from '~/types'
+import { ActivityScope, PropertyFilterType, PropertyOperator, Region } from '~/types'
 
 import {
     businessKnowledgeGapSuggestionsDismissCreate,
@@ -728,6 +729,16 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                 currentTeam: null | import('~/types').TeamPublicType | import('~/types').TeamType
             ): EmailReplyBlockedReason | null =>
                 getEmailReplyBlockedReason(ticket, currentTeam?.conversations_settings),
+        ],
+        [SIDE_PANEL_CONTEXT_KEY]: [
+            (s) => [s.ticket],
+            (ticket): SidePanelSceneContext | null =>
+                ticket?.id
+                    ? {
+                          activity_scope: ActivityScope.SUPPORT_TICKET,
+                          activity_item_id: `${ticket.id}`,
+                      }
+                    : null,
         ],
         replyRecipientDescription: [
             (s) => [s.ticket],

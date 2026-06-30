@@ -160,6 +160,7 @@ const SCOPE_DISPLAY_NAMES: Partial<Record<ActivityScope, { singular: string; plu
         singular: 'Project secret API key',
         plural: 'Project secret API keys',
     },
+    [ActivityScope.SUPPORT_TICKET]: { singular: 'Support ticket', plural: 'Support tickets' },
 }
 
 export function humanizeScope(scope: ActivityScope | string, singular = false): string {
