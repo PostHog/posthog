@@ -396,7 +396,7 @@ class TestInformationSchema(ClickhouseTestMixin, APIBaseTest):
             ).results
             or []
         )
-        by_column = {row[0]: row[1:] for row in rows}
+        by_column = {row[0]: list(row[1:]) for row in rows}
         assert by_column["id"] == [0.25, "ch_001", "ch_999"]
         # Profiled stats absent for this column → all NULL.
         assert by_column["amount"] == [None, None, None]
