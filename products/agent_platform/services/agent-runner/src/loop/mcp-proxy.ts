@@ -37,6 +37,17 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
     const getSchemaName = `${prefix}__${PROXY_GET_SCHEMA_TOOL}`
     const callToolName = `${prefix}__${PROXY_CALL_TOOL}`
 
+    // The model only ever SEES tools as `<prefix>__<name>`, so it often passes
+    // that prefixed form as `tool_name`. Accept it: strip our own prefix when the
+    // raw name resolves, so the natural mistake works instead of unknown_tool.
+    const resolveRemoteName = (raw: string): string => {
+        if (byName.has(raw)) {
+            return raw
+        }
+        const stripped = raw.startsWith(`${prefix}__`) ? raw.slice(prefix.length + 2) : raw
+        return byName.has(stripped) ? stripped : raw
+    }
+
     const surfaceNote =
         `This server exposes ${exposed.length} tools on demand rather than inline. ` +
         `Use ${exploreName} to find a tool, ${getSchemaName} to read its input schema, ` +
@@ -95,7 +106,7 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
         } as unknown as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             const a = (args ?? {}) as { tool_name?: unknown }
-            const toolName = typeof a.tool_name === 'string' ? a.tool_name : ''
+            const toolName = resolveRemoteName(typeof a.tool_name === 'string' ? a.tool_name : '')
             const remote = byName.get(toolName)
             if (!remote) {
                 throw new Error(`unknown_tool: ${toolName}`)
@@ -123,7 +134,7 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
         } as unknown as TSchema,
         execute: async (_callId, args): Promise<AgentToolResult<ToolResultDetails>> => {
             const a = (args ?? {}) as { tool_name?: unknown; arguments?: unknown }
-            const toolName = typeof a.tool_name === 'string' ? a.tool_name : ''
+            const toolName = resolveRemoteName(typeof a.tool_name === 'string' ? a.tool_name : '')
             if (!byName.has(toolName)) {
                 throw new Error(`unknown_tool: ${toolName}`)
             }

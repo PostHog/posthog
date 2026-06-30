@@ -321,6 +321,31 @@ describe('mcp proxy exposure', () => {
             expect(res.details.output).toMatchObject({ structuredContent: { echoed: { q: 'hi' } } })
         })
 
+        it('accepts a prefixed tool_name (strips its own prefix) — the model passes the name it sees', async () => {
+            // The model only ever sees `<prefix>__<name>`, so passing that as
+            // tool_name is the natural mistake (and what the agent.md references).
+            // call_tool tolerates it instead of erroring unknown_tool.
+            const rev = makeRev(
+                [],
+                [
+                    {
+                        kind: 'agent',
+                        id: 'posthog',
+                        url: 'https://example.com/mcp',
+                        secrets: [],
+                        default_tool_approval: 'allow',
+                    },
+                ]
+            )
+            const mcp = makeFakeMcp('posthog', rev.spec.mcps[0], manyHandlers(60))
+            const built = await buildAgentTools(rev, makeDeps(rev, { mcpClients: [mcp] }))
+            await byLabel(built, 'posthog__call_tool').execute('c1', {
+                tool_name: 'posthog__tool-3',
+                arguments: { q: 'hi' },
+            })
+            expect(mcp.calls).toEqual([{ name: 'tool-3', args: { q: 'hi' } }])
+        })
+
         it('refuses a tool outside the exposed set (e.g. a denied one)', async () => {
             // `default_tool_approval: deny` + a single `allow` override = strict
             // allowlist; only `tool-0` is exposed. The dispatcher must refuse
