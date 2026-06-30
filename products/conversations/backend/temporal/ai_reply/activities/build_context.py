@@ -3,7 +3,6 @@ from __future__ import annotations
 from temporalio import activity
 
 from posthog.models.comment import Comment
-from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -11,6 +10,10 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.business_knowledge.backend.logic import get_always_on_context
 from products.conversations.backend.ai.suggest import _build_ticket_context
+from products.conversations.backend.github_integration_helpers import (
+    team_github_integration_present,
+    team_github_repo_accessible,
+)
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.temporal.ai_reply.constants import MAX_TICKET_CONTEXT_CHARS
 from products.conversations.backend.temporal.ai_reply.schemas import BuildContextOutput, SupportReplyInput
@@ -47,7 +50,9 @@ def _build_context_sync(team_id: int, ticket_id: str) -> BuildContextOutput:
     bug_fix_enabled = bool(conversations_settings.get("ai_bug_fix_prs_enabled", False))
     bug_fix_repo_raw = conversations_settings.get("ai_bug_fix_repo")
     bug_fix_repo = bug_fix_repo_raw.strip() if isinstance(bug_fix_repo_raw, str) and bug_fix_repo_raw.strip() else None
-    github_integration_present = Integration.objects.filter(team=team, kind="github").exists()
+    github_integration_present = team_github_integration_present(team)
+    if bug_fix_repo and not team_github_repo_accessible(team, bug_fix_repo):
+        bug_fix_repo = None
 
     return BuildContextOutput(
         ticket_context=context,

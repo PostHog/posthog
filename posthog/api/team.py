@@ -87,6 +87,10 @@ from posthog.utils import (
     safe_cache_set,
 )
 
+from products.conversations.backend.github_integration_helpers import (
+    team_github_repo_accessible,
+    user_is_conversations_admin,
+)
 from products.customer_analytics.backend.facade.team_extension import TeamCustomerAnalyticsConfig
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
@@ -1335,6 +1339,13 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                 value["ai_reply_modes"] = cleaned_modes
             else:
                 raise serializers.ValidationError({"ai_reply_modes": "Must be an object or null."})
+        bug_fix_settings_touched = "ai_bug_fix_prs_enabled" in value or "ai_bug_fix_repo" in value
+        if bug_fix_settings_touched:
+            request = self.context.get("request")
+            if request and self.instance:
+                user = request.user
+                if not user_is_conversations_admin(user, self.instance.organization_id):
+                    raise exceptions.PermissionDenied("Only organization admins can manage bug-fix PR settings.")
         if "ai_bug_fix_prs_enabled" in value:
             value["ai_bug_fix_prs_enabled"] = bool(value["ai_bug_fix_prs_enabled"])
         if "ai_bug_fix_repo" in value:
@@ -1351,6 +1362,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
                             "ai_bug_fix_repo": "Must be a GitHub repository in owner/name format "
                             "(letters, numbers, dots, underscores, hyphens only)."
                         }
+                    )
+                elif self.instance and not team_github_repo_accessible(self.instance, repo):
+                    raise serializers.ValidationError(
+                        {"ai_bug_fix_repo": "Repository is not accessible via the team's GitHub integration."}
                     )
                 else:
                     value["ai_bug_fix_repo"] = repo

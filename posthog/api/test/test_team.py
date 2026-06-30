@@ -1843,7 +1843,8 @@ def team_api_test_factory():
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["ai_bug_fix_prs_enabled"] is True
 
-        def test_conversations_settings_validates_ai_bug_fix_repo_format(self):
+        @patch("posthog.api.team.team_github_repo_accessible", return_value=True)
+        def test_conversations_settings_validates_ai_bug_fix_repo_format(self, _mock_repo_accessible):
             response = self.client.patch(
                 "/api/environments/@current/",
                 {
@@ -1855,6 +1856,43 @@ def team_api_test_factory():
             )
             assert response.status_code == status.HTTP_200_OK
             assert response.json()["conversations_settings"]["ai_bug_fix_repo"] == "posthog/posthog"
+
+        def test_conversations_settings_bug_fix_requires_conversations_admin(self):
+            member_user = User.objects.create_user(
+                email="member-bugfix@posthog.com", password="password", first_name="Member"
+            )
+            OrganizationMembership.objects.create(
+                user=member_user,
+                organization=self.organization,
+                level=OrganizationMembership.Level.MEMBER,
+            )
+            self.client.force_login(member_user)
+
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_bug_fix_prs_enabled": True}},
+            )
+            assert response.status_code == status.HTTP_403_FORBIDDEN
+            assert response.json() == {
+                "type": "authentication_error",
+                "code": "permission_denied",
+                "detail": "Only organization admins can manage bug-fix PR settings.",
+                "attr": None,
+            }
+
+        @patch("posthog.api.team.team_github_repo_accessible", return_value=False)
+        def test_conversations_settings_rejects_inaccessible_ai_bug_fix_repo(self, _mock_repo_accessible):
+            response = self.client.patch(
+                "/api/environments/@current/",
+                {"conversations_settings": {"ai_bug_fix_repo": "posthog/posthog"}},
+            )
+            assert response.status_code == status.HTTP_400_BAD_REQUEST
+            assert response.json() == {
+                "type": "validation_error",
+                "code": "invalid_input",
+                "detail": "Repository is not accessible via the team's GitHub integration.",
+                "attr": "conversations_settings__ai_bug_fix_repo",
+            }
 
         def test_conversations_settings_rejects_invalid_ai_bug_fix_repo(self):
             self.team.conversations_settings = {"ai_bug_fix_repo": "posthog/posthog"}
