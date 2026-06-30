@@ -11,13 +11,6 @@ export function TaskComposer(): JSX.Element {
     const { submitTaskCreateForm, setTaskCreateFormValues } = useActions(taskTrackerSceneLogic)
     const { taskCreateForm, isTaskCreateFormSubmitting } = useValues(taskTrackerSceneLogic)
 
-    const { integrationId, repository } = taskCreateForm.repositoryConfig
-    const sendDisabledReason = !integrationId
-        ? 'Connect a GitHub integration first'
-        : !repository
-          ? 'Select a repository first'
-          : undefined
-
     return (
         <div className="flex flex-col h-full min-h-0 items-center justify-center overflow-y-auto p-4">
             <div className="w-full max-w-2xl flex flex-col gap-4">
@@ -33,7 +26,6 @@ export function TaskComposer(): JSX.Element {
                     onChange={(value) => setTaskCreateFormValues({ description: value })}
                     onSubmit={submitTaskCreateForm}
                     loading={isTaskCreateFormSubmitting}
-                    disabledReason={sendDisabledReason}
                 >
                     <Composer.Frame>
                         <Composer.Field>
