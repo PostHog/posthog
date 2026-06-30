@@ -47,7 +47,7 @@ const METRIC_TYPE_OPTIONS = [
 // Group total = the read plus its precompute-build sub-queries (the user paid for all of them),
 // mirroring how the Duration column sums total_duration_ms over the group.
 const groupBytes = (item: SlowestQuery): number =>
-    item.read_bytes + (item.sub_queries?.reduce((sum, q) => sum + q.read_bytes, 0) ?? 0)
+    item.read_bytes + item.sub_queries.reduce((sum, q) => sum + q.read_bytes, 0)
 
 function QueryStats({
     read_bytes,
