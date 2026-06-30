@@ -19,6 +19,7 @@ import {
     SignalsReportsStateCreateBody,
     SignalsReportsStateCreateParams,
     SignalsScoutConfigCreateBody,
+    SignalsScoutConfigDestroyParams,
     SignalsScoutConfigUpdateBody,
     SignalsScoutConfigUpdateParams,
     SignalsScoutEditReportBody,
@@ -587,6 +588,21 @@ const signalsScoutConfigUpdate = (): ToolBase<
     },
 })
 
+const SignalsScoutConfigDeleteSchema = SignalsScoutConfigDestroyParams.omit({ project_id: true })
+
+const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSchema, unknown> => ({
+    name: 'signals-scout-config-delete',
+    schema: SignalsScoutConfigDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return await withPostHogUrl(context, result, `/inbox/${result.id}`)
+    },
+})
+
 const SignalsScoutEditReportSchema = SignalsScoutEditReportParams.omit({ project_id: true }).extend(
     SignalsScoutEditReportBody.shape
 )
@@ -961,6 +977,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
+    'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-edit-report': signalsScoutEditReport,
     'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
