@@ -360,9 +360,13 @@ def slack_blocks_to_rich_content(blocks: list[JSON] | None, user_names: dict[str
                 continue
 
             if element_type == "rich_text_preformatted":
-                inline_nodes = _parse_rich_text_inline_elements(element.get("elements", []), user_names)
-                if inline_nodes:
-                    doc_nodes.append({"type": "paragraph", "content": inline_nodes})
+                code_text = "".join(el.get("text", "") for el in element.get("elements", []))
+                doc_nodes.append(
+                    {
+                        "type": "codeBlock",
+                        "content": [{"type": "text", "text": code_text}] if code_text else [],
+                    }
+                )
                 continue
 
             if element_type == "rich_text_quote":
@@ -435,6 +439,12 @@ def rich_content_to_markdown(rich_content: JSON | None, include_images: bool = T
 
         if node_type == "paragraph":
             blocks.append(_serialize_inline_nodes_to_markdown(node.get("content", []), include_images=include_images))
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            language = node.get("attrs", {}).get("language") or ""
+            blocks.append(f"```{language}\n{code_text}\n```")
             continue
 
         if node_type == "image" and include_images:
@@ -516,6 +526,13 @@ def rich_content_to_slack_blocks(rich_content: JSON | None, include_images: bool
                         {"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]}
                     )
                 rich_text_elements.append({"type": "rich_text_section", "elements": section_elements})
+            continue
+
+        if node_type == "codeBlock":
+            code_text = "".join(child.get("text", "") for child in node.get("content", []))
+            rich_text_elements.append(
+                {"type": "rich_text_preformatted", "elements": [{"type": "text", "text": code_text}]}
+            )
             continue
 
         if node_type == "image" and include_images:
