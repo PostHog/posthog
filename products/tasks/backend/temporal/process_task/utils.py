@@ -128,6 +128,29 @@ CODEX_XHIGH_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (
 )
 CODEX_XHIGH_REASONING_MODELS: frozenset[str] = frozenset({"gpt-5.5"})
 
+# Canonical list of Codex models. The runtime technically accepts any
+# `gpt-*` identifier passed through, but only models on this list are
+# considered tested and surfaced in pickers. Extend when a new Codex model
+# ships.
+CODEX_MODELS: tuple[str, ...] = ("gpt-5", "gpt-5.5")
+
+
+def get_models_for_runtime_adapter(runtime_adapter: RuntimeAdapter | str | None) -> tuple[str, ...]:
+    """Return the canonical model identifiers the given runtime adapter exposes.
+
+    Empty tuple if the adapter is unknown. Mirrors `get_supported_reasoning_efforts`
+    in spirit — small pure helper that callers can rely on when composing
+    runtime/model picker UIs at the consumer layer.
+    """
+    if runtime_adapter is None:
+        return ()
+    adapter_value = runtime_adapter.value if isinstance(runtime_adapter, RuntimeAdapter) else runtime_adapter
+    if adapter_value == RuntimeAdapter.CLAUDE.value:
+        return tuple(CLAUDE_REASONING_EFFORTS_BY_MODEL.keys())
+    if adapter_value == RuntimeAdapter.CODEX.value:
+        return CODEX_MODELS
+    return ()
+
 
 def get_provider_for_runtime_adapter(
     runtime_adapter: RuntimeAdapter | str | None,
@@ -212,6 +235,9 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
 
 
+# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
+# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
+# The server-side identity flow should be preferred going forward.
 GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 # Minimum interval between MCP token refreshes pushed to a live sandbox. The
@@ -526,12 +552,6 @@ def user_github_integration_is_usable(user_github_integration: UserGitHubIntegra
         and bool(user_github_integration.user_refresh_token)
         and bool(user_github_integration.user_access_token)
     )
-
-
-# TTL for the per-run GitHub user token cache. Kept for backward-compat with callers
-# (notably the PostHog Code CLI) that still pass ``github_user_token`` on the run request.
-# The server-side identity flow should be preferred going forward.
-GITHUB_USER_TOKEN_CACHE_TTL_SECONDS = 6 * 60 * 60
 
 
 def _github_user_token_cache_key(run_id: str) -> str:

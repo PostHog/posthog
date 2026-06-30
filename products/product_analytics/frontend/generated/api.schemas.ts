@@ -4065,6 +4065,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Cohorts: 'cohorts',
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
+    DataWarehouseSourceTables: 'data_warehouse_source_tables',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -7104,6 +7105,7 @@ export interface ChartSettingsApi {
     seriesBreakdownColumn?: string | null
     showLegend?: boolean | null
     showNullsAsZero?: boolean | null
+    showPieTotal?: boolean | null
     showTotalRow?: boolean | null
     showValuesOnSeries?: boolean | null
     showXAxisBorder?: boolean | null

@@ -163,7 +163,9 @@ class AdyenSourceConfig(config.Config):
 
 @config.config
 class AgileCRMSourceConfig(config.Config):
-    pass
+    domain: str
+    email: str
+    api_key: str
 
 
 @config.config
@@ -266,7 +268,8 @@ class AmplitudeSourceConfig(config.Config):
 
 @config.config
 class ApifyDatasetSourceConfig(config.Config):
-    pass
+    api_token: str
+    dataset_id: str
 
 
 @config.config
@@ -347,7 +350,7 @@ class Auth0SourceConfig(config.Config):
 
 @config.config
 class AviationstackSourceConfig(config.Config):
-    pass
+    access_key: str
 
 
 @config.config
@@ -409,7 +412,7 @@ class BigCommerceSourceConfig(config.Config):
 
 @config.config
 class BigMailerSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -436,7 +439,8 @@ class BitlySourceConfig(config.Config):
 
 @config.config
 class BloggerSourceConfig(config.Config):
-    pass
+    api_key: str
+    blog_id: str
 
 
 @config.config
@@ -479,7 +483,8 @@ class BrazeSourceConfig(config.Config):
 
 @config.config
 class BreezometerSourceConfig(config.Config):
-    pass
+    api_key: str
+    locations: str
 
 
 @config.config
@@ -551,7 +556,8 @@ class CampaignMonitorSourceConfig(config.Config):
 
 @config.config
 class CampaynSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -571,7 +577,8 @@ class CaptainDataSourceConfig(config.Config):
 
 @config.config
 class CareQualityCommissionSourceConfig(config.Config):
-    pass
+    api_key: str
+    partner_code: str | None = None
 
 
 @config.config
@@ -634,12 +641,15 @@ class ChorusSourceConfig(config.Config):
 
 @config.config
 class ChurnkeySourceConfig(config.Config):
-    pass
+    api_key: str
+    app_id: str
 
 
 @config.config
 class CimisSourceConfig(config.Config):
-    pass
+    app_key: str
+    targets: str | None = None
+    unit_of_measure: Literal["E", "M"] | None = config.value(default="E")
 
 
 @config.config
@@ -745,7 +755,11 @@ class CodefreshSourceConfig(config.Config):
 
 @config.config
 class CoinApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    exchange_rate_base_asset: str | None = None
+    symbol_id: str | None = None
+    period_id: str | None = None
+    start_date: str | None = None
 
 
 @config.config
@@ -947,7 +961,8 @@ class DockerhubSourceConfig(config.Config):
 
 @config.config
 class DocusealSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -998,7 +1013,8 @@ class DynamoDBSourceConfig(config.Config):
 
 @config.config
 class EConomicSourceConfig(config.Config):
-    pass
+    app_secret_token: str
+    agreement_grant_token: str
 
 
 @config.config
@@ -1013,7 +1029,7 @@ class EasypostSourceConfig(config.Config):
 
 @config.config
 class EasypromosSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -1069,7 +1085,7 @@ class EventzillaSourceConfig(config.Config):
 
 @config.config
 class EverhourSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1089,7 +1105,7 @@ class FacebookPagesSourceConfig(config.Config):
 
 @config.config
 class FactorialSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1127,17 +1143,21 @@ class FinageSourceConfig(config.Config):
 
 @config.config
 class FinancialModellingSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
 class FinnhubSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str | None = None
+    exchange: str | None = None
 
 
 @config.config
 class FinnworldsSourceConfig(config.Config):
-    pass
+    api_key: str
+    tickers: str
 
 
 @config.config
@@ -1157,7 +1177,8 @@ class FireboltSourceConfig(config.Config):
 
 @config.config
 class FleetioSourceConfig(config.Config):
-    pass
+    api_key: str
+    account_token: str
 
 
 @config.config

@@ -69,6 +69,52 @@ SETTINGS
 
 create or replace TABLE metrics AS metrics1 ENGINE = Distributed('posthog', 'default', 'metrics1');
 
+-- Raw metrics as a TSDB series/samples split (NOT the fat one-row-per-event
+-- shape logs/traces use). Mirrors posthog/clickhouse/metrics/metric_events.py
+-- (Replicated in prod). metric_series stores each label set ONCE; metric_samples
+-- is tiny (fingerprint + timestamp + value + trace_id), joined on
+-- series_fingerprint at query time.
+CREATE OR REPLACE TABLE metric_series1
+(
+    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `series_fingerprint` UInt64 CODEC(DoubleDelta),
+    `metric_type` LowCardinality(String),
+    `unit` LowCardinality(String),
+    `service_name` LowCardinality(String),
+    `resource_attributes` Map(LowCardinality(String), String),
+    `attributes` Map(LowCardinality(String), String),
+    `last_seen` DateTime64(6) CODEC(DoubleDelta),
+    INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
+    INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
+)
+ENGINE = ReplacingMergeTree(last_seen)
+ORDER BY (team_id, metric_name, series_fingerprint)
+SETTINGS index_granularity = 8192;
+
+create or replace TABLE metric_series AS metric_series1 ENGINE = Distributed('posthog', 'default', 'metric_series1');
+
+CREATE OR REPLACE TABLE metric_samples1
+(
+    `team_id` Int32,
+    `metric_name` LowCardinality(String),
+    `series_fingerprint` UInt64 CODEC(DoubleDelta),
+    `timestamp` DateTime64(6) CODEC(DoubleDelta),
+    `value` Float64 CODEC(Gorilla),
+    `trace_id` String,
+    `span_id` String,
+    `trace_flags` Int32,
+    INDEX idx_trace_id_bf trace_id TYPE bloom_filter(0.01) GRANULARITY 1
+)
+ENGINE = MergeTree
+PARTITION BY toDate(timestamp)
+ORDER BY (team_id, metric_name, series_fingerprint, timestamp)
+TTL toDateTime(timestamp) + INTERVAL 30 DAY
+SETTINGS index_granularity = 8192, ttl_only_drop_parts = 1;
+
+create or replace TABLE metric_samples AS metric_samples1 ENGINE = Distributed('posthog', 'default', 'metric_samples1');
+
 -- Attribute discovery table (reuses logs pattern)
 create or replace table default.metric_attributes
 (
@@ -234,6 +280,42 @@ AS SELECT
     toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id
 FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
+-- Two MVs on the existing kafka_metrics_avro: every clickhouse_metrics point
+-- fans into metric_series (labels, deduped) and metric_samples (the tiny row),
+-- alongside kafka_metrics_avro_mv -> metrics1. The series_fingerprint is computed
+-- identically in both (over the JSON-decoded label maps) so the query-time join
+-- matches; keep it in sync with SERIES_FINGERPRINT_SQL in metric_events.py.
+drop table if exists kafka_metrics_avro_to_metric_series;
+CREATE MATERIALIZED VIEW kafka_metrics_avro_to_metric_series TO metric_series1
+AS SELECT
+    toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
+    ifNull(metric_name, '') as metric_name,
+    cityHash64(ifNull(metric_name, ''), ifNull(service_name, ''),
+               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
+               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))) as series_fingerprint,
+    ifNull(metric_type, '') as metric_type,
+    ifNull(unit, '') as unit,
+    ifNull(service_name, '') as service_name,
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
+    timestamp as last_seen
+FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
+
+drop table if exists kafka_metrics_avro_to_metric_samples;
+CREATE MATERIALIZED VIEW kafka_metrics_avro_to_metric_samples TO metric_samples1
+AS SELECT
+    toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) as team_id,
+    ifNull(metric_name, '') as metric_name,
+    cityHash64(ifNull(metric_name, ''), ifNull(service_name, ''),
+               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
+               mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))) as series_fingerprint,
+    timestamp,
+    ifNull(value, 0) as value,
+    trace_id,
+    span_id,
+    ifNull(trace_flags, 0) as trace_flags
+FROM kafka_metrics_avro settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
+
 -- Kafka consumer lag tracking
 create or replace table metrics_kafka_metrics
 (
@@ -276,5 +358,9 @@ DROP TABLE IF EXISTS posthog.metric_attributes;
 CREATE TABLE posthog.metric_attributes AS default.metric_attributes ENGINE = Distributed('posthog', 'default', 'metric_attributes');
 DROP TABLE IF EXISTS posthog.metrics_kafka_metrics;
 CREATE TABLE posthog.metrics_kafka_metrics AS default.metrics_kafka_metrics ENGINE = Distributed('posthog', 'default', 'metrics_kafka_metrics');
+DROP TABLE IF EXISTS posthog.metric_series;
+CREATE OR REPLACE TABLE posthog.metric_series AS default.metric_series1 ENGINE = Distributed('posthog', 'default', 'metric_series1');
+DROP TABLE IF EXISTS posthog.metric_samples;
+CREATE OR REPLACE TABLE posthog.metric_samples AS default.metric_samples1 ENGINE = Distributed('posthog', 'default', 'metric_samples1');
 
 select 'clickhouse metrics tables initialised successfully!';

@@ -1004,6 +1004,9 @@ utilities:
             - dev:reset
         description: Wipe everything and rebuild (node_modules, Python, Rust, then dev:reset)
         prompt: true
+    worktrees:clean:
+        click: hogli_commands.worktrees:worktrees_clean
+        description: Clear out unused Claude Code / Codex / PostHog Code worktrees by age
     utilities:posthog-worktree:
         bin_script: posthog-worktree
         description: Manage isolated git worktrees for PostHog development

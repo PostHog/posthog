@@ -26,6 +26,7 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io, run_hog_eval
 
 from ..feature_flags import is_sentiment_evaluations_enabled
+from ..hog import compile_ai_observability_hog
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EvaluationType,
@@ -781,12 +782,11 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
         from posthog.hogql.property import property_to_expr
         from posthog.hogql.query import execute_hogql_query
 
-        from posthog.cdp.validation import compile_hog
         from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
         from posthog.models.team import Team
 
         try:
-            bytecode = compile_hog(source, "destination")
+            bytecode = compile_ai_observability_hog(source, "destination")
         except serializers.ValidationError as e:
             return Response({"error": f"Compilation error: {e.detail}"}, status=400)
         except Exception:
