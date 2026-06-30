@@ -1,4 +1,6 @@
-.LogsDateButtonGroup {
+// Visually attach the zoom-out / picker / zoom-in buttons into a single group:
+// flush borders, squared inner corners, rounded outer corners.
+.DateRangePickerButtonGroup {
     display: flex;
 
     > .LemonButton {

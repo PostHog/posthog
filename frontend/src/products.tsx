@@ -187,7 +187,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/ai-observability/tools': ['AIObservability', 'aiObservabilityTools'],
     '/ai-observability/sentiment': ['AIObservability', 'aiObservabilitySentiment'],
     '/ai-observability/sessions': ['AIObservability', 'aiObservabilitySessions'],
-    '/ai-observability/sessions/:id': ['AIObservabilitySession', 'aiObservability'],
+    '/ai-observability/sessions/:id': ['AIObservability', 'aiObservabilitySessions'],
     '/ai-observability/playground': ['AIObservabilityPlayground', 'aiObservabilityPlayground'],
     '/ai-observability/clusters': ['AIObservabilityClusters', 'aiObservabilityClusters'],
     '/ai-observability/clusters/:runId': ['AIObservabilityClusters', 'aiObservabilityClusters'],

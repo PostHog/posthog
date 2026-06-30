@@ -1,7 +1,8 @@
 import { dayjs } from 'lib/dayjs'
 import { dateStringToDayJs } from 'lib/utils/dateFilters'
 
-const RELATIVE_DATE_REGEX = /(^-?)(\d+)([hdwmy])$/
+// Unit letters follow PostHog's date convention: uppercase `M` is minute, lowercase `m` is month
+const RELATIVE_DATE_REGEX = /(^-?)(\d+)([sMhdwmqy])$/
 
 const zoomDateRelative = (date: string | null | undefined, multiplier: number): string | null => {
     if (!date) {
@@ -9,9 +10,9 @@ const zoomDateRelative = (date: string | null | undefined, multiplier: number): 
     }
     const match = date.match(RELATIVE_DATE_REGEX)
     if (match) {
-        // Just multiply the value if we have it
+        // Multiply the value, rounding to a whole unit (and at least 1) so the result stays a valid relative expression
         const [, sign, amount, unit] = match
-        const newAmount = parseInt(amount) * multiplier
+        const newAmount = Math.max(Math.round(parseInt(amount) * multiplier), 1)
         return `${sign}${newAmount}${unit}`
     }
     return null

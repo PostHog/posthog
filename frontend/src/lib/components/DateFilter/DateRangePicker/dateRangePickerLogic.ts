@@ -1,15 +1,22 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, key, path, props, reducers } from 'kea'
 
 import { DateRange } from '~/queries/schema/schema-general'
 
-import type { logsDateRangePickerLogicType } from './logsDateRangePickerLogicType'
+import type { dateRangePickerLogicType } from './dateRangePickerLogicType'
 
 const MAX_HISTORY_ITEMS = 5
 
 const dateRangesEqual = (a: DateRange, b: DateRange): boolean => a.date_from === b.date_from && a.date_to === b.date_to
 
-export const logsDateRangePickerLogic = kea<logsDateRangePickerLogicType>([
-    path(['products', 'logs', 'frontend', 'filters', 'LogsDateRangePicker', 'logsDateRangePickerLogic']),
+export interface DateRangePickerLogicProps {
+    /** Unique per consumer surface ('logs' | 'tracing'); keys popover/custom-input/history state. */
+    key: string
+}
+
+export const dateRangePickerLogic = kea<dateRangePickerLogicType>([
+    props({} as DateRangePickerLogicProps),
+    key((props) => props.key),
+    path((key) => ['lib', 'components', 'DateFilter', 'DateRangePicker', 'dateRangePickerLogic', key]),
     actions({
         setPopoverOpen: (open: boolean) => ({ open }),
         setCustomFrom: (value: string) => ({ value }),

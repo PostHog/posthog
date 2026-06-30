@@ -19,11 +19,23 @@ metadata:
 # Authoring Signals scouts
 
 A **scout** is a scheduled agent that wakes on its own interval, looks at one PostHog
-project, decides what's genuinely worth surfacing, and emits it as a **finding** into
-the Signals inbox — or closes out empty, which is a real outcome. PostHog ships a fleet
-of **canonical scouts** (a cross-product generalist plus per-surface specialists). This
-skill helps you and your agent **adapt those canonical scouts to a specific project**, or
-**author new scouts from scratch** for a use case the fleet doesn't cover.
+project, decides what's genuinely worth surfacing, and outputs it into the Signals inbox —
+or closes out empty, which is a real outcome. PostHog ships a fleet of **canonical scouts**
+(a cross-product generalist plus per-surface specialists). This skill helps you and your
+agent **adapt those canonical scouts to a specific project**, or **author new scouts from
+scratch** for a use case the fleet doesn't cover.
+
+Scouts come in **two output channels**, picked per scout via its frontmatter `allowed_tools`:
+
+- **Signal-emitting** (the default, most of the fleet) — fires weak **findings** via
+  `emit-signal` that the pipeline groups, dedupes, and may promote into a report.
+- **Report-authoring** — lists `emit_report` / `edit_report` in `allowed_tools` and writes a
+  full inbox **report** 1:1 directly, skipping the pipeline, for a scout whose natural output is
+  one well-formed report. The canonical generalist (`signals-scout-general`) is the first scout
+  on this channel. See the report-channel reference below.
+
+The channel changes the scout's **Decide** section and which references it bundles, but not
+the rest of its anatomy — orient, discriminator, explore, memory, disqualifiers are the same.
 
 A scout is just an `LLMSkill` whose name starts with `signals-scout-`. The harness
 discovers scouts by globbing `signals-scout-*` over the project's skills, loads the body
@@ -195,8 +207,13 @@ surfaces change.
   points, not a rigid checklist.
 - **Disqualifiers** listing this project's known noise (single-user quirks, dev-env
   bursts, allowlisted entities).
-- A **Decide** section calibrated against the emit contract (confidence ≥ 0.65 to emit;
-  below that, write memory).
+- A **Decide** section calibrated against the scout's channel — for a signal scout, the emit
+  contract (confidence ≥ 0.65 to emit; below that, write memory); for a report scout, the
+  report contract (author 1:1 only for a finding it'd own end-to-end, set `suggested_reviewers`).
 - **Save-memory** guidance using the scratchpad prefixes so the scout gets smarter each run.
 - A lean body (push depth into `references/`) — every line is a recurring token cost on
   every run.
+- A **tight frontmatter `description`** — a sentence or two naming the surface and the
+  shapes it watches. Every scout's description loads into the caller's AI plugin together,
+  so wordy descriptions waste token budget and get truncated; skip the fleet-wide
+  boilerplate (confidence bar, durable memory, self-contained peer).

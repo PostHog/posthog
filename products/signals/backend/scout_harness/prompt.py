@@ -292,6 +292,12 @@ report your evidence bears on, then keep it current:
   additive, audit-friendly, and works on any report, even one you didn't author.
   Rewrite `title`/`summary` only on a report you own, and only when the framing is
   genuinely stale; lead the summary with the verdict (see *Writing the summary*).
+- **Route an unrouted report.** If a report surfaced assigned to no one, set
+  `suggested_reviewers` to route it to an owner — each reviewer a bare lowercase
+  `github_login`, or a PostHog `user_uuid` the server resolves for you. This
+  replaces the report's reviewer list and re-runs autostart, so a report that
+  already has a repo + priority but lacked a qualifying reviewer can now open a draft
+  PR. Only set a reviewer you're confident owns the area; an empty list is a no-op.
 - **Don't retry blindly.** `edit_report` is NOT idempotent — a retried
   `append_note` appends a second note. If unsure whether an edit landed, re-read
   the report rather than re-sending."""
@@ -321,24 +327,24 @@ Treat it as an **index into the inbox, never a copy of the report**:
 _SUGGESTED_REVIEWERS_REPORT = """# Suggested reviewers route the report
 
 This is the single highest-leverage field you set. `suggested_reviewers` (a list of
-GitHub logins) is what actually **routes** a report to the people who can act on it
-— and, paired with `priority` + `repository`, is what lets an immediately-actionable
-report open a draft PR automatically (autostart). A report with no suggested
-reviewers still surfaces in the inbox, but it routes to no one, so it tends to sit
-unactioned.
+reviewers, each a `github_login` and/or a PostHog `user_uuid`) is what actually
+**routes** a report to the people who can act on it — and, paired with `priority` +
+`repository`, is what lets an immediately-actionable report open a draft PR
+automatically (autostart). A report with no suggested reviewers still surfaces in the
+inbox, but it routes to no one, so it tends to sit unactioned.
 
 - **Always try to set `suggested_reviewers`.** Spend real effort identifying who
   owns the affected area — lean on the evidence you already gathered (code owners,
   recent authors on the relevant surface, the team that owns the product) to name
-  the right GitHub logins. Treat "I couldn't find an owner" as a last resort, not
-  a default.
-- **Resolve the GitHub login — never guess it.** Entries must be bare, lowercase
-  GitHub logins, and the inbox routes by matching them exactly, so a guessed,
-  mis-cased, or display-name handle reaches no one. The owner you identify is
-  usually a PostHog member, not a handle: call `org-member-get-github-login` with
-  their user UUID (from `org-members-list`, or `@me`) to turn that member into
-  their linked GitHub login. If you can't resolve a confident login, leave the
-  field empty rather than inventing one.
+  the right owner. You can identify each reviewer two ways: a bare lowercase
+  `github_login`, or — when your evidence already names a PostHog user (an account
+  owner, an entity's creator) — that user's `user_uuid`, which the server resolves to
+  their linked GitHub login for you. Treat "I couldn't find an owner" as a last
+  resort, not a default.
+- **Don't guess a `github_login`.** The inbox routes by matching it exactly, so a
+  guessed, mis-cased, or display-name handle reaches no one. When you only know the
+  owner as a PostHog member, pass their `user_uuid` and let the server resolve it
+  rather than inventing a handle.
 - **Set `priority` + `priority_explanation`** when the issue is concrete and you
   can justify the urgency — autostart needs a priority to consider a draft PR.
 - **Set `repository`** (`owner/repo`) when you know where a fix would land — pass
@@ -469,7 +475,8 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
     fail closed on the *exact* tool (`views._assert_report_tool_opted_in`), so the prompt must never
     steer a scout toward a tool it lacks — an edit-only scout pointed at `emit_report` just earns a
     PermissionDenied. We therefore pick the run-step / authoring guidance to match, and include the
-    author-time sections (suggested reviewers, writing a report) only when the scout can author."""
+    standalone author-time sections (the suggested-reviewers deep-dive, writing a report) only when the
+    scout can author — the edit-only persona folds its own (reviewer-setting included) guidance inline."""
     if can_emit and can_edit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
         channel_sections = [
