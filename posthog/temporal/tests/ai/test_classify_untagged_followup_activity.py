@@ -41,7 +41,6 @@ class TestClassifyUntaggedFollowupActivity(TestCase):
         )
         self.mapping = SlackThreadTaskMapping.objects.create(
             team=self.team,
-            integration=self.integration,
             slack_workspace_id="T_SLACK",
             channel="C001",
             thread_ts="1000.0000",

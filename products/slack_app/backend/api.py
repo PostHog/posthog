@@ -1119,43 +1119,44 @@ def _resolve_untagged_followup_mapping(
     no mapping (thread we don't own) and FF off — are logged separately so
     rollout dashboards can tell them apart.
     """
-    candidate_ids = [c.id for c in candidates]
+    candidate_team_ids = [c.team_id for c in candidates]
     # ``task`` is fetched separately inside the classifier activity — the
-    # handler hot path only needs the integration (for the FF check + the
+    # handler hot path only needs the mapped team (for the FF check + the
     # ``mention_target`` override downstream).
     mapping = (
         SlackThreadTaskMapping.objects.filter(
-            integration_id__in=candidate_ids,
+            slack_workspace_id=slack_team_id,
+            team_id__in=candidate_team_ids,
             channel=channel,
             thread_ts=thread_ts,
         )
-        .select_related("integration", "integration__team")
+        .select_related("team")
         .first()
     )
     if mapping is None:
         return None
-    if not _untagged_thread_followups_enabled(mapping.integration, slack_team_id):
+    if not _untagged_thread_followups_enabled(mapping.team, slack_team_id):
         logger.info(
             "slack_app_thread_message_feature_flag_off",
             slack_team_id=slack_team_id,
             channel=channel,
             thread_ts=thread_ts,
-            integration_id=mapping.integration_id,
+            team_id=mapping.team_id,
         )
         return None
     return mapping
 
 
-def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
-    """Return True if the integration's org has the untagged-thread followup
-    flag enabled. Fail-closed on any error — a transient PostHog API outage
-    must not silently enable the feature for everyone.
+def _untagged_thread_followups_enabled(team: Team, slack_team_id: str) -> bool:
+    """Return True if the team's org has the untagged-thread followup flag
+    enabled. Fail-closed on any error — a transient PostHog API outage must
+    not silently enable the feature for everyone.
     """
     try:
         enabled = posthoganalytics.feature_enabled(
             UNTAGGED_THREAD_FOLLOWUPS_FLAG,
             f"slack_workspace:{slack_team_id}",
-            groups={"organization": str(integration.team.organization_id)},
+            groups={"organization": str(team.organization_id)},
             person_properties={"region": get_instance_region() or "unknown"},
             only_evaluate_locally=False,
             send_feature_flag_events=False,
@@ -1165,7 +1166,7 @@ def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: 
         logger.exception(
             "slack_app_thread_message_feature_flag_check_failed",
             slack_team_id=slack_team_id,
-            integration_id=integration.id,
+            team_id=team.id,
         )
         return False
 
@@ -1850,26 +1851,29 @@ def route_posthog_code_event_to_relevant_region(
         if untagged_followup_mapping is None and _parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
-        # A tagged-thread ``message`` is bound to its mapping's integration —
-        # the mapping was the user's last explicit choice in this thread, so no
+        # A tagged-thread ``message`` is bound to its mapping's team — the
+        # mapping was the user's last explicit choice in this thread, so no
         # picker hint applies. The user must still have access to the bound
-        # integration's team though: ``resolution.candidates`` is already
-        # filtered by access, so requiring the mapping integration to be in it
-        # closes the gap where the message author belongs to a different org
-        # connected to the same workspace than the thread owner did.
+        # team: ``resolution.candidates`` is already filtered by access, so
+        # requiring the mapping's team to appear in it closes the gap where
+        # the message author belongs to a different org connected to the same
+        # workspace than the thread owner did. We resolve a live integration
+        # for that team from the candidate set (the mapping no longer carries
+        # the integration FK — it survives integration churn within the team).
         mention_target = target or (candidates[0] if len(candidates) == 1 else None)
         if untagged_followup_mapping is not None:
-            if untagged_followup_mapping.integration_id not in {c.id for c in candidates}:
+            mapped_candidate = next((c for c in candidates if c.team_id == untagged_followup_mapping.team_id), None)
+            if mapped_candidate is None:
                 logger.info(
                     "slack_app_thread_message_user_no_access_to_mapping_team",
                     slack_team_id=slack_team_id,
                     channel=channel_str,
                     thread_ts=thread_ts_str,
                     user_id=posthog_user.id,
-                    mapping_integration_id=untagged_followup_mapping.integration_id,
+                    mapping_team_id=untagged_followup_mapping.team_id,
                 )
                 return ROUTE_HANDLED_LOCALLY
-            mention_target = untagged_followup_mapping.integration
+            mention_target = mapped_candidate
         elif mention_target is None:
             _post_pick_a_project_hint(SlackIntegration(candidates[0]), candidates, event)
             return ROUTE_HANDLED_LOCALLY
@@ -2770,7 +2774,7 @@ def _handle_repo_picker_submit(payload: dict) -> HttpResponse:
         from products.slack_app.backend.models import SlackThreadTaskMapping
 
         if SlackThreadTaskMapping.objects.filter(
-            integration_id=integration_id,
+            slack_workspace_id=slack_team_id,
             channel=channel,
             thread_ts=thread_ts,
         ).exists():

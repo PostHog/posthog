@@ -1211,6 +1211,8 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
     if not pr_url:
         return
 
+    from posthog.models.integration import Integration  # noqa: PLC0415
+
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
     )
@@ -1223,16 +1225,27 @@ def _post_slack_update_for_pr(run: TaskRun) -> None:
         mapping = (
             SlackThreadTaskMapping.objects.filter(task_run=run)
             .order_by("-updated_at")
-            .values("integration_id", "channel", "thread_ts", "mentioning_slack_user_id")
+            .values("team_id", "slack_workspace_id", "channel", "thread_ts", "mentioning_slack_user_id")
             .first()
         )
         if not mapping:
+            return
+        integration_id = (
+            Integration.objects.filter(
+                team_id=mapping["team_id"],
+                kind="slack",
+                integration_id=mapping["slack_workspace_id"],
+            )
+            .values_list("id", flat=True)
+            .first()
+        )
+        if integration_id is None:
             return
         post_slack_update(
             PostSlackUpdateInput(
                 run_id=str(run.id),
                 slack_thread_context={
-                    "integration_id": mapping["integration_id"],
+                    "integration_id": integration_id,
                     "channel": mapping["channel"],
                     "thread_ts": mapping["thread_ts"],
                     "mentioning_slack_user_id": mapping["mentioning_slack_user_id"],

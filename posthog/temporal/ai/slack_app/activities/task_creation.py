@@ -472,12 +472,11 @@ def create_posthog_code_task_for_repo_activity(
             *(m.get("ts") or "" for m in thread_messages),
         )
         SlackThreadTaskMapping.objects.update_or_create(
-            integration=integration,
+            slack_workspace_id=inputs.slack_team_id,
             channel=channel,
             thread_ts=thread_ts,
             defaults={
                 "team": integration.team,
-                "slack_workspace_id": inputs.slack_team_id,
                 "task_id": created.task_id,
                 "task_run_id": task_run.id,
                 "mentioning_slack_user_id": slack_user_id,
@@ -538,7 +537,7 @@ def forward_posthog_code_followup_activity(
 
     try:
         mapping = SlackThreadTaskMapping.objects.select_related("task_run", "task__created_by").get(
-            integration_id=inputs.integration_id,
+            slack_workspace_id=inputs.slack_team_id,
             channel=channel,
             thread_ts=thread_ts,
         )

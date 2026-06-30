@@ -192,7 +192,7 @@ def post_posthog_code_picker_timeout_activity(
     # sent a follow-up message instead of using the picker), skip the expired
     # message — the thread is already being handled.
     if SlackThreadTaskMapping.objects.filter(
-        integration_id=inputs.integration_id,
+        slack_workspace_id=inputs.slack_team_id,
         channel=channel,
         thread_ts=thread_ts,
     ).exists():

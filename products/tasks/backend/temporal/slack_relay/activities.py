@@ -305,6 +305,27 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         logger.info("slack_relay_mapping_not_found", run_id=input.run_id, relay_id=input.relay_id)
         return
 
+    # Resolve a live Slack integration for the mapping's (team, workspace).
+    # The mapping itself no longer pins a specific integration FK so it can
+    # survive churn; if no integration currently covers this pair, we drop
+    # the relay rather than fail loudly — the task ran but Slack is unreachable.
+    from posthog.models.integration import Integration
+
+    integration = Integration.objects.filter(
+        team_id=mapping.team_id,
+        kind="slack",
+        integration_id=mapping.slack_workspace_id,
+    ).first()
+    if integration is None:
+        logger.info(
+            "slack_relay_integration_not_found",
+            run_id=input.run_id,
+            relay_id=input.relay_id,
+            team_id=mapping.team_id,
+            slack_workspace_id=mapping.slack_workspace_id,
+        )
+        return
+
     text = (input.text or "").strip()
     if not text:
         logger.info("slack_relay_empty_text", run_id=input.run_id, relay_id=input.relay_id)
@@ -317,7 +338,7 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text)]
 
     context = SlackThreadContext(
-        integration_id=mapping.integration_id,
+        integration_id=integration.id,
         channel=mapping.channel,
         thread_ts=mapping.thread_ts,
         user_message_ts=input.user_message_ts,

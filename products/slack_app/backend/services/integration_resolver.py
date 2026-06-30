@@ -104,21 +104,17 @@ def resolve_from_candidates(
     candidates_by_team_id = {c.team_id: c for c in candidates}
 
     if channel and thread_ts and slack_team_id:
-        thread_match = (
-            SlackThreadTaskMapping.objects.filter(
-                slack_workspace_id=slack_team_id, channel=channel, thread_ts=thread_ts
-            )
-            .select_related("integration")
-            .first()
-        )
+        thread_match = SlackThreadTaskMapping.objects.filter(
+            slack_workspace_id=slack_team_id, channel=channel, thread_ts=thread_ts
+        ).first()
         if thread_match is not None:
-            # If the mapped row is out of the current candidate set (kind drift),
-            # route through the canonical candidate for the same team in this
-            # workspace so the mapping's ``task_run`` linkage stays intact.
-            mapped = thread_match.integration
-            target: Integration | None = (
-                mapped if mapped.id in candidate_ids else candidates_by_team_id.get(mapped.team_id)
-            )
+            # The mapping pins the thread to a team, not a specific integration —
+            # the integration FK was dropped so the row survives the integration
+            # being deleted/recreated. Route through whichever candidate covers
+            # that team in this workspace; if none does (team's integration gone
+            # entirely, or kind drift), the thread silently falls through to the
+            # default / picker path.
+            target: Integration | None = candidates_by_team_id.get(thread_match.team_id)
             # Access check on the resolved target so a user whose access was
             # revoked can't ride the thread mapping past the gate.
             if target is not None and (accessible_team_ids is None or target.team_id in accessible_team_ids):
