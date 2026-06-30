@@ -181,7 +181,7 @@ class EventViewSet(
     ) -> str:
         params = request.GET.dict()
         reverse = "-timestamp" in order_by
-        timestamp = last_event_timestamp.astimezone().isoformat()
+        timestamp = last_event_timestamp.replace(tzinfo=timezone.utc).isoformat()
         if reverse:
             params["before"] = timestamp
         else:
