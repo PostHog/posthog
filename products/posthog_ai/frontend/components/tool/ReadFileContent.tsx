@@ -32,7 +32,6 @@ const READ_EDITOR_OPTIONS: editor.IStandaloneEditorConstructionOptions = {
     guides: { indentation: false },
     padding: { top: 4, bottom: 4 },
     automaticLayout: true,
-    renderGutterMenu: false,
     // Don't trap the thread's scroll when the cursor is over the editor.
     scrollbar: { alwaysConsumeMouseWheel: false, vertical: 'auto', horizontal: 'auto' },
 }
