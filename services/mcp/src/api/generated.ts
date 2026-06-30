@@ -53936,6 +53936,24 @@ export namespace Schemas {
       query: _TracingQueryBody;
     }
 
+    export interface _TracingSparklineQueryBody {
+      /** Date range for the query. Defaults to last hour. */
+      dateRange?: _TracingDateRange;
+      /** Filter by service names. */
+      serviceNames?: string[];
+      /** Filter by OTel span status codes (0 Unset, 1 OK, 2 Error) — not HTTP status codes. Use [2] to select error spans. */
+      statusCodes?: number[];
+      /** Property filters for the query. */
+      filterGroup?: _SpanPropertyFilter[];
+      /** When true, count only root spans (one per trace) so the bars reflect the Traces view. When false (default), count every matching span — the Spans view's volume. */
+      rootSpans?: boolean;
+    }
+
+    export interface _TracingSparklineRequest {
+      /** The sparkline query to execute. */
+      query: _TracingSparklineQueryBody;
+    }
+
     export interface _TracingTimeseriesQueryBody {
       /** Date range for the query. Defaults to last hour. */
       dateRange?: _TracingDateRange;
