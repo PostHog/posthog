@@ -5224,6 +5224,61 @@ class TestExternalDataSource(APIBaseTest):
         # The credential probe only runs once the re-entry gate has passed.
         assert mock_validate_credentials.called == (expected_status == 200)
 
+    def _custom_oauth2_integration_source(self) -> ExternalDataSource:
+        manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_oauth2_int",
+            job_inputs={
+                "manifest_json": json.dumps(manifest),
+                "auth_oauth2_integration_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+    @parameterized.expand(
+        [("preserved_integration", {}, 400), ("cleared_integration", {"auth_oauth2_integration_id": ""}, 200)]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_oauth2_integration_source_host_change_requires_reentry(
+        self, _name, extra_inputs, expected_status, mock_validate_credentials
+    ):
+        # An integration-backed OAuth2 source keeps no secret in job_inputs — the token lives in the
+        # CustomOAuth2Integration row and is injected at sync time keyed by the non-secret
+        # auth_oauth2_integration_id. So a manifest host change that preserves that pointer would still
+        # redirect the injected token to the new host; the gate must treat the preserved pointer like a
+        # preserved secret. Clearing the pointer is an explicit re-config and is allowed.
+        source = self._custom_oauth2_integration_source()
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_inputs}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        assert mock_validate_credentials.called == (expected_status == 200)
+
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),

@@ -16,6 +16,7 @@ from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
 
+from products.warehouse_sources.backend.models import ExternalDataSource
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
@@ -497,11 +498,23 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
 
 
 class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
-    def _make_integration(self, **secret_overrides) -> CustomOAuth2Integration:
+    def _make_integration(
+        self, *, external_data_source: ExternalDataSource | None = None, **secret_overrides
+    ) -> CustomOAuth2Integration:
         return CustomOAuth2Integration.objects.for_team(self.team.pk).create(
             team=self.team,
+            external_data_source=external_data_source,
             config={"token_url": "https://auth.example.com/token", "client_id": "cid", "grant_type": "refresh_token"},
             sensitive_config={"client_secret": "cs", "refresh_token": "orig-RT", **secret_overrides},
+        )
+
+    def _make_source(self, name: str = "a") -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"sid-{name}",
+            connection_id=f"cid-{name}",
+            status="Completed",
+            source_type="Custom",
         )
 
     def _oauth2_manifest(self) -> dict:
@@ -634,6 +647,63 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
 
         assert not ok
         assert "no longer exists" in (err or "")
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_sync_rejects_integration_bound_to_another_source(self, mock_session):
+        # The cross-source theft guard: at sync time a source cannot use an integration that belongs to a
+        # different source, even within the same team — no token is minted and the lookup fails closed.
+        owner = self._make_source("owner")
+        attacker = self._make_source("attacker")
+        integration = self._make_integration(external_data_source=owner)
+
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            _inject_oauth2_integration_secrets(
+                self._oauth2_manifest(), str(integration.pk), self.team.pk, source_id=str(attacker.pk)
+            )
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_sync_binds_unbound_integration_to_source_on_first_use(self, mock_session):
+        # Trust-on-first-use: the first sync claims an unbound integration for its source, so no second
+        # source can adopt it afterwards (the reject test above then applies).
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        source = self._make_source()
+        integration = self._make_integration()  # unbound
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk, source_id=str(source.pk))
+
+        fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
+        assert str(fresh.external_data_source_id) == str(source.pk)
+        assert manifest["client"]["auth"]["access_token"] == "minted-AT"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_sync_allows_integration_bound_to_its_own_source(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        source = self._make_source()
+        integration = self._make_integration(external_data_source=source)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk, source_id=str(source.pk))
+
+        assert manifest["client"]["auth"]["access_token"] == "minted-AT"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_preview_forbids_integration_bound_to_a_source(self, mock_session):
+        # Preview runs before a source exists, so an already-bound integration (another source's) must be
+        # rejected — otherwise a preview could read that source's data with its tokens.
+        owner = self._make_source("owner")
+        integration = self._make_integration(external_data_source=owner)
+
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            _inject_oauth2_integration_secrets(
+                self._oauth2_manifest(), str(integration.pk), self.team.pk, forbid_bound=True
+            )
+        mock_session.return_value.post.assert_not_called()
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):

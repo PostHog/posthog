@@ -946,9 +946,23 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
             manifest_host_added = bool(new_hosts - existing_hosts)
 
+        # An integration-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
+        # tokens live in the CustomOAuth2Integration row and are injected at sync time, keyed by the
+        # non-secret `auth_oauth2_integration_id`. So `has_preserved_credentials` never sees a preserved
+        # secret for it, yet a host change would still redirect that injected token to the new host. Treat a
+        # preserved integration pointer (kept unchanged or omitted, not switched/cleared) like a preserved
+        # secret so the gate fires.
+        existing_integration_id = existing_job_inputs.get("auth_oauth2_integration_id")
+        preserved_oauth2_integration = bool(existing_integration_id) and (
+            incoming_job_inputs.get("auth_oauth2_integration_id", existing_integration_id) == existing_integration_id
+        )
+
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
-            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, gate_sensitive_fields):
+            preserved_credentials = has_preserved_credentials(
+                existing_job_inputs, incoming_job_inputs, gate_sensitive_fields
+            )
+            if preserved_credentials or preserved_oauth2_integration:
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
