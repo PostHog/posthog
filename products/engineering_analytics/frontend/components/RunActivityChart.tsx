@@ -50,6 +50,12 @@ const Y_TICK_COUNT = 4
 const X_TICK_COUNT = 5
 // A scatter of one point says nothing; only draw once there's a spread to read.
 const MIN_POINTS = 2
+// A run with no final duration is treated as in flight up to now — but only up to this cap. A run that
+// started longer ago than this and still hasn't settled almost certainly never will (its completion webhook
+// was missed); without the cap its interval would stretch to now and inflate the in-flight band — and the
+// time axis — by hours or days. Capping bounds that phantom load while still counting a genuinely-running
+// recent run right up to now.
+const MAX_IN_FLIGHT_MS = 60 * 60 * 1000
 
 /** Round up to a "nice" number (1/2/5 × 10ⁿ) so axis ticks land on readable values. */
 function niceStep(rough: number): number {
@@ -102,7 +108,8 @@ export function RunActivityChart({
     className,
 }: RunActivityChartProps): JSX.Element | null {
     const now = dayjs().valueOf()
-    // Every run with a start contributes an interval to the band; a still-running run extends to now.
+    // Every run with a start contributes an interval to the band; a still-running run extends to now, but
+    // only up to MAX_IN_FLIGHT_MS so an abandoned run that never settled doesn't stretch the band by days.
     const intervals: Interval[] = runs
         .filter((run): run is ActivityRun & { startedAt: string } => run.startedAt != null)
         .map((run) => {
@@ -110,7 +117,9 @@ export function RunActivityChart({
             const completed = run.durationSeconds != null && run.durationSeconds >= 0
             return {
                 start,
-                end: completed ? start + (run.durationSeconds as number) * 1000 : now,
+                end: completed
+                    ? start + (run.durationSeconds as number) * 1000
+                    : Math.min(now, start + MAX_IN_FLIGHT_MS),
                 conclusion: run.conclusion,
                 completed,
             }
