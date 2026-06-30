@@ -222,6 +222,18 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     if (!showChart && !typeOverview) {
         return null
     }
+    // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
+    if (scannerType === 'scorer') {
+        return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+                {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
+                <div className="min-w-0">
+                    <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
+                </div>
+                <div className="min-w-0">{typeOverview}</div>
+            </div>
+        )
+    }
     return (
         <div className="space-y-4">
             {showChart && <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />}
