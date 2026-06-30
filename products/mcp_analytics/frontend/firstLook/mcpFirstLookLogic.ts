@@ -106,8 +106,10 @@ export const mcpFirstLookLogic = kea<mcpFirstLookLogicType>([
         },
         askMax: () => {
             posthog.captureRaw('mcp analytics first look ask ai clicked', values.eventProperties)
-            // The `!` prefix opens the (app-shell-mounted) panel and auto-submits.
-            sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Max, '!' + values.maxPrompt)
+            // Prefill, don't auto-submit: the prompt embeds tool names from `$mcp_tool_call`
+            // events, which anyone with the project token can set — auto-running it would let a
+            // seeded tool name reach PostHog AI as an instruction. The user reviews, then sends.
+            sidePanelStateLogic.findMounted()?.actions.openSidePanel(SidePanelTab.Max, values.maxPrompt)
         },
         dismissAndAskMax: () => {
             actions.askMax()

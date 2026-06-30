@@ -108,6 +108,16 @@ describe('firstLookCopy', () => {
             ).toEqual([])
         })
 
+        it('drops the flakiest chip when it is the same tool as the busiest', () => {
+            const chips = buildChips({
+                topTool: tool({ tool: 'execute-sql' }),
+                worstErrorTool: tool({ tool: 'execute-sql', error_rate_pct: 12 }),
+                kpis: KPIS,
+                client: null,
+            })
+            expect(chips.map((c) => c.key)).toEqual(['top-tool', 'p95'])
+        })
+
         it('includes all four when data is present, in order', () => {
             const chips = buildChips({
                 topTool: tool(),

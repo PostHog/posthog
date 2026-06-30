@@ -17,6 +17,8 @@ const CHIP_ICON: Record<string, JSX.Element> = {
     'top-tool': <IconBolt />,
     'worst-error': <IconWarning />,
     p95: <IconClock />,
+    // Fallback for the client chip when the harness has no logo (e.g. "Other").
+    client: <IconSparkles />,
 }
 
 function Chip({ chip }: { chip: FirstLookChip }): JSX.Element {

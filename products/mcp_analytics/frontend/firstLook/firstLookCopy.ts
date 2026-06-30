@@ -96,7 +96,9 @@ export function buildChips({
     if (topTool) {
         chips.push({ key: 'top-tool', label: 'Busiest tool', value: topTool.tool })
     }
-    if (worstErrorTool && worstErrorTool.error_rate_pct > 0) {
+    // Skip the flakiest chip when it's the same tool as the busiest one — the busiest chip
+    // and the headline's flaky clause already name it; a third mention reads as noise.
+    if (worstErrorTool && worstErrorTool.error_rate_pct > 0 && worstErrorTool.tool !== topTool?.tool) {
         chips.push({
             key: 'worst-error',
             label: 'Flakiest tool',
