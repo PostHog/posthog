@@ -7188,6 +7188,7 @@ export const externalDataSources = [
     'NextdoorAds',
     'AppLovin',
     'Baserow',
+    'Plunk',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
