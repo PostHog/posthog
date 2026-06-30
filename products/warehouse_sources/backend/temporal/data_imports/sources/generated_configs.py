@@ -551,7 +551,8 @@ class CampaignMonitorSourceConfig(config.Config):
 
 @config.config
 class CampaynSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
