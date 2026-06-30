@@ -1,6 +1,5 @@
-from unittest.mock import patch
-
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 
 class TestMetalytics(APIBaseTest):
