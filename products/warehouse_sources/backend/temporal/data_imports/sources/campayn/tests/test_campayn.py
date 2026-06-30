@@ -39,9 +39,9 @@ class FakeResponse:
 
     def raise_for_status(self) -> None:
         if not self.ok:
-            error = requests.HTTPError(f"{self.status_code} Client Error")
-            error.response = mock.MagicMock(status_code=self.status_code)
-            raise error
+            raise requests.HTTPError(
+                f"{self.status_code} Client Error", response=mock.MagicMock(status_code=self.status_code)
+            )
 
 
 class FakeSession:
@@ -176,7 +176,7 @@ class TestFetchRetry:
         # Override tenacity's backoff sleep so the 5 retries don't actually wait; the decorator
         # reraises the last CampaynRetryableError once attempts are exhausted.
         session = FakeSession({"/lists.json": FakeResponse(status_code=status)})
-        with mock.patch(SESSION_PATH, return_value=session), mock.patch.object(_fetch.retry, "sleep"):
+        with mock.patch(SESSION_PATH, return_value=session), mock.patch.object(_fetch.retry, "sleep"):  # type: ignore[attr-defined]
             with pytest.raises(CampaynRetryableError):
                 list(get_rows("acme", "k", "lists", mock.MagicMock()))
 

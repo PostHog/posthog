@@ -94,9 +94,9 @@ def _iter_list_ids(
 ) -> Iterator[str]:
     payload = _fetch(session, f"{base_url(subdomain)}/lists.json", headers, logger)
     for item in _as_rows(payload):
-        list_id = item.get("id")
-        if list_id is not None:
-            yield str(list_id)
+        # `id` drives all fan-out, so fail fast on a malformed list record rather than silently
+        # dropping its contacts/forms.
+        yield str(item["id"])
 
 
 def get_rows(
@@ -108,8 +108,10 @@ def get_rows(
     config = CAMPAYN_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across every request (and, for fan-out, every list) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. `redact_values` masks the API key
+    # everywhere the tracked adapter records request headers/URLs/samples — the custom
+    # `TRUEREST apikey=...` header isn't recognised by the name-based scrubbers.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.fan_out_over_lists:
         yield from _get_fan_out_rows(session, subdomain, headers, logger, config)
@@ -170,7 +172,9 @@ def campayn_source(
 def validate_credentials(subdomain: str, api_key: str) -> bool:
     # /lists.json is the cheapest read and the entry point every fan-out depends on.
     try:
-        response = make_tracked_session().get(
+        # `redact_values` masks the API key in tracked telemetry — the credential check runs before
+        # the source is saved, so the raw key must not leak into HTTP logs/samples here either.
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{base_url(subdomain)}/lists.json", headers=_headers(api_key), timeout=15
         )
         return response.status_code == 200
