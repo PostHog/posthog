@@ -528,27 +528,29 @@ mod tests {
     }
 
     #[test]
-    fn remove_sourcemap_reference_strips_trailing_comment() {
+    fn remove_sourcemap_reference_strips_standard_comment() {
         let mut source = minified_source("console.log(1);\n//# sourceMappingURL=chunk.js.map\n");
 
         assert!(source.remove_sourcemap_reference());
         assert_eq!(source.inner.content, "console.log(1);\n");
+    }
 
-        let mut legacy_source =
-            minified_source("console.log(1);\r\n//@ sourceMappingURL=chunk.js.map");
+    #[test]
+    fn remove_sourcemap_reference_strips_legacy_comment() {
+        let mut source = minified_source("console.log(1);\r\n//@ sourceMappingURL=chunk.js.map");
 
-        assert!(legacy_source.remove_sourcemap_reference());
-        assert_eq!(legacy_source.inner.content, "console.log(1);\r\n");
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\r\n");
+    }
 
-        let mut injected_source = minified_source(
+    #[test]
+    fn remove_sourcemap_reference_strips_comment_with_injected_chunk_id() {
+        let mut source = minified_source(
             "console.log(1);\n//# sourceMappingURL=chunk.js.map\n\n//# chunkId=00000",
         );
 
-        assert!(injected_source.remove_sourcemap_reference());
-        assert_eq!(
-            injected_source.inner.content,
-            "console.log(1);\n\n//# chunkId=00000"
-        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\n\n//# chunkId=00000");
     }
 
     #[test]
