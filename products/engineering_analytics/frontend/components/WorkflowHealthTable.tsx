@@ -196,7 +196,7 @@ export function WorkflowHealthTable({
                   {
                       title: 'Cost',
                       tooltip:
-                          "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time.",
+                          "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time. Excludes still-running jobs, so it can rise as they settle.",
                       key: 'cost',
                       width: CI_GRID.cost,
                       align: 'right',
