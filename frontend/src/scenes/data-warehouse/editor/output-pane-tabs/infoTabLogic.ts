@@ -1,4 +1,4 @@
-import { connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, path, propsChanged, props, selectors } from 'kea'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
@@ -67,17 +67,14 @@ export const infoTabLogic = kea<infoTabLogicType>([
             },
         ],
     }),
-    listeners(({ actions, props }) => {
-        if (!props.viewId) {
-            return {}
+    afterMount(({ actions, props }) => {
+        if (props.viewId) {
+            actions.loadUpstream(props.viewId)
         }
-        const jobsLogic = materializationJobsLogic({ viewId: props.viewId })
-        return {
-            [jobsLogic.actionTypes.loadDataModelingJobsSuccess]: () => {
-                if (props.viewId) {
-                    actions.loadUpstream(props.viewId)
-                }
-            },
+    }),
+    propsChanged(({ actions, props }, oldProps) => {
+        if (props.viewId && props.viewId !== oldProps.viewId) {
+            actions.loadUpstream(props.viewId)
         }
     }),
 ])
