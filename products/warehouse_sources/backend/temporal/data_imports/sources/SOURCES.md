@@ -89,6 +89,7 @@ the row lists both.
 | checkout_com            | HTTP                        | requests                                                        | ✅                          |
 | churnkey                | HTTP                        | requests                                                        | ✅                          |
 | coda                    | HTTP                        | requests                                                        | ✅                          |
+| codefresh               | HTTP                        | requests                                                        | ✅                          |
 | coin_api                | HTTP                        | requests                                                        | ✅                          |
 | coingecko               | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -354,7 +355,6 @@ doesn't conflict with concurrent PRs.
 - cloudbeds
 - coassemble
 - cockroachdb
-- codefresh
 - concord
 - configcat
 - constant_contact

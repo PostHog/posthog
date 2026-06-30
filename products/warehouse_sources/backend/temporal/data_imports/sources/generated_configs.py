@@ -754,7 +754,7 @@ class CodaSourceConfig(config.Config):
 
 @config.config
 class CodefreshSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
