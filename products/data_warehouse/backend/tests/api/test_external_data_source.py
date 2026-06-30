@@ -38,7 +38,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
-    ExternalDataSourceSerializer,
+    ExternalDataSourceSerializers,
     get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
@@ -117,7 +117,7 @@ class TestExternalDataSourceSerializer(SimpleTestCase):
                 },
             },
         )
-        serializer = ExternalDataSourceSerializer(context={"request": Mock(data={})})
+        serializer = ExternalDataSourceSerializers(context={"request": Mock(data={})})
 
         with (
             patch(
