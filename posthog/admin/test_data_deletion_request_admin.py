@@ -690,11 +690,11 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
         http_request.user = user or self.user
         _attach_messages(http_request)
         with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
-            return view(http_request, str(request.pk))
+            return view(http_request, str(request.pk)), http_request
 
     def test_fetch_stats_redirects_to_change_page(self):
         request = self._person_request()
-        response = self._call(self.admin.fetch_stats_view, request)
+        response, _ = self._call(self.admin.fetch_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
         request.refresh_from_db()
@@ -702,7 +702,7 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
 
     def test_preview_stats_redirects_to_change_page(self):
         request = self._person_request()
-        response = self._call(self.admin.preview_stats_view, request)
+        response, _ = self._call(self.admin.preview_stats_view, request)
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
 
@@ -710,11 +710,7 @@ class TestDataDeletionRequestAdminStatsViewRedirects(BaseTest):
         request = self._person_request()
         self.user.groups.clear()
 
-        http_request = self.factory.post(f"/admin/posthog/datadeletionrequest/{request.pk}/x/")
-        http_request.user = self.user
-        _attach_messages(http_request)
-        with patch("posthog.admin.admins.data_deletion_request_admin.reverse", side_effect=_fake_reverse):
-            response = self.admin.preview_stats_view(http_request, str(request.pk))
+        response, http_request = self._call(self.admin.preview_stats_view, request)
 
         self.assertEqual(response.status_code, 302)
         self.assertIn("posthog_datadeletionrequest_change", response.url)
