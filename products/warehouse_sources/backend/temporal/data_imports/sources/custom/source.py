@@ -23,7 +23,10 @@ from posthog.schema import (
 
 from posthog.cloud_utils import is_cloud
 
-from products.warehouse_sources.backend.models.custom_oauth2_integration import get_custom_oauth2_integration
+from products.warehouse_sources.backend.models.custom_oauth2_integration import (
+    CustomOAuth2Integration,
+    get_custom_oauth2_integration,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SortMode,
     SourceInputs,
@@ -953,6 +956,16 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 job_id=inputs.job_id,
                 db_incremental_field_last_value=last_value,
             )
+        except CustomOAuth2Integration.DoesNotExist as exc:
+            # The manifest points at an OAuth2 integration row that no longer resolves for this
+            # team (deleted, wrong team, or a dangling auth_oauth2_integration_id). It's a permanent
+            # config error — the row won't reappear on a retry — but it's neither a ValueError nor a
+            # message the substring classifier recognises, so without this it would retry until the
+            # activity budget is exhausted. Fail fast like the other deterministic config errors.
+            raise NonRetryableException(
+                "The OAuth2 integration this source points to no longer exists. "
+                "Reconnect the OAuth2 integration, then try again."
+            ) from exc
         except ValueError as exc:
             # A malformed manifest, a missing resource, or a broken parent
             # reference is a permanent, deterministic failure — retrying the sync

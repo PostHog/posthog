@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2Auth,
     OAuth2AuthRequestError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -545,7 +546,34 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
         _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
 
         mock_session.return_value.post.assert_not_called()
-        assert manifest["client"]["auth"]["access_token"] == "cached-AT"
+        auth = manifest["client"]["auth"]
+        assert auth["access_token"] == "cached-AT"
+        # The expiry must be seeded too: dropping it would make the engine treat the cached token as
+        # never-expiring-but-unverified and re-mint on the first request, burning a single-use refresh
+        # token this in-memory auth can't persist.
+        assert auth["access_token_expiry"] == future
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_post_injection_manifest_builds_oauth2_auth_that_reuses_token_without_minting(self, mock_session):
+        # End-to-end seam: feed the injected client.auth through the engine's own auth construction
+        # (`create_auth` -> `auth_class(**exclude_keys(...))`) and drive a request. A key/kwarg rename
+        # between the injection here and `OAuth2Auth.__init__` would either crash construction or drop
+        # the seeded expiry and re-mint — this catches both. No token-endpoint POST may happen.
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        integration = self._make_integration(access_token="cached-AT", token_expiry=future)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
+
+        auth = create_auth(manifest["client"]["auth"])
+        assert isinstance(auth, OAuth2Auth)
+        # The auth reuses the seeded token + expiry: applying it to a request injects the cached token
+        # and never mints (a mint would call post, which assert_not_called below would catch).
+        request = MagicMock()
+        request.headers = {}
+        auth(request)
+        assert request.headers["Authorization"] == "Bearer cached-AT"
+        mock_session.return_value.post.assert_not_called()
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):
@@ -1129,6 +1157,29 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
         inputs = MagicMock(team_id=999, schema_name="nonexistent")
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, inputs)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.get_custom_oauth2_integration"
+    )
+    def test_missing_oauth2_integration_raises_non_retryable(self, mock_get_integration):
+        # A dangling auth_oauth2_integration_id (deleted row / wrong team) raises DoesNotExist at the
+        # sync seam. It's neither a ValueError nor a message the substring classifier matches, so without
+        # explicit handling it would retry until the activity budget is exhausted — assert it fails fast.
+        mock_get_integration.side_effect = CustomOAuth2Integration.DoesNotExist
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+        )
+        inputs = MagicMock(team_id=999, schema_name="users")
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 

@@ -130,6 +130,7 @@ class OAuth2AuthConfig(AuthTypeConfig, total=False):
     scopes: Optional[str]
     refresh_token: str
     access_token: str
+    access_token_expiry: str
     access_token_name: Optional[str]
     expires_in_name: Optional[str]
     expiry_date_format: Optional[str]
