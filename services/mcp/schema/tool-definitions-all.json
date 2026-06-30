@@ -1746,7 +1746,7 @@
         }
     },
     "custom-property-definitions-create": {
-        "description": "Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean; defaults to text), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped and shared across all accounts; set the value a specific account holds via the account custom property value tools.",
+        "description": "Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (required; one of text, number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped and shared across all accounts; set the value a specific account holds via the account custom property value tools.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "Create custom property definition",
