@@ -2176,6 +2176,7 @@ dependencies = [
  "futures",
  "hogvm",
  "lifecycle",
+ "lru",
  "metrics",
  "metrics-exporter-prometheus",
  "object_store",
