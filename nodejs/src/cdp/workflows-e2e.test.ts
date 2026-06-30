@@ -1076,6 +1076,43 @@ describe.each(['postgres-v2' as const, 'postgres' as const])('Workflows E2E (%s)
             expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
         })
 
+        it('wakes a parked wait from a cdp_internal_events signal with no analytics event', async () => {
+            // CDP-generated signals (e.g. email opened/clicked) arrive on cdp_internal_events and never
+            // hit the analytics events topic. The matcher parses them via _parseInternalEventsBatch and
+            // wakes parked waits whose "events to wait for" name the signal, matched by distinct_id.
+            await createWaitUntilWorkflow({
+                // Property condition never matches the trigger event, so the job parks until the signal.
+                condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
+                events: [eventNameFilter('$workflows_email_opened')],
+                max_wait_duration: '5m',
+            })
+            await triggerWorkflow(createGlobals())
+            await expectParked()
+
+            // A raw cdp_internal_events message for this person's distinct_id — no analytics event.
+            const internalEventMessage = {
+                value: Buffer.from(
+                    JSON.stringify({
+                        team_id: team.id,
+                        event: {
+                            uuid: new UUIDT().toString(),
+                            event: '$workflows_email_opened',
+                            distinct_id: 'distinct_id',
+                            properties: {},
+                            timestamp: '2024-09-03T09:00:00Z',
+                        },
+                    })
+                ),
+            }
+            const internalGlobals = await matcher._parseInternalEventsBatch([internalEventMessage as any])
+            await matcher.processBatch(internalGlobals)
+
+            await waitForExpect(() => {
+                expect(mockFetch).toHaveBeenCalledTimes(1)
+            }, 10000)
+            expect(mockFetch).toHaveBeenCalledWith('https://example.com/condition-matched', expect.anything())
+        })
+
         it('parks once to the max_wait deadline instead of re-parking every 10 minutes', async () => {
             // Pre-change, a wait re-parked on a 10-minute cap, churning dequeues. Now it parks once to
             // its full max_wait deadline and relies on the matcher to wake it early. A 30-minute wait
