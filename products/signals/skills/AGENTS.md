@@ -34,13 +34,13 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 
 - `signals-scout-general/` — cross-product generalist. Looks for cross-product
   correlations and surfaces no specialist covers, rather than deep-diving a single
-  product. The first canonical scout to opt into the **report channel** (its
-  frontmatter `allowed_tools` lists `emit_report` / `edit_report`), so it can file a
-  fully-validated correlation 1:1 as a `SignalReport` instead of a weak signal. Carries
-  three progressively-disclosed references: `references/emit.md` (the emit contract),
-  `references/conventions.md` (scratchpad key prefixes + the four-states dedupe
-  classifier + cross-project noise patterns), and `references/report.md` (the report
-  channel — when to reach for it, fields, status mapping, reviewer routing, dedupe).
+  product. The first canonical scout on the **report channel** (its frontmatter
+  `allowed_tools` lists `emit_report` / `edit_report`): it authors fully-validated
+  correlations 1:1 as `SignalReport`s directly, rather than firing weak `emit_signal`
+  findings for the pipeline to cluster. Carries two progressively-disclosed references:
+  `references/conventions.md` (scratchpad key prefixes + the four-states author/edit
+  classifier + cross-project noise patterns) and `references/report.md` (the report
+  channel — when to author vs. edit, fields, status mapping, reviewer routing, dedupe).
   This is the entry point if you want to understand how a scout decides what to
   investigate end-to-end.
 - `signals-scout-ai-observability/` — anomaly watcher for AI observability
@@ -229,20 +229,23 @@ prompt. References (siblings of `SKILL.md`) are progressively disclosed via
 recurring token cost on every run — and push detail into references that are only
 read when needed.
 
-The generalist (`signals-scout-general`) carries three references, two of which the
-rest of the fleet also reasons in terms of:
+The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
+directly and does not `emit_signal`, so it carries two references:
 
-- **`references/emit.md`** — the emit contract: required/recommended fields, the
-  confidence rubric, severity mapping, dedupe keys, `finding_id`
-  idempotency, and a worked example.
-- **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
+- **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
 - **`references/report.md`** — the report channel (`emit-report` / `edit-report`):
-  when to author a 1:1 report vs. emit a weak signal, the field schema, the
-  safety × actionability status mapping, reviewer routing, and the non-idempotency +
-  pipeline-rewrite caveats. Bundled because the generalist is the first canonical
-  scout opted into the channel; a scout reads only its own files at runtime, so any
-  future report-channel adopter bundles its own copy rather than pointing here.
+  when to author a fresh report vs. edit an existing one, the field schema, the
+  safety × actionability status mapping, reviewer routing (`suggested_reviewers` via
+  `org-member-get-github-login`), and the non-idempotency + pipeline-rewrite caveats.
+  Bundled because the generalist is the first canonical scout on the channel; a scout
+  reads only its own files at runtime, so any future report-channel adopter bundles its
+  own copy rather than pointing here.
+
+The rest of the fleet still emits weak `emit_signal` findings for the pipeline to
+cluster; those specialists carry their own emit/dedupe contract where they need it,
+and its canonical write-up now lives in
+`authoring-signals-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references
