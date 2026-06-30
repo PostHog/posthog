@@ -6,7 +6,7 @@ from django.utils import timezone
 import posthoganalytics
 from temporalio import activity
 
-from posthog.models import Team
+from posthog.models import OrganizationMembership, Team
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.code_workstreams.auto_run import build_auto_run_prompt, select_auto_actions
@@ -47,10 +47,15 @@ def _org_auto_actions_enabled(organization_id: str) -> bool:
         return False
 
 
-def _has_running_task(team_id: int, task_ids: list[str]) -> bool:
-    if not task_ids:
-        return False
-    return TaskRun.objects.filter(team_id=team_id, task_id__in=task_ids, status__in=tuple(RUNNING_STATUSES)).exists()
+def _running_task_ids(team_id: int) -> set[str]:
+    # One query for the whole team, then set-membership in the loop — avoids an
+    # EXISTS round-trip per workstream (N+1) when many workstreams have auto actions.
+    return {
+        str(task_id)
+        for task_id in TaskRun.objects.filter(team_id=team_id, status__in=tuple(RUNNING_STATUSES)).values_list(
+            "task_id", flat=True
+        )
+    }
 
 
 def _fire_auto_action(team: Team, ws: CodeWorkstream, action: dict) -> Optional[Task]:
@@ -116,10 +121,11 @@ def auto_run_workstream_actions(input: AutoRunWorkstreamActionsInput) -> AutoRun
     """Auto-run quick actions for freshly-classified workstreams.
 
     Runs after `rebuild_team_workstreams` so it reads consistent, persisted state.
-    For each workstream, fires any auto-enabled action bound to its primary
-    situation, gated two ways: (1) skip if the workstream already has a running
-    task, and (2) fire each action at most once per workstream (a persisted marker
-    in `auto_run_state`) so a long fix can't relaunch every cycle.
+    For each workstream, fires an auto-enabled action bound to its primary situation,
+    gated four ways: (1) only for current, active members of the org; (2) skip if the
+    workstream already has a running task; (3) fire each action at most once per
+    workstream (a persisted marker in `auto_run_state`) so a long fix can't relaunch
+    every cycle; and (4) at most one auto-run per workstream per pass.
     """
     team = Team.objects.filter(id=input.team_id).select_related("organization").first()
     if team is None:
@@ -137,7 +143,24 @@ def auto_run_workstream_actions(input: AutoRunWorkstreamActionsInput) -> AutoRun
     if not bindings_by_user:
         return AutoRunWorkstreamActionsOutput(considered=0, fired=0)
 
+    # Only current, active members of the org may trigger auto-runs. A user who left or was
+    # deactivated must not keep launching cloud tasks under their identity/GitHub context via
+    # a leftover auto-enabled binding (their stale config/workstream rows get pruned later).
+    active_member_ids = set(
+        OrganizationMembership.objects.filter(
+            organization_id=team.organization_id,
+            user__is_active=True,
+            user_id__in=list(bindings_by_user.keys()),
+        ).values_list("user_id", flat=True)
+    )
+    bindings_by_user = {
+        user_id: bindings for user_id, bindings in bindings_by_user.items() if user_id in active_member_ids
+    }
+    if not bindings_by_user:
+        return AutoRunWorkstreamActionsOutput(considered=0, fired=0)
+
     workstreams = list(CodeWorkstream.objects.filter(team_id=input.team_id, user_id__in=list(bindings_by_user.keys())))
+    running_task_ids = _running_task_ids(input.team_id)
 
     considered = 0
     fired = 0
@@ -156,7 +179,7 @@ def auto_run_workstream_actions(input: AutoRunWorkstreamActionsInput) -> AutoRun
         # Dedup gate: never pile a second cloud run onto a workstream that's already
         # working (a manual run, or an earlier auto run still in flight).
         task_ids = [str(t["id"]) for t in (ws.tasks or []) if isinstance(t, dict) and t.get("id")]
-        if _has_running_task(input.team_id, task_ids):
+        if any(task_id in running_task_ids for task_id in task_ids):
             continue
 
         auto_state = dict(ws.auto_run_state or {})
@@ -177,8 +200,10 @@ def auto_run_workstream_actions(input: AutoRunWorkstreamActionsInput) -> AutoRun
             }
             changed = True
             fired += 1
-            if fired >= MAX_AUTO_RUNS_PER_TEAM:
-                break
+            # At most one auto-run per workstream per pass: two auto actions on the same
+            # primary situation must not spawn two concurrent cloud tasks for one workstream.
+            # The running-task gate + per-action marker handle the rest on later cycles.
+            break
 
         if changed:
             # Persist outside the rebuild's defaults so the marker survives the next

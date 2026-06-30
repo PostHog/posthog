@@ -12,6 +12,7 @@ from products.tasks.backend.temporal.code_workstreams.activities.auto_run_action
     AutoRunWorkstreamActionsInput,
     auto_run_workstream_actions,
 )
+from products.tasks.backend.temporal.code_workstreams.constants import MAX_AUTO_RUNS_PER_TEAM
 
 FLAG_PATH = (
     "products.tasks.backend.temporal.code_workstreams.activities.auto_run_actions.posthoganalytics.feature_enabled"
@@ -165,3 +166,58 @@ def test_creation_failure_does_not_persist_marker(setup, activity_environment):
     assert result.fired == 0
     ws.refresh_from_db()
     assert ws.auto_run_state == {}
+
+
+@pytest.mark.django_db(transaction=True)
+def test_skips_users_who_are_not_active_org_members(setup, activity_environment):
+    org, team, user = setup
+    _config(team, user, {"ci_failing": [_action()]})
+    _workstream(team, user)
+    # User left / was deactivated after leaving an auto-enabled binding behind.
+    user.is_active = False
+    user.save()
+
+    with patch(FLAG_PATH, return_value=True), patch(CREATE_AND_RUN_PATH) as create:
+        result = activity_environment.run(auto_run_workstream_actions, AutoRunWorkstreamActionsInput(team_id=team.id))
+
+    assert result.fired == 0
+    create.assert_not_called()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_fires_at_most_one_action_per_workstream_per_pass(setup, activity_environment):
+    org, team, user = setup
+    # Two auto actions bound to the same primary situation (e.g. retries for flaky CI).
+    _config(team, user, {"ci_failing": [_action(id="fix_ci"), _action(id="rerun_ci", label="Rerun CI")]})
+    ws = _workstream(team, user)
+
+    fake_task = MagicMock(id="task-1")
+    with patch(FLAG_PATH, return_value=True), patch(CREATE_AND_RUN_PATH, return_value=fake_task) as create:
+        result = activity_environment.run(auto_run_workstream_actions, AutoRunWorkstreamActionsInput(team_id=team.id))
+
+    # Only one cloud task — not one per matching action.
+    assert result.fired == 1
+    assert create.call_count == 1
+    ws.refresh_from_db()
+    assert len(ws.auto_run_state) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_respects_max_auto_runs_per_team_cap(setup, activity_environment):
+    org, team, user = setup
+    _config(team, user, {"ci_failing": [_action()]})
+    # More eligible workstreams than the per-cycle cap allows.
+    for i in range(MAX_AUTO_RUNS_PER_TEAM + 1):
+        _workstream(
+            team,
+            user,
+            key=f"pr:https://github.com/org/repo/pull/{i}",
+            pr_url=f"https://github.com/org/repo/pull/{i}",
+        )
+
+    fake_task = MagicMock(id="task-capped")
+    with patch(FLAG_PATH, return_value=True), patch(CREATE_AND_RUN_PATH, return_value=fake_task) as create:
+        result = activity_environment.run(auto_run_workstream_actions, AutoRunWorkstreamActionsInput(team_id=team.id))
+
+    assert result.fired == MAX_AUTO_RUNS_PER_TEAM
+    assert create.call_count == MAX_AUTO_RUNS_PER_TEAM

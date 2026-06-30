@@ -47,7 +47,12 @@ def build_workstream_context(
 ) -> str:
     """Anchor the run to the PR/branch it should act on so it doesn't ask the user.
 
-    Mirrors `buildWorkstreamContext` in packages/core/src/home/workstreamPrompt.ts.
+    Loosely mirrors `buildWorkstreamContext` in packages/core/src/home/workstreamPrompt.ts,
+    but deliberately diverges on one point: the PR title is omitted. Auto-runs execute
+    unattended (`initial_permission_mode="auto"`), and the PR title is attacker-controllable
+    free text on GitHub — inlining it here would be a prompt-injection path into an autonomous
+    agent. Only structured / enumerated fields (number, url, CI + review state, thread count)
+    go in; the agent can read the title from the PR itself in the sandbox if it needs it.
     `pr` is the per-user-resolved PrSnapshot wire dict stored on `CodeWorkstream.pr`.
     """
     lines: list[str] = []
@@ -56,7 +61,7 @@ def build_workstream_context(
     if branch:
         lines.append(f"- Branch: {branch}")
     if pr:
-        lines.append(f"- Pull request #{pr.get('number')}: {pr.get('title')}")
+        lines.append(f"- Pull request #{pr.get('number')}")
         lines.append(f"  {pr.get('url')}")
         lines.append(f"  CI: {pr.get('ciStatus')}")
         if pr.get("reviewDecision"):
