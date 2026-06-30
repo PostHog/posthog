@@ -1,5 +1,9 @@
 from django.contrib import admin, messages
-from django.urls import reverse
+from django.db.models import Count, Sum
+from django.db.models.functions import Length
+from django.shortcuts import redirect
+from django.template.defaultfilters import filesizeformat
+from django.urls import path, reverse
 from django.utils.html import format_html
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -18,6 +22,7 @@ class ConversationAdmin(admin.ModelAdmin):
     # isn't guaranteed registered when ConversationAdmin's system checks run (admin.E039).
     # raw_id_fields needs no registered target admin and still avoids the full-table <select>.
     raw_id_fields = ("task",)
+    readonly_fields = ("checkpoint_storage",)
     ordering = ("-updated_at",)
     actions = ["compact_checkpoints"]
 
@@ -28,6 +33,14 @@ class ConversationAdmin(admin.ModelAdmin):
         # Conversation is soft-deleted by the app; don't expose a cascading hard-delete here.
         return False
 
+    def get_urls(self):
+        compact_url = path(
+            "<path:object_id>/compact/",
+            self.admin_site.admin_view(self.compact_view),
+            name="posthog_ai_conversation_compact",
+        )
+        return [compact_url, *super().get_urls()]
+
     @admin.display(description="Team")
     def team_link(self, conversation: Conversation):
         return format_html(
@@ -35,6 +48,41 @@ class ConversationAdmin(admin.ModelAdmin):
             reverse("admin:posthog_team_change", args=[conversation.team_id]),
             conversation.team.name,
         )
+
+    @admin.display(description="Checkpoint storage")
+    def checkpoint_storage(self, conversation: Conversation):
+        if conversation.pk is None:
+            return "—"
+        # Blobs hold the bulk of a thread's bytes; query them via `thread`, not the `checkpoint` FK.
+        blobs = conversation.blobs.aggregate(count=Count("id"), total_bytes=Sum(Length("blob")))
+        return format_html(
+            '{} checkpoints, {} blobs ({}) &nbsp; <a class="button" href="{}">Compact now</a>',
+            conversation.checkpoints.count(),
+            blobs["count"] or 0,
+            filesizeformat(blobs["total_bytes"] or 0),
+            reverse("admin:posthog_ai_conversation_compact", args=[conversation.pk]),
+        )
+
+    def compact_view(self, request, object_id: str):
+        conversation = self.get_object(request, object_id)
+        if conversation is None:
+            self.message_user(request, "Conversation not found.", messages.ERROR)
+            return redirect("admin:posthog_ai_conversation_changelist")
+        # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
+        result = compact_thread(str(conversation.id))
+        if result.compacted:
+            self.message_user(
+                request,
+                f"Compacted — reclaimed {result.checkpoints_deleted} checkpoints and {result.blobs_deleted} blobs.",
+                messages.SUCCESS,
+            )
+        else:
+            self.message_user(
+                request,
+                "Nothing compacted (not idle, awaiting approval, or already compact).",
+                messages.WARNING,
+            )
+        return redirect("admin:posthog_ai_conversation_change", object_id)
 
     @admin.action(description="Compact checkpoints (keep latest, reclaim storage)")
     def compact_checkpoints(self, request, queryset) -> None:
