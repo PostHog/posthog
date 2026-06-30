@@ -205,6 +205,9 @@ class CompanionVerdict:
     # True when the companion moved materially in the symptom window (so it
     # plausibly relates to the cause); False rules it out.
     moved_with_symptom: bool
+    # Quantile the companion was aggregated at (histogram_quantile only); carried
+    # so a re-runnable chart spec can reproduce the same aggregation.
+    quantile: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

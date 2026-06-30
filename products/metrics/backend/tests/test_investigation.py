@@ -83,6 +83,8 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
         # Hero chart + one per companion, each on the symptom's (non-empty) window.
         self.assertEqual([c.metric_name for c in result.chart_specs], ["ingestion_lag", "throughput", "error_rate"])
         self.assertTrue(all(c.anomaly_from and c.anomaly_to for c in result.chart_specs))
+        # Non-histogram aggregations carry no quantile on their chart specs.
+        self.assertTrue(all(c.quantile is None for c in result.chart_specs))
 
     def test_many_services_moving_together_is_a_shared_cause(self):
         seed_metric(
@@ -96,6 +98,24 @@ class TestInvestigate(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(result.symptom.direction, "up")
         self.assertEqual(result.blast_radius, "shared")
+
+    def test_dominant_scale_mover_is_localized_not_shared(self):
+        # A large-footprint service shifts modestly while a tiny one triples. By
+        # magnitude the big service dominates (-> localized); a raw change_ratio
+        # compare would rank the tiny explosive one above it and mislabel the
+        # blast radius "shared".
+        seed_metric(
+            team_id=self.team.id, metric_name="ingestion_lag", points=self._spike(1000.0, 1100.0), service_name="big"
+        )
+        seed_metric(
+            team_id=self.team.id, metric_name="ingestion_lag", points=self._spike(1.0, 3.0), service_name="small"
+        )
+
+        result = self._investigate()
+
+        self.assertEqual(result.symptom.direction, "up")
+        self.assertEqual(result.blast_radius, "localized")
+        self.assertEqual(result.symptom.top_movers[0].label, "big")
 
     def test_flat_metric_yields_low_confidence(self):
         seed_metric(

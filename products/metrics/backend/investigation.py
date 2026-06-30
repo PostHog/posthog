@@ -17,7 +17,7 @@ import datetime as dt
 
 from posthog.models import Team
 
-from products.metrics.backend.anomaly import characterize_anomaly
+from products.metrics.backend.anomaly import characterize_anomaly, dimension_magnitude
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     CompanionVerdict,
@@ -36,6 +36,10 @@ COMPANION_MOVE_THRESHOLD = 0.25
 # One mover dominates (-> localized cause) when its change is at least this
 # multiple of the next mover's.
 DOMINANT_MOVER_RATIO = 2.0
+
+# histogram_quantile defaults to p95 when the caller names no quantile (matching
+# characterize_anomaly); every other aggregation carries none.
+_DEFAULT_HISTOGRAM_QUANTILE = 0.95
 
 # Label keys that name the emitting service, used to implicate one for the
 # logs/traces pivot.
@@ -97,7 +101,7 @@ def investigate(
         trace_exemplars=(),  # filled by the trace-pivot primitive once samples land
         log_filter=_log_filter(service_name, symptom) if service_name else None,
     )
-    chart_specs = _build_chart_specs(symptom, companion_verdicts, filters)
+    chart_specs = _build_chart_specs(symptom, companion_verdicts, filters, quantile)
     confidence = _confidence(symptom, companion_verdicts, blast_radius)
     narrative = _narrate(symptom, companion_verdicts, blast_radius)
 
@@ -142,19 +146,22 @@ def _assess_companion(
         direction=report.direction,
         change_ratio=report.change_ratio,
         moved_with_symptom=moved,
+        quantile=companion.quantile,
     )
 
 
 def _classify_blast_radius(symptom: MetricAnomalyReport) -> str:
     """One mover that dwarfs the rest is a localized culprit; several moving
     together is a shared cause; no movers leaves it unknown. Movers arrive
-    ranked by magnitude, so only the top two matter."""
+    ranked by magnitude (relative change blended with scale), so the dominance
+    test must use that same measure — comparing raw change_ratio here can rank
+    a high-magnitude mover below a tiny but explosive one and flip the verdict."""
     movers = symptom.top_movers
     if not movers:
         return "unknown"
     if len(movers) == 1:
         return "localized"
-    top, second = abs(movers[0].change_ratio), abs(movers[1].change_ratio)
+    top, second = dimension_magnitude(movers[0]), dimension_magnitude(movers[1])
     if second == 0.0 or top >= second * DOMINANT_MOVER_RATIO:
         return "localized"
     return "shared"
@@ -178,13 +185,23 @@ def _log_filter(service_name: str, symptom: MetricAnomalyReport) -> dict[str, st
     }
 
 
+def _chart_quantile(aggregation: str, quantile: float | None) -> float | None:
+    """The quantile a chart re-run needs to reproduce the aggregation: only
+    histogram_quantile uses one, defaulting to p95 when unspecified."""
+    if aggregation == "histogram_quantile":
+        return quantile if quantile is not None else _DEFAULT_HISTOGRAM_QUANTILE
+    return None
+
+
 def _build_chart_specs(
     symptom: MetricAnomalyReport,
     companions: tuple[CompanionVerdict, ...],
     filters: tuple[MetricFilter, ...],
+    symptom_quantile: float | None,
 ) -> tuple[InvestigationChartSpec, ...]:
     """The hero chart (the symptom) plus one per companion, all on the symptom's
-    window so the grids line up when rendered side by side."""
+    window so the grids line up when rendered side by side. Each spec carries the
+    quantile its aggregation needs so a re-run reproduces the same line."""
     specs = [
         InvestigationChartSpec(
             title=f"{symptom.metric_name} ({symptom.aggregation})",
@@ -193,6 +210,7 @@ def _build_chart_specs(
             anomaly_from=symptom.anomaly_from,
             anomaly_to=symptom.anomaly_to,
             filters=filters,
+            quantile=_chart_quantile(symptom.aggregation, symptom_quantile),
         )
     ]
     specs.extend(
@@ -203,6 +221,7 @@ def _build_chart_specs(
             anomaly_from=symptom.anomaly_from,
             anomaly_to=symptom.anomaly_to,
             filters=filters,
+            quantile=_chart_quantile(companion.aggregation, companion.quantile),
         )
         for companion in companions
     )
@@ -242,7 +261,12 @@ def _narrate(
     elif blast_radius == "shared":
         parts.append("Several labels moved together — a shared cause.")
     for companion in companions:
-        moved = "moved with it" if companion.moved_with_symptom else "stayed flat"
+        if companion.moved_with_symptom:
+            moved = "moved with it"
+        elif companion.direction == "flat":
+            moved = "stayed flat"
+        else:
+            moved = "did not move significantly"
         parts.append(f"{companion.role.capitalize()} ({companion.metric_name}) {moved}.")
     return " ".join(parts)
 

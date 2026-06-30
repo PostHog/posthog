@@ -258,6 +258,18 @@ def _discover_candidate_keys(
     return tuple(keys[:MAX_CANDIDATE_KEYS])
 
 
+def dimension_magnitude(mover: MetricAnomalyDimension) -> float:
+    """How much a label value actually moved, blending relative change with
+    scale: a tiny series that tripled and a large series that barely budged
+    should not rank — nor be judged the dominant cause — on ratio alone. The
+    blast-radius classifier must compare movers on this same measure they were
+    ranked by, or the top mover by magnitude can lose a raw-ratio comparison.
+    """
+    if mover.baseline_value == 0 or mover.change_ratio <= 0:
+        return abs(mover.anomaly_value - mover.baseline_value)
+    return abs(math.log(mover.change_ratio)) * max(abs(mover.anomaly_value), abs(mover.baseline_value))
+
+
 def _find_top_movers(
     *,
     run: Callable[..., list[dict[str, Any]]],
@@ -302,10 +314,5 @@ def _find_top_movers(
                 )
             )
 
-    def _magnitude(mover: MetricAnomalyDimension) -> float:
-        if mover.baseline_value == 0 or mover.change_ratio <= 0:
-            return abs(mover.anomaly_value - mover.baseline_value)
-        return abs(math.log(mover.change_ratio)) * max(abs(mover.anomaly_value), abs(mover.baseline_value))
-
-    movers.sort(key=lambda m: (-_magnitude(m), m.key, m.label))
+    movers.sort(key=lambda m: (-dimension_magnitude(m), m.key, m.label))
     return tuple(movers[:MAX_TOP_MOVERS])
