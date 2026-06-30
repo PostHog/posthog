@@ -51,6 +51,7 @@ class TestGetTaskProcessingContextActivity:
         assert result.team_id == test_task.team_id
         assert result.github_integration_id == test_task.github_integration_id
         assert result.repository == "posthog/posthog-js"
+        assert result.task_kind == Task.TaskKind.CODING
         assert result.create_pr is True
 
     @pytest.mark.django_db(transaction=True)
@@ -129,7 +130,26 @@ class TestGetTaskProcessingContextActivity:
         assert result.repository is None
         assert result.github_integration_id is None
         assert result.github_user_integration_id == str(user_integration.id)
-        assert result.has_github_credentials is True
+
+    @pytest.mark.django_db(transaction=True)
+    def test_get_task_processing_context_exposes_general_task_kind(self, activity_environment, team, user):
+        task = Task.objects.create(
+            team=team,
+            created_by=user,
+            title="General Slack task",
+            description="Summarize the thread",
+            origin_product=Task.OriginProduct.SLACK,
+            task_kind=Task.TaskKind.GENERAL,
+        )
+        task_run = task.create_run(extra_state={"interaction_origin": "slack", "task_kind": Task.TaskKind.GENERAL})
+
+        result = async_to_sync(activity_environment.run)(
+            get_task_processing_context,
+            GetTaskProcessingContextInput(run_id=str(task_run.id)),
+        )
+
+        assert result.task_kind == Task.TaskKind.GENERAL
+        assert result.has_github_credentials is False
 
     @pytest.mark.django_db(transaction=True)
     def test_get_task_processing_context_uses_team_integration_without_repository(

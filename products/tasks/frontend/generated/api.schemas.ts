@@ -385,6 +385,17 @@ export const OriginProductEnumApi = {
 } as const
 
 /**
+ * * `coding` - Coding
+ * * `general` - General
+ */
+export type TaskKindEnumApi = (typeof TaskKindEnumApi)[keyof typeof TaskKindEnumApi]
+
+export const TaskKindEnumApi = {
+    Coding: 'coding',
+    General: 'general',
+} as const
+
+/**
  * * `implementation` - Implementation
  */
 export type SignalReportTaskRelationshipEnumApi =
@@ -453,6 +464,11 @@ export interface TaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply */
     origin_product?: OriginProductEnumApi
+    /** Task execution kind: 'coding' for code/PR work or 'general' for non-coding AI coworker work.
+     *
+     * * `coding` - Coding
+     * * `general` - General */
+    task_kind?: TaskKindEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255
@@ -543,6 +559,11 @@ export interface PatchedTaskWriteApi {
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply */
     origin_product?: OriginProductEnumApi
+    /** Task execution kind: 'coding' for code/PR work or 'general' for non-coding AI coworker work.
+     *
+     * * `coding` - Coding
+     * * `general` - General */
+    task_kind?: TaskKindEnumApi
     /**
      * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
      * @maxLength 255

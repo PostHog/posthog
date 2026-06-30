@@ -21,6 +21,11 @@ export enum OriginProduct {
     SIGNALS_SCOUT = 'signals_scout',
 }
 
+export enum TaskKind {
+    CODING = 'coding',
+    GENERAL = 'general',
+}
+
 export enum TaskRunStatus {
     NOT_STARTED = 'not_started',
     QUEUED = 'queued',
@@ -70,6 +75,7 @@ export interface Task {
     title: string
     description: string
     origin_product: OriginProduct
+    task_kind: TaskKind
     repository: string | null
     github_integration: number | null
     json_schema: Record<string, any> | null
@@ -87,8 +93,8 @@ export interface Task {
 }
 
 export type TaskUpsertProps = Optional<
-    Pick<Task, 'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'>,
-    'title' | 'description' | 'origin_product' | 'github_integration' | 'repository'
+    Pick<Task, 'title' | 'description' | 'origin_product' | 'task_kind' | 'github_integration' | 'repository'>,
+    'title' | 'description' | 'origin_product' | 'task_kind' | 'github_integration' | 'repository'
 >
 
 export interface TaskListParams {

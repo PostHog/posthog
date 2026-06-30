@@ -6,7 +6,11 @@ from temporalio import activity
 
 from posthog.llm.gateway_client import get_llm_client
 from posthog.models.integration import SlackIntegration
-from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
+from posthog.temporal.ai.slack_app.types import (
+    PostHogCodeConnectorId,
+    PostHogCodeSlackMentionWorkflowInputs,
+    PostHogCodeTaskRoutingOutcome,
+)
 from posthog.temporal.common.utils import close_db_connections
 
 from products.slack_app.backend.models import SlackThreadTaskMapping
@@ -14,6 +18,8 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 logger = structlog.get_logger(__name__)
 
 CLASSIFIER_THREAD_HISTORY_MESSAGES = 10
+_GENERAL_TASK_CONNECTORS: list[PostHogCodeConnectorId] = ["slack_thread", "posthog_mcp"]
+_CODING_TASK_CONNECTORS: list[PostHogCodeConnectorId] = ["slack_thread", "posthog_mcp", "github_repository"]
 
 
 def classify_task_needs_repo(
@@ -67,6 +73,16 @@ def classify_task_needs_repo(
         "revenue",
         "marketing analytics",
     )
+    general_coworker_terms = (
+        "summarize",
+        "summary",
+        "takeaways",
+        "write up",
+        "report",
+        "analyze",
+        "investigate",
+        "explain",
+    )
     explicit_code_patterns = (
         r"\brepository\b",
         r"\brepo\b",
@@ -88,8 +104,12 @@ def classify_task_needs_repo(
         r"\bmigration\b",
     )
 
-    if any(term in normalized for term in product_debug_terms) and not any(
-        re.search(pattern, normalized) for pattern in explicit_code_patterns
+    if any(re.search(pattern, normalized) for pattern in explicit_code_patterns):
+        logger.info("slack_app_classify_task_needs_repo_heuristic_repo", event_text=event_text)
+        return True
+
+    if any(term in normalized for term in product_debug_terms) or any(
+        term in normalized for term in general_coworker_terms
     ):
         logger.info("slack_app_classify_task_needs_repo_heuristic_non_repo", event_text=event_text)
         return False
@@ -143,12 +163,40 @@ def classify_task_needs_repo(
         return False
 
 
+def classify_task_routing(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> PostHogCodeTaskRoutingOutcome:
+    """Classify a new Slack task into a task kind and required connectors."""
+    needs_repo = classify_task_needs_repo(event_text, thread_messages)
+    if needs_repo:
+        return PostHogCodeTaskRoutingOutcome(
+            task_kind="coding",
+            required_connectors=list(_CODING_TASK_CONNECTORS),
+            reason="github_repository_required",
+        )
+
+    return PostHogCodeTaskRoutingOutcome(
+        task_kind="general",
+        required_connectors=list(_GENERAL_TASK_CONNECTORS),
+        reason="built_in_general_connectors",
+    )
+
+
 @activity.defn
 def classify_posthog_code_task_needs_repo_activity(
     event_text: str,
     thread_messages: list[dict[str, str]],
 ) -> bool:
     return classify_task_needs_repo(event_text, thread_messages)
+
+
+@activity.defn
+def classify_posthog_code_task_routing_activity(
+    event_text: str,
+    thread_messages: list[dict[str, str]],
+) -> PostHogCodeTaskRoutingOutcome:
+    return classify_task_routing(event_text, thread_messages)
 
 
 def classify_message_is_agent_directed(
