@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
-    _is_invalid_page_token_error,
+    _is_stale_page_token_error,
     _is_transient_client_init_error,
     _is_transient_grpc_error,
     _load_client_with_transient_retry,
@@ -430,23 +430,33 @@ class _FakeResumableManager:
         self.saved_states.append(data.page_token)
 
 
-class TestInvalidPageTokenDetection:
+class TestStalePageTokenDetection:
     @pytest.mark.parametrize(
         "exc, expected",
         [
             (_google_ads_exception(RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN), True),
+            # Google returns a distinct EXPIRED_PAGE_TOKEN when a once-valid token aged out
+            # between runs — the resumption recovery must treat it the same as INVALID_PAGE_TOKEN.
+            (_google_ads_exception(RequestErrorEnum.RequestError.EXPIRED_PAGE_TOKEN), True),
             (_google_ads_exception(RequestErrorEnum.RequestError.RESOURCE_NAME_MISSING), False),
             # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
             (SimpleNamespace(failure=None), False),
         ],
     )
-    def test_is_invalid_page_token_error(self, exc, expected):
-        assert _is_invalid_page_token_error(exc) is expected
+    def test_is_stale_page_token_error(self, exc, expected):
+        assert _is_stale_page_token_error(exc) is expected
 
 
 class TestSearchPageTokenResumption:
-    def test_restarts_pagination_when_saved_page_token_expired(self):
-        service = _FakeService(_single_page())
+    @pytest.mark.parametrize(
+        "request_error",
+        [
+            RequestErrorEnum.RequestError.INVALID_PAGE_TOKEN,
+            RequestErrorEnum.RequestError.EXPIRED_PAGE_TOKEN,
+        ],
+    )
+    def test_restarts_pagination_when_saved_page_token_stale(self, request_error):
+        service = _FakeService(_single_page(), error_on_token=_google_ads_exception(request_error))
         manager = _FakeResumableManager(saved_token="STALE_TOKEN")
 
         tables = list(
