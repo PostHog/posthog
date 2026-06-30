@@ -1258,7 +1258,9 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
     })
 
     describe('_parseInternalEventsBatch', () => {
-        const rawInternalEvent = (overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}): any => ({
+        const rawInternalEvent = (
+            overrides: { team_id?: number; event?: Record<string, any>; person?: any } = {}
+        ): any => ({
             value: Buffer.from(
                 JSON.stringify({
                     team_id: overrides.team_id ?? 1,
