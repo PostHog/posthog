@@ -2075,7 +2075,11 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                     raise serializers.ValidationError(
                         {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
                     )
+                # Search applies its own exact-first relevance ordering — don't override it.
                 queryset = self._apply_search(queryset, search)
+            else:
+                # Newest first — stable order for pagination and surfaces recent surveys first in pickers.
+                queryset = queryset.order_by("-created_at")
         return queryset
 
     @tracer.start_as_current_span("SurveyViewSet.list")
