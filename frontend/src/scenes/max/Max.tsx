@@ -30,6 +30,8 @@ import { SidePanelTab } from '~/types'
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { MaxNotConfigured } from './components/MaxNotConfigured'
+import { PhaiSidePanelChat } from './components/PhaiSidePanelChat'
+import { PhaiViewToggle } from './components/PhaiViewToggle'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
 import { ThreadAutoScroller } from './components/ThreadAutoScroller'
@@ -96,7 +98,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     } = useValues(maxLogic(logicProps))
     const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
-    const { isMaxAvailable } = useValues(maxGlobalLogic)
+    const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
 
     const threadProps: MaxThreadLogicProps = {
         ...logicProps,
@@ -111,7 +113,10 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     ) : (
         <BindLogic logic={maxLogic} props={logicProps}>
             <BindLogic logic={maxThreadLogic} props={threadProps}>
-                {conversationHistoryVisible ? (
+                {effectivePhaiView === 'new' ? (
+                    // Side panel only shows the new composer + thread viewer — the tasks list lives on /ai.
+                    <PhaiSidePanelChat />
+                ) : conversationHistoryVisible ? (
                     <ConversationHistory sidePanel={sidePanel} />
                 ) : !threadVisible ? (
                     // pb-7 below is intentionally specific - it's chosen so that the bottom-most chat's title
@@ -201,6 +206,7 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
                         <IconShare className="text-tertiary size-3 group-hover:text-primary z-10" />
                     </ButtonPrimitive>
                 )}
+                <PhaiViewToggle variant="primitive" />
                 <Link
                     buttonProps={{
                         iconOnly: true,
