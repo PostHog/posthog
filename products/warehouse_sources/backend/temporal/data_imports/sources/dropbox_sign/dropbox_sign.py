@@ -84,13 +84,14 @@ def _redact(item: Any, paths: list[str]) -> Any:
         return item
     for path in paths:
         keys = path.split(".")
-        parent = item
+        parent: Any = item
         for key in keys[:-1]:
-            parent = parent.get(key) if isinstance(parent, dict) else None
             if not isinstance(parent, dict):
                 break
+            parent = parent.get(key)
         else:
-            parent.pop(keys[-1], None)
+            if isinstance(parent, dict):
+                parent.pop(keys[-1], None)
     return item
 
 
