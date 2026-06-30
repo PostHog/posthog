@@ -1,19 +1,20 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo } from 'react'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
+import type { ThreadRow as ThreadRowData } from '../logics/threadGroups'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
-import type { ThreadItem } from '../types/streamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
 import { RunContext } from './RunContext'
 import { ThreadRow } from './ThreadRow'
+import { ToolGroupChip } from './tool/ToolGroupChip'
 import { VirtualizedThread } from './VirtualizedThread'
 
 /** Stable row key — defined at module scope so `getItemKey` never changes identity across renders. */
-function getThreadItemKey(item: ThreadItem): string {
-    return item.id
+function getThreadRowKey(row: ThreadRowData): string {
+    return row.id
 }
 
 interface ThreadViewProps {
@@ -53,6 +54,7 @@ export function ThreadView({
 }: ThreadViewProps): JSX.Element {
     const {
         threadItems,
+        threadRows,
         toolInvocations,
         isThinking,
         streamPhase,
@@ -61,6 +63,7 @@ export function ThreadView({
         currentRunStatus,
         contextUsage,
     } = useValues(runStreamLogic)
+    const { setGroupOverride } = useActions(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
@@ -77,7 +80,7 @@ export function ThreadView({
                     <ThreadHeader branch={branch} baseBranch={baseBranch} repo={repo} />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [branch, baseBranch, repo]
+        [branch, baseBranch, repo, rowClassName]
     )
 
     // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
@@ -102,29 +105,53 @@ export function ThreadView({
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [showThinking, thinkingPhase, pullRequestUrl, branch, showContextUsageFooter]
+        [showThinking, thinkingPhase, pullRequestUrl, branch, showContextUsageFooter, rowClassName]
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => (
+        (row: ThreadRowData, index: number): JSX.Element => (
             <VirtualizedThread.Row className={rowClassName}>
-                <ThreadRow
-                    item={item}
-                    isLast={index === threadItems.length - 1}
-                    isThinking={isThinking}
-                    toolInvocations={toolInvocations}
-                    turnComplete={turnComplete}
-                    turnCancelled={turnCancelled}
-                />
+                {row.kind === 'tool_group' ? (
+                    <ToolGroupChip
+                        summary={row.summary}
+                        expanded={row.expanded}
+                        turnComplete={row.turnComplete}
+                        onToggle={() => setGroupOverride(row.id, !row.expanded)}
+                    >
+                        {row.expanded
+                            ? row.items.map((it) => (
+                                  <div key={it.id} className="empty:hidden">
+                                      <ThreadRow
+                                          item={it}
+                                          isLast={false}
+                                          isThinking={isThinking}
+                                          toolInvocations={toolInvocations}
+                                          turnComplete={row.turnComplete}
+                                          turnCancelled={turnCancelled}
+                                      />
+                                  </div>
+                              ))
+                            : null}
+                    </ToolGroupChip>
+                ) : (
+                    <ThreadRow
+                        item={row.item}
+                        isLast={index === threadRows.length - 1}
+                        isThinking={isThinking}
+                        toolInvocations={toolInvocations}
+                        turnComplete={turnComplete}
+                        turnCancelled={turnCancelled}
+                    />
+                )}
             </VirtualizedThread.Row>
         ),
-        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName]
+        [threadRows.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName, setGroupOverride]
     )
 
     return (
         <VirtualizedThread.Root
-            items={threadItems}
-            getItemKey={getThreadItemKey}
+            items={threadRows}
+            getItemKey={getThreadRowKey}
             header={header}
             footer={footer}
             stickToBottom

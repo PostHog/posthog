@@ -48,6 +48,7 @@ import {
     isTaskRunStateFrame,
 } from '../types/wireTypes'
 import type { runStreamLogicType } from './runStreamLogicType'
+import { type CollapseMode, COLLAPSE_MODE_DEFAULT, type ThreadRow, buildThreadGroups } from './threadGroups'
 
 export type RunSseStatus = 'idle' | 'connecting' | 'open' | 'reconnecting' | 'closed' | 'error'
 export type RunStatus = 'queued' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
@@ -1208,6 +1209,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
         setContextUsage: (usage: ContextUsage) => ({ usage }),
         /** Diagnostic `_posthog/sdk_session` plumbing — no UI. */
         setSdkSession: (session: SdkSession) => ({ session }),
+        /** How aggressively completed turns collapse into a tool-call group chip. */
+        setCollapseMode: (mode: CollapseMode) => ({ mode }),
+        /** Ephemeral per-group expand override (true=expanded, false=collapsed), keyed by group id. */
+        setGroupOverride: (groupId: string, expanded: boolean) => ({ groupId, expanded }),
+        /** Drop all per-group overrides (e.g. when the global collapse mode changes). */
+        clearGroupOverrides: true,
         reset: true,
     }),
     reducers({
@@ -1477,6 +1484,24 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 reset: () => null,
             },
         ],
+        // How completed turns collapse into a tool-call group chip. Ephemeral view state, per stream.
+        collapseMode: [
+            COLLAPSE_MODE_DEFAULT,
+            {
+                setCollapseMode: (_, { mode }) => mode,
+                reset: () => COLLAPSE_MODE_DEFAULT,
+            },
+        ],
+        // Per-group expand overrides keyed by group id. `true` = expanded, `false` = collapsed, absent
+        // = follow the collapse mode. Not persisted; wiped when the mode changes (see listeners).
+        groupOverrides: [
+            {} as Record<string, boolean>,
+            {
+                setGroupOverride: (state, { groupId, expanded }) => ({ ...state, [groupId]: expanded }),
+                clearGroupOverrides: (state) => (Object.keys(state).length === 0 ? state : {}),
+                reset: () => ({}),
+            },
+        ],
     }),
     selectors({
         /**
@@ -1509,6 +1534,16 @@ export const runStreamLogic = kea<runStreamLogicType>([
         toolInvocations: [
             (s) => [s.foldedThread],
             (foldedThread): Map<string, ToolInvocation> => foldedThread.toolInvocations,
+        ],
+        /**
+         * The thread folded into rows for rendering: each maximal run of tool calls + reasoning
+         * collapses into a single `tool_group` chip per the collapse mode and per-group overrides,
+         * everything else passes through as its own row. Memoized on the projection + view state.
+         */
+        threadRows: [
+            (s) => [s.threadItems, s.toolInvocations, s.collapseMode, s.groupOverrides, s.turnComplete],
+            (threadItems, toolInvocations, collapseMode, groupOverrides, turnComplete): ThreadRow[] =>
+                buildThreadGroups(threadItems, toolInvocations, collapseMode, groupOverrides, turnComplete),
         ],
         /**
          * Whether the agent is actively working a turn — drives the thread's thinking indicator.
@@ -1629,6 +1664,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
     }),
     listeners(({ values, actions, cache, props }) => ({
+        // Changing the global collapse mode wipes the ephemeral per-group overrides.
+        setCollapseMode: () => {
+            actions.clearGroupOverrides()
+        },
         bootstrapRun: async ({ taskId, runId, justCreatedRun }, breakpoint) => {
             const projectId = values.currentProjectId
             if (projectId === null) {
