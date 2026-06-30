@@ -53,6 +53,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Filter, OrganizationMembership, SharingConfiguration, Team, User
 from posthog.models.project import Project
+from posthog.schema_migrations.upgrade import upgrade
 from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
@@ -2407,7 +2408,8 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/insights/{insight_id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["query"], query)
+        # The API upgrades stored queries on read, so the returned node carries the latest schema version.
+        self.assertEqual(response.json()["query"], upgrade(query))
 
         response = self.client.get(
             f"/api/projects/{self.team.id}/insights/{insight_id}/?refresh=true&from_dashboard={dashboard_id}"
