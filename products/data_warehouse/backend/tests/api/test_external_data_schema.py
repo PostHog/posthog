@@ -3185,31 +3185,21 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["row_filters"] == filters
 
-    def test_unknown_column_rejected(self):
+    @parameterized.expand(
+        [
+            ("unknown_column", [{"column": "does_not_exist", "operator": ">", "value": 1}], "Unknown column"),
+            ("disallowed_operator", [{"column": "id", "operator": "LIKE", "value": 1}], None),
+            ("type_mismatch", [{"column": "id", "operator": ">", "value": "not-an-int"}], None),
+            ("bad_date_value", [{"column": "created_at", "operator": ">", "value": "nope"}], None),
+            ("unsupported_column_type", [{"column": "geom", "operator": "=", "value": "x"}], None),
+        ]
+    )
+    def test_invalid_row_filter_rejected(self, _name, row_filters, expected_message):
         schema = self._create()
-        response = self._patch(schema, [{"column": "does_not_exist", "operator": ">", "value": 1}])
+        response = self._patch(schema, row_filters)
         assert response.status_code == 400
-        assert "Unknown column" in str(response.json())
-
-    def test_disallowed_operator_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "id", "operator": "LIKE", "value": 1}])
-        assert response.status_code == 400
-
-    def test_type_mismatch_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "id", "operator": ">", "value": "not-an-int"}])
-        assert response.status_code == 400
-
-    def test_bad_date_value_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "created_at", "operator": ">", "value": "nope"}])
-        assert response.status_code == 400
-
-    def test_unsupported_column_type_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "geom", "operator": "=", "value": "x"}])
-        assert response.status_code == 400
+        if expected_message:
+            assert expected_message in str(response.json())
 
     def test_row_filters_rejected_for_direct_postgres_source(self):
         source = ExternalDataSource.objects.create(
