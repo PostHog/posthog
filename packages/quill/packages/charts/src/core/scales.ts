@@ -489,6 +489,20 @@ export function buildSegmentResolveValue(
     }
 }
 
+/** Returns the stacked bottom value for each series — use with {@link buildStackedPositionValue}
+ *  to compute per-segment midpoints for tooltip hover detection. */
+export function buildStackedBottomValue(
+    stackedData: Map<string, StackedBand> | undefined
+): ResolveValueFn | undefined {
+    if (!stackedData) {
+        return undefined
+    }
+    return (s, dataIndex) => {
+        const bottom = stackedData.get(s.key)?.bottom[dataIndex]
+        return Number.isFinite(bottom) ? (bottom as number) : 0
+    }
+}
+
 export interface BarScaleSet {
     band: ScaleBand<string>
     value: D3YScale

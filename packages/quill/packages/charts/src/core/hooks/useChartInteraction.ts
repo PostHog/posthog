@@ -38,6 +38,9 @@ interface UseChartInteractionOptions<Meta> {
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
      *  segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** Resolves the stacked bottom value per series — passed to buildTooltipContext so yPixel
+     *  is set to the segment midpoint, making closest-series detection match the visual boundary. */
+    resolveBottomValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
@@ -72,6 +75,7 @@ export function useChartInteraction<Meta = unknown>({
     onDateRangeZoom,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
+    resolveBottomValue,
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
@@ -107,6 +111,7 @@ export function useChartInteraction<Meta = unknown>({
                 interactionAxis,
                 prev.hoverPosition,
                 effectivePositionResolveRef.current,
+                resolveBottomValue,
                 scales.extent?.(labels[prev.dataIndex]),
                 prev.hoverPosition ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition) : undefined
             )
@@ -203,6 +208,7 @@ export function useChartInteraction<Meta = unknown>({
                         interactionAxis,
                         { x: mouseX, y: mouseY },
                         effectivePositionResolve,
+                        resolveBottomValue,
                         scales.extent?.(labels[index]),
                         scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
                     )
