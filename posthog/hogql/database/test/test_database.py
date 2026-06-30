@@ -39,6 +39,7 @@ from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
     ExpressionField,
     FieldTraverser,
     LazyJoin,
@@ -1003,7 +1004,9 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             assert isinstance(resolved, DirectSnowflakeTable), typed_name
         # Columns resolve regardless of case and report their canonical stored name.
         assert canonical.has_field("n_name")
-        assert canonical.get_field("N_Name").name == "N_NAME"
+        resolved_field = canonical.get_field("N_Name")
+        assert isinstance(resolved_field, DatabaseField)
+        assert resolved_field.name == "N_NAME"
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_keeps_non_snowflake_tables_case_sensitive(self, patch_execute):

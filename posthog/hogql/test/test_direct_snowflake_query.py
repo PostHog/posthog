@@ -1,4 +1,5 @@
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import unittest
@@ -21,6 +22,9 @@ from posthog.hogql.snowflake_connection_cache import (
 )
 
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+
+if TYPE_CHECKING:
+    from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import SnowflakeSourceConfig
 
 # Snowflake connector type codes (indices into FIELD_ID_TO_NAME). cursor.description
 # reports the integer code, not a name — see snowflake_field_type_to_clickhouse_type.
@@ -312,7 +316,7 @@ class TestSnowflakeConnectionCache(unittest.TestCase):
 
     def _impl_and_config(
         self, secret: str = "pw", account: str = "acme-prod"
-    ) -> tuple[MagicMock, SimpleNamespace, MagicMock]:
+    ) -> tuple[MagicMock, "SnowflakeSourceConfig", MagicMock]:
         connection = MagicMock()
         connection.is_closed.return_value = False
         cm = MagicMock()
@@ -324,7 +328,7 @@ class TestSnowflakeConnectionCache(unittest.TestCase):
         config = SimpleNamespace(
             account_id=account, warehouse="WH", database="DB", role="R", schema="PUBLIC", auth_type=auth
         )
-        return implementation, config, connection
+        return implementation, cast("SnowflakeSourceConfig", config), connection
 
     def test_reuses_connection_across_calls(self):
         implementation, config, connection = self._impl_and_config()
