@@ -137,7 +137,11 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
             } catch {
                 // Best-effort enrichment — on failure we just leave the rows scannable.
             } finally {
-                setRefreshingObservations(false)
+                // Only the foreground path touches the flag — a background poll resolving mid-flight must
+                // not clear an overlay a concurrent foreground fetch is still showing.
+                if (!background) {
+                    setRefreshingObservations(false)
+                }
             }
         },
         [visibleIdsKey, currentTeamId, scannerId]
