@@ -192,15 +192,26 @@ export interface BuiltAgentTools {
      * sanitizes names on the wire and uses this map to translate the names a
      * strict provider echoes back to the original before the loop matches. */
     nameToId: Map<string, string>
-    /** `<prefix>__call_tool` name → its client, per proxied connection. The
-     *  driver re-keys the approval gate on the underlying tool from the args. */
-    mcpProxyCallTools: Map<string, OpenedMcp>
+    /** `<prefix>__call_tool` name → its proxy entry, per proxied connection.
+     *  The driver re-keys the approval gate on the underlying tool from the
+     *  args, using `resolveRemoteName` so the gate and dispatch agree on which
+     *  remote name is invoked (a raw `<prefix>__<x>` tool that exists in the
+     *  catalog stays raw; only an extra `<prefix>__` from the model is stripped). */
+    mcpProxyCallTools: Map<string, ProxyCallToolEntry>
+}
+
+/** What the driver needs at gate time per proxied connection: the client (for
+ *  `.prefix`, kept here so callers don't reach across to `mcp-clients`) plus
+ *  the same resolver dispatch uses. Bundled so the two can't drift. */
+export interface ProxyCallToolEntry {
+    client: OpenedMcp
+    resolveRemoteName: (raw: string) => string
 }
 
 export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): Promise<BuiltAgentTools> {
     const tools: AgentTool<TSchema, ToolResultDetails>[] = []
     const seen = new Set<string>()
-    const mcpProxyCallTools = new Map<string, OpenedMcp>()
+    const mcpProxyCallTools = new Map<string, ProxyCallToolEntry>()
 
     // `@posthog/load-skill` is auto-included only when the agent has skills —
     // exposing it otherwise just adds a tool that errors on use.
@@ -314,7 +325,7 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             })
             const proxy = makeMcpProxyTools(client, exposed)
             tools.push(...proxy.tools)
-            mcpProxyCallTools.set(proxy.callToolName, client)
+            mcpProxyCallTools.set(proxy.callToolName, { client, resolveRemoteName: proxy.resolveRemoteName })
         }
     }
 

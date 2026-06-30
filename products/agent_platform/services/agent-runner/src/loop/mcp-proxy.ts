@@ -28,6 +28,39 @@ export interface McpProxyTools {
     tools: AgentTool<TSchema, ToolResultDetails>[]
     /** The driver keys its dynamic approval gate on this. */
     callToolName: string
+    /** Pure resolver, captured so the driver's gate can mirror dispatch
+     *  resolution exactly. See {@link resolveProxyRemoteName} for the rule. */
+    resolveRemoteName: (raw: string) => string
+}
+
+/**
+ * Map a `call_tool({tool_name})` arg to the actual remote name that will be
+ * dispatched. The rule must match what `call_tool` does at execute time — the
+ * driver's dynamic approval gate keys on `<prefix>__<resolved>`, and if it
+ * resolves differently from dispatch, an `approve`-gated tool can run
+ * unapproved. The precedence is:
+ *
+ *   1. raw exists in the exposed catalog → use it as-is. This is load-bearing
+ *      for the collision case: a remote tool whose RAW name starts with
+ *      `<prefix>__` (e.g. `big__delete` on the `big` server) must dispatch and
+ *      gate as itself, not as the stripped `delete`.
+ *   2. raw starts with our `<prefix>__` AND the stripped name exists → strip.
+ *      This is the natural mistake-tolerance for the model, which sees tools
+ *      as `<prefix>__<name>` and often passes that form back as `tool_name`.
+ *   3. otherwise → return raw (dispatch will surface `unknown_tool`).
+ */
+export function resolveProxyRemoteName(raw: string, prefix: string, has: (name: string) => boolean): string {
+    if (has(raw)) {
+        return raw
+    }
+    const marker = `${prefix}__`
+    if (raw.startsWith(marker)) {
+        const stripped = raw.slice(marker.length)
+        if (has(stripped)) {
+            return stripped
+        }
+    }
+    return raw
 }
 
 export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): McpProxyTools {
@@ -37,16 +70,7 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
     const getSchemaName = `${prefix}__${PROXY_GET_SCHEMA_TOOL}`
     const callToolName = `${prefix}__${PROXY_CALL_TOOL}`
 
-    // The model only ever SEES tools as `<prefix>__<name>`, so it often passes
-    // that prefixed form as `tool_name`. Accept it: strip our own prefix when the
-    // raw name resolves, so the natural mistake works instead of unknown_tool.
-    const resolveRemoteName = (raw: string): string => {
-        if (byName.has(raw)) {
-            return raw
-        }
-        const stripped = raw.startsWith(`${prefix}__`) ? raw.slice(prefix.length + 2) : raw
-        return byName.has(stripped) ? stripped : raw
-    }
+    const resolveRemoteName = (raw: string): string => resolveProxyRemoteName(raw, prefix, (n) => byName.has(n))
 
     const surfaceNote =
         `This server exposes ${exposed.length} tools on demand rather than inline. ` +
@@ -162,5 +186,5 @@ export function makeMcpProxyTools(client: OpenedMcp, exposed: RemoteMcpTool[]): 
         },
     }
 
-    return { tools: [exploreTool, getSchemaTool, callTool], callToolName }
+    return { tools: [exploreTool, getSchemaTool, callTool], callToolName, resolveRemoteName }
 }

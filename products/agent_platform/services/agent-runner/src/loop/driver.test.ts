@@ -695,6 +695,66 @@ describe('driver runSession', () => {
             expect(rows[0].state).toBe('queued')
         })
 
+        it('proxy call_tool gates a remote tool whose RAW name shadows a `<prefix>__` form (no unconditional-strip bypass)', async () => {
+            // hex / veria (Medium): the proxy's `resolveRemoteName` prefers the
+            // RAW arg when it exists in the catalog (only strips `<prefix>__`
+            // when the stripped name resolves). The driver's gate used to strip
+            // unconditionally, so a remote tool literally named `big__delete`
+            // dispatched as `big__delete` but gated as `delete` — a missing
+            // tools[] entry, `default_tool_approval: allow` falls through, and
+            // the `approve` override on the real tool was bypassed. With both
+            // paths sharing the same resolver, the gate keys on the actual
+            // remote name and the queue holds. (Prompt-injection bypass guard.)
+            const shadowRef: McpRef = AgentSpecSchema.parse({
+                model: FAUX_MODEL_ID,
+                mcps: [
+                    {
+                        kind: 'agent',
+                        // `allow` default + an `approve` per-tool override is the
+                        // exact configuration that the old bypass made unsafe.
+                        default_tool_approval: 'allow',
+                        id: 'big',
+                        url: 'https://example.com/big',
+                        secrets: [],
+                        tools: [
+                            {
+                                name: 'big__delete',
+                                level: 'approve',
+                                approval_policy: { type: 'principal', ttl_ms: 900_000 },
+                            },
+                        ],
+                    },
+                ],
+            }).mcps[0]
+            const mcp = makeFakeMcp('big', shadowRef, manyTools('big__delete'))
+            const approvals = new PgApprovalStore(pool)
+            const session = makeSession({
+                principal: principalAlice,
+                conversation: [{ role: 'user', content: 'delete it', timestamp: Date.now() }],
+            })
+            const out = await run(makeRev({ mcps: [shadowRef as never] }), session, {
+                script: [
+                    // Model passes the RAW remote name (which itself starts with
+                    // `big__`). The proxy resolver prefers this raw form because
+                    // it exists in the exposed catalog; the gate must agree.
+                    toolUse([call('big__call_tool', { tool_name: 'big__delete', arguments: {} })]),
+                    stop('queued'),
+                ],
+                approvals,
+                mcpClients: [mcp],
+            })
+            expect(out.state).toBe('completed')
+            // Gate held: the remote was NOT dispatched. (The bypass would show
+            // up here as `mcp.calls` containing the `big__delete` invocation.)
+            expect(mcp.calls).toEqual([])
+            const rows = await approvals.listBySession(TEST_SESSION_ID)
+            expect(rows).toHaveLength(1)
+            // The approval row is keyed on `<prefix>__<resolvedRawName>` — the
+            // doubled-prefix form a strip-less resolver produces here.
+            expect(rows[0].tool_name).toBe('big__big__delete')
+            expect(rows[0].state).toBe('queued')
+        })
+
         it('proxy explore_tools stays ungated even under an approve default (synthetic helper, proxy-aware skip)', async () => {
             // Regression guard for the proxy-aware exemption: with the blanket
             // name-based exemption removed from lookupMcpToolApproval, the driver

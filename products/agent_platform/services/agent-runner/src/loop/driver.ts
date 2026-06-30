@@ -602,21 +602,22 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                 // Proxy `call_tool` gates dynamically: the underlying tool is
                 // only known at call time (the `tool_name` arg), so re-key the
                 // gate on `<prefix>__<tool_name>` per call.
-                const proxyClient = mcpProxyCallTools.get(id)
-                if (proxyClient) {
+                const proxyEntry = mcpProxyCallTools.get(id)
+                if (proxyEntry) {
                     const realProxyExecute = tool.execute as RealToolExecute
                     tool.execute = async (toolCallId, args) => {
                         const a = (args ?? {}) as Record<string, unknown>
                         const raw = typeof a.tool_name === 'string' ? a.tool_name : ''
-                        // The model usually passes the prefixed name it SEES
-                        // (`<prefix>__<tool>`); the proxy strips that prefix before
-                        // dispatch (`resolveRemoteName`), so the gate must strip it
-                        // too. Otherwise the lookup keys on a doubled prefix
-                        // (`big__big__promote`), misses the per-tool gate, and an
-                        // `approve` tool runs unapproved.
-                        const marker = `${proxyClient.prefix}${PREFIX_SEPARATOR}`
-                        const remoteName = raw.startsWith(marker) ? raw.slice(marker.length) : raw
-                        const exposedName = `${proxyClient.prefix}${PREFIX_SEPARATOR}${remoteName}`
+                        // Resolve the same way `call_tool` will at dispatch time
+                        // (mcp-proxy.ts `resolveProxyRemoteName`): prefer the raw
+                        // name when it exists in the exposed catalog, only strip
+                        // `<prefix>__` when the stripped name does. Unconditionally
+                        // stripping was a bypass: a remote tool whose RAW name was
+                        // `<prefix>__delete` would gate as `delete` (no entry,
+                        // policy=allow) while dispatch ran the raw `<prefix>__delete`.
+                        // Sharing the resolver keeps the two paths in lockstep.
+                        const remoteName = proxyEntry.resolveRemoteName(raw)
+                        const exposedName = `${proxyEntry.client.prefix}${PREFIX_SEPARATOR}${remoteName}`
                         const gate = lookupMcpToolApproval(exposedName, rev.spec)
                         if (gate?.requires_approval) {
                             return queueGated(exposedName, toolCallId, a, gate.approval_policy)
