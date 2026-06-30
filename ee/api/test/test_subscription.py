@@ -2775,6 +2775,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         stored = Subscription.objects.get(pk=sub_id).query_plan
+        assert stored is not None
         assert stored["steps"][0]["hogql"] == plan["steps"][0]["hogql"]
 
     def test_explicit_query_plan_write_wins_over_prompt_edit_invalidation(self, mock_is_cloud, mock_flag, mock_sync):
@@ -2791,6 +2792,7 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.json()
         stored = Subscription.objects.get(pk=sub_id).query_plan
+        assert stored is not None
         assert stored["steps"][0]["hogql"] == new_plan["steps"][0]["hogql"]
 
     def test_query_plan_write_rejected_without_query_editor(self, mock_is_cloud, mock_flag, mock_sync):
