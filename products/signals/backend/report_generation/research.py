@@ -52,6 +52,7 @@ A PR-style title (max 70 chars) scoped to one concrete concern.
 It should read like a pull request title that one engineer could ship in a single PR. Target one feature, one bug, one component, or one tightly-scoped change.
 Follow the Conventional Commits style (sentence-cased).
 If the report already has a title that is PR-specific and still accurate after your research, keep it — don't replace a good PR title with a vaguer one.
+Name PostHog's own products, never a competitor's: PostHog's error tracking is "error tracking", not "Sentry" — unless the signal data explicitly names the third-party vendor.
 - Good: fix(date-picker): Handle timezone conversion in insights
 - Good: feat(funnel): Add percentile options to Time to Convert
 - Bad: fix(funnel): various funnel improvements and bug fixes
@@ -330,6 +331,7 @@ We use the Oxford comma.
 We always use sentence case rather than title case, including in titles, headings, subheadings, or bold text. However if quoting provided text, we keep the original case.
 When writing numbers in the thousands to the billions, it's acceptable to abbreviate them (like 10M or 100B - capital letter, no space). If you write out the full number, use commas (like 15,000,000).
 We never use the em-dash, only the en-dash (–).
+PostHog's error tracking product is called "error tracking" (or "PostHog Error Tracking"). Never refer to it as "Sentry" or any other third-party error tracker unless the underlying signal data explicitly names that vendor. The same goes for any other PostHog product — name PostHog's own products, not a competitor's, unless the signal data itself names the third party.
 </writing_guide>
 
 You have two investigation tools:
