@@ -386,6 +386,7 @@ def test_bigquery_connect_resolves_integration_auth_when_team_id_is_provided():
     mock_bigquery_client.assert_called_once_with("project-id", None, auth.credentials)
 
 
+
 def test_bigquery_connect_requires_team_id_argument():
     config = BigQuerySourceConfig.from_dict(
         {
@@ -394,9 +395,10 @@ def test_bigquery_connect_requires_team_id_argument():
         }
     )
 
-    with pytest.raises(TypeError):
+    with pytest.raises(ValueError):
         with BigQueryImplementation().connect(config):
             pass
+
 
 
 @pytest.mark.parametrize(
