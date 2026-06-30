@@ -74,9 +74,11 @@ export function GitHubBranchCombobox({
     // work on a brand-new branch.
     const createSentinel = CREATE_BRANCH_PREFIX + trimmedSearchQuery
     const showCreateItem = trimmedSearchQuery.length > 0 && !loading && !branches.includes(trimmedSearchQuery)
-    // "Default branch" sentinel is prepended only when not searching (it doesn't match search queries) and a
-    // specific branch is currently selected (so the user has something to revert from).
-    const showDefaultItem = showNoneOption && !trimmedSearchQuery && !!value
+    // "Default branch" sentinel is prepended whenever a specific branch is selected (so the user has
+    // something to revert from). It's always visible regardless of search query because filter={null}
+    // means the list is unfiltered anyway, and Base UI syncs inputValue to the selected value on mount
+    // which would otherwise make !trimmedSearchQuery permanently false.
+    const showDefaultItem = showNoneOption && !!value
     const items = [
         ...(showDefaultItem ? [DEFAULT_BRANCH_SENTINEL] : []),
         ...branches,
