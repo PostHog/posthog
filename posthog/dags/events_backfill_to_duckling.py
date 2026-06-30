@@ -1550,7 +1550,7 @@ def _glob_run_files(conn: psycopg.Connection[Any], s3_glob: str) -> list[str]:
 # columns. Tier-3 compaction then fails with "Files have different hive
 # partition path", and partition pruning silently misses files.
 #
-# Bug writeup: viaduck/ducklake-insert-bug.md
+# Bug writeup: see PR #67168 (the workaround landing this fix-up).
 # Buggy code:  ducklake src/functions/ducklake_add_data_files.cpp — see the
 #              `field_partition_key_map` map keyed bare `field_id.index` and
 #              the loop in `MapPartitionColumns` (line numbers will rot).
