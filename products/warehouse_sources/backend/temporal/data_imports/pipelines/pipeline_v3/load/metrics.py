@@ -44,3 +44,9 @@ DELTA_REPARTITION_TOTAL = Counter(
     "Total in-place Delta repartitions by outcome",
     labelnames=["team_id", "outcome"],
 )
+
+DELTA_REPARTITION_SKIP_TOTAL = Counter(
+    "warehouse_load_delta_repartition_skip_total",
+    "Tables over the partition-size budget that the controller skipped, by reason",
+    labelnames=["team_id", "reason"],
+)

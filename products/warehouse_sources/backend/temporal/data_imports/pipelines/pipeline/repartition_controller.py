@@ -28,6 +28,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     measure_partition_bytes,
     select_repartition_target,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
+    DELTA_REPARTITION_SKIP_TOTAL,
+)
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -47,11 +50,17 @@ def target_partition_bytes() -> int:
     return int(getattr(settings, "DATA_WAREHOUSE_TARGET_PARTITION_BYTES", 1_000_000_000))
 
 
-def is_auto_repartition_enabled(team_id: int) -> bool:
+def is_auto_repartition_enabled(schema: ExternalDataSchema) -> bool:
+    """Evaluate the rollout flag for this schema.
+
+    `schema_id`, `team_id`, and `source_type` are passed as person properties so the flag can be
+    released to a single table — set a release condition `schema_id = <id>` to dogfood the controller
+    on one schema before rolling out by team/org/project.
+    """
     from posthog.models import Team
 
     try:
-        team = Team.objects.only("uuid", "organization_id").get(id=team_id)
+        team = Team.objects.only("uuid", "organization_id").get(id=schema.team_id)
     except Team.DoesNotExist:
         return False
     try:
@@ -60,6 +69,11 @@ def is_auto_repartition_enabled(team_id: int) -> bool:
                 WAREHOUSE_AUTO_REPARTITION_FLAG,
                 str(team.uuid),
                 groups={"organization": str(team.organization_id), "project": str(team.id)},
+                person_properties={
+                    "schema_id": str(schema.id),
+                    "team_id": str(schema.team_id),
+                    "source_type": schema.source.source_type,
+                },
                 group_properties={
                     "organization": {"id": str(team.organization_id)},
                     "project": {"id": str(team.id)},
@@ -128,7 +142,7 @@ async def maybe_flag_for_repartition(
         if max_bytes <= budget:
             return
 
-        if not is_auto_repartition_enabled(schema.team_id):
+        if not is_auto_repartition_enabled(schema):
             await logger.adebug("repartition: over budget but controller disabled", schema_id=str(schema.id))
             return
 
@@ -139,17 +153,15 @@ async def maybe_flag_for_repartition(
             await logger.adebug("repartition: over budget but in cooldown", schema_id=str(schema.id))
             return
 
-        target = select_repartition_target(schema, partition_bytes, budget)
+        target, reason = select_repartition_target(schema, partition_bytes, budget)
         if target is None:
-            # Over budget but nothing finer to do (e.g. datetime already at hour, or unpartitionable).
+            # Over budget but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).
+            # `reason` is reported on the metric + event so a skipped table is diagnosable.
+            DELTA_REPARTITION_SKIP_TOTAL.labels(team_id=str(schema.team_id), reason=reason).inc()
             props = base_event_props(schema, source, str(job.id))
-            props.update({"max_partition_bytes_before": max_bytes, "reason": "no_finer_scheme"})
+            props.update({"max_partition_bytes_before": max_bytes, "reason": reason})
             await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
-            capture_exception(
-                Exception(
-                    f"Repartition needed but no finer scheme for schema {schema.id} (mode={schema.partition_mode})"
-                )
-            )
+            capture_exception(Exception(f"Repartition needed but skipped for schema {schema.id}: {reason}"))
             return
 
         pending = {**target.to_dict(), "trigger_reason": "proactive_threshold", "attempts": 0}

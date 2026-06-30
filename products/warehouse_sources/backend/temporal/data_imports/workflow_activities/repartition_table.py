@@ -14,10 +14,12 @@ from typing import Any
 from django.db import close_old_connections
 
 import structlog
+from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
+from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -63,7 +65,9 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
 
 
 @activity.defn
-async def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
+def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
+    # Sync activity (runs in the worker's thread pool) so its ORM access is safe off the event loop;
+    # the async repartition primitive is driven via async_to_sync, like import_data_activity_sync.
     bind_contextvars(team_id=inputs.team_id, schema_id=inputs.schema_id)
     logger = LOGGER.bind()
     close_old_connections()
@@ -91,17 +95,19 @@ async def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) ->
     started_props = base_event_props(schema, schema.source, inputs.job_id)
     started_props["trigger_reason"] = trigger_reason
     capture_repartition_event("warehouse_repartition_started", started_props)
-    await logger.ainfo("repartition: starting", trigger_reason=trigger_reason)
+    logger.info("repartition: starting", trigger_reason=trigger_reason)
 
     start = time.monotonic()
     try:
-        result = await repartition_table_in_place(
-            helper=helper,
-            schema=schema,
-            target=target,
-            logger=logger,
-            heartbeat=activity.heartbeat,
-        )
+        # HeartbeaterSync heartbeats on a background thread while the (possibly long) rewrite streams,
+        # and on worker shutdown, so Temporal reschedules us instead of timing the activity out.
+        with HeartbeaterSync(logger=logger):
+            result = async_to_sync(repartition_table_in_place)(
+                helper=helper,
+                schema=schema,
+                target=target,
+                logger=logger,
+            )
     except RepartitionUnpartitionableError as e:
         # Terminal: the table can't be partitioned. Clear the flag so we don't retry every run.
         schema.refresh_from_db(fields=["sync_type_config"])
@@ -113,10 +119,10 @@ async def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) ->
         capture_exception(e)
         return
     except Exception as e:
+        # Do NOT re-raise: a repartition failure must not block the sync — the table is retried on a
+        # later run, on the old layout in the meantime.
         _handle_failure(inputs, schema, pending, trigger_reason, e)
         DELTA_REPARTITION_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
-        # Do NOT re-raise: a repartition failure must not block the sync. Worker shutdown raises
-        # CancelledError (a BaseException), which bypasses this handler and lets Temporal retry.
         return
 
     duration = time.monotonic() - start
@@ -131,7 +137,7 @@ async def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) ->
         "warehouse_repartition_completed" if result.get("outcome") == "completed" else "warehouse_repartition_skipped"
     )
     capture_repartition_event(event, props)
-    await logger.ainfo("repartition: finished", outcome=result.get("outcome"), duration_seconds=duration)
+    logger.info("repartition: finished", outcome=result.get("outcome"), duration_seconds=duration)
 
 
 def _handle_failure(

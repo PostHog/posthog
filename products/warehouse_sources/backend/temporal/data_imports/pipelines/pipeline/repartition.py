@@ -18,7 +18,6 @@ import math
 import asyncio
 import dataclasses
 from collections import defaultdict
-from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import pyarrow as pa
@@ -111,20 +110,21 @@ def select_repartition_target(
     schema: ExternalDataSchema,
     partition_bytes: dict[str | None, int],
     target_partition_bytes: int,
-) -> RepartitionTarget | None:
-    """Pick the next finer partition scheme, or None if the table is already within budget.
+) -> tuple[RepartitionTarget | None, str]:
+    """Pick the next finer partition scheme, returning (target, reason).
 
     Computes the target directly from measured bytes so one repartition lands under budget rather
     than stepping blindly: md5 grows the bucket count, numerical shrinks the row-size, datetime steps
-    one format tier finer. Returns None when nothing should change (within budget, or already at the
-    finest datetime tier — the caller alerts in that case).
+    one format tier finer. When no target is chosen the reason explains why (reported in metrics so a
+    skipped table is diagnosable): `within_budget`, `datetime_at_finest_tier`, `numerical_cannot_shrink`,
+    `numerical_no_size`, or `unpartitionable_no_keys`. A chosen target carries reason `selected`.
     """
     if not partition_bytes:
-        return None
+        return None, "no_partitions"
 
     max_bytes = max(partition_bytes.values())
     if max_bytes <= target_partition_bytes:
-        return None
+        return None, "within_budget"
 
     total_bytes = sum(partition_bytes.values())
     mode = schema.partition_mode
@@ -135,18 +135,18 @@ def select_repartition_target(
         new_count = max(current + 1, math.ceil(total_bytes / target_partition_bytes))
         return RepartitionTarget(
             partition_keys=keys, trigger_reason="", partition_mode="md5", partition_count=new_count
-        )
+        ), "selected"
 
     if mode == "numerical":
         current = schema.partition_size
         if not current:
-            return None
+            return None, "numerical_no_size"
         new_size = max(1, math.floor(current * target_partition_bytes / max_bytes))
         if new_size >= current:
-            return None
+            return None, "numerical_cannot_shrink"
         return RepartitionTarget(
             partition_keys=keys, trigger_reason="", partition_mode="numerical", partition_size=new_size
-        )
+        ), "selected"
 
     if mode == "datetime":
         current_format: PartitionFormat = schema.partition_format or "month"
@@ -156,18 +156,18 @@ def select_repartition_target(
             next_index = 1
         if next_index >= len(DATETIME_FORMAT_TIERS):
             # Already at the finest tier (hour) — can't go finer. Caller alerts.
-            return None
+            return None, "datetime_at_finest_tier"
         return RepartitionTarget(
             partition_keys=keys,
             trigger_reason="",
             partition_mode="datetime",
             partition_format=DATETIME_FORMAT_TIERS[next_index],
-        )
+        ), "selected"
 
     # Unpartitioned but over budget: attempt to enable partitioning via auto-detection. Needs keys.
     if not keys:
-        return None
-    return RepartitionTarget(partition_keys=keys, trigger_reason="", partition_mode=None)
+        return None, "unpartitionable_no_keys"
+    return RepartitionTarget(partition_keys=keys, trigger_reason="", partition_mode=None), "selected"
 
 
 def _read_next_batch(reader: pa.RecordBatchReader) -> pa.RecordBatch | None:
@@ -185,7 +185,6 @@ async def _rewrite_into_temp(
     target: RepartitionTarget,
     batch_size: int,
     logger: FilteringBoundLogger,
-    heartbeat: Callable[[], None] | None,
 ) -> tuple[int, RepartitionTarget]:
     """Stream the live table into a fresh temp table under the new partition scheme.
 
@@ -242,8 +241,6 @@ async def _rewrite_into_temp(
             storage_options=storage_options,
         )
         rows_written += partitioned_table.num_rows
-        if heartbeat:
-            heartbeat()
 
     if resolved is None:
         # Empty source table — nothing to rewrite.
@@ -258,7 +255,6 @@ async def repartition_table_in_place(
     logger: FilteringBoundLogger,
     *,
     batch_size: int = DEFAULT_REPARTITION_BATCH_SIZE,
-    heartbeat: Callable[[], None] | None = None,
 ) -> dict[str, Any]:
     """Rewrite the schema's Delta table under `target`'s finer partition scheme, in place, from S3.
 
@@ -309,7 +305,6 @@ async def repartition_table_in_place(
             target=target,
             batch_size=batch_size,
             logger=logger,
-            heartbeat=heartbeat,
         )
 
         # Validate before any destructive action — temp must hold every row.
@@ -333,7 +328,6 @@ async def repartition_table_in_place(
         live_uri=live_uri,
         storage_options=storage_options,
         expected_rows=old_row_count,
-        heartbeat=heartbeat,
     )
 
     # Persist the new scheme and clear controller state. set_partitioning_enabled saves + pops overrides.
@@ -384,22 +378,25 @@ async def _swap_temp_into_live(
     live_uri: str,
     storage_options: dict[str, str],
     expected_rows: int,
-    heartbeat: Callable[[], None] | None,
 ) -> None:
     """Atomically-enough replace `live_uri` with the contents of `temp_uri`.
 
     Crash-safe ordering: delete live → server-side copy temp → live → verify → delete temp. Until
     temp is deleted it remains the durable source of truth, so any retry simply re-runs this whole
     function (Delta uses relative paths in `_delta_log`, so a copied folder is a valid table).
+
+    Files are copied one at a time preserving their path relative to temp — a single recursive
+    `copy(prefix, prefix)` trips over directory-marker objects on S3-compatible stores.
     """
+    temp_prefix = temp_uri.replace("s3://", "").rstrip("/")
     async with aget_s3_client() as s3:
-        temp_exists = await s3._exists(temp_uri)
-        if temp_exists:
+        if await s3._exists(temp_uri):
             if await s3._exists(live_uri):
                 await s3._rm(live_uri, recursive=True)
-            if heartbeat:
-                heartbeat()
-            await s3._copy(temp_uri, live_uri, recursive=True)
+            files = await s3._find(temp_uri)
+            for f in files:
+                rel = f[len(temp_prefix) :]
+                await s3._copy(f"s3://{f.lstrip('/')}", f"{live_uri}{rel}")
 
     # Verify the live copy is a valid Delta table with the expected row count before dropping temp.
     live_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=live_uri, storage_options=storage_options)
@@ -408,5 +405,10 @@ async def _swap_temp_into_live(
         raise ValueError(f"repartition swap verification failed: live={live_rows} expected={expected_rows}")
 
     async with aget_s3_client() as s3:
+        # Delete the temp files explicitly (a recursive prefix delete can leave directory-marker
+        # objects behind on some S3-compatible stores), then a best-effort recursive sweep.
+        temp_files = await s3._find(temp_uri)
+        if temp_files:
+            await s3._rm([f"s3://{f.lstrip('/')}" for f in temp_files])
         if await s3._exists(temp_uri):
             await s3._rm(temp_uri, recursive=True)

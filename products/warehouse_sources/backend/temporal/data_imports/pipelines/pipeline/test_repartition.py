@@ -113,18 +113,33 @@ class TestSelectRepartitionTarget:
         ]
     )
     def test_select(self, _name, schema_kwargs, partition_bytes, target_bytes, expect):
-        target = select_repartition_target(_schema(**schema_kwargs), partition_bytes, target_bytes)
+        target, reason = select_repartition_target(_schema(**schema_kwargs), partition_bytes, target_bytes)
         if expect is None:
             assert target is None
+            # A None target must carry a diagnostic reason (reported in metrics), never "selected".
+            assert reason and reason != "selected"
             return
         assert target is not None
+        assert reason == "selected"
         for key, value in expect.items():
             assert getattr(target, key) == value
+
+    @parameterized.expand(
+        [
+            ("datetime_hour", {"partition_mode": "datetime", "partition_format": "hour"}, "datetime_at_finest_tier"),
+            ("unpartitionable", {"partition_mode": None}, "unpartitionable_no_keys"),
+        ]
+    )
+    def test_skip_reason_is_specific(self, _name, schema_kwargs, expected_reason):
+        # The skip reason is what an operator reads off the metric/event to know why a table over budget
+        # was left alone — it must be the specific cause, not a generic placeholder.
+        _target, reason = select_repartition_target(_schema(**schema_kwargs), {"a": 5000}, 1000)
+        assert reason == expected_reason
 
     def test_md5_count_strictly_grows_even_when_formula_below_current(self):
         # Largest partition is over budget but total/target rounds below the current count: the count
         # must still grow, or the repartition would be a no-op that never relieves the pressure.
-        target = select_repartition_target(
+        target, _reason = select_repartition_target(
             _schema(partition_mode="md5", partition_count=8),
             {"0": 5000, "1": 100},
             1000,
@@ -179,7 +194,6 @@ class TestRewriteIntoTemp:
                 ),
                 batch_size=2,  # force multiple streamed batches
                 logger=logger,
-                heartbeat=None,
             )
         )
 
@@ -212,7 +226,6 @@ class TestRewriteIntoTemp:
                 target=RepartitionTarget(partition_keys=["created_at"], trigger_reason="test", partition_mode=None),
                 batch_size=3,
                 logger=logger,
-                heartbeat=None,
             )
         )
         assert rows_written == len(rows)
