@@ -21,6 +21,9 @@ class DropboxSignEndpointConfig:
     # partitioning for the endpoint (e.g. templates expose no creation timestamp).
     partition_key: Optional[str] = None
     should_sync_default: bool = True
+    # Dotted paths to sensitive nested values stripped from every record before it is persisted to
+    # the warehouse (e.g. an OAuth client secret a warehouse reader must never see).
+    redact_paths: list[str] = field(default_factory=list)
 
 
 # The endpoints a user actually wants from Dropbox Sign's v3 API. All are full refresh: the API
@@ -46,6 +49,8 @@ DROPBOX_SIGN_ENDPOINTS: dict[str, DropboxSignEndpointConfig] = {
         data_key="api_apps",
         primary_keys=["client_id"],
         partition_key="created_at",
+        # The API App object nests the OAuth client secret; never land it in the warehouse.
+        redact_paths=["oauth.secret"],
     ),
     "account": DropboxSignEndpointConfig(
         name="account",

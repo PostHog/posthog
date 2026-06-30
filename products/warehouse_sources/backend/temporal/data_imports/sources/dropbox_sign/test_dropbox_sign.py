@@ -119,6 +119,14 @@ class TestGetRows:
         self._collect("templates", manager, monkeypatch, pages)
         load_spy.assert_not_called()
 
+    def test_api_apps_oauth_secret_is_redacted(self, monkeypatch: Any) -> None:
+        # The API App List response nests the OAuth client secret; it must never reach the warehouse.
+        item = {"client_id": "c1", "oauth": {"callback_url": "https://x/cb", "secret": "sk_live_super_secret"}}
+        pages = {1: _page_body("api_apps", [item], page=1, num_pages=1)}
+        rows, _ = self._collect("api_apps", _FakeResumableManager(), monkeypatch, pages)
+        assert rows == [{"client_id": "c1", "oauth": {"callback_url": "https://x/cb"}}]
+        assert "secret" not in rows[0]["oauth"]
+
     def test_single_object_endpoint_yields_one_row_without_pagination(self, monkeypatch: Any) -> None:
         captured: list[dict[str, Any]] = []
 

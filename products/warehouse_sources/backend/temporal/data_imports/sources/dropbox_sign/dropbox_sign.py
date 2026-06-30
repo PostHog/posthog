@@ -77,6 +77,23 @@ def _fetch_page(
     return response.json()
 
 
+def _redact(item: Any, paths: list[str]) -> Any:
+    """Strip sensitive nested values (dotted paths) from an upstream record in place before it is
+    persisted to the warehouse, so a warehouse reader never sees them."""
+    if not isinstance(item, dict):
+        return item
+    for path in paths:
+        keys = path.split(".")
+        parent = item
+        for key in keys[:-1]:
+            parent = parent.get(key) if isinstance(parent, dict) else None
+            if not isinstance(parent, dict):
+                break
+        else:
+            parent.pop(keys[-1], None)
+    return item
+
+
 def get_rows(
     api_key: str,
     endpoint: str,
@@ -94,7 +111,7 @@ def get_rows(
         data = _fetch_page(session, url, headers, {}, logger)
         obj = data.get(config.data_key)
         if obj:
-            batcher.batch(obj)
+            batcher.batch(_redact(obj, config.redact_paths))
         while batcher.should_yield(include_incomplete_chunk=True):
             yield batcher.get_table()
         return
@@ -108,7 +125,7 @@ def get_rows(
         num_pages = (data.get("list_info") or {}).get("num_pages") or 1
 
         for item in items:
-            batcher.batch(item)
+            batcher.batch(_redact(item, config.redact_paths))
             while batcher.should_yield():
                 yield batcher.get_table()
                 # Save AFTER yielding so a crash re-yields (never skips) the in-flight page. Only
