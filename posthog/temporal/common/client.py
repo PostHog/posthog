@@ -1,8 +1,11 @@
+import logging
 import dataclasses
 from typing import Any
 
 from django.conf import settings as django_settings
 
+import tenacity
+import structlog
 import temporalio.converter
 import temporalio.contrib.opentelemetry
 from asgiref.sync import async_to_sync
@@ -11,6 +14,8 @@ from temporalio.contrib.pydantic import pydantic_data_converter
 from temporalio.runtime import Runtime
 
 from posthog.temporal.common.codec import EncryptionCodec
+
+logger = structlog.get_logger(__name__)
 
 
 async def connect(
@@ -76,3 +81,30 @@ async def async_connect() -> Client:
         django_settings.TEMPORAL_CLIENT_KEY,
     )
     return client
+
+
+async def async_connect_with_retries(
+    max_attempts: int = 6,
+    initial_interval_seconds: float = 1.0,
+    max_interval_seconds: float = 30.0,
+) -> Client:
+    """Connect to Temporal, retrying transient failures with exponential backoff.
+
+    The bare connect can raise transient transport errors (e.g. a DNS lookup that
+    fails while the Temporal host's name isn't yet resolvable during a deploy). Those
+    blips clear on their own, so retry rather than crash the caller.
+    """
+
+    async for attempt in tenacity.AsyncRetrying(
+        stop=tenacity.stop_after_attempt(max_attempts),
+        wait=tenacity.wait_exponential(min=initial_interval_seconds, max=max_interval_seconds),
+        # Transport-level connect failures (DNS lookup failures, connection refused) surface
+        # as RuntimeError from the SDK Core bridge, or OSError from the socket layer.
+        retry=tenacity.retry_if_exception_type((RuntimeError, OSError)),
+        before_sleep=tenacity.before_sleep_log(logger, logging.WARNING),  # type: ignore[arg-type]
+        reraise=True,
+    ):
+        with attempt:
+            return await async_connect()
+
+    raise AssertionError("unreachable: AsyncRetrying either returns a client or reraises")

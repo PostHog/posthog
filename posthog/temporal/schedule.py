@@ -41,7 +41,7 @@ from posthog.temporal.alerts.schedule import (
     create_run_investigation_safety_net_schedule,
     create_schedule_due_alert_checks_schedule,
 )
-from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.client import async_connect_with_retries
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.ducklake.compaction_types import DucklakeCompactionInput
 from posthog.temporal.experiments.schedule import (
@@ -754,7 +754,10 @@ if settings.EE_AVAILABLE:
 
 
 async def a_init_general_queue_schedules():
-    temporal = await async_connect()
+    # Retry the connect: during a deploy the Temporal host's DNS name may not be
+    # resolvable yet, and a single failed lookup here would crash the command and
+    # leave schedules uninitialized for that rollout.
+    temporal = await async_connect_with_retries()
     try:
         async with asyncio.TaskGroup() as tg:
             for schedule in schedules:
