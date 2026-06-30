@@ -1423,8 +1423,12 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         context["basic_cohort_list"] = self._is_basic_list_request()
         return context
 
-    def _filter_request(self, request: Request, queryset: QuerySet) -> QuerySet:
+    def _filter_request(self, request: Request, queryset: QuerySet) -> tuple[QuerySet, bool]:
+        # Returns (queryset, search_ordered). `search_ordered` is True only when a non-blank
+        # search applied trigram relevance ordering, so the caller knows not to re-impose the
+        # default ordering on top of it.
         filters = request.GET.dict()
+        search_ordered = False
 
         for key in filters:
             if key == "type":
@@ -1441,21 +1445,20 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                     raise serializers.ValidationError(
                         {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
                     )
-                queryset = apply_trigram_search(
-                    queryset,
-                    search,
-                    span_prefix="cohort.search",
-                    fields=(NAME_FIELD,),
-                    tiebreakers=("-created_at",),
-                )
+                if normalize_search_term(search):
+                    queryset = apply_trigram_search(
+                        queryset,
+                        search,
+                        span_prefix="cohort.search",
+                        fields=(NAME_FIELD,),
+                        tiebreakers=("-created_at",),
+                    )
+                    search_ordered = True
 
-        return queryset
+        return queryset, search_ordered
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        # Match apply_trigram_search's own normalization: a whitespace/NUL-only term is a no-op
-        # there, so treat it as not-a-search and keep the default ordering (else the list has no
-        # ORDER BY and paginates non-deterministically).
-        is_search = self.action == "list" and bool(normalize_search_term(self.request.query_params.get("search", "")))
+        search_ordered = False
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1476,7 +1479,7 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
                 queryset = queryset.exclude(id__in=behavioral_cohort_ids)
 
             # add additional filters provided by the client
-            queryset = self._filter_request(self.request, queryset)
+            queryset, search_ordered = self._filter_request(self.request, queryset)
 
             # `?basic=true` callers never read these columns, so skip reading them
             # off disk (the serializer drops them too; see CohortSerializer.__init__).
@@ -1502,8 +1505,8 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             .prefetch_related("experiment_set")
         )
 
-        # Searching imposes its own exact-first relevance ordering; don't clobber it.
-        if not is_search:
+        # Search applied its own exact-first relevance ordering; don't clobber it.
+        if not search_ordered:
             queryset = queryset.order_by("-created_at")
 
         return queryset
