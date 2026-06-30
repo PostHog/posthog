@@ -169,7 +169,7 @@ function SurveyResponseRow({ response }: { response: SurveyResultsWidgetResponse
                 }
                 return (
                     <div key={answer.question_id} className="flex flex-col">
-                        <span className="text-2xs uppercase tracking-wide text-muted">{answer.question_text}</span>
+                        <span className="text-xs text-muted">{answer.question_text}</span>
                         <span className="text-sm text-primary">{formatted}</span>
                     </div>
                 )
