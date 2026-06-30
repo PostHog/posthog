@@ -73,13 +73,21 @@ impl Event for SplitKafkaSink {
         counter!("capture_split_sink_selected", "cluster" => "secondary")
             .increment(secondary.len() as u64);
 
-        // Cross-destination ordering is irrelevant (separate clusters), so when
-        // both sides are non-empty we send them concurrently and fail if either
-        // fails. Ordering within each destination is preserved.
+        // A batch is built from a single request, so every event carries the
+        // same request-level token (see `events::analytics` / `otel`). Routing is
+        // token-based, so today one of these partitions is always empty and the
+        // whole batch goes to a single cluster — the both-non-empty arm below is
+        // defensive against a future multi-token batch path, not a hot path.
         match (primary.is_empty(), secondary.is_empty()) {
             (false, true) => self.primary.send_batch(primary).await,
             (true, false) => self.secondary.send_batch(secondary).await,
             (false, false) => {
+                // Cross-destination ordering is irrelevant (separate clusters);
+                // send concurrently and fail if either fails. Caveat for the day
+                // this arm goes live: failing the whole batch makes the caller
+                // retry both partitions, duplicating events the healthy cluster
+                // already accepted. Avoiding that needs partial-batch retry, which
+                // the `Event` contract (one Result per batch) can't express.
                 let (p, s) = tokio::join!(
                     self.primary.send_batch(primary),
                     self.secondary.send_batch(secondary),
