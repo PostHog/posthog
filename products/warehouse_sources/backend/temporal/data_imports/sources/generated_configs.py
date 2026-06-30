@@ -2458,6 +2458,11 @@ class PlausibleSourceConfig(config.Config):
 
 
 @config.config
+class PlunkSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PocketSourceConfig(config.Config):
     pass
 
@@ -4038,6 +4043,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLANETSCALE: PlanetScaleSourceConfig,
         ExternalDataSourceType.PLANHAT: PlanhatSourceConfig,
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
+        ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POLYGON: PolygonSourceConfig,
