@@ -1531,9 +1531,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
-            // Primary-metric (folder-organization adoption) signal. Coarse fields only — never the folder or
-            // dashboard names, which are customer-controlled (mirrors the search/navigation events' privacy
-            // posture). method/multi_select_count live on the sibling 'dashboard move initiated' event.
+            // Coarse fields only — never folder/dashboard names (customer-controlled).
             posthog.capture('dashboard moved to folder', {
                 from_depth: fromDepth,
                 to_depth: toDepth,
@@ -1542,21 +1540,16 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             })
         },
         reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
-            // Findability signal for the dashboards-list-view experiment — does the tree reduce reliance on
-            // search? Length + count only, never the query text (it can contain sensitive names).
+            // Length + count only, never the query text (can contain sensitive names).
             posthog.capture('dashboard list searched', {
                 search_length: searchLength,
                 results_count: resultsCount,
             })
         },
         reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
-            // Treatment-adoption signal for the tree arm: did users actually navigate the folder tree? Makes a
-            // flat experiment result interpretable (tree unused vs tree ineffective). Depth only, no folder names.
             posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
         },
         reportDashboardMoveInitiated: async ({ method, count }) => {
-            // Attributes folder organization to the affordance (single row action vs bulk select) so we can tell
-            // whether bulk move drives organization. Pairs with the 'dashboard moved to folder' completion event.
             posthog.capture('dashboard move initiated', { method, count })
         },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
