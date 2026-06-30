@@ -12,12 +12,12 @@ use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::TeamId;
+use crate::filters::{Generation, TeamId};
 use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
 use crate::observability::metrics::{
-    STAGE1_ARGMAX_STALE, STAGE1_CONDITIONS_EVALUATED, STAGE1_PERSON_INDEX_APPENDS,
-    STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES,
-    STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
+    STAGE1_ARGMAX_STALE, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
+    STAGE1_PERSON_INDEX_APPENDS, STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR,
+    STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, now_day_for_window, window_start_for_now,
@@ -33,6 +33,7 @@ use crate::stage1::state::{
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey, StoreError};
+use crate::workers::person_memo::{ConditionBitset, Lookup, PersonKey, PersonMemo, Receipt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
@@ -120,11 +121,34 @@ struct PendingWrite {
     variant: StateVariant,
 }
 
+/// Fold one event with the person memo disabled (full person sweep). The memoizing entry is
+/// [`process_event_with_memo`].
 pub fn process_event(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
     event: &CohortStreamEvent,
+) -> Result<EventOutcome, StoreError> {
+    process_event_with_memo(
+        partition_id,
+        store,
+        filters,
+        Generation::INITIAL,
+        event,
+        &mut PersonMemo::disabled(),
+    )
+}
+
+/// Fold one event, consulting the per-worker person memo. A hit answers the person conditions from
+/// cache — no JSON parse, no HogVM eval — keyed on `generation` plus a fingerprint of the raw
+/// `person_properties`.
+pub fn process_event_with_memo(
+    partition_id: u16,
+    store: &CohortStore,
+    filters: &TeamFilters,
+    generation: Generation,
+    event: &CohortStreamEvent,
+    memo: &mut PersonMemo,
 ) -> Result<EventOutcome, StoreError> {
     if event.person_id.is_empty() {
         return Ok(EventOutcome::skipped(SkipReason::NullPersonId));
@@ -145,6 +169,8 @@ pub fn process_event(
         return Ok(EventOutcome::skipped(SkipReason::NoConditions));
     }
 
+    // Build globals and resolve the person plan before any evaluation, so a malformed payload skips
+    // the event before any condition runs. A memo hit resolves without parsing person globals.
     let behavioral_globals = if has_behavioral {
         match build_behavioral_globals(event) {
             Ok(globals) => Some(globals),
@@ -153,23 +179,20 @@ pub fn process_event(
     } else {
         None
     };
-    let person_active = has_person
-        && event
-            .person_properties
-            .as_deref()
-            .is_some_and(|raw| !raw.is_empty());
-    let person_globals = if person_active {
-        match build_person_property_globals(event) {
-            Ok(globals) => Some(globals),
-            Err(_) => return Ok(EventOutcome::skipped(SkipReason::GlobalsParseError)),
-        }
-    } else {
-        None
+    let person = match resolve_person(filters, event, person_id, generation, memo) {
+        Ok(person) => person,
+        Err(skip) => return Ok(EventOutcome::skipped(skip)),
     };
 
     // One evaluator reused across the event's conditions: globals set once per kind, program per condition.
     let mut evaluator = CohortEvaluator::new();
-    let applies = collect_applies(filters, &mut evaluator, behavioral_globals, person_globals);
+    let mut applies: Vec<Apply> = Vec::new();
+    if let Some(globals) = behavioral_globals {
+        evaluator.set_globals(globals);
+        collect_behavioral_applies(filters, &mut evaluator, &mut applies);
+    }
+    collect_person_applies(filters, &mut evaluator, person, memo, &mut applies);
+
     if applies.is_empty() {
         return Ok(EventOutcome::processed(Vec::new(), Vec::new(), 0));
     }
@@ -309,64 +332,84 @@ pub(crate) fn schedule_deadline(state: &Stage1State) -> Option<i64> {
     state.eviction_deadline().filter(|&d| d != i64::MAX)
 }
 
-fn collect_applies(
-    filters: &TeamFilters,
-    evaluator: &mut CohortEvaluator,
-    behavioral_globals: Option<serde_json::Value>,
-    person_globals: Option<serde_json::Value>,
-) -> Vec<Apply> {
-    let mut applies = Vec::new();
+/// How the event's person conditions will be answered, resolved before any evaluation.
+enum PersonResolution {
+    /// No person conditions, or empty `person_properties`.
+    Inactive,
+    /// Memo hit: reuse the cached results (globals never parsed).
+    Cached(ConditionBitset),
+    /// Evaluate `globals`, then cache the results under `receipt`.
+    Evaluate {
+        globals: serde_json::Value,
+        receipt: Receipt,
+    },
+}
 
-    if let Some(globals) = behavioral_globals {
-        evaluator.set_globals(globals);
-        for &hash in &filters.behavioral_conditions {
-            let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
-                continue;
-            };
-            counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
-            if !evaluator.evaluate(Arc::clone(bytecode)) {
-                continue;
-            }
-            let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
-                continue;
-            };
-            for &lsk in lsks {
-                match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
-                    Some(
-                        StateVariant::BehavioralSingle
-                        | StateVariant::BehavioralDailyBuckets
-                        | StateVariant::BehavioralCompressedHistory,
-                    ) => {
-                        applies.push(Apply::Behavioral {
-                            lsk,
-                            condition_hash: hash,
-                        });
-                    }
-                    Some(other) => {
-                        counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => other.as_str())
-                            .increment(1);
-                    }
-                    None => {}
-                }
-            }
+/// The raw `person_properties` iff there is a person condition and the payload is non-empty.
+fn active_person_props<'a>(filters: &TeamFilters, event: &'a CohortStreamEvent) -> Option<&'a str> {
+    if filters.person_property_conditions.is_empty() {
+        return None;
+    }
+    event
+        .person_properties
+        .as_deref()
+        .filter(|raw| !raw.is_empty())
+}
+
+/// Decide how to answer the person conditions. The only error is a malformed-props parse failure on
+/// the eval path, which the caller turns into a `GlobalsParseError` skip.
+fn resolve_person(
+    filters: &TeamFilters,
+    event: &CohortStreamEvent,
+    person_id: Uuid,
+    generation: Generation,
+    memo: &mut PersonMemo,
+) -> Result<PersonResolution, SkipReason> {
+    let Some(raw) = active_person_props(filters, event) else {
+        return Ok(PersonResolution::Inactive);
+    };
+    let key = PersonKey {
+        team: TeamId(event.team_id),
+        person: person_id,
+    };
+    match memo.probe(key, generation, raw) {
+        Lookup::Hit(results) => Ok(PersonResolution::Cached(results)),
+        Lookup::Miss(receipt) => {
+            let globals =
+                build_person_property_globals(event).map_err(|_| SkipReason::GlobalsParseError)?;
+            Ok(PersonResolution::Evaluate { globals, receipt })
         }
     }
+}
 
-    if let Some(globals) = person_globals {
-        evaluator.set_globals(globals);
-        for &hash in &filters.person_property_conditions {
-            let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
-                continue;
-            };
-            counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "person_property").increment(1);
-            let matches = evaluator.evaluate(Arc::clone(bytecode));
-            let lsk = LeafStateKey::for_person_property(&hash);
+/// Evaluate every behavioral condition against the set globals, pushing an `Apply::Behavioral` per
+/// matching leaf.
+fn collect_behavioral_applies(
+    filters: &TeamFilters,
+    evaluator: &mut CohortEvaluator,
+    applies: &mut Vec<Apply>,
+) {
+    for &hash in &filters.behavioral_conditions {
+        let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+            continue;
+        };
+        counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "behavioral").increment(1);
+        if !evaluator.evaluate(Arc::clone(bytecode)) {
+            continue;
+        }
+        let Some(lsks) = filters.by_condition_to_lsk.get(&hash) else {
+            continue;
+        };
+        for &lsk in lsks {
             match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
-                Some(StateVariant::PersonProperty) => {
-                    applies.push(Apply::Person {
+                Some(
+                    StateVariant::BehavioralSingle
+                    | StateVariant::BehavioralDailyBuckets
+                    | StateVariant::BehavioralCompressedHistory,
+                ) => {
+                    applies.push(Apply::Behavioral {
                         lsk,
                         condition_hash: hash,
-                        matches,
                     });
                 }
                 Some(other) => {
@@ -377,8 +420,90 @@ fn collect_applies(
             }
         }
     }
+}
 
-    applies
+/// Push person applies for a resolved plan. The cached-read and fresh-eval paths produce the
+/// identical `Apply` multiset.
+fn collect_person_applies(
+    filters: &TeamFilters,
+    evaluator: &mut CohortEvaluator,
+    person: PersonResolution,
+    memo: &mut PersonMemo,
+    applies: &mut Vec<Apply>,
+) {
+    match person {
+        PersonResolution::Inactive => {}
+        PersonResolution::Cached(cached) => {
+            read_person_conditions_cached(filters, &cached, applies);
+        }
+        PersonResolution::Evaluate { globals, receipt } => {
+            evaluator.set_globals(globals);
+            let results = eval_person_conditions(filters, evaluator, applies);
+            memo.store(receipt, results);
+        }
+    }
+}
+
+/// Memo miss: evaluate the person conditions in stable order, recording results into a bitset for
+/// the caller to cache.
+fn eval_person_conditions(
+    filters: &TeamFilters,
+    evaluator: &mut CohortEvaluator,
+    applies: &mut Vec<Apply>,
+) -> ConditionBitset {
+    let mut results = ConditionBitset::zeros(filters.person_conditions_ordered.len());
+    for (idx, &hash) in filters.person_conditions_ordered.iter().enumerate() {
+        let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
+            continue;
+        };
+        counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "person_property").increment(1);
+        let matches = evaluator.evaluate(Arc::clone(bytecode));
+        if matches {
+            results.set(idx);
+        }
+        push_person_apply(filters, hash, matches, applies);
+    }
+    results
+}
+
+/// Memo hit: push applies from the cached bits. The bytecode-presence skip mirrors the eval path so
+/// the `Apply` multiset matches a miss.
+fn read_person_conditions_cached(
+    filters: &TeamFilters,
+    cached: &ConditionBitset,
+    applies: &mut Vec<Apply>,
+) {
+    for (idx, &hash) in filters.person_conditions_ordered.iter().enumerate() {
+        if !filters.by_condition_to_bytecode.contains_key(&hash) {
+            continue;
+        }
+        counter!(STAGE1_CONDITIONS_SKIPPED, "reason" => "person_memo_hit").increment(1);
+        push_person_apply(filters, hash, cached.get(idx), applies);
+    }
+}
+
+/// Push one person condition's `Apply` behind the catalog variant guard. Shared by all three person
+/// paths so the guard is identical across them.
+fn push_person_apply(
+    filters: &TeamFilters,
+    hash: [u8; 16],
+    matches: bool,
+    applies: &mut Vec<Apply>,
+) {
+    let lsk = LeafStateKey::for_person_property(&hash);
+    match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
+        Some(StateVariant::PersonProperty) => {
+            applies.push(Apply::Person {
+                lsk,
+                condition_hash: hash,
+                matches,
+            });
+        }
+        Some(other) => {
+            counter!(STAGE1_UNSUPPORTED_VARIANT_SKIPPED, "variant" => other.as_str()).increment(1);
+        }
+        None => {}
+    }
 }
 
 /// Fold a behavioral match into a single-bit leaf. Never emits `Left` (match is never cleared).

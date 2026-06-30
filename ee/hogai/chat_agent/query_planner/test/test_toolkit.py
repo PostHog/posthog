@@ -129,7 +129,10 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
         )
 
         PropertyDefinition.objects.create(
-            team=self.team, type=PropertyDefinition.Type.PERSON, name="email", property_type=PropertyType.String
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="taxonomy_email",
+            property_type=PropertyType.String,
         )
         PropertyDefinition.objects.create(
             team=self.team, type=PropertyDefinition.Type.PERSON, name="id", property_type=PropertyType.Numeric
@@ -140,19 +143,19 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             with freeze_time(f"2024-01-01T00:{i}:00Z"):
                 _create_person(
                     distinct_ids=[id],
-                    properties={"email": f"{id}@example.com", "id": i},
+                    properties={"taxonomy_email": f"{id}@example.com", "id": i},
                     team=self.team,
                 )
         with freeze_time(f"2024-01-02T00:00:00Z"):
             _create_person(
                 distinct_ids=["person25"],
-                properties={"email": "person25@example.com", "id": 25},
+                properties={"taxonomy_email": "person25@example.com", "id": 25},
                 team=self.team,
             )
 
         self.assertIn(
             '"person5@example.com", "person4@example.com", "person3@example.com", "person2@example.com", "person1@example.com"',
-            toolkit.retrieve_entity_property_values("person", "email"),
+            toolkit.retrieve_entity_property_values("person", "taxonomy_email"),
         )
         self.assertIn(
             "1 more distinct value",

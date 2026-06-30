@@ -10,7 +10,7 @@ from unittest.mock import MagicMock, Mock, PropertyMock, patch
 
 from django.conf import settings
 from django.db import connection
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 import psycopg
@@ -38,6 +38,7 @@ from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_
 from products.data_warehouse.backend.models.revenue_analytics_config import ExternalDataSourceRevenueAnalyticsConfig
 from products.data_warehouse.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.data_warehouse.backend.presentation.views.external_data_source import (
+    get_direct_connection_metadata,
     get_nonsensitive_and_sensitive_field_names,
     strip_sensitive_from_dict,
 )
@@ -1656,6 +1657,18 @@ class TestExternalDataSource(APIBaseTest):
             job_inputs={"host": "localhost", "password": "secret"},
             connection_metadata={"engine": "mysql", "database": "warehouse", "version": "9.6.0"},
         )
+        snowflake_source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Snowflake",
+            created_by=self.user,
+            prefix="Analytics Snowflake",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"account_id": "acct", "database": "TPCH_SF1"},
+            connection_metadata={"engine": "snowflake", "database": "TPCH_SF1"},
+        )
 
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/connections/")
 
@@ -1664,6 +1677,11 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(
             payload,
             [
+                {
+                    "id": str(snowflake_source.pk),
+                    "prefix": "Analytics Snowflake",
+                    "engine": "snowflake",
+                },
                 {
                     "id": str(postgres_source.pk),
                     "prefix": "Primary database",
@@ -2982,7 +3000,7 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("not supported for direct Postgres", str(response.json()))
+        self.assertIn("not supported for direct-query sources", str(response.json()))
         self.assertFalse(ExternalDataSource.objects.filter(team_id=self.team.pk).exists())
 
     @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
@@ -3757,7 +3775,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_rejects_direct_unsupported_source_type(self):
@@ -3773,7 +3791,7 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(
             response.json(),
-            {"message": "Direct query mode is currently supported only for Postgres and MySQL sources."},
+            {"message": "Direct query mode is currently supported only for Postgres, MySQL, and Snowflake sources."},
         )
 
     def test_source_prefix_accepts_direct_mysql(self):
@@ -10142,3 +10160,35 @@ class TestExternalDataSourcePreviewAndCustomPayload(APIBaseTest):
         source = ExternalDataSource.objects.get(id=response.json()["id"])
         assert source.source_type == "Custom"
         assert source.created_via == ExternalDataSource.CreatedVia.MCP
+
+
+class TestGetDirectConnectionMetadata(SimpleTestCase):
+    def _source_impl(self, error: Exception, non_retryable: dict | None = None) -> Mock:
+        impl = Mock()
+        impl.get_connection_metadata.side_effect = error
+        impl.get_non_retryable_errors.return_value = non_retryable or {}
+        return impl
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_expected_connection_error_is_not_captured(self, mock_capture):
+        # An unreachable customer host fails the best-effort metadata probe — already surfaced by
+        # credential validation, so it must degrade to the fallback without flooding error tracking.
+        impl = self._source_impl(
+            psycopg.OperationalError('connection to server at "192.0.2.1", port 5432 failed: Network is unreachable')
+        )
+        fallback = {"database": "existing"}
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=fallback)
+
+        self.assertEqual(result, fallback)
+        mock_capture.assert_not_called()
+
+    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
+    def test_unexpected_error_is_still_captured(self, mock_capture):
+        error = ValueError("unexpected bug in metadata probe")
+        impl = self._source_impl(error)
+
+        result = get_direct_connection_metadata(source_impl=impl, source_config=Mock(), team_id=1, fallback=None)
+
+        self.assertEqual(result, {})
+        mock_capture.assert_called_once_with(error)
