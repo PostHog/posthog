@@ -24,9 +24,9 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
+    select_model_name,
 )
 
-PREFERRED_EMBEDDING_MODEL = "text-embedding-3-large-3072"
 AUTO_MERGE_DISTANCE_THRESHOLD = 0.019
 
 TARGET_EMBEDDING_QUERY_BY_MODEL = {
@@ -115,11 +115,11 @@ def _capture_activity_exception(
 
 
 def _select_model_name(model_names: list[str]) -> str:
-    if PREFERRED_EMBEDDING_MODEL in model_names:
-        return PREFERRED_EMBEDDING_MODEL
-    if model_names:
-        return model_names[0]
-    return PREFERRED_EMBEDDING_MODEL
+    return select_model_name(model_names)
+
+
+def _input_model_name(inputs: FingerprintEmbeddingResultInputs) -> str:
+    return inputs.model_name or _select_model_name(inputs.model_names)
 
 
 def _model_specific_embeddings_table_name(model_name: str) -> str:
@@ -211,12 +211,30 @@ def _query_target_embedding(
         ) from err
 
 
+def _target_embedding_from_inputs(inputs: FingerprintEmbeddingResultInputs, model_name: str) -> list[float] | None:
+    if model_name != _input_model_name(inputs) or inputs.embedding is None:
+        return None
+    target_embedding = inputs.embedding
+    if not target_embedding:
+        raise TargetFingerprintEmbeddingNotFoundError(
+            f"Target embedding is empty for fingerprint {inputs.fingerprint} with model {model_name}"
+        )
+    try:
+        return [float(value) for value in target_embedding]
+    except (TypeError, ValueError) as err:
+        raise TargetFingerprintEmbeddingNotFoundError(
+            f"Target embedding contains non-numeric values for fingerprint {inputs.fingerprint} with model {model_name}"
+        ) from err
+
+
 def _query_closest_fingerprints(
     team: Team,
     inputs: FingerprintEmbeddingResultInputs,
     model_name: str,
 ) -> list[SimilarFingerprintDistance]:
-    target_embedding = _query_target_embedding(team, inputs, model_name)
+    target_embedding = _target_embedding_from_inputs(inputs, model_name)
+    if target_embedding is None:
+        target_embedding = _query_target_embedding(team, inputs, model_name)
 
     query = _closest_fingerprints_query(
         inputs=inputs,
@@ -320,7 +338,7 @@ async def merge_similar_fingerprints_activity(
     model_name: str | None = None
     try:
         team = await Team.objects.aget(id=inputs.team_id)
-        model_name = _select_model_name(inputs.model_names)
+        model_name = _input_model_name(inputs)
 
         start = time.monotonic()
         closest_fingerprints = await database_sync_to_async(_query_closest_fingerprints)(team, inputs, model_name)
