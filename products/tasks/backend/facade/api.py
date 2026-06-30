@@ -720,6 +720,9 @@ def create_wizard_cloud_run(
         branch=branch,
         wizard_config={},
         posthog_mcp_scopes="read_only",
+        # The agent server boots idle; this is the message that actually kicks it off once ready
+        # (delivered by forward_pending_user_message). Without it the run stalls after "Started agent".
+        pending_user_message=WIZARD_PR_AGENT_PROMPT,
     )
 
 
