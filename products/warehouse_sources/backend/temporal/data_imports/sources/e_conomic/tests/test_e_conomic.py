@@ -99,10 +99,11 @@ class TestFetchPage:
     def test_retryable_status_raises_retryable_error(self, _name: str, status_code: int) -> None:
         session = MagicMock()
         session.get.return_value = _fake_response(status_code)
-        # Bypass the @retry decorator (`.__wrapped__`) so we assert the raise logic without tenacity's
-        # ~15s of real backoff sleeps per case.
+        # Bypass the @retry decorator (`__wrapped__`) so we assert the raise logic without tenacity's
+        # ~15s of real backoff sleeps per case. getattr keeps mypy happy about the dynamic attribute.
+        unwrapped = getattr(_fetch_page, "__wrapped__")
         with pytest.raises(EConomicRetryableError):
-            _fetch_page.__wrapped__(session, "https://restapi.e-conomic.com/customers", MagicMock())
+            unwrapped(session, "https://restapi.e-conomic.com/customers", MagicMock())
 
     @parameterized.expand([("unauthorized", 401), ("forbidden", 403), ("not_found", 404)])
     def test_client_error_raises_http_error(self, _name: str, status_code: int) -> None:
