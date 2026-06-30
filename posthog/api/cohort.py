@@ -37,7 +37,7 @@ from posthog.hogql.property import property_to_expr
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import FlagVersionConflictError, batch_evaluate_flag_for_team
-from posthog.api.shared import UserBasicSerializer
+from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.api.utils import action
 from posthog.cdp.filters import build_behavioral_event_expr
 from posthog.clickhouse.query_tagging import Feature, tag_queries
@@ -45,6 +45,7 @@ from posthog.constants import LIMIT, OFFSET
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.helpers.trigram_search import DESCRIPTION_FIELD, MAX_SEARCH_LENGTH, NAME_FIELD, apply_trigram_search
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.metrics import LABEL_TEAM_ID
@@ -515,7 +516,7 @@ class CohortFiltersField(serializers.JSONField):
     pass
 
 
-class CohortSerializer(serializers.ModelSerializer):
+class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
     earliest_timestamp_func = earliest_timestamp_func
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -553,6 +554,7 @@ class CohortSerializer(serializers.ModelSerializer):
             "is_static",
             "cohort_type",
             "experiment_set",
+            "search_match_type",
             "_create_in_folder",
             "_create_static_person_ids",
         ]
@@ -1375,6 +1377,18 @@ def get_cohorts_using_cohort(cohort: Cohort) -> QuerySet[Cohort]:
     list=extend_schema(
         parameters=[
             OpenApiParameter(
+                name="search",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description=(
+                    "Optional. Match against cohort `name` and `description`. Returns case-insensitive "
+                    "substring matches and fuzzy trigram matches (typos, transpositions, prefix-as-you-type) "
+                    "together, ordered exact-first then by relevance; each result's `search_match_type` is "
+                    "`exact` or `similar`. When omitted, cohorts are ordered newest-first. Capped at 200 "
+                    "characters; longer queries return a 400 error."
+                ),
+            ),
+            OpenApiParameter(
                 name="hide_behavioral_cohorts",
                 type=OpenApiTypes.BOOL,
                 location=OpenApiParameter.QUERY,
@@ -1422,11 +1436,23 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
             elif key == "created_by_id":
                 queryset = queryset.filter(created_by_id=request.GET["created_by_id"])
             elif key == "search":
-                queryset = queryset.filter(name__icontains=request.GET["search"])
+                search = request.GET["search"]
+                if len(search) > MAX_SEARCH_LENGTH:
+                    raise serializers.ValidationError(
+                        {"search": f"Search query must be {MAX_SEARCH_LENGTH} characters or fewer."}
+                    )
+                queryset = apply_trigram_search(
+                    queryset,
+                    search,
+                    span_prefix="cohort.search",
+                    fields=(NAME_FIELD, DESCRIPTION_FIELD),
+                    tiebreakers=("-created_at",),
+                )
 
         return queryset
 
     def safely_get_queryset(self, queryset) -> QuerySet:
+        is_search = self.action == "list" and bool(self.request.query_params.get("search"))
         if self.action == "list":
             queryset = queryset.filter(deleted=False)
 
@@ -1467,12 +1493,17 @@ class CohortViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelVi
         # `created_by` and `team` are forward FKs, so `select_related` JOINs them in
         # one query instead of the two extra round-trips `prefetch_related` costs.
         # `experiment_set` is a reverse relation, so it stays prefetched.
-        return (
+        queryset = (
             queryset.annotate(last_error_code=last_error_code_subquery)
             .select_related("created_by", "team")
             .prefetch_related("experiment_set")
-            .order_by("-created_at")
         )
+
+        # Searching imposes its own exact-first relevance ordering; don't clobber it.
+        if not is_search:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset
 
     @extend_schema(
         parameters=[
