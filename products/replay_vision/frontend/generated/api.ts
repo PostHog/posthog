@@ -17,6 +17,7 @@ import type {
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerListApi,
     PaginatedVisionActionListApi,
+    PaginatedVisionActionRunListApi,
     PatchedReplayScannerApi,
     PatchedVisionActionApi,
     ReplayObservationApi,
@@ -24,7 +25,9 @@ import type {
     ScannerCreatorsResponseApi,
     ScannerStatsResponseApi,
     VisionActionApi,
+    VisionActionRunApi,
     VisionActionsListParams,
+    VisionActionsRunsListParams,
     VisionObservationsListParams,
     VisionQuotaApi,
     VisionScannersListParams,
@@ -149,6 +152,60 @@ export const visionActionsDestroy = async (projectId: string, id: string, option
     return apiMutator<void>(getVisionActionsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getVisionActionsRunsListUrl = (
+    projectId: string,
+    visionActionId: string,
+    params?: VisionActionsRunsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/`
+}
+
+/**
+ * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
+ */
+export const visionActionsRunsList = async (
+    projectId: string,
+    visionActionId: string,
+    params?: VisionActionsRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedVisionActionRunListApi> => {
+    return apiMutator<PaginatedVisionActionRunListApi>(getVisionActionsRunsListUrl(projectId, visionActionId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getVisionActionsRunsRetrieveUrl = (projectId: string, visionActionId: string, id: string) => {
+    return `/api/projects/${projectId}/vision/actions/${visionActionId}/runs/${id}/`
+}
+
+/**
+ * Read-only run history for a single vision action (nested under /vision/actions/{action_id}/runs/).
+ */
+export const visionActionsRunsRetrieve = async (
+    projectId: string,
+    visionActionId: string,
+    id: string,
+    options?: RequestInit
+): Promise<VisionActionRunApi> => {
+    return apiMutator<VisionActionRunApi>(getVisionActionsRunsRetrieveUrl(projectId, visionActionId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

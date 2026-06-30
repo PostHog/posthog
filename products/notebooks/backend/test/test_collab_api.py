@@ -341,7 +341,7 @@ class TestNotebookCollabStreamAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert response["Content-Type"] == "text/event-stream"
-        assert response["Cache-Control"] == "no-cache"
+        assert response["Cache-Control"] == "no-cache, no-transform"
         assert response["X-Accel-Buffering"] == "no"
 
         body = self._consume_stream(response)

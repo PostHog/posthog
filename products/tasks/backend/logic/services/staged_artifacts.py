@@ -50,9 +50,10 @@ def build_task_artifact_entry(
     size: int | None,
     content_type: str,
     storage_path: str,
+    metadata: dict[str, Any] | None = None,
     uploaded_at: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    artifact_entry: dict[str, Any] = {
         "id": artifact_id,
         "name": name,
         "type": artifact_type,
@@ -62,6 +63,9 @@ def build_task_artifact_entry(
         "storage_path": storage_path,
         "uploaded_at": uploaded_at or timezone.now().isoformat(),
     }
+    if metadata:
+        artifact_entry["metadata"] = metadata
+    return artifact_entry
 
 
 def cache_task_staged_artifact(task: Task, artifact: dict[str, Any]) -> None:

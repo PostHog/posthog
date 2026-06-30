@@ -1,1 +1,1 @@
-1242_consolidate_duckgres_models_drop
+1245_duckgres_sink_schema_state

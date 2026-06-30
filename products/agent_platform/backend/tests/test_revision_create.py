@@ -22,8 +22,6 @@ _SPEC = {"models": {"mode": "manual", "models": [{"model": "anthropic/claude-hai
 class TestRevisionCreateBundleUri(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }

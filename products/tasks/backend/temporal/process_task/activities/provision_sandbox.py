@@ -416,8 +416,10 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             **ctx.sandbox_resource_overrides(),
         )
 
-        # Request a small slice and let the box burst up to the configured size. The decision is
-        # captured once in the context at workflow start, so it's stable across activity retries.
+        # Request a small slice and let the box burst up to the configured size. Burstable by
+        # default, but the per-run state can opt out to pin a fixed-size box (request == limit).
+        # The decision is captured once in the context at workflow start, so it's stable across
+        # activity retries.
         if ctx.burstable_sandbox_resources_enabled:
             config.burstable_resources = True
             emit_agent_log(

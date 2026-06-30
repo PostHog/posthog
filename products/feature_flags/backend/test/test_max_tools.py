@@ -5,9 +5,8 @@ from parameterized import parameterized
 
 from posthog.schema import FeatureFlagGroupType, GroupPropertyFilter, PersonPropertyFilter, PropertyOperator
 
-from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.sync import database_sync_to_async
-from posthog.test.persons import _seed_group_type_mapping_into_fake
+from posthog.test.persons import create_group_type_mapping
 
 from products.feature_flags.backend.max_tools import (
     CreateFeatureFlagTool,
@@ -183,14 +182,13 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert len(flag.filters["groups"][0]["properties"]) == 1
 
     async def test_create_flag_with_group_type(self):
-        mapping = await GroupTypeMapping.objects.acreate(
+        await database_sync_to_async(create_group_type_mapping)(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
             group_type_index=0,
             name_plural="Organizations",
         )
-        _seed_group_type_mapping_into_fake(mapping)
 
         tool = self._create_tool()
 
@@ -211,14 +209,13 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert flag.filters["aggregation_group_type_index"] == 0
 
     async def test_create_flag_with_group_and_property(self):
-        mapping = await GroupTypeMapping.objects.acreate(
+        await database_sync_to_async(create_group_type_mapping)(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
             group_type_index=0,
             name_plural="Organizations",
         )
-        _seed_group_type_mapping_into_fake(mapping)
 
         tool = self._create_tool()
 
@@ -395,14 +392,13 @@ class TestCreateFeatureFlagTool(APIBaseTest):
         assert not exists
 
     async def test_create_multivariate_with_property_filters(self):
-        mapping = await GroupTypeMapping.objects.acreate(
+        await database_sync_to_async(create_group_type_mapping)(
             team=self.team,
             project_id=self.team.project_id,
             group_type="organization",
             group_type_index=0,
             name_plural="Organizations",
         )
-        _seed_group_type_mapping_into_fake(mapping)
 
         tool = self._create_tool()
 
