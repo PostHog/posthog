@@ -233,7 +233,11 @@ fi
 if run_scope "temporal-schedules"; then
     if [ "${DEPLOYMENT:-}" != "hobby" ] && [ "${DEBUG:-0}" != "1" ]; then
         echo "Scheduling Temporal worker workflows..."
-        if ! python manage.py schedule_temporal_workflows; then
+        # timeout guards against an unreachable Temporal frontend: the client has
+        # no connect/RPC deadline of its own, so a network black-hole would hang
+        # the whole migrate job otherwise. 90s leaves room for Django startup on a
+        # cold container; reconciliation is idempotent so a killed run resumes next deploy.
+        if ! timeout 90 python manage.py schedule_temporal_workflows; then
             echo "Warning: schedule_temporal_workflows failed, continuing."
         fi
     fi
