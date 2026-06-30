@@ -1673,15 +1673,20 @@ class TestDucklakeFilePartitionValueFixupHelper:
 
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
     def test_empty_file_list_is_noop(self, mock_open_conn, target):
-        _fixup_partition_values_for_added_files(MagicMock(), target, "events", [])
+        _fixup_partition_values_for_added_files(MagicMock(), target, "events", "events", [])
         mock_open_conn.assert_not_called()
 
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
-    def test_unknown_table_name_raises(self, mock_open_conn, target):
+    def test_unknown_table_kind_raises(self, mock_open_conn, target):
+        # table_kind is Literal["events", "persons"] so a bad value triggers a
+        # mypy error too; the type: ignore is the test-only way to exercise the
+        # runtime guard. The runtime guard exists as belt-and-suspenders for
+        # any caller that bypasses static typing.
         with pytest.raises(ValueError, match="_DUCKLAKE_FILE_PARTITION_VALUE_SPEC has no entry"):
             _fixup_partition_values_for_added_files(
                 MagicMock(),
                 target,
+                "unknown_kind",  # type: ignore[arg-type]
                 "unknown_table",
                 ["s3://bkt/whatever/year=2026/month=06/day=17/run1.parquet"],
             )
@@ -1697,10 +1702,10 @@ class TestDucklakeFilePartitionValueFixupHelper:
         ]
     )
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
-    def test_pre_flight_rejects_malformed_paths(self, _label, table, bad_path, mock_open_conn):
+    def test_pre_flight_rejects_malformed_paths(self, _label, kind, bad_path, mock_open_conn):
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
         with pytest.raises(ValueError, match="do not match the expected hive layout"):
-            _fixup_partition_values_for_added_files(MagicMock(), target, table, [bad_path])
+            _fixup_partition_values_for_added_files(MagicMock(), target, kind, kind, [bad_path])
         mock_open_conn.assert_not_called()
 
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
@@ -1713,9 +1718,39 @@ class TestDucklakeFilePartitionValueFixupHelper:
                 MagicMock(),
                 target,
                 "persons",
+                "persons",
                 ["s3://bkt/backfill/persons/2/year=0/month=0/run1_0.parquet"],
             )
         mock_open_conn.assert_called_once_with(target)
+
+    @parameterized.expand(
+        [
+            ("events_suffixed", "events", "events_acme"),
+            ("persons_suffixed", "persons", "persons_acme"),
+        ]
+    )
+    @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
+    def test_suffixed_table_name_uses_actual_name_in_catalog_lookup(
+        self, _label, kind, actual_table_name, mock_open_conn
+    ):
+        # When DuckgresServerTeam.table_suffix is set, the dagster registration
+        # path writes to events_<suffix> / persons_<suffix>. The fix-up must
+        # look up THAT table in the catalog, not the bare kind name. Verified
+        # by inspecting the cur.execute call binding the table_name param.
+        target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
+        ext = "/day=17/run1_0.parquet" if kind == "events" else "/run1_0.parquet"
+        files = [f"s3://bkt/backfill/{kind}/2/year=2026/month=06{ext}"]
+        spec_rows = _EVENTS_SPEC_ROWS if kind == "events" else _PERSONS_SPEC_ROWS
+        conn, cur = _make_catalog_conn_mock(post_condition_row=(0, 0, len(files)), spec_rows=spec_rows)
+        mock_open_conn.return_value = conn
+
+        _fixup_partition_values_for_added_files(MagicMock(), target, kind, actual_table_name, files)
+
+        # The partition_info SELECT is parameter-bound with (table_name,); pin
+        # that we're querying for the suffixed name, not the bare kind.
+        partition_info_calls = [c for c in cur.execute.call_args_list if "ducklake_partition_info" in str(c.args[0])]
+        assert len(partition_info_calls) == 1
+        assert partition_info_calls[0].args[1] == (actual_table_name,)
 
 
 class TestDucklakeFilePartitionValueFixupCatalogInteraction:
@@ -1729,7 +1764,7 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         conn, cur = _make_catalog_conn_mock(post_condition_row=(0, 0, len(files)))
         mock_open_conn.return_value = conn
 
-        _fixup_partition_values_for_added_files(MagicMock(), target, "events", files)
+        _fixup_partition_values_for_added_files(MagicMock(), target, "events", "events", files)
 
         executed_sql = [str(call.args[0]) for call in cur.execute.call_args_list]
         # Session advisory lock is acquired OUTSIDE the txn (the very first SQL)
@@ -1753,7 +1788,7 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         mock_open_conn.return_value = conn
 
         with pytest.raises(RuntimeError, match="live catalog spec for posthog.events"):
-            _fixup_partition_values_for_added_files(MagicMock(), target, "events", files)
+            _fixup_partition_values_for_added_files(MagicMock(), target, "events", "events", files)
 
         executed_sql = [str(call.args[0]) for call in cur.execute.call_args_list]
         assert not any("DELETE FROM" in s for s in executed_sql)
@@ -1767,7 +1802,7 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         mock_open_conn.return_value = conn
 
         with pytest.raises(RuntimeError, match="post-condition failed"):
-            _fixup_partition_values_for_added_files(MagicMock(), target, "events", files)
+            _fixup_partition_values_for_added_files(MagicMock(), target, "events", "events", files)
 
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
     def test_unique_partition_info_required(self, mock_open_conn, target):
@@ -1778,7 +1813,7 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         mock_open_conn.return_value = conn
 
         with pytest.raises(RuntimeError, match="expected exactly one live partition_info"):
-            _fixup_partition_values_for_added_files(MagicMock(), target, "events", files)
+            _fixup_partition_values_for_added_files(MagicMock(), target, "events", "events", files)
 
     @patch("posthog.dags.events_backfill_to_duckling.time.sleep", lambda _: None)
     @patch("posthog.dags.events_backfill_to_duckling._open_catalog_conn")
@@ -1796,7 +1831,7 @@ class TestDucklakeFilePartitionValueFixupCatalogInteraction:
         mock_open_conn.return_value = conn
 
         with pytest.raises(RuntimeError, match="could not acquire .* advisory lock"):
-            _fixup_partition_values_for_added_files(MagicMock(), target, "events", files)
+            _fixup_partition_values_for_added_files(MagicMock(), target, "events", "events", files)
 
 
 class TestRegisterTriggersFixup:
@@ -1809,22 +1844,67 @@ class TestRegisterTriggersFixup:
     @patch("posthog.dags.events_backfill_to_duckling._fixup_partition_values_for_added_files")
     @patch("posthog.dags.events_backfill_to_duckling._ducklake_file_partition_value_fixup_enabled", return_value=True)
     def test_fixup_called_with_registered_paths_when_enabled(
-        self, _label, register_fn, table, _mock_enabled, mock_fixup
+        self, _label, register_fn, kind, _mock_enabled, mock_fixup
     ):
         target = DucklingTarget(team_id=2, organization_id="org-1", bucket="bkt", bucket_region="us-east-1")
-        files = [f"s3://bkt/backfill/{table}/2/year=2026/month=06/day=17/run1_{i}.parquet" for i in range(3)]
+        files = [f"s3://bkt/backfill/{kind}/2/year=2026/month=06/day=17/run1_{i}.parquet" for i in range(3)]
         conn, _cur = _mock_glob_conn(files)
         config = DucklingBackfillConfig()
 
         register_fn(MagicMock(), target, "s3://bkt/.../run1_*.parquet", config, conn)
 
         assert mock_fixup.call_count == 1
-        # Positional signature: (context, target, table_name, file_paths). Pin
-        # the non-context args; context is a MagicMock so we don't compare it.
-        passed_target, passed_table, passed_files = mock_fixup.call_args.args[1:]
+        # Positional signature: (context, target, table_kind, table_name, file_paths).
+        # Pin the non-context args; context is a MagicMock so we don't compare it.
+        passed_target, passed_kind, passed_table_name, passed_files = mock_fixup.call_args.args[1:]
         assert passed_target == target
-        assert passed_table == table
+        assert passed_kind == kind
+        # Unsuffixed: actual table name equals the kind (target defaults events_table="events").
+        assert passed_table_name == kind
         assert passed_files == files
+
+    @parameterized.expand(
+        [
+            (
+                "events_suffixed",
+                register_files_with_duckling,
+                "events",
+                "events_acme",
+                {"events_table": "events_acme"},
+            ),
+            (
+                "persons_suffixed",
+                register_persons_files_with_duckling,
+                "persons",
+                "persons_acme",
+                {"persons_table": "persons_acme"},
+            ),
+        ]
+    )
+    @patch("posthog.dags.events_backfill_to_duckling._fixup_partition_values_for_added_files")
+    @patch("posthog.dags.events_backfill_to_duckling._ducklake_file_partition_value_fixup_enabled", return_value=True)
+    def test_fixup_passes_suffixed_table_name(
+        self, _label, register_fn, kind, expected_table_name, target_overrides, _mock_enabled, mock_fixup
+    ):
+        # When DuckgresServerTeam.table_suffix is set, target.{events,persons}_table
+        # carries the suffixed name. The fix-up trigger must pass that actual
+        # name through so the catalog lookup targets the right table.
+        target = DucklingTarget(
+            team_id=2,
+            organization_id="org-1",
+            bucket="bkt",
+            bucket_region="us-east-1",
+            **target_overrides,
+        )
+        files = [f"s3://bkt/backfill/{kind}/2/year=2026/month=06/day=17/run1_0.parquet"]
+        conn, _cur = _mock_glob_conn(files)
+        config = DucklingBackfillConfig()
+
+        register_fn(MagicMock(), target, "s3://bkt/.../run1_*.parquet", config, conn)
+
+        passed_kind, passed_table_name = mock_fixup.call_args.args[2:4]
+        assert passed_kind == kind
+        assert passed_table_name == expected_table_name
 
     @parameterized.expand(
         [

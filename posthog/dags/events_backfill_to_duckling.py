@@ -39,7 +39,7 @@ import dataclasses
 from collections.abc import Callable
 from contextlib import closing
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.utils import timezone
 
@@ -1673,11 +1673,20 @@ def _release_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> N
         )
 
 
-def _assert_live_spec_matches(cur: Any, table_name: str, table_id: int, partition_id: int) -> None:
+def _assert_live_spec_matches(
+    cur: Any,
+    table_kind: Literal["events", "persons"],
+    table_name: str,
+    table_id: int,
+    partition_id: int,
+) -> None:
     # The fix-up bakes _DUCKLAKE_FILE_PARTITION_VALUE_SPEC into the SQL it emits. If the live catalog spec
     # drifts (someone runs ALTER ... SET PARTITIONED BY, or a future writer
     # version reshapes things), we'd silently mis-index rows. Cheap one-SELECT
-    # defense against that whole class.
+    # defense against that whole class. table_kind ("events"/"persons") keys
+    # the spec; table_name is the actual catalog name and may carry a per-team
+    # suffix (events_<suffix> / persons_<suffix>) — the spec is the same for
+    # every suffix variant since the partition layout doesn't change.
     cur.execute(
         """
         SELECT partition_key_index, transform
@@ -1688,11 +1697,11 @@ def _assert_live_spec_matches(cur: Any, table_name: str, table_id: int, partitio
         (partition_id, table_id),
     )
     actual = tuple((int(idx), str(transform)) for idx, transform in cur.fetchall())
-    expected = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC[table_name]
+    expected = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC[table_kind]
     if actual != expected:
         raise RuntimeError(
             f"ducklake_file_partition_value fix-up: live catalog spec for posthog.{table_name} "
-            f"(partition_id={partition_id}) is {actual}; expected {expected}. "
+            f"(kind={table_kind}, partition_id={partition_id}) is {actual}; expected {expected}. "
             f"Update _DUCKLAKE_FILE_PARTITION_VALUE_SPEC and redeploy before re-enabling the fix-up."
         )
 
@@ -1700,26 +1709,33 @@ def _assert_live_spec_matches(cur: Any, table_name: str, table_id: int, partitio
 def _fixup_partition_values_for_added_files(
     context: AssetExecutionContext,
     target: DucklingTarget,
+    table_kind: Literal["events", "persons"],
     table_name: str,
     file_paths: list[str],
 ) -> None:
     # Repair ducklake_file_partition_value rows for files just registered via ducklake_add_data_files().
+    # table_kind is the logical kind ("events" or "persons") used to look up the
+    # spec + path regex; table_name is the actual catalog table the files were
+    # registered into and may carry a per-team suffix (events_<suffix> /
+    # persons_<suffix>) per DuckgresServerTeam.table_suffix. The dagster
+    # registration path writes files for the suffixed table while keeping the
+    # S3 prefix (backfill/events/.../) tied to the kind, not the suffix.
     # Raises RuntimeError on any inconsistency; see module-level block for the
     # failure-semantics contract. Convergent and idempotent.
     if not file_paths:
         return
 
-    spec = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC.get(table_name)
-    path_regex = _DUCKLAKE_FILE_PARTITION_VALUE_PATH_REGEXES.get(table_name)
+    spec = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC.get(table_kind)
+    path_regex = _DUCKLAKE_FILE_PARTITION_VALUE_PATH_REGEXES.get(table_kind)
     if spec is None or path_regex is None:
-        raise ValueError(f"_DUCKLAKE_FILE_PARTITION_VALUE_SPEC has no entry for table_name={table_name!r}")
+        raise ValueError(f"_DUCKLAKE_FILE_PARTITION_VALUE_SPEC has no entry for table_kind={table_kind!r}")
 
     unparseable = [p for p in file_paths if not path_regex.search(p)]
     if unparseable:
         sample = ", ".join(unparseable[:3])
         raise ValueError(
-            f"ducklake_file_partition_value fix-up: {len(unparseable)} of {len(file_paths)} {table_name} path(s) "
-            f"do not match the expected hive layout (sample: {sample})"
+            f"ducklake_file_partition_value fix-up: {len(unparseable)} of {len(file_paths)} "
+            f"{table_kind} (in {table_name}) path(s) do not match the expected hive layout (sample: {sample})"
         )
 
     expected_index_set = [idx for idx, _ in spec]
@@ -1771,7 +1787,7 @@ def _fixup_partition_values_for_added_files(
                     )
                 table_id, partition_id = rows[0]
 
-                _assert_live_spec_matches(cur, table_name, table_id, partition_id)
+                _assert_live_spec_matches(cur, table_kind, table_name, table_id, partition_id)
 
                 # Single-statement DELETE + INSERT so no reader sees zero ducklake_file_partition_value rows.
                 # DELETE is scoped by table_id AND data_file_id (defense in depth);
@@ -1868,6 +1884,7 @@ def _fixup_partition_values_for_added_files(
                     # live exception to capture a traceback from.
                     logger.error(
                         "duckling_ducklake_file_partition_value_fixup_post_condition_failed",
+                        table_kind=table_kind,
                         table_name=table_name,
                         organization_id=target.organization_id,
                         team_id=target.team_id,
@@ -1896,6 +1913,7 @@ def _fixup_partition_values_for_added_files(
     )
     logger.info(
         "duckling_ducklake_file_partition_value_fixup_succeeded",
+        table_kind=table_kind,
         table_name=table_name,
         organization_id=target.organization_id,
         team_id=target.team_id,
@@ -1967,7 +1985,7 @@ def register_files_with_duckling(
             )
 
         if _ducklake_file_partition_value_fixup_enabled():
-            _fixup_partition_values_for_added_files(context, target, "events", files)
+            _fixup_partition_values_for_added_files(context, target, "events", target.events_table, files)
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
@@ -2237,7 +2255,7 @@ def register_persons_files_with_duckling(
             )
 
         if _ducklake_file_partition_value_fixup_enabled():
-            _fixup_partition_values_for_added_files(context, target, "persons", files)
+            _fixup_partition_values_for_added_files(context, target, "persons", target.persons_table, files)
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
