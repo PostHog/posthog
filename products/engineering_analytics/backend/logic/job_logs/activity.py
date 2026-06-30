@@ -85,7 +85,10 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         # Failures-only today; pass a different ThinningConfig once all-jobs ingestion lands.
         thinned = thin_log(archive)
         with JobLogsEmitter(endpoint=settings.OTLP_LOGS_INGEST_ENDPOINT, token=log_ingest_token) as emitter:
-            return emitter.emit_log_archive(thinned, attributes=attributes)
+            # run_id→trace, job_id→span so the Logs UI can group a whole run and isolate one job.
+            return emitter.emit_log_archive(
+                thinned, attributes=attributes, trace_id=inputs.run_id, span_id=inputs.job_id
+            )
 
     lines = await asyncio.to_thread(_thin_and_emit)
     log.info("github_job_log_emitted", lines=lines)
