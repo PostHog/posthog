@@ -386,7 +386,10 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         self.sync_type_config.pop("partition_size_override", None)
         self.sync_type_config.pop("partition_mode_override", None)
         self.sync_type_config.pop("partitioning_keys_override", None)
-        self.save()
+        # Partitioning config is internal pipeline bookkeeping that doesn't need an audit-log
+        # entry. Skipping activity logging also avoids the mixin's extra SELECT, which can raise
+        # `query_wait_timeout` from the pooler mid-sync (matches the other sync_type_config saves).
+        self.save(skip_activity_log=True)
 
     def stage_incremental_field_value(self, run_uuid: str, last_value: Any, earliest_value: Any = None) -> None:
         existing = self.sync_type_config.get("incremental_staged", {})

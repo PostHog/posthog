@@ -191,6 +191,24 @@ class TestExternalDataSchemaActivityLogging(BaseTest):
         schema.refresh_from_db()
         assert schema.incremental_field_last_value == 42
 
+    def test_set_partitioning_enabled_save_skips_activity_log(self) -> None:
+        schema = self._create(sync_type=ExternalDataSchema.SyncType.FULL_REFRESH, sync_type_config={})
+        model_activity_signal.connect(self._signal_handler, sender=ExternalDataSchema)
+        try:
+            schema.set_partitioning_enabled(
+                partitioning_keys=["created_at"],
+                partition_count=10,
+                partition_size=None,
+                partition_mode=None,
+                partition_format=None,
+            )
+            assert not self.signal_received
+        finally:
+            model_activity_signal.disconnect(self._signal_handler, sender=ExternalDataSchema)
+        schema.refresh_from_db()
+        assert schema.sync_type_config["partitioning_enabled"] is True
+        assert schema.sync_type_config["partitioning_keys"] == ["created_at"]
+
 
 class TestUpdateSyncTypeConfigKeys(BaseTest):
     """The locked-merge helper that keeps the CDC extract activity and concurrent API PATCHes from
