@@ -146,7 +146,7 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
                 )
                 if len(found) >= MAX_DISCOVERED_JOBS:
                     logger.warning("github_job_logs_discovery_capped", cap=MAX_DISCOVERED_JOBS)
-                    return found
+                    break  # inner loop only; the outer break below stops the sweep so the cap holds
         except Exception as e:
             # A source whose jobs table isn't synced or a transient query error shouldn't fail the
             # whole sweep — skip it. Most teams never enable the workflow_jobs schema, so a missing
@@ -157,6 +157,8 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
             else:
                 logger.warning("github_job_logs_discovery_skipped_source", source_id=str(source.id), exc_info=True)
             continue
+        if len(found) >= MAX_DISCOVERED_JOBS:
+            break  # stop the sweep at the cap, but fall through to the summary log below
     # One summary line per tick so coverage stays observable even though per-source "not synced" skips
     # log at debug: a sweep that suddenly skips everything (e.g. a mistyped prefix or a dropped table)
     # is visible here instead of silently emitting nothing.
