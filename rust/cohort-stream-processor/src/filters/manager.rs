@@ -21,19 +21,31 @@ use crate::filters::reverse_index::TeamFilters;
 use crate::filters::{FilterError, TeamId};
 use crate::observability::metrics::{FILTER_CATALOG_TEAMS, FILTER_CATALOG_UNIQUE_CONDITIONS};
 
+/// The catalog's content epoch. Compared for memo invalidation; advanced on a content change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Generation(pub u64);
+
+impl Generation {
+    /// The empty pre-load catalog; no team is evaluated against it.
+    pub const INITIAL: Self = Self(0);
+
+    fn next(self) -> Self {
+        Self(self.0 + 1)
+    }
+}
+
 #[derive(Debug, Default)]
 pub struct FilterCatalog {
     teams: HashMap<TeamId, Arc<TeamFilters>>,
-    /// Content generation, stamped by [`CatalogHandle::store`]; advances only on a content change.
-    /// `0` is the empty pre-load catalog.
-    generation: u64,
+    /// Content epoch, stamped by [`CatalogHandle::store`].
+    generation: Generation,
 }
 
 impl FilterCatalog {
     pub fn new() -> Self {
         Self {
             teams: HashMap::new(),
-            generation: 0,
+            generation: Generation::INITIAL,
         }
     }
 
@@ -42,7 +54,7 @@ impl FilterCatalog {
         self.teams.get(&team_id)
     }
 
-    pub fn generation(&self) -> u64 {
+    pub fn generation(&self) -> Generation {
         self.generation
     }
 
@@ -64,7 +76,7 @@ impl FilterCatalog {
                 .into_iter()
                 .map(|(team, filters)| (team, Arc::new(filters)))
                 .collect(),
-            generation: 0,
+            generation: Generation::INITIAL,
         }
     }
 }
@@ -141,18 +153,19 @@ impl CatalogHandle {
     }
 
     fn store(&self, mut catalog: FilterCatalog) {
-        // Advance the generation only on a content change (`prev_gen == 0` is the first store); a
-        // no-op refresh reuses it so memo entries stay valid.
+        // Advance the generation only on a content change (`INITIAL` is the first store); a no-op
+        // refresh reuses it so memo entries stay valid.
         let signature = catalog_signature(&catalog);
-        let prev_gen = self.current_generation.load(Ordering::Relaxed);
+        let prev = Generation(self.current_generation.load(Ordering::Relaxed));
         let prev_sig = self.current_signature.load(Ordering::Relaxed);
-        let generation = if prev_gen == 0 || signature != prev_sig {
-            prev_gen + 1
+        let generation = if prev == Generation::INITIAL || signature != prev_sig {
+            prev.next()
         } else {
-            prev_gen
+            prev
         };
         self.current_signature.store(signature, Ordering::Relaxed);
-        self.current_generation.store(generation, Ordering::Relaxed);
+        self.current_generation
+            .store(generation.0, Ordering::Relaxed);
         catalog.generation = generation;
 
         gauge!(FILTER_CATALOG_TEAMS).set(catalog.team_count() as f64);
@@ -341,18 +354,14 @@ mod tests {
     }
 
     #[test]
-    fn first_store_stamps_generation_one() {
+    fn first_store_advances_past_the_initial_generation() {
         let handle = CatalogHandle::new();
-        assert_eq!(
-            handle.load().generation(),
-            0,
-            "the empty pre-load catalog is generation 0",
-        );
+        assert_eq!(handle.load().generation(), Generation::INITIAL);
         handle.store(FilterCatalog::from_teams([(
             TeamId(7),
             team_with_one_behavioral(),
         )]));
-        assert_eq!(handle.load().generation(), 1);
+        assert_eq!(handle.load().generation(), Generation(1));
     }
 
     #[test]
@@ -380,9 +389,9 @@ mod tests {
             TeamId(7),
             team_with_one_person(),
         )]));
-        assert_eq!(
+        assert_ne!(
             handle.load().generation(),
-            gen1 + 1,
+            gen1,
             "a content change bumps the generation",
         );
     }

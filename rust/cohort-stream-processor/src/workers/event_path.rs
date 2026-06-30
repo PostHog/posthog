@@ -12,12 +12,12 @@ use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
 use crate::filters::reverse_index::TeamFilters;
-use crate::filters::TeamId;
+use crate::filters::{Generation, TeamId};
 use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
 use crate::observability::metrics::{
     STAGE1_ARGMAX_STALE, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
-    STAGE1_PERSON_INDEX_APPENDS, STAGE1_PERSON_MEMO, STAGE1_REPLAY_SKIPPED,
-    STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
+    STAGE1_PERSON_INDEX_APPENDS, STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR,
+    STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, now_day_for_window, window_start_for_now,
@@ -33,7 +33,7 @@ use crate::stage1::state::{
 use crate::stage1::time::clickhouse_timestamp_to_millis;
 use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey, StoreError};
-use crate::workers::person_memo::{person_props_fingerprint, ConditionBitset, PersonMemo};
+use crate::workers::person_memo::{ConditionBitset, Lookup, PersonKey, PersonMemo, Receipt};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
@@ -133,7 +133,7 @@ pub fn process_event(
         partition_id,
         store,
         filters,
-        0,
+        Generation::INITIAL,
         event,
         &mut PersonMemo::disabled(),
     )
@@ -146,7 +146,7 @@ pub fn process_event_with_memo(
     partition_id: u16,
     store: &CohortStore,
     filters: &TeamFilters,
-    generation: u64,
+    generation: Generation,
     event: &CohortStreamEvent,
     memo: &mut PersonMemo,
 ) -> Result<EventOutcome, StoreError> {
@@ -338,18 +338,22 @@ enum PersonResolution {
     Inactive,
     /// Memo hit: reuse the cached results (globals never parsed).
     Cached(ConditionBitset),
-    /// Evaluate `globals`; `memoize` is the write-back slot, or `None` when the memo is disabled.
+    /// Evaluate `globals`, then cache the results under `receipt`.
     Evaluate {
         globals: serde_json::Value,
-        memoize: Option<MemoSlot>,
+        receipt: Receipt,
     },
 }
 
-struct MemoSlot {
-    team_id: i32,
-    person_id: Uuid,
-    generation: u64,
-    props_fp: u128,
+/// The raw `person_properties` iff there is a person condition and the payload is non-empty.
+fn active_person_props<'a>(filters: &TeamFilters, event: &'a CohortStreamEvent) -> Option<&'a str> {
+    if filters.person_property_conditions.is_empty() {
+        return None;
+    }
+    event
+        .person_properties
+        .as_deref()
+        .filter(|raw| !raw.is_empty())
 }
 
 /// Decide how to answer the person conditions. The only error is a malformed-props parse failure on
@@ -358,44 +362,24 @@ fn resolve_person(
     filters: &TeamFilters,
     event: &CohortStreamEvent,
     person_id: Uuid,
-    generation: u64,
+    generation: Generation,
     memo: &mut PersonMemo,
 ) -> Result<PersonResolution, SkipReason> {
-    let raw = match event
-        .person_properties
-        .as_deref()
-        .filter(|raw| !raw.is_empty())
-    {
-        Some(raw) if !filters.person_property_conditions.is_empty() => raw,
-        _ => return Ok(PersonResolution::Inactive),
+    let Some(raw) = active_person_props(filters, event) else {
+        return Ok(PersonResolution::Inactive);
     };
-
-    if !memo.enabled() {
-        let globals =
-            build_person_property_globals(event).map_err(|_| SkipReason::GlobalsParseError)?;
-        return Ok(PersonResolution::Evaluate {
-            globals,
-            memoize: None,
-        });
+    let key = PersonKey {
+        team: TeamId(event.team_id),
+        person: person_id,
+    };
+    match memo.probe(key, generation, raw) {
+        Lookup::Hit(results) => Ok(PersonResolution::Cached(results)),
+        Lookup::Miss(receipt) => {
+            let globals =
+                build_person_property_globals(event).map_err(|_| SkipReason::GlobalsParseError)?;
+            Ok(PersonResolution::Evaluate { globals, receipt })
+        }
     }
-
-    let props_fp = person_props_fingerprint(raw);
-    if let Some(cached) = memo.lookup(event.team_id, person_id, generation, props_fp) {
-        counter!(STAGE1_PERSON_MEMO, "result" => "hit").increment(1);
-        return Ok(PersonResolution::Cached(cached));
-    }
-    let globals =
-        build_person_property_globals(event).map_err(|_| SkipReason::GlobalsParseError)?;
-    counter!(STAGE1_PERSON_MEMO, "result" => "miss").increment(1);
-    Ok(PersonResolution::Evaluate {
-        globals,
-        memoize: Some(MemoSlot {
-            team_id: event.team_id,
-            person_id,
-            generation,
-            props_fp,
-        }),
-    })
 }
 
 /// Evaluate every behavioral condition against the set globals, pushing an `Apply::Behavioral` per
@@ -438,8 +422,8 @@ fn collect_behavioral_applies(
     }
 }
 
-/// Push person applies for a resolved plan. The three paths (cached read, fresh eval + cache,
-/// unmemoized sweep) produce the identical `Apply` multiset.
+/// Push person applies for a resolved plan. The cached-read and fresh-eval paths produce the
+/// identical `Apply` multiset.
 fn collect_person_applies(
     filters: &TeamFilters,
     evaluator: &mut CohortEvaluator,
@@ -452,38 +436,11 @@ fn collect_person_applies(
         PersonResolution::Cached(cached) => {
             read_person_conditions_cached(filters, &cached, applies);
         }
-        PersonResolution::Evaluate { globals, memoize } => {
+        PersonResolution::Evaluate { globals, receipt } => {
             evaluator.set_globals(globals);
-            match memoize {
-                None => eval_person_conditions_unmemoized(filters, evaluator, applies),
-                Some(slot) => {
-                    let results = eval_person_conditions(filters, evaluator, applies);
-                    memo.store(
-                        slot.team_id,
-                        slot.person_id,
-                        slot.generation,
-                        slot.props_fp,
-                        results,
-                    );
-                }
-            }
+            let results = eval_person_conditions(filters, evaluator, applies);
+            memo.store(receipt, results);
         }
-    }
-}
-
-/// Disabled-memo path: evaluate every person condition (unordered).
-fn eval_person_conditions_unmemoized(
-    filters: &TeamFilters,
-    evaluator: &mut CohortEvaluator,
-    applies: &mut Vec<Apply>,
-) {
-    for &hash in &filters.person_property_conditions {
-        let Some(bytecode) = filters.by_condition_to_bytecode.get(&hash) else {
-            continue;
-        };
-        counter!(STAGE1_CONDITIONS_EVALUATED, "kind" => "person_property").increment(1);
-        let matches = evaluator.evaluate(Arc::clone(bytecode));
-        push_person_apply(filters, hash, matches, applies);
     }
 }
 

@@ -4,13 +4,17 @@
 //! the person globals carry no clock and the STL has no `now()`. So a person's per-condition
 //! `matches` bits can be cached and reused while its raw `person_properties` are unchanged, skipping
 //! the JSON parse and the HogVM evaluations. A catalog change bumps the generation, invalidating
-//! every entry. Keyed by `(team_id, person_id)`, validated by generation + a props fingerprint.
+//! every entry.
 
 use std::num::NonZeroUsize;
 
 use lru::LruCache;
+use metrics::counter;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
+
+use crate::filters::{Generation, TeamId};
+use crate::observability::metrics::STAGE1_PERSON_MEMO;
 
 #[derive(Clone, Copy, Debug)]
 pub struct PersonMemoConfig {
@@ -25,16 +29,37 @@ impl PersonMemoConfig {
     };
 }
 
-/// `team_id` keeps persons from different teams distinct on a shared worker.
+/// `team` keeps persons from different teams distinct on a shared worker.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-struct PersonMemoKey {
-    team_id: i32,
-    person_id: Uuid,
+pub(crate) struct PersonKey {
+    pub team: TeamId,
+    pub person: Uuid,
+}
+
+/// A cached result's validity: an entry is current iff its stamp equals the lookup's, so `==` is the
+/// invalidation rule. The generation also guarantees the bits align with the current
+/// `person_conditions_ordered`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Stamp {
+    generation: Generation,
+    fingerprint: PropsFingerprint,
+}
+
+/// 128 bits of SHA-256 over the raw props — collision-negligible, and computable without a JSON parse.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct PropsFingerprint(u128);
+
+impl PropsFingerprint {
+    fn of(raw: &str) -> Self {
+        let digest = Sha256::digest(raw.as_bytes());
+        Self(u128::from_le_bytes(
+            digest[..16].try_into().expect("SHA-256 yields 32 bytes"),
+        ))
+    }
 }
 
 struct MemoEntry {
-    generation: u64,
-    props_fp: u128,
+    stamp: Stamp,
     results: ConditionBitset,
 }
 
@@ -64,9 +89,21 @@ impl ConditionBitset {
     }
 }
 
-/// `None` cache means disabled (no allocation); callers gate on [`Self::enabled`].
+/// The outcome of [`PersonMemo::probe`].
+pub(crate) enum Lookup {
+    /// The cached results are current; reuse them.
+    Hit(ConditionBitset),
+    /// Evaluate, then redeem the [`Receipt`] with the fresh results.
+    Miss(Receipt),
+}
+
+/// Proof of a miss carrying the `(key, stamp)` to cache under, so [`PersonMemo::store`] can only
+/// write what was probed. `None` when the memo is disabled, making the write a no-op.
+pub(crate) struct Receipt(Option<(PersonKey, Stamp)>);
+
+/// `None` cache means disabled (no allocation).
 pub struct PersonMemo {
-    cache: Option<LruCache<PersonMemoKey, MemoEntry>>,
+    cache: Option<LruCache<PersonKey, MemoEntry>>,
 }
 
 impl PersonMemo {
@@ -82,53 +119,33 @@ impl PersonMemo {
         Self { cache: None }
     }
 
-    pub fn enabled(&self) -> bool {
-        self.cache.is_some()
-    }
-
-    /// Cached results iff the entry matches the current generation and props fingerprint, else `None`.
-    pub(crate) fn lookup(
-        &mut self,
-        team_id: i32,
-        person_id: Uuid,
-        generation: u64,
-        props_fp: u128,
-    ) -> Option<ConditionBitset> {
-        let cache = self.cache.as_mut()?;
-        let key = PersonMemoKey { team_id, person_id };
-        match cache.get(&key) {
-            Some(entry) if entry.generation == generation && entry.props_fp == props_fp => {
-                Some(entry.results.clone())
+    /// Consult the memo for `key` at the current `generation` and props. A stale, absent, or disabled
+    /// entry is a [`Lookup::Miss`]; the fingerprint is computed only when enabled, so the kill-switch
+    /// costs no hash.
+    pub(crate) fn probe(&mut self, key: PersonKey, generation: Generation, raw: &str) -> Lookup {
+        let Some(cache) = self.cache.as_mut() else {
+            return Lookup::Miss(Receipt(None));
+        };
+        let stamp = Stamp {
+            generation,
+            fingerprint: PropsFingerprint::of(raw),
+        };
+        if let Some(entry) = cache.get(&key) {
+            if entry.stamp == stamp {
+                counter!(STAGE1_PERSON_MEMO, "result" => "hit").increment(1);
+                return Lookup::Hit(entry.results.clone());
             }
-            _ => None,
         }
+        counter!(STAGE1_PERSON_MEMO, "result" => "miss").increment(1);
+        Lookup::Miss(Receipt(Some((key, stamp))))
     }
 
-    pub(crate) fn store(
-        &mut self,
-        team_id: i32,
-        person_id: Uuid,
-        generation: u64,
-        props_fp: u128,
-        results: ConditionBitset,
-    ) {
-        if let Some(cache) = self.cache.as_mut() {
-            cache.put(
-                PersonMemoKey { team_id, person_id },
-                MemoEntry {
-                    generation,
-                    props_fp,
-                    results,
-                },
-            );
+    /// Cache `results` under a miss receipt; a no-op when the receipt came from a disabled memo.
+    pub(crate) fn store(&mut self, receipt: Receipt, results: ConditionBitset) {
+        if let (Some(cache), Receipt(Some((key, stamp)))) = (self.cache.as_mut(), receipt) {
+            cache.put(key, MemoEntry { stamp, results });
         }
     }
-}
-
-/// 128 bits of SHA-256 over the raw props — collision-negligible, and computable without a JSON parse.
-pub(crate) fn person_props_fingerprint(raw: &str) -> u128 {
-    let digest = Sha256::digest(raw.as_bytes());
-    u128::from_le_bytes(digest[..16].try_into().expect("SHA-256 yields 32 bytes"))
 }
 
 #[cfg(test)]
@@ -139,6 +156,39 @@ mod tests {
         PersonMemoConfig {
             enabled: true,
             capacity,
+        }
+    }
+
+    fn key(team: i32, person: u128) -> PersonKey {
+        PersonKey {
+            team: TeamId(team),
+            person: Uuid::from_u128(person),
+        }
+    }
+
+    /// Probe (asserting a miss) and cache `results` under the returned receipt.
+    fn seed(
+        memo: &mut PersonMemo,
+        key: PersonKey,
+        gen: Generation,
+        raw: &str,
+        results: ConditionBitset,
+    ) {
+        let Lookup::Miss(receipt) = memo.probe(key, gen, raw) else {
+            panic!("expected a miss for a fresh entry");
+        };
+        memo.store(receipt, results);
+    }
+
+    fn hit_bits(
+        memo: &mut PersonMemo,
+        key: PersonKey,
+        gen: Generation,
+        raw: &str,
+    ) -> ConditionBitset {
+        match memo.probe(key, gen, raw) {
+            Lookup::Hit(bits) => bits,
+            Lookup::Miss(_) => panic!("expected a hit"),
         }
     }
 
@@ -162,58 +212,83 @@ mod tests {
     #[test]
     fn disabled_memo_never_caches() {
         let mut memo = PersonMemo::disabled();
-        assert!(!memo.enabled());
-        memo.store(7, Uuid::from_u128(1), 1, 42, ConditionBitset::zeros(3));
-        assert!(memo.lookup(7, Uuid::from_u128(1), 1, 42).is_none());
+        seed(
+            &mut memo,
+            key(7, 1),
+            Generation(1),
+            "p",
+            ConditionBitset::zeros(3),
+        );
+        assert!(matches!(
+            memo.probe(key(7, 1), Generation(1), "p"),
+            Lookup::Miss(_)
+        ));
     }
 
     #[test]
-    fn hit_requires_matching_generation_and_fingerprint() {
+    fn hit_requires_matching_generation_props_and_team() {
         let mut memo = PersonMemo::new(config(8));
-        let person = Uuid::from_u128(1);
         let mut results = ConditionBitset::zeros(2);
         results.set(1);
-        memo.store(7, person, 5, 99, results.clone());
-
-        assert_eq!(memo.lookup(7, person, 5, 99), Some(results));
-        assert!(memo.lookup(7, person, 6, 99).is_none(), "generation bump");
-        assert!(
-            memo.lookup(7, person, 5, 100).is_none(),
-            "fingerprint change"
+        seed(
+            &mut memo,
+            key(7, 1),
+            Generation(5),
+            "props-A",
+            results.clone(),
         );
-        assert!(memo.lookup(8, person, 5, 99).is_none(), "other team");
+
+        assert_eq!(
+            hit_bits(&mut memo, key(7, 1), Generation(5), "props-A"),
+            results
+        );
+        assert!(matches!(
+            memo.probe(key(7, 1), Generation(6), "props-A"),
+            Lookup::Miss(_)
+        ));
+        assert!(matches!(
+            memo.probe(key(7, 1), Generation(5), "props-B"),
+            Lookup::Miss(_)
+        ));
+        assert!(matches!(
+            memo.probe(key(8, 1), Generation(5), "props-A"),
+            Lookup::Miss(_)
+        ));
     }
 
     #[test]
-    fn store_overwrites_a_stale_entry() {
+    fn a_new_generation_overwrites_the_stale_entry() {
         let mut memo = PersonMemo::new(config(8));
-        let person = Uuid::from_u128(1);
-        memo.store(7, person, 5, 99, ConditionBitset::zeros(2));
-        // New generation for the same person: overwrite, not accumulate.
+        seed(
+            &mut memo,
+            key(7, 1),
+            Generation(5),
+            "p",
+            ConditionBitset::zeros(2),
+        );
         let mut fresh = ConditionBitset::zeros(2);
         fresh.set(0);
-        memo.store(7, person, 6, 99, fresh.clone());
-        assert_eq!(memo.lookup(7, person, 6, 99), Some(fresh));
+        seed(&mut memo, key(7, 1), Generation(6), "p", fresh.clone());
+        assert_eq!(hit_bits(&mut memo, key(7, 1), Generation(6), "p"), fresh);
     }
 
     #[test]
     fn lru_evicts_the_least_recently_used_entry() {
         let mut memo = PersonMemo::new(config(2));
-        let (a, b, c) = (Uuid::from_u128(1), Uuid::from_u128(2), Uuid::from_u128(3));
-        memo.store(7, a, 1, 1, ConditionBitset::zeros(1));
-        memo.store(7, b, 1, 2, ConditionBitset::zeros(1));
-        // Touch `a` so `b` becomes the eviction victim.
-        assert!(memo.lookup(7, a, 1, 1).is_some());
-        memo.store(7, c, 1, 3, ConditionBitset::zeros(1));
-        assert!(memo.lookup(7, b, 1, 2).is_none(), "b evicted as LRU");
-        assert!(memo.lookup(7, a, 1, 1).is_some());
-        assert!(memo.lookup(7, c, 1, 3).is_some());
+        let g = Generation(1);
+        seed(&mut memo, key(7, 1), g, "a", ConditionBitset::zeros(1));
+        seed(&mut memo, key(7, 2), g, "b", ConditionBitset::zeros(1));
+        // Touch entry 1 so entry 2 becomes the eviction victim.
+        assert!(matches!(memo.probe(key(7, 1), g, "a"), Lookup::Hit(_)));
+        seed(&mut memo, key(7, 3), g, "c", ConditionBitset::zeros(1));
+        assert!(matches!(memo.probe(key(7, 2), g, "b"), Lookup::Miss(_)));
+        assert!(matches!(memo.probe(key(7, 1), g, "a"), Lookup::Hit(_)));
+        assert!(matches!(memo.probe(key(7, 3), g, "c"), Lookup::Hit(_)));
     }
 
     #[test]
     fn fingerprint_is_stable_and_sensitive() {
-        let a = person_props_fingerprint(r#"{"email":"u@p.com"}"#);
-        assert_eq!(a, person_props_fingerprint(r#"{"email":"u@p.com"}"#));
-        assert_ne!(a, person_props_fingerprint(r#"{"email":"v@p.com"}"#));
+        assert_eq!(PropsFingerprint::of("x"), PropsFingerprint::of("x"));
+        assert_ne!(PropsFingerprint::of("x"), PropsFingerprint::of("y"));
     }
 }

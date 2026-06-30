@@ -8,7 +8,7 @@ use std::collections::BTreeMap;
 use chrono_tz::UTC;
 use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
-    CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
+    CatalogHandle, CohortId, FilterCatalog, Generation, TeamFilters, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
@@ -183,7 +183,7 @@ impl Parity {
     fn feed(
         &mut self,
         filters: &TeamFilters,
-        generation: u64,
+        generation: Generation,
         event: &CohortStreamEvent,
         label: &str,
     ) -> EventOutcome {
@@ -243,7 +243,7 @@ fn memo_matches_full_sweep_across_hit_miss_gen_bump_and_stale_events() {
     // 1. First sighting (miss): email + plan + behavioral all match → three Entered.
     let s1 = p.feed(
         &c1,
-        1,
+        Generation(1),
         &event(alice, PROPS_PRO, 0, "2026-05-26 10:00:00.000000"),
         "s1 miss",
     );
@@ -256,7 +256,7 @@ fn memo_matches_full_sweep_across_hit_miss_gen_bump_and_stale_events() {
     // 2. Identical props (memo hit): no membership change, state advances identically.
     let s2 = p.feed(
         &c1,
-        1,
+        Generation(1),
         &event(alice, PROPS_PRO, 1, "2026-05-26 11:00:00.000000"),
         "s2 hit",
     );
@@ -268,7 +268,7 @@ fn memo_matches_full_sweep_across_hit_miss_gen_bump_and_stale_events() {
     // 3. Plan changes free (fingerprint miss → re-eval): the plan leaf leaves.
     let s3 = p.feed(
         &c1,
-        1,
+        Generation(1),
         &event(alice, PROPS_FREE, 2, "2026-05-26 12:00:00.000000"),
         "s3 fp miss",
     );
@@ -282,7 +282,7 @@ fn memo_matches_full_sweep_across_hit_miss_gen_bump_and_stale_events() {
     //    be served: alice no longer matches the email leaf, and the plan leaf re-enters (pro again).
     let s4 = p.feed(
         &c2,
-        2,
+        Generation(2),
         &event(alice, PROPS_PRO, 3, "2026-05-26 13:00:00.000000"),
         "s4 gen bump",
     );
@@ -295,7 +295,7 @@ fn memo_matches_full_sweep_across_hit_miss_gen_bump_and_stale_events() {
     // 5. An out-of-order, older event (enterprise plan): argMax rejects every leaf in both runs.
     let s5 = p.feed(
         &c2,
-        2,
+        Generation(2),
         &event(alice, PROPS_ENTERPRISE, 5, "2026-05-26 09:00:00.000000"),
         "s5 stale",
     );
@@ -304,7 +304,7 @@ fn memo_matches_full_sweep_across_hit_miss_gen_bump_and_stale_events() {
     // 6. A second person under the same generation: a distinct memo key, evaluated fresh (merge analog).
     let s6 = p.feed(
         &c2,
-        2,
+        Generation(2),
         &event(bob, PROPS_BOB, 4, "2026-05-26 14:00:00.000000"),
         "s6 new person",
     );
