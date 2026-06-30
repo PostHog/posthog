@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { IconOpenSidebar } from '@posthog/icons'
+import { IconOpenSidebar, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
+import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
 import { ReadingHog } from 'lib/components/hedgehogs'
+import { AgentBadgeRotator } from 'lib/components/MCPHint/AgentBadgeRotator'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
 import ViewRecordingButton from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { Link } from 'lib/lemon-ui/Link'
+import { useWizardCommand } from 'scenes/onboarding/shared/SetupWizardBanner'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -307,6 +310,48 @@ const WARNING_TYPE_RENDERER = {
     },
 }
 
+/**
+ * Agent-flavored nudge shown above the warnings table: pushes the
+ * `npx @posthog/wizard ingestion-warnings` CLI, which finds the code behind each
+ * warning and fixes the instrumentation producing it. Mirrors the warehouse / MCP
+ * hint cards.
+ */
+function IngestionWarningsWizardHint(): JSX.Element | null {
+    const { wizardCommand, isCloudOrDev } = useWizardCommand('ingestion-warnings')
+
+    // The wizard CLI only targets cloud (US/EU) and dev instances — self-hosted has no
+    // preconfigured endpoint, so hide it rather than show a command that can't work.
+    if (!isCloudOrDev) {
+        return null
+    }
+
+    return (
+        <div className="rounded-lg border border-dashed border-primary bg-bg-light p-4 flex flex-col gap-3">
+            <div className="flex items-center gap-2">
+                <IconSparkles className="size-4 shrink-0" />
+                <h4 className="m-0 text-sm font-semibold">
+                    Let <AgentBadgeRotator /> fix these warnings for you
+                </h4>
+            </div>
+            <div className="text-sm text-default">
+                Ingestion warnings can't be fixed after the fact — the events are already dropped or degraded. Run this
+                in your project and the wizard traces each warning back to the code producing it and fixes the
+                instrumentation.
+            </div>
+            <div className="pt-1">
+                <CommandBlock
+                    command={wizardCommand}
+                    copyLabel="Ingestion warnings wizard command"
+                    ariaLabel="Copy ingestion warnings wizard command"
+                    size="sm"
+                    decoration="rainbow"
+                    className="bg-surface-secondary border border-primary !m-0 hover:border-accent"
+                />
+            </div>
+        </div>
+    )
+}
+
 export function IngestionWarningsView(): JSX.Element {
     const { data, dataLoading, summaryDatasets, dates, searchQuery, showProductIntro } =
         useValues(ingestionWarningsLogic)
@@ -344,6 +389,7 @@ export function IngestionWarningsView(): JSX.Element {
                 />
             ) : (
                 <SceneSection>
+                    <IngestionWarningsWizardHint />
                     <LemonInput
                         fullWidth
                         value={searchQuery}
