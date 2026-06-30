@@ -20,7 +20,10 @@ from posthog.hogql.database.models import (
 from posthog.exceptions_capture import capture_exception
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 
+from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import Node
 from products.revenue_analytics.backend.views.schemas import SCHEMAS as REVENUE_ANALYTICS_SCHEMAS
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -160,6 +163,42 @@ class DataWarehouseManagedViewSet(CreatedMetaFields, UpdatedMetaFields, UUIDTMod
             orphaned_views_to_revert = list(
                 self.saved_queries.exclude(name__in=expected_view_names).exclude(deleted=True)
             )
+
+        # Managed views get their own DAG (Revenue Analytics runs on a single 12h schedule), kept
+        # separate from the team's Default DAG so each DAG has exactly one sync frequency. Maintained
+        # on every sync — create, update, and resync. saved_queries_to_schedule is in expected_views
+        # order (dependencies first), so edges resolve in a single pass.
+        #
+        # Serialize concurrent sync_views for this team+kind with a SESSION-level advisory lock so two
+        # calls can't race on node/edge placement (one call's edge delete-and-recreate wiping
+        # another's). Deliberately NOT wrapped in a transaction: sync_saved_query_to_dag parses HogQL
+        # (builds a Database context + resolves view dependencies), and holding a Postgres transaction
+        # open across that is what starves the data-modeling connection pool. Each call commits in
+        # autocommit and is idempotent; the lock is released in a finally so it never leaks.
+        lock_key = f"{self.team_id}_sync_views_{self.kind}"
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(hashtext(%s)::bigint)", [lock_key])
+        try:
+            managed_dag = DAG.get_or_create_revenue_analytics(self.team)
+            for saved_query in saved_queries_to_schedule:
+                try:
+                    sync_saved_query_to_dag(saved_query, dag=managed_dag, allow_managed=True)
+                    # Drop any stale node left in another DAG (e.g. a legacy Default-DAG placement),
+                    # unless something there still depends on it (don't orphan a dependent).
+                    for stale in Node.objects.filter(team=self.team, saved_query=saved_query).exclude(dag=managed_dag):
+                        if not stale.outgoing_edges.exists():
+                            stale.delete()
+                except Exception as e:
+                    capture_exception(e, {"managed_viewset_id": self.id, "view_name": saved_query.name})
+                    logger.warning(
+                        "failed_to_sync_managed_view_to_dag",
+                        team_id=self.team_id,
+                        view_name=saved_query.name,
+                        error=str(e),
+                    )
+        finally:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(hashtext(%s)::bigint)", [lock_key])
 
         for saved_query in saved_queries_to_schedule:
             try:

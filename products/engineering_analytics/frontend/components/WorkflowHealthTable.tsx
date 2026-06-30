@@ -271,7 +271,13 @@ export function WorkflowHealthTable({
         <LemonTable
             // Fixed layout honors the CI_GRID widths exactly (auto layout lets empty spacer cells collapse),
             // so the run/job tables nested inside line their columns up to the pixel. Cascades to them too.
-            className="[&_table]:table-fixed"
+            // Fixed layout collapses the expand-toggle <col> (LemonTable sizes it width:1%, an auto-layout
+            // shrink-to-content trick), clipping the chevron — re-widen just that col to the width auto-layout
+            // would give it: the toggle cell is the row's first child, so 1rem + 0.5rem padding around a
+            // 1.5rem icon button = 3rem (w-12). A narrower col leaves the chevron clipped by the padding.
+            // Match on '1%' alone (not 'width: 1%'): a Tailwind arbitrary variant can't contain the space,
+            // and within this table the toggle is the only col with a % width, so there's no false match.
+            className="[&_table]:table-fixed [&_col[style*='1%']]:!w-12"
             data-attr={dataAttr}
             size="small"
             columns={columns}

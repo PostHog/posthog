@@ -374,9 +374,14 @@ async def setup_partitioning(
     # source silently re-derives its own count — discarding the operator's choice.
     partition_count = schema.partition_count_override or schema.partition_count or resource.partition_count
     partition_size = schema.partition_size_override or schema.partition_size or resource.partition_size
-    partition_keys = schema.partitioning_keys or resource.partition_keys or resource.primary_keys
+    partition_keys = (
+        schema.partitioning_keys_override
+        or schema.partitioning_keys
+        or resource.partition_keys
+        or resource.primary_keys
+    )
     partition_format = schema.partition_format or resource.partition_format
-    partition_mode = schema.partition_mode or resource.partition_mode
+    partition_mode = schema.partition_mode_override or schema.partition_mode or resource.partition_mode
 
     if not partition_keys:
         logger.debug("No partition keys, skipping partitioning")

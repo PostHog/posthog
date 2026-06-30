@@ -246,9 +246,9 @@ main failure mode here, so the discipline is **search, then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
-  to report on) and read the closest matches with `inbox-reports-retrieve`. Keep a
-  `report:<domain>:<entity>` scratchpad entry per report you author so future runs
-  find it even when the inbox phrasing has drifted.
+  to report on) and read the closest matches with `inbox-reports-retrieve` — plus
+  your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The
+  `report:` scratchpad entry is a pointer*).
 - **Edit when it already exists.** If a report covers the issue, prefer
   `signals-scout-edit-report`: `append_note` to add your fresh evidence (additive,
   audit-friendly, and works on any report — even one you didn't author), or
@@ -268,9 +268,9 @@ main failure mode here, so the discipline is **search, then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
-  to report on) and read the closest matches with `inbox-reports-retrieve`. Keep a
-  `report:<domain>:<entity>` scratchpad entry per report you author so future runs
-  find it even when the inbox phrasing has drifted.
+  to report on) and read the closest matches with `inbox-reports-retrieve` — plus
+  your `report:<domain>:<entity>` scratchpad pointer from a prior run (see *The
+  `report:` scratchpad entry is a pointer*).
 - **Don't duplicate an existing report.** This run can't edit reports, so if one
   already covers the issue, leave it alone — record a `remember(...)` note and
   skip rather than authoring a near-duplicate.
@@ -296,6 +296,28 @@ report your evidence bears on, then keep it current:
   `append_note` appends a second note. If unsure whether an edit landed, re-read
   the report rather than re-sending."""
 
+_REPORT_SCRATCHPAD_POINTER = """# The `report:` scratchpad entry is a pointer, not a copy
+
+After you author or edit a report, stash its `report_id` under a stable
+`report:<domain>:<entity>` scratchpad key — in the same namespace as your other
+scratchpad keys, so your step-1 `scratchpad-search` surfaces it. It is the cheap way
+to re-find *your* report next run, keyed on the entity rather than on inbox phrasing.
+
+Treat it as an **index into the inbox, never a copy of the report**:
+
+- **The inbox is the source of truth.** The entry holds an id, not the report's
+  state. Always `inbox-reports-retrieve` the live report before you edit it — its
+  `title`, `summary`, and `status` may have moved since you wrote the pointer.
+- **The pipeline can overwrite what you authored.** When later signals consolidate on
+  the same topic, the pipeline may re-research your report and rewrite its `title` /
+  `summary`. That's expected — your durable record of "I filed this" is the `report_id`
+  in the pointer, so re-find by the pointer (or by entity via `inbox-reports-list`),
+  not by remembering the exact title.
+- **Don't copy report content into the pointer.** Keep it to the `report_id` plus the
+  minimum to recognize the entity. Title, body, and status live in the inbox — read
+  them there, fresh, rather than trusting a stale snapshot."""
+
+
 _SUGGESTED_REVIEWERS_REPORT = """# Suggested reviewers route the report
 
 This is the single highest-leverage field you set. `suggested_reviewers` (a list of
@@ -310,6 +332,13 @@ unactioned.
   recent authors on the relevant surface, the team that owns the product) to name
   the right GitHub logins. Treat "I couldn't find an owner" as a last resort, not
   a default.
+- **Resolve the GitHub login — never guess it.** Entries must be bare, lowercase
+  GitHub logins, and the inbox routes by matching them exactly, so a guessed,
+  mis-cased, or display-name handle reaches no one. The owner you identify is
+  usually a PostHog member, not a handle: call `org-member-get-github-login` with
+  their user UUID (from `org-members-list`, or `@me`) to turn that member into
+  their linked GitHub login. If you can't resolve a confident login, leave the
+  field empty rather than inventing one.
 - **Set `priority` + `priority_explanation`** when the issue is concrete and you
   can justify the urgency — autostart needs a priority to consider a draft PR.
 - **Set `repository`** (`owner/repo`) when you know where a fix would land — pass
@@ -443,13 +472,23 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
     author-time sections (suggested reviewers, writing a report) only when the scout can author."""
     if can_emit and can_edit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_BOTH}\n{_REPORT_CLOSE_OUT_STEP}"
-        channel_sections = [_AUTHORING_VS_EDITING_REPORT_BOTH, _SUGGESTED_REVIEWERS_REPORT, _WRITING_REPORT]
+        channel_sections = [
+            _AUTHORING_VS_EDITING_REPORT_BOTH,
+            _REPORT_SCRATCHPAD_POINTER,
+            _SUGGESTED_REVIEWERS_REPORT,
+            _WRITING_REPORT,
+        ]
     elif can_emit:
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
-        channel_sections = [_AUTHORING_REPORT_EMIT_ONLY, _SUGGESTED_REVIEWERS_REPORT, _WRITING_REPORT]
+        channel_sections = [
+            _AUTHORING_REPORT_EMIT_ONLY,
+            _REPORT_SCRATCHPAD_POINTER,
+            _SUGGESTED_REVIEWERS_REPORT,
+            _WRITING_REPORT,
+        ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{_HOW_A_RUN_WORKS_HEAD}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
-        channel_sections = [_EDITING_REPORT_EDIT_ONLY]
+        channel_sections = [_EDITING_REPORT_EDIT_ONLY, _REPORT_SCRATCHPAD_POINTER]
     return [
         how_a_run_works,
         _SCRATCHPAD_KEYS,

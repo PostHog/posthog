@@ -62,6 +62,7 @@ from posthog.schema import ProductKey
 
 from posthog.api.log_entries import LogEntryRequestSerializer, LogEntrySerializer, fetch_log_entries
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.streaming import streaming_response
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.helpers.encrypted_fields import EncryptedTextField
@@ -803,10 +804,10 @@ class AgentApplicationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             finally:
                 await sync_to_async(upstream.close, thread_sensitive=False)()
 
-        resp = StreamingHttpResponse(
+        resp = streaming_response(
             _stream(),
-            status=upstream.status_code,
             content_type=upstream.headers.get("Content-Type", "application/octet-stream"),
+            status=upstream.status_code,
         )
         # Forward upstream response headers verbatim minus connection-control
         # ones that Django handles itself.

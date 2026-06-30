@@ -194,11 +194,14 @@ def prepare_ast_for_printing(
         collector.visit(node)
         context.workload = collector.get_workload()
 
-    # LOGS-cluster tables (logs, spans, metrics) store attributes in `*_map_str/_float` Map columns, not JSON blobs.
-    # Property reads only resolve to those Map columns under OPTIMIZED; otherwise they fall back to JSONExtract, which
-    # errors on a Map. Force OPTIMIZED here — after workload detection, before property resolution reads the modifier —
-    # so every caller (SQL panel, alerts, runners) is correct without each having to set it.
-    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode is None:
+    # LOGS-cluster tables (logs, spans, metrics) split attributes across typed `*_map_str/_float/_datetime` Map columns.
+    # A type-suffixed attribute key (e.g. `host__str`) only resolves to its physical column via property groups, which
+    # are active under OPTIMIZED. Without OPTIMIZED the read falls back to a subscript on the un-suffixed `attributes`
+    # alias, where the suffixed key never matches — so `is not` filters match every row and `equals` filters match none
+    # (silently wrong, not an error). OPTIMIZED is therefore required for correctness here, not merely a perf mode, so
+    # force it for every logs query regardless of any non-OPTIMIZED value a caller may have set — after workload
+    # detection, before property resolution reads the modifier.
+    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
         context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
     if context.modifiers.optimizeProjections:

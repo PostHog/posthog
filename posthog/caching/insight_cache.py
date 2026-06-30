@@ -84,6 +84,7 @@ def update_cache(caching_state_id: UUID):
                 cast(dict[str, Any], insight.query),
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                user=insight.created_by,
                 analytics_props={"source": EventSource.CACHE_WARMING},
             )
             # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant

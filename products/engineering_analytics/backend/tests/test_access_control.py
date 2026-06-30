@@ -24,7 +24,6 @@ from posthog.hogql.database.database import Database
 
 from posthog.rbac.user_access_control import UserAccessControl
 
-from products.data_warehouse.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.sources import (
     PULL_REQUESTS_SCHEMA,
@@ -40,6 +39,7 @@ from products.engineering_analytics.backend.tests.test_views import (
     link_schema,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
 
 # Every curated query runs HogQL through this method; stub it to empty so a resolved source
 # returns 200 with no rows, leaving the resolver's access-control decision as the only variable.

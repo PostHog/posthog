@@ -4,7 +4,7 @@ import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
-import { RunViewer } from 'products/posthog_ai/frontend/api/run'
+import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
@@ -14,7 +14,7 @@ import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to
- * the task's run transcript via the shared `RunViewer` — live for an in-progress run, static
+ * the task's run transcript via the shared `ReadonlyRunSurface` — live for an in-progress run, static
  * replay once terminal — mirroring the Code experience instead of navigating away to a separate run
  * page. The purpose label is derived from each task's `task_run` artefact; `repo_selection` runs are
  * filtered out.
@@ -85,12 +85,16 @@ function TaskRow({
             {expanded ? (
                 <div className="mt-1.5 mb-1 ml-1.5">
                     {runId ? (
-                        <div className="h-[420px] overflow-y-auto rounded border border-primary bg-surface-primary">
-                            <RunViewer
+                        // The viewer's virtualized thread owns scroll, so this box only bounds the height and
+                        // clips — an `overflow-y-auto` here would nest a second scrollbar. Content is kept off
+                        // the border via `threadRowClassName`/`threadListClassName`, not padding on this box.
+                        <div className="h-[420px] overflow-hidden rounded border border-primary bg-surface-primary">
+                            <ReadonlyRunSurface
                                 taskId={task.id}
                                 runId={runId}
                                 interaction={replayOnly ? 'read-only' : 'live'}
-                                className="px-3 py-2"
+                                threadRowClassName="px-3"
+                                threadListClassName="py-3"
                             />
                         </div>
                     ) : (
