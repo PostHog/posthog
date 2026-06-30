@@ -46,6 +46,7 @@ the row lists both.
 | ----------------------- | --------------------------- | --------------------------------------------------------------- | --------------------------- |
 | adroll                  | HTTP                        | requests                                                        | ✅                          |
 | agilecrm                | HTTP                        | requests                                                        | ✅                          |
+| aha                     | HTTP                        | requests                                                        | ✅                          |
 | aircall                 | HTTP                        | requests                                                        | ✅                          |
 | airtable                | HTTP                        | requests                                                        | ✅                          |
 | algolia                 | HTTP                        | requests                                                        | ✅                          |
@@ -67,6 +68,7 @@ the row lists both.
 | bigquery                | HTTP + gRPC                 | google-cloud-bigquery + bigquery-storage                        | ✅ (HTTP + gRPC)            |
 | bing_ads                | HTTP (vendor SDK, SOAP)     | bingads SDK                                                     | ⚠️                          |
 | blogger                 | HTTP                        | requests                                                        | ✅                          |
+| boldsign                | HTTP                        | requests                                                        | ✅                          |
 | braintree               | HTTP (GraphQL)              | requests                                                        | ✅                          |
 | braze                   | HTTP                        | requests                                                        | ✅                          |
 | breezometer             | HTTP                        | requests                                                        | ✅                          |
@@ -299,7 +301,6 @@ doesn't conflict with concurrent PRs.
 - adobe_commerce
 - adp_workforce_now
 - adyen
-- aha
 - ahrefs
 - airbyte
 - akeneo
@@ -329,7 +330,6 @@ doesn't conflict with concurrent PRs.
 - bigcommerce
 - bitly
 - bluetally
-- boldsign
 - box
 - braintrust
 - branch
