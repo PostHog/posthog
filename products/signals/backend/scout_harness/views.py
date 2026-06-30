@@ -3,8 +3,8 @@
 These wrap the sync Python tools in `scout_harness/tools/` so the headless scout
 (and any other agent on the team's PostHog MCP) can call the `signals-scout-*`
 tools — `runs-list`, `runs-retrieve`, `runs-findings-create`, `memory-list`,
-`memory-create`, `memory-delete`, and `project-profile-get` — over the standard
-PostHog MCP plumbing.
+`memory-create`, `memory-delete`, `project-profile-get`, and `members-list` — over
+the standard PostHog MCP plumbing.
 
 Auth uses two dedicated scope objects: `signal_scout:read` is user-grantable
 via the personal-API-key picker (so a team can introspect runs/scratchpad from
@@ -20,6 +20,7 @@ token is already pinned to the team.
 from __future__ import annotations
 
 import uuid
+import dataclasses
 from dataclasses import dataclass
 
 import structlog
@@ -50,6 +51,7 @@ from products.signals.backend.models import (
     SignalScoutEmission,
     SignalScoutRun,
 )
+from products.signals.backend.report_generation.resolve_reviewers import MAX_PROJECT_MEMBERS, list_project_members
 from products.signals.backend.scout_harness.config_registry import (
     enabled_scout_count,
     ensure_scout_category,
@@ -76,6 +78,8 @@ from products.signals.backend.scout_harness.serializers import (
     RecentEmissionsQuerySerializer,
     RememberRequestSerializer,
     ScoutEmissionReportLinkSerializer,
+    ScoutMemberSerializer,
+    ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
@@ -1085,6 +1089,66 @@ class SignalScoutMetadataViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
     def current(self, request: Request, *args, **kwargs) -> Response:
         metadata = resolve_team_metadata(_canonical_team_id(self))
         return Response(ScoutMetadataSerializer(metadata.as_dict()).data)
+
+
+class SignalScoutMembersViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+    """Project member roster for reviewer routing — sandbox-only.
+
+    `scope_object = "signal_scout_internal"` makes this a strictly scout-run-only surface: the object is
+    in `INTERNAL_API_SCOPE_OBJECTS`, so session auth, personal API keys, and the `*` consent wildcard are
+    all rejected (`posthog/permissions.py`), and only a harness sandbox OAuth token — which carries
+    `signal_scout_internal:write`, satisfying the default `list` action's `signal_scout_internal:read`
+    requirement (write implies read) — can reach it. The roster is member PII (emails, names, GitHub
+    logins), and this gate keeps it off every user-grantable credential and out of a customer's public MCP
+    catalog — the same internal-vs-external boundary as `emit-signal`, the other internal-scope scout tool.
+    The narrower `signal_scout_report` scope (report-channel scouts only) would tighten this to the tool's
+    sole consumer, but that scope is transient — a temporary split kept only while emit-signal and
+    emit-report coexist — so a durable tool stays on `signal_scout_internal` rather than coupling to a scope
+    slated for removal. The residual exposure (a baseline scout reading its own team's roster) is bounded to
+    the single-team sandbox token.
+
+    The roster is resolved server-side (a plain ORM read via `Team.all_users_with_access()`, not a DRF
+    request through the OAuth permission layer), which is why the org-nested `org-members-list` tool —
+    stripped from a scoped-team token's catalog and 403'd by the org-nested permission gate — can't serve
+    this and a project-nested tool can. Scoping through `all_users_with_access()` (not the whole org) keeps
+    a scout on a private project from enumerating members who lack access to it.
+    """
+
+    serializer_class = ScoutMemberSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission]
+    scope_object = "signal_scout_internal"
+    # No team-scoped model backs this endpoint — members are resolved from project access. A queryset is
+    # still required to satisfy the team/org viewset mixin; `list` never reads it. Mirrors
+    # `SignalScoutMetadataViewSet`.
+    queryset = SignalScoutConfig.objects.unscoped()
+    pagination_class = None
+
+    @validated_request(
+        query_serializer=ScoutMembersQuerySerializer,
+        responses={
+            200: OpenApiResponse(
+                response=ScoutMemberSerializer(many=True),
+                description="The project's members, each with their routing identity.",
+            ),
+        },
+        summary="List project members for reviewer routing",
+        description=(
+            "Return the people who can review work on this project — one row per member with access to it, "
+            "each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null "
+            "when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's "
+            "owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` "
+            "memory or inbox precedent, list members, match the owner by email/name, then put their resolved "
+            "`github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `search` to narrow "
+            f"a large roster; the result is capped at {MAX_PROJECT_MEMBERS}. Strictly team-scoped."
+        ),
+        operation_id="signals_scout_members_list",
+    )
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        validated = getattr(request, "validated_query_data", {}) or {}
+        canonical_team = self.team.parent_team or self.team
+        members = list_project_members(canonical_team, search=validated.get("search") or None)
+        return Response(ScoutMemberSerializer([dataclasses.asdict(member) for member in members], many=True).data)
 
 
 def _reject_if_enabled_cap_reached(team_id: int, skill_name: str) -> None:
