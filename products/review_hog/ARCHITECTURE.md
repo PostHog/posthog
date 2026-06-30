@@ -2049,6 +2049,118 @@ canonical"), add a per-team (or per-user, mirroring perspective enablement) mini
 inline path and the body Other-findings section read. Until then the bar is the hardcoded
 `PUBLISHED_PRIORITIES = {MUST_FIX, SHOULD_FIX}`.
 
+##### ⏭ NEXT (planned 2026-06-30) — Codex validates: run the validation pass on a different model family (gpt-5.5 @ xhigh)
+
+> **Status: planned, not built. Decisions locked 2026-06-30 — jump straight to implementation.** The
+> investigation below is complete; no re-discovery needed. This is the canonical record of the "model change".
+
+**The idea.** Claude _investigates_ (chunking, perspective review, dedup — find the issues), but a different model
+_family_ — OpenAI **Codex `gpt-5.5`** — _validates_ each finding. An independent lineage judging Claude's findings
+reduces correlated blind spots: it catches the systematic over-flagging a same-family validator would share.
+
+**Decisions (locked):**
+
+- **Scope = the validation pass ONLY.** `validate_chunk_activity` runs on Codex; chunking / perspective-review /
+  **dedup** all stay Claude-default. (Tightest reading of "validate"; dedup explicitly stays Claude — "let's start
+  with 1".)
+- **Model + effort = `gpt-5.5` at `xhigh`** reasoning. `gpt-5.5` is the newest Codex model and the _only_ one that
+  supports `xhigh` (others cap at `high`). Cost note: validation fans out one warm sandbox **per chunk** at xhigh —
+  chosen knowingly for max second-opinion rigor.
+- **Hardcoded** as a ReviewHog constant (one model for everyone, changed in code) — NOT per-user-configurable.
+  Per-user validator _selection_ already exists; a per-validator _model_ field is explicitly deferred (overengineering
+  for now).
+
+**How the sandbox picks a model (findings — the mechanism is fully in place and used in prod).**
+
+- The in-sandbox agent is `@posthog/agent` (`products/tasks/scripts/runAgent.mjs`; installed in
+  `products/tasks/backend/sandbox/images/Dockerfile.sandbox-base`). It reads three env vars set by
+  `build_agent_runtime_env_prefix` (`products/tasks/backend/logic/services/sandbox.py:132`):
+  **`POSTHOG_CODE_PROVIDER` / `POSTHOG_CODE_MODEL` / `POSTHOG_CODE_REASONING_EFFORT`**.
+- These flow from `TaskRun.state` → `TaskProcessingContext.{provider,model,reasoning_effort}`
+  (`…/activities/get_task_processing_context.py:104`) → `sandbox.start_agent_server(provider=…, model=…,
+reasoning_effort=…)` (`…/activities/start_agent_server.py:230`).
+- The registry — `products/tasks/backend/temporal/process_task/utils.py`: `RuntimeAdapter` = `claude | codex`;
+  `LLMProvider` = `anthropic | openai`; `RUNTIME_PROVIDER_BY_ADAPTER` maps **`codex → openai`**;
+  `get_provider_for_runtime_adapter()` derives provider from adapter; `get_reasoning_effort_error()` validates the
+  (adapter, model, effort) combo. **`CODEX_XHIGH_REASONING_MODELS = frozenset({"gpt-5.5"})`** (utils.py:129) —
+  `gpt-5.5` is the only Codex model allowing `xhigh`; `gpt-5.4` / `gpt-5.3-codex` cap at `high`. These enums + helpers
+  are exposed framework-free via the Tasks facade **`products/tasks/backend/facade/run_config.py`** — import from
+  there, never the internal module.
+- Codex is genuinely functional in the sandbox, not just plumbed: `install-skills.sh` installs skills into a **Codex
+  discovery dir** (`~/.agents/skills/`), the codex runtime is bundled in `@posthog/agent`, and the cloud-API task path
+  - metrics already exercise it.
+
+**The gap (why this isn't a one-liner).** Both ReviewHog executor helpers build
+`CustomPromptSandboxContext(team_id, user_id, repository)` with **no model** (`executor.py:72` and `:94`), so every
+stage inherits the Claude default. `CustomPromptSandboxContext` carries only **`model: str | None`**
+(`custom_prompt_internals.py:94`) — NOT `runtime_adapter` / `reasoning_effort` — and `Task._build_task` writes only
+`extra_state["model"]` (`models.py:446`). The full `runtime_adapter` + `provider` + `reasoning_effort` plumbing exists
+**only on the cloud-API task path** (`facade/api.py` `create_task_run`), not on the multi-turn
+`CustomPromptSandboxContext` path ReviewHog/Signals use. **Setting `model="gpt-5.5"` alone is unsafe** — the agent
+server's default adapter is Claude and provider inference isn't guaranteed — so `runtime_adapter=codex` must be set
+explicitly, which means extending the shared multi-turn path.
+
+**Step A — extend the shared Tasks multi-turn path (`products/tasks`; the only edit outside review_hog).** Symmetric
+completion of the existing `model` plumbing; all params default `None`, so every existing caller (Signals,
+repo-selection, all other ReviewHog stages) is unchanged:
+
+1. `CustomPromptSandboxContext` (`logic/services/custom_prompt_internals.py:85`): add `runtime_adapter: str | None =
+None` and `reasoning_effort: str | None = None` (mirror the `model` field). Provider is derived downstream, not
+   stored here.
+2. `create_task_and_trigger` (same file, `:114`): forward `runtime_adapter=context.runtime_adapter,
+reasoning_effort=context.reasoning_effort` into `Task.create_and_run`.
+3. `Task.create_and_run` (`models.py:522`) + `Task.create_without_run` (`models.py:478`): add the two params, thread
+   to `_build_task`.
+4. `Task._build_task` (`models.py:322`): after the `extra_state["model"] = model` block (`:445`), write
+   `runtime_adapter`, the **derived `provider`** (`get_provider_for_runtime_adapter`), and `reasoning_effort` into
+   `extra_state`; **raise `ValueError`** if `get_reasoning_effort_error(...)` returns a message (internal path raises;
+   the cloud path returns a structured error). Reuse the helpers from the facade `run_config` (or inline-import with
+   `# noqa: PLC0415` if a top-level import drags temporalio onto the models path — `api.py` already inline-imports
+   them for exactly this reason).
+
+**Step B — ReviewHog (`products/review_hog`).**
+
+5. `reviewer/sandbox/executor.py`: `start_sandbox_session` (`:76`) gains optional `runtime_adapter` / `model` /
+   `reasoning_effort` (default `None`) → into its `CustomPromptSandboxContext` (`:94`). **Only `start_sandbox_session`
+   needs it** — validation uses the warm session, so the model is pinned once at session start and reused across every
+   per-issue turn (the agent server reads it once at startup; `continue_sandbox_session` reuses the live TaskRun and
+   needs no change). `run_sandbox_review` stays as-is (no single-turn stage moves to Codex; don't add unused params).
+6. `reviewer/constants.py`: add the hardcoded validator runtime, importing the enums from the facade —
+   `VALIDATION_RUNTIME_ADAPTER = RuntimeAdapter.CODEX`, `VALIDATION_MODEL = "gpt-5.5"`,
+   `VALIDATION_REASONING_EFFORT = ReasoningEffort.XHIGH` (from `products.tasks.backend.facade.run_config`).
+7. `temporal/activities.py`: in `validate_chunk_activity` (`:656`), pass the three constants to the
+   `start_sandbox_session(...)` call (`:687`). Every other `run_sandbox_review` / `start_sandbox_session` call is left
+   untouched — that's the Claude-investigates / Codex-validates invariant.
+
+**Tests (each guards a real silent regression; `/writing-tests` gate).**
+
+- **Tasks boundary** (parameterized): `_build_task` with `codex / gpt-5.5 / xhigh` writes `extra_state` with
+  `runtime_adapter`, `provider="openai"`, `model`, `reasoning_effort`; an unsupported combo (e.g. `gpt-5.5 / max`)
+  **raises**. _Catches:_ provider silently dropping from state → Codex misroutes to Claude unnoticed.
+- **ReviewHog executor split**: mock `MultiTurnSession.start` (the true sandbox boundary), capture the `context`;
+  assert `start_sandbox_session(runtime_adapter=codex, model=gpt-5.5, reasoning_effort=xhigh)` builds a context
+  carrying those three, while `run_sandbox_review(...)` builds one carrying none. _Catches:_ a refactor dropping the
+  validation model, or accidentally applying Codex everywhere.
+- Not writing: "does gpt-5.5 work" (SDK/gateway), snapshots, framework-behavior tests.
+
+**Risks (all surface at e2e; none block the plan).**
+
+1. **Schema adherence** — a different model family reliably emitting the exact `IssueValidation` JSON end-turn is the
+   biggest unknown. Safety net: the runner's `extract_json_from_text` + `fallback_from_text` salvage. _The #1 thing
+   e2e must prove._
+2. **Codex skill-get over MCP** — the validator pulls `review-hog-validation-criteria` via `skill-get`; the sandbox
+   installs the Codex skills dir + MCP serves live, so it should work, but confirm under the codex adapter.
+3. **End-turn detection** — `_check_logs` keys on the agent-server ACP protocol (`stopReason == "end_turn"`,
+   `agent_message`), which `@posthog/agent` normalizes across adapters; very likely fine, in scope for e2e.
+
+**e2e checklist (the real proof).** Run `run_review` on the frozen sample PR (#63625; `SANDBOX_PROVIDER=modal`, ngrok
+up) and confirm from the agent log / Temporal history: the **validation** sandboxes launched under `provider=openai /
+model=gpt-5.5 / reasoning_effort=xhigh`, each emitted a **parseable `IssueValidation`**, and pulled the validator
+skill via MCP under the Codex adapter — while chunk / review / dedup stayed Claude.
+
+**Scope footprint.** ~4 small edits in `products/tasks` (Step A, shared infra — only _adds_ an optional capability) +
+3 in `products/review_hog` (executor, constants, one activity wiring) + 2 tests + this doc. **No DB migration.**
+
 ---
 
 ## Pipeline
