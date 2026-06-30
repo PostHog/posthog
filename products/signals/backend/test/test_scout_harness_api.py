@@ -1078,6 +1078,31 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": False}, format="json")
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    def test_destroy_removes_config(self) -> None:
+        # The orphan-cleanup path: a config whose skill is gone can't be made to disappear via
+        # partial_update (only inert), so destroy must actually remove the row.
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        assert not SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
+    def test_destroy_unknown_id_returns_404(self) -> None:
+        response = self.client.delete(self._detail_url("00000000-0000-0000-0000-000000000000"))
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_destroy_other_teams_config_returns_404_and_preserves_row(self) -> None:
+        # Tenant isolation: deleting must be scoped by team — another team's config is neither
+        # removed nor acknowledged.
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        config = SignalScoutConfig.all_teams.create(team=other_team, skill_name="signals-scout-foo")
+
+        response = self.client.delete(self._detail_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert SignalScoutConfig.all_teams.filter(id=config.id).exists()
+
     def _sync_url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/configs/sync/"
 
