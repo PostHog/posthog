@@ -2195,9 +2195,11 @@ async def test_in_place_repartition_to_finer_datetime_format(team, postgres_conf
     assert schema.repartition_pending is None, "the activity should have consumed the pending repartition"
 
     job = await sync_to_async(
-        lambda: ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
-        .order_by("-created_at")
-        .first()
+        lambda: (
+            ExternalDataJob.objects.filter(team_id=team.pk, pipeline_id=inputs.external_data_source_id)
+            .order_by("-created_at")
+            .first()
+        )
     )()
     folder_path = await sync_to_async(job.folder_path)()
     s3_objects = await minio_client.list_objects_v2(Bucket=BUCKET_NAME, Prefix=f"{folder_path}/test_repartition/")

@@ -267,8 +267,27 @@ async def repartition_table_in_place(
     temp_uri = f"{live_uri}{TEMP_URI_SUFFIX}"
     storage_options = helper.get_storage_options()
 
+    # Resume path: a prior attempt already built + validated temp and recorded the swap marker.
+    swap = schema.repartition_swap
+    resuming = bool(swap and swap.get("state") == "ready")
+
     old_delta = await helper.get_delta_table()
     if old_delta is None:
+        # Live table missing. If a swap was already in progress (temp built + marker recorded), an
+        # interrupted prior run may have deleted live *after* recording the marker but before copying
+        # temp back. temp is the durable source of truth in that window, so resume the swap from it
+        # rather than skipping — a plain skip would strand the markers forever (every later run hits
+        # this same early return) and let the next sync bootstrap an empty table over the lost data.
+        if resuming:
+            return await _resume_swap_with_missing_live(
+                helper=helper,
+                schema=schema,
+                target=target,
+                temp_uri=temp_uri,
+                live_uri=live_uri,
+                storage_options=storage_options,
+                logger=logger,
+            )
         await logger.ainfo("repartition: no delta table, skipping", schema_id=str(schema.id))
         return {"outcome": "skipped", "reason": "no_delta_table"}
 
@@ -283,10 +302,6 @@ async def repartition_table_in_place(
         "partition_count": schema.partition_count,
         "partition_size": schema.partition_size,
     }
-
-    # Resume path: a prior attempt already built + validated temp and recorded the swap marker.
-    swap = schema.repartition_swap
-    resuming = bool(swap and swap.get("state") == "ready")
 
     if resuming:
         resolved = target
@@ -370,6 +385,59 @@ async def repartition_table_in_place(
         "partition_size_before": before["partition_size"],
         "partition_size_after": resolved.partition_size,
     }
+
+
+async def _resume_swap_with_missing_live(
+    *,
+    helper: DeltaTableHelper,
+    schema: ExternalDataSchema,
+    target: RepartitionTarget,
+    temp_uri: str,
+    live_uri: str,
+    storage_options: dict[str, str],
+    logger: FilteringBoundLogger,
+) -> dict[str, Any]:
+    """Finish a swap whose live table was already deleted by an interrupted prior run.
+
+    Entered only when the swap marker is set but live is gone — i.e. a previous run crashed inside
+    `_swap_temp_into_live` after deleting live and before the copy completed. temp is the durable
+    source of truth, so its own row count is the swap's expectation. If temp is *also* gone there is
+    nothing left to recover (both folders lost): clear the markers and skip so the next sync rebuilds.
+    """
+    async with aget_s3_client() as s3:
+        temp_present = await s3._exists(temp_uri)
+    if not temp_present:
+        await asyncio.to_thread(schema.clear_repartition_swap)
+        await asyncio.to_thread(schema.clear_repartition_pending)
+        await logger.ainfo("repartition: live and temp both missing, skipping", schema_id=str(schema.id))
+        return {"outcome": "skipped", "reason": "no_delta_table"}
+
+    await logger.ainfo("repartition: live missing mid-swap, resuming from temp", schema_id=str(schema.id))
+    temp_delta = await asyncio.to_thread(deltalake.DeltaTable, table_uri=temp_uri, storage_options=storage_options)
+    expected_rows = await asyncio.to_thread(_table_row_count, temp_delta)
+
+    await _swap_temp_into_live(
+        temp_uri=temp_uri,
+        live_uri=live_uri,
+        storage_options=storage_options,
+        expected_rows=expected_rows,
+    )
+
+    await asyncio.to_thread(
+        schema.set_partitioning_enabled,
+        target.partition_keys,
+        target.partition_count,
+        target.partition_size,
+        target.partition_mode,
+        target.partition_format,
+    )
+    await asyncio.to_thread(schema.clear_repartition_swap)
+    await asyncio.to_thread(schema.clear_repartition_pending)
+    await asyncio.to_thread(schema.stamp_last_repartition_at)
+    helper.get_delta_table.cache_clear()
+
+    await logger.ainfo("repartition: recovered from interrupted swap", schema_id=str(schema.id), rows=expected_rows)
+    return {"outcome": "completed", "row_count": expected_rows, "recovered": True}
 
 
 async def _swap_temp_into_live(
