@@ -148,7 +148,7 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
         elif provider == LLMProvider.ANTHROPIC:
             if not value.startswith("sk-ant-"):
                 raise serializers.ValidationError("Invalid Anthropic API key format. Key should start with 'sk-ant-'.")
-        # Azure, Gemini, Together AI, OpenRouter, and Fireworks keys have no standard
+        # Azure, Gemini, Together AI, OpenRouter, Fireworks, and MiniMax keys have no standard
         # prefix, so no format validation is enforced here.
 
         return value

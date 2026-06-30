@@ -272,7 +272,7 @@ function serializeState(invocation: CyclotronJobInvocation): Buffer {
     return Buffer.from(JSON.stringify(blob))
 }
 
-function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
+export function invocationToV2JobInit(invocation: CyclotronJobInvocation): CyclotronV2JobInit {
     const state = serializeState(invocation)
     cdpJobSizeKb.labels('postgres-v2').observe(state.length / 1024)
     cdpJobSizeCompressedKb.labels('postgres-v2').observe(state.length / 1024)

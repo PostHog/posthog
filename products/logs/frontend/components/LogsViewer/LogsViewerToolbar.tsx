@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconExpand45, IconKeyboard } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonSegmentedButton, Tooltip } from '@posthog/lemon-ui'
 
+import { TimezoneSelect } from 'lib/components/TimezoneSelect'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
@@ -11,7 +12,6 @@ import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { LogsExportMenu } from './LogsExportMenu'
 import { logsViewerLogic } from './logsViewerLogic'
-import { TimezoneSelect } from './TimezoneSelect'
 
 export interface LogsViewerToolbarProps {
     totalLogsCount?: number

@@ -240,6 +240,7 @@ describe('replayScannerLogic', () => {
             observationTriggeredByFilter: [] as ObservationTriggeredByValue[],
             observationVerdictFilter: [] as ObservationVerdictValue[],
             observationTagFilter: [] as string[],
+            observationSubjectFilter: '',
             observationsSort: null,
             scanner: null,
         }
@@ -302,6 +303,19 @@ describe('replayScannerLogic', () => {
                 observationsSort: { columnKey: 'version', order: 1 },
             })
             expect(params.order_by).toBe('scanner_version')
+        })
+
+        it('passes recording_subject trimmed when set', () => {
+            const params = buildObservationListParams({ ...emptyValues, observationSubjectFilter: '  acme  ' })
+            expect(params.recording_subject).toBe('acme')
+        })
+
+        it('maps recording_subject column to recording_subject_email', () => {
+            const params = buildObservationListParams({
+                ...emptyValues,
+                observationsSort: { columnKey: 'recording_subject', order: 1 },
+            })
+            expect(params.order_by).toBe('recording_subject_email')
         })
     })
 
@@ -459,6 +473,30 @@ describe('replayScannerLogic', () => {
             )
             expect(logic.values.triggeringOnDemandObservation).toBe(false)
             expect(observeSpy).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('background polling', () => {
+        it('background reloads stay silent so the table stays interactable, foreground loads do not', () => {
+            const persisted = replayScannerLogic({ id: 'abc-123' })
+            persisted.mount()
+            try {
+                // The initial foreground load (also manual refresh, filter/sort/pagination) shows the overlay.
+                expect(persisted.values.observationsLoading).toBe(true)
+
+                persisted.actions.loadObservationsSuccess([], 0)
+                expect(persisted.values.observationsLoading).toBe(false)
+
+                // The 3s in-flight poll reloads in the background — no overlay, so rows update in place.
+                persisted.actions.loadObservations(true)
+                expect(persisted.values.observationsLoading).toBe(false)
+
+                // A foreground reload still shows it — proving the silent case isn't just a no-op action.
+                persisted.actions.loadObservations()
+                expect(persisted.values.observationsLoading).toBe(true)
+            } finally {
+                persisted.unmount()
+            }
         })
     })
 })

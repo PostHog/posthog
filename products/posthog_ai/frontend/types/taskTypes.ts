@@ -4,6 +4,8 @@ export interface RepositoryConfig {
     integrationId?: number
     /** `owner/repo` (GitHub `full_name`), same as data warehouse / Cyclotron GitHub pickers */
     repository?: string
+    /** Git branch the run checks out; defaults to the repo's default branch when unset. */
+    branch?: string
 }
 
 export enum OriginProduct {
@@ -15,6 +17,8 @@ export enum OriginProduct {
     // Tasks kicked off from an Inbox SignalReport (Discuss / Create PR). Backend already
     // accepts `signal_report` + `signal_report_task_relationship` for this origin.
     SIGNAL_REPORT = 'signal_report',
+    // Runs created by a Signals scout (automated agent) — no interactive context budget to surface.
+    SIGNALS_SCOUT = 'signals_scout',
 }
 
 export enum TaskRunStatus {

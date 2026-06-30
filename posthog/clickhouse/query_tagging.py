@@ -269,6 +269,8 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_STATS_QUERY
             | NodeKind.MCP_TOOL_DAILY_STATS_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
+            | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
+            | NodeKind.MCP_TOOL_NEIGHBORS_QUERY
         ):
             return {"product": Product.MCP_ANALYTICS}
         case (
@@ -432,6 +434,10 @@ class QueryTags(BaseModel):
     experiment_metric_events_path: Optional[str] = None  # "direct_scan", "precomputed", or "not_applicable"
     experiment_query_surface: Optional[str] = None  # "metric", "exposures_timeseries", "actors", "precompute_build"
     experiment_precompute_table: Optional[str] = None  # on precompute_build rows: "exposures" or "metric_events"
+    # Why precompute was not used (set on the metric read). One of "override_direct", "team_disabled",
+    # "min_runtime", "data_warehouse"; None/absent when precompute was attempted (so a direct path then
+    # means the build failed or wasn't ready — derivable from the precompute_build sub-queries).
+    experiment_precompute_skip_reason: Optional[str] = None
     # Shared id linking a top-level query to its precompute-build sub-queries. Generated once per
     # top-level evaluation; sub-queries inherit it through the tag context. Lets the query-performance
     # UI group the (synchronous) build INSERTs under the read that triggered them.

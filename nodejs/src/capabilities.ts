@@ -25,6 +25,7 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
 export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
     cdpBatchHogFlow: true,
+    cdpCyclotronWorkerBatchResolve: true,
     cdpCyclotronWorkerHogFlow: true,
     cdpCyclotronWorkerEmail: true,
     cdpCyclotronV2Janitor: isDevEnv(),
@@ -178,6 +179,10 @@ export function getPluginServerCapabilities(
             return {
                 cdpBatchHogFlow: true,
             }
+        case PluginServerMode.cdp_cyclotron_worker_batch_resolve:
+            return {
+                cdpCyclotronWorkerBatchResolve: true,
+            }
         case PluginServerMode.cdp_data_warehouse_events:
             return {
                 cdpDataWarehouseEvents: true,
@@ -201,6 +206,8 @@ export function getPluginServerCapabilities(
             }
         case PluginServerMode.recordings_blob_ingestion_v2:
         case PluginServerMode.recordings_blob_ingestion_v2_overflow:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_mirror:
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_parquet_sink:
         case PluginServerMode.recording_api:
             throw new Error(`Mode ${mode} is handled by IngestionSessionReplayServer, not PluginServer`)
     }

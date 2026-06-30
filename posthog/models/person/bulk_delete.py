@@ -1,6 +1,7 @@
 import uuid as uuid_lib
 import asyncio
 import builtins
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import cast
@@ -8,9 +9,9 @@ from typing import cast
 from django.conf import settings
 
 import structlog
-from loginas.utils import is_impersonated_session
 from temporalio import common
 
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.person import Person
@@ -81,7 +82,7 @@ def delete_persons_profile(
                 organization_id=organization_id,
                 team_id=team_id,
                 user=cast(User, actor),
-                was_impersonated=is_impersonated_session(request),
+                was_impersonated=is_impersonated(request),
                 item_id=person.pk,
                 scope="Person",
                 activity="deleted",
@@ -127,30 +128,56 @@ def queue_person_recording_deletion(
     _start_recording_workflows(team_id, persons, actor, reason)
 
 
+# Batch persons per workflow (not one each) to bound concurrent ClickHouse load queries; cap distinct IDs per chunk to stay under Temporal's payload limit.
+_RECORDING_DELETION_PERSONS_PER_WORKFLOW = 100
+_MAX_CONCURRENT_WORKFLOW_STARTS = 20
+_MAX_DISTINCT_IDS_PER_WORKFLOW = 2000
+
+
+def _chunk_persons(persons: builtins.list[Person]) -> Iterator[builtins.list[Person]]:
+    """Group persons into workflow batches, bounded by both person and distinct-ID count."""
+    batch: builtins.list[Person] = []
+    batch_distinct_ids = 0
+    for person in persons:
+        person_distinct_ids = len(person.distinct_ids)
+        over_caps = len(batch) >= _RECORDING_DELETION_PERSONS_PER_WORKFLOW or (
+            batch_distinct_ids + person_distinct_ids > _MAX_DISTINCT_IDS_PER_WORKFLOW
+        )
+        if batch and over_caps:
+            yield batch
+            batch = []
+            batch_distinct_ids = 0
+        batch.append(person)
+        batch_distinct_ids += person_distinct_ids
+    if batch:
+        yield batch
+
+
 def _start_recording_workflows(
     team_id: int,
     persons: builtins.list[Person],
     actor: User | None,
     reason: str,
 ) -> None:
-    """Kick off one ``delete-recordings-with-person`` workflow per person.
+    """Kick off ``delete-recordings-with-person`` workflows, batching persons per run.
 
     The Temporal connection is established here (rather than in the caller) so
     that tests patching this seam don't need to mock ``sync_connect`` separately.
     """
     temporal = sync_connect()
+    config = DeletionConfig(deleted_by=getattr(actor, "email", None) or "", reason=reason)
 
     async def start_all_workflows():
-        tasks = []
-        for person in persons:
-            workflow_input = RecordingsWithPersonInput(
-                distinct_ids=person.distinct_ids,
-                team_id=team_id,
-                config=DeletionConfig(deleted_by=getattr(actor, "email", None), reason=reason),
-            )
-            workflow_id = f"delete-recordings-{team_id}-person-{person.uuid}-{uuid_lib.uuid4()}"
-            tasks.append(
-                temporal.start_workflow(
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WORKFLOW_STARTS)
+
+        async def start_batch(batch: builtins.list[Person]) -> None:
+            distinct_ids = sorted({distinct_id for person in batch for distinct_id in person.distinct_ids})
+            if not distinct_ids:
+                return
+            workflow_input = RecordingsWithPersonInput(distinct_ids=distinct_ids, team_id=team_id, config=config)
+            workflow_id = f"delete-recordings-{team_id}-persons-{uuid_lib.uuid4()}"
+            async with semaphore:
+                await temporal.start_workflow(
                     "delete-recordings-with-person",
                     workflow_input,
                     id=workflow_id,
@@ -160,7 +187,7 @@ def _start_recording_workflows(
                         initial_interval=timedelta(minutes=1),
                     ),
                 )
-            )
-        await asyncio.gather(*tasks)
+
+        await asyncio.gather(*(start_batch(batch) for batch in _chunk_persons(persons)))
 
     asyncio.run(start_all_workflows())

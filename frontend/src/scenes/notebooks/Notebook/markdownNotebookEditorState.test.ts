@@ -248,7 +248,7 @@ Thinking...`)
         expect(logic.values.notebook?.content).toEqual(latestNotebook.content)
     })
 
-    it('does not surface legacy left-column state for markdown notebooks', () => {
+    it('only surfaces the left column for markdown notebooks when history is open', () => {
         logic.unmount()
         logic = notebookLogic({ shortId: SHORT_ID, mode: 'notebook' })
         logic.mount()
@@ -275,5 +275,9 @@ Thinking...`)
         expect(logic.values.editingNodeLogics).toEqual([nodeLogic])
         expect(logic.values.editingNodeLogicsForLeft).toEqual([])
         expect(logic.values.isShowingLeftColumn).toBe(false)
+
+        logic.actions.setShowHistory(true)
+
+        expect(logic.values.isShowingLeftColumn).toBe(true)
     })
 })
