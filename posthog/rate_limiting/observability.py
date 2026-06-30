@@ -56,7 +56,7 @@ def default_normalize_endpoint(url: str | None) -> str:
     path = urlparse(url).path.strip("/")
     if not path:
         return "/"
-    return "/".join(":id" if seg.isdigit() else seg for seg in path.split("/"))
+    return "/" + "/".join("{id}" if seg.isdigit() else seg for seg in path.split("/"))
 
 
 class EgressObservability:
@@ -89,10 +89,11 @@ class EgressObservability:
         method: str | None = None,
         endpoint: str | None = None,
     ) -> None:
-        method_label = (method or getattr(response.request, "method", None) or "GET").upper()
-        endpoint_label = (
-            endpoint if endpoint is not None else self._normalize_endpoint(getattr(response.request, "url", None))
-        )
+        # Read request via getattr on the response: some responses (and test mocks) don't carry a
+        # .request, and accessing it directly would raise rather than fall back to the defaults.
+        request = getattr(response, "request", None)
+        method_label = (method or getattr(request, "method", None) or "GET").upper()
+        endpoint_label = endpoint if endpoint is not None else self._normalize_endpoint(getattr(request, "url", None))
         self._metrics.request_counter.labels(
             scope or "", method_label, endpoint_label, str(response.status_code), source
         ).inc()

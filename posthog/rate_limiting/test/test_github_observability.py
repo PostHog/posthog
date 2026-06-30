@@ -5,7 +5,11 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
-from posthog.rate_limiting.github_observability import _normalize_github_endpoint, record_github_api_response
+from posthog.rate_limiting.github_observability import (
+    _normalize_github_endpoint,
+    record_github_api_exception,
+    record_github_api_response,
+)
 from posthog.rate_limiting.observability import (
     default_normalize_endpoint,
     record_outbound_api_response,
@@ -36,13 +40,13 @@ def _response(
 class TestGithubObservability(SimpleTestCase):
     @parameterized.expand(
         [
-            ("https://api.github.com/repos/posthog/posthog/commits", "repos/:owner/:repo/commits"),
+            ("https://api.github.com/repos/posthog/posthog/commits", "/repos/{owner}/{repo}/commits"),
             (
                 "https://api.github.com/repos/o/r/actions/runs/42/jobs",
-                "repos/:owner/:repo/actions/runs/:id/jobs",
+                "/repos/{owner}/{repo}/actions/runs/{id}/jobs",
             ),
-            ("https://api.github.com/repositories/12345", "repositories/:id"),
-            ("https://api.github.com/search/code?q=x", "search/code"),
+            ("https://api.github.com/repositories/12345", "/repositories/{id}"),
+            ("https://api.github.com/search/code?q=x", "/search/code"),
             (None, "unknown"),
         ]
     )
@@ -51,7 +55,7 @@ class TestGithubObservability(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("https://example.com/v1/widgets/42", "v1/widgets/:id"),
+            ("https://example.com/v1/widgets/42", "/v1/widgets/{id}"),
             ("https://example.com/", "/"),
             (None, "unknown"),
         ]
@@ -65,7 +69,7 @@ class TestGithubObservability(SimpleTestCase):
             {
                 "integration_id": "42",
                 "method": "GET",
-                "endpoint": "repos/:owner/:repo/commits",
+                "endpoint": "/repos/{owner}/{repo}/commits",
                 "status_code": "200",
                 "source": "unit-known",
             },
@@ -81,7 +85,7 @@ class TestGithubObservability(SimpleTestCase):
             {
                 "integration_id": "42",
                 "method": "GET",
-                "endpoint": "repos/:owner/:repo/commits",
+                "endpoint": "/repos/{owner}/{repo}/commits",
                 "status_code": "200",
                 "source": "unit-known",
             },
@@ -108,7 +112,7 @@ class TestGithubObservability(SimpleTestCase):
                 {
                     "integration_id": "",
                     "method": "GET",
-                    "endpoint": "repos/:owner/:repo/commits",
+                    "endpoint": "/repos/{owner}/{repo}/commits",
                     "status_code": "200",
                     "source": "unit-blind",
                 },
@@ -129,7 +133,7 @@ class TestGithubObservability(SimpleTestCase):
                 {
                     "integration_id": "",
                     "method": "GET",
-                    "endpoint": "search/code",
+                    "endpoint": "/search/code",
                     "status_code": "403",
                     "source": "unit-generic",
                 },
@@ -140,3 +144,19 @@ class TestGithubObservability(SimpleTestCase):
     def test_unregistered_domain_raises(self) -> None:
         with self.assertRaises(ValueError):
             resolve_egress_observability("definitely-not-registered")
+
+    def test_exception_record_uppercases_method(self) -> None:
+        record_github_api_exception(source="unit-exc", method="get", endpoint="/foo")
+        self.assertEqual(
+            REGISTRY.get_sample_value(
+                _COUNTER,
+                {
+                    "integration_id": "",
+                    "method": "GET",
+                    "endpoint": "/foo",
+                    "status_code": "exception",
+                    "source": "unit-exc",
+                },
+            ),
+            1,
+        )

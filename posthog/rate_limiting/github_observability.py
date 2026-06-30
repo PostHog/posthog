@@ -74,7 +74,11 @@ def _parse_github_rate_limit(response: requests.Response) -> RateLimitSnapshot:
 def _normalize_github_endpoint(url: str | None) -> str:
     """Collapse a GitHub URL to a low-cardinality endpoint label. Owner/repo and numeric ids are
     templated out — e.g. ``.../repos/posthog/posthog/actions/runs/42/jobs`` becomes
-    ``repos/:owner/:repo/actions/runs/:id/jobs``."""
+    ``/repos/{owner}/{repo}/actions/runs/{id}/jobs``.
+
+    The leading-slash, ``{placeholder}`` style matches the curated endpoint strings the installation
+    integration passes (e.g. ``/repos/{owner}/{repo}`` in github_integration_base), so the ``endpoint``
+    label reads consistently whether it's hand-written or derived from a URL."""
     if not url:
         return "unknown"
     path = urlparse(url).path.strip("/")
@@ -87,12 +91,12 @@ def _normalize_github_endpoint(url: str | None) -> str:
         seg = parts[i]
         # "/repos/{owner}/{repo}/..." — the two segments after "repos" are always owner+repo.
         if seg == "repos" and i + 2 < len(parts):
-            out.extend(["repos", ":owner", ":repo"])
+            out.extend(["repos", "{owner}", "{repo}"])
             i += 3
             continue
-        out.append(":id" if seg.isdigit() else seg)
+        out.append("{id}" if seg.isdigit() else seg)
         i += 1
-    return "/".join(out)
+    return "/" + "/".join(out)
 
 
 github_egress = EgressObservability(
