@@ -519,6 +519,21 @@ const signalsScoutConfigCreate = (): ToolBase<typeof SignalsScoutConfigCreateSch
     },
 })
 
+const SignalsScoutConfigDeleteSchema = SignalsScoutConfigDestroyParams.omit({ project_id: true })
+
+const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSchema, unknown> => ({
+    name: 'signals-scout-config-delete',
+    schema: SignalsScoutConfigDeleteSchema,
+    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigDeleteSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
 const SignalsScoutConfigListSchema = z.object({})
 
 const signalsScoutConfigList = (): ToolBase<
@@ -585,21 +600,6 @@ const signalsScoutConfigUpdate = (): ToolBase<
             body,
         })
         return await withPostHogUrl(context, result, `/inbox/${result.id}`)
-    },
-})
-
-const SignalsScoutConfigDeleteSchema = SignalsScoutConfigDestroyParams.omit({ project_id: true })
-
-const signalsScoutConfigDelete = (): ToolBase<typeof SignalsScoutConfigDeleteSchema, unknown> => ({
-    name: 'signals-scout-config-delete',
-    schema: SignalsScoutConfigDeleteSchema,
-    handler: async (context: Context, params: z.infer<typeof SignalsScoutConfigDeleteSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/scout/configs/${encodeURIComponent(String(params.id))}/`,
-        })
-        return result
     },
 })
 
@@ -974,10 +974,10 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'inbox-source-configs-retrieve': inboxSourceConfigsRetrieve,
     'inbox-source-configs-update': inboxSourceConfigsUpdate,
     'signals-scout-config-create': signalsScoutConfigCreate,
+    'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,
     'signals-scout-config-sync': signalsScoutConfigSync,
     'signals-scout-config-update': signalsScoutConfigUpdate,
-    'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-edit-report': signalsScoutEditReport,
     'signals-scout-emit-report': signalsScoutEmitReport,
     'signals-scout-emit-signal': signalsScoutEmitSignal,
