@@ -24,7 +24,6 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _model_specific_embeddings_table_name,
     _query_closest_fingerprints,
     _report_closest_fingerprint_metrics,
-    _select_model_name,
     _target_embedding_from_inputs,
     _target_embedding_query,
     merge_similar_fingerprints_activity,
@@ -33,6 +32,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.types
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
     SimilarFingerprintDistance,
+    select_model_name,
 )
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.workflow import (
     ErrorTrackingFingerprintEmbeddingResultWorkflow,
@@ -93,7 +93,7 @@ async def _run_workflow_with_mock_activity(
 
 class TestFingerprintEmbeddingResultActivity:
     def test_select_model_prefers_large_embedding_model(self) -> None:
-        assert _select_model_name(["text-embedding-3-small-1536", "text-embedding-3-large-3072"]) == (
+        assert select_model_name(["text-embedding-3-small-1536", "text-embedding-3-large-3072"]) == (
             "text-embedding-3-large-3072"
         )
 

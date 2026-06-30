@@ -114,12 +114,8 @@ def _capture_activity_exception(
     capture_exception(error, additional_properties=properties)
 
 
-def _select_model_name(model_names: list[str]) -> str:
-    return select_model_name(model_names)
-
-
 def _input_model_name(inputs: FingerprintEmbeddingResultInputs) -> str:
-    return inputs.model_name or _select_model_name(inputs.model_names)
+    return inputs.model_name or select_model_name(inputs.model_names)
 
 
 def _model_specific_embeddings_table_name(model_name: str) -> str:

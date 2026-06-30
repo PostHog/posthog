@@ -124,9 +124,10 @@ def fingerprint_embedding_result_inputs_from_message(value: bytes) -> Fingerprin
     fingerprint = _string_value(data, "document_id")
     rendering = _string_value(data, "rendering")
     timestamp = _string_value(data, "timestamp")
-    model_names = _success_model_names(data.get("results"))
+    results = data.get("results")
+    model_names = _success_model_names(results)
     model_name = select_model_name(model_names)
-    embedding = _success_embedding(data.get("results"), model_name)
+    embedding = _success_embedding(results, model_name)
 
     invalid_fields: list[str] = []
     if not isinstance(team_id, int):
