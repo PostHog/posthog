@@ -262,4 +262,22 @@ describe('alertsUnsupportedReason', () => {
         included.forEach((type) => expect(reason).toContain(type))
         excluded.forEach((type) => expect(reason).not.toContain(type))
     })
+
+    // A time-to-convert/flow funnel is itself a funnel, so the generic "funnel insights are supported"
+    // copy reads as a contradiction; the reason should name the real cause instead.
+    it('gives a funnel-viz-specific reason for time-to-convert / flow funnels', () => {
+        const funnelWithViz = (funnelVizType: string): Record<string, any> => ({
+            ...FUNNEL_QUERY,
+            source: { ...FUNNEL_QUERY.source, funnelsFilter: { funnelVizType } },
+        })
+        const options = { funnelAlertsEnabled: true }
+        for (const viz of ['time_to_convert', 'flow']) {
+            const reason = alertsUnsupportedReason(options, funnelWithViz(viz))
+            expect(reason).toContain('conversion rate')
+            expect(reason).toContain('steps or trends')
+            expect(reason).not.toContain('only available for')
+        }
+        // No query → backward-compatible generic copy.
+        expect(alertsUnsupportedReason(options)).toContain('only available for')
+    })
 })
