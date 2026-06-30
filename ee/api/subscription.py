@@ -695,6 +695,9 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         was_disabled = instance.enabled is False
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
+        # Track payload PRESENCE, not truthiness: an empty list (clearing all exports) is delivery-relevant
+        # too, so `bool(ids)` would miss it. Pop loses presence, so capture it first.
+        export_insights_in_payload = "dashboard_export_insights" in validated_data
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
         analytics_props = get_request_analytics_properties(request)
 
@@ -704,9 +707,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # `.set()` can mutate the relation, so a schedule/meta-only edit pays no M2M query.
         old_delivery_values = {field: getattr(instance, field) for field in self.DELIVERY_RELEVANT_FIELDS}
         old_export_insight_ids = (
-            set(instance.dashboard_export_insights.values_list("id", flat=True))
-            if dashboard_export_insight_ids
-            else set()
+            set(instance.dashboard_export_insights.values_list("id", flat=True)) if export_insights_in_payload else None
         )
 
         if is_delete:
@@ -734,7 +735,8 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             instance = super().update(instance, validated_data)
         _invalidate_summary_quota_cache(instance.team.organization_id)
 
-        if dashboard_export_insight_ids:
+        # Apply the M2M whenever the field is in the payload — including an empty list, which clears it.
+        if export_insights_in_payload:
             instance.dashboard_export_insights.set(dashboard_export_insight_ids)
 
         is_re_enabling = was_disabled and instance.enabled
@@ -760,7 +762,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         # the model's save() but must not push a fresh delivery.
         delivery_target_changed = any(
             getattr(instance, field) != old_value for field, old_value in old_delivery_values.items()
-        ) or (bool(dashboard_export_insight_ids) and set(dashboard_export_insight_ids) != old_export_insight_ids)
+        ) or (old_export_insight_ids is not None and set(dashboard_export_insight_ids) != old_export_insight_ids)
         if not is_re_enabling and not delivery_target_changed:
             return instance
 

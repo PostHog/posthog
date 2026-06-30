@@ -1674,9 +1674,11 @@ class TestSubscriptionTemporal(APILicensedTest):
 
     @parameterized.expand(
         [
-            # Locks the workflow-trigger matrix across all four (initial, final) enabled states.
-            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, True),
-            ("redundant_enable", True, {"enabled": True}, True),
+            # The confirmation-delivery workflow fires only on a re-enable or a delivery-relevant change —
+            # not on a meta-only edit (title) or a redundant enable that changes nothing. (This narrows the
+            # previous "every edit to an enabled sub fires" matrix; see DELIVERY_RELEVANT_FIELDS.)
+            ("enabled_to_enabled_field_edit", True, {"title": "renamed"}, False),
+            ("redundant_enable", True, {"enabled": True}, False),
             ("disable_enabled", True, {"enabled": False}, False),
             ("redundant_disable", False, {"enabled": False}, False),
             ("enable_disabled", False, {"enabled": True}, True),
