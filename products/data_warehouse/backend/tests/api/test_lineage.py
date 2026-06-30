@@ -69,7 +69,8 @@ class TestLineage(APIBaseTest):
             for q in context.captured_queries
             if "datawarehousesavedquery" in q["sql"].lower() or "datawarehousetable" in q["sql"].lower()
         ]
-        self.assertLessEqual(len(view_queries), 7, f"Expected 7 queries, got {len(view_queries)}")
+        # One extra over the BFS lookups for the batched latest-job query (joins the saved query table)
+        self.assertLessEqual(len(view_queries), 8, f"Expected at most 8 queries, got {len(view_queries)}")
 
     def test_get_upstream_with_datawarehouse_table(self):
         DataWarehouseTable.objects.create(
